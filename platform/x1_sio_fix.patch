@@ -1,0 +1,11 @@
+--- a/src/X1_sio.cpp
++++ b/src/X1_sio.cpp
+@@ -45,7 +45,7 @@ static	Z80SIO	sio;
+ 	デイジーチェーン割込み
+ ***********************************************************************/
+
+-static const vector_offset[8] =
++static const BYTE vector_offset[8] =
+ {  /* lowerst */
+ 	0x02, /* CHB ST IRQ */
+ 	0x00, /* CHB TX IRQ */

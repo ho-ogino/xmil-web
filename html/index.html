@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X millennium Web — SHARP X1 エミュレータ</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: linear-gradient(135deg, #4a0e10 0%, #8F2124 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 40px 20px 60px;
+        }
+
+        .container { max-width: 860px; margin: 0 auto; }
+
+        /* ── Header ── */
+        header { text-align: center; padding: 48px 0 52px; }
+
+        .site-title {
+            font-size: 2.8em;
+            letter-spacing: 3px;
+            text-shadow: 2px 2px 8px rgba(0,0,0,0.6);
+        }
+        .site-subtitle {
+            font-size: 1.05em;
+            opacity: 0.72;
+            margin-top: 12px;
+            letter-spacing: 1px;
+        }
+        .based-on {
+            font-size: 0.68em;
+            opacity: 0.38;
+            margin-top: 10px;
+            letter-spacing: 0.5px;
+        }
+
+        /* ── 起動ボタン ── */
+        .launch-wrap { text-align: center; margin-bottom: 52px; }
+
+        .btn-launch {
+            display: inline-block;
+            background: #c0404a;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            font-size: 1.15em;
+            font-weight: bold;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            text-decoration: none;
+            padding: 18px 52px;
+            border-radius: 6px;
+            border: 2px solid #e06070;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            transition: all 0.15s;
+        }
+        .btn-launch:hover {
+            background: #d45060;
+            border-color: #ff8090;
+            box-shadow: 0 6px 28px rgba(0,0,0,0.5);
+            transform: translateY(-2px);
+        }
+        .launch-note {
+            font-size: 0.7em;
+            opacity: 0.45;
+            margin-top: 14px;
+            letter-spacing: 0.5px;
+        }
+
+        /* ── パネル ── */
+        .panel {
+            background: rgba(0,0,0,0.32);
+            border: 1px solid rgba(255,255,255,0.09);
+            border-radius: 10px;
+            padding: 26px 30px;
+            margin-bottom: 18px;
+        }
+        .panel-title {
+            font-size: 0.62em;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.32);
+            font-weight: bold;
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+        }
+
+        p { line-height: 1.85; font-size: 0.9em; opacity: 0.82; }
+        p + p { margin-top: 10px; }
+
+        /* ── ROM テーブル ── */
+        .rom-table { width: 100%; border-collapse: collapse; font-size: 0.86em; margin-top: 14px; }
+        .rom-table th {
+            text-align: left;
+            padding: 6px 12px;
+            font-size: 0.72em;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            opacity: 0.35;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .rom-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            opacity: 0.78;
+            vertical-align: top;
+            line-height: 1.5;
+        }
+        .rom-table tr:last-child td { border-bottom: none; }
+        .rom-name { color: #ffcc88; white-space: nowrap; }
+        .rom-req { font-size: 0.82em; opacity: 0.58; }
+
+        /* ── 手順リスト ── */
+        ol.steps { list-style: none; margin-top: 6px; }
+        ol.steps li {
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            font-size: 0.9em;
+            opacity: 0.82;
+            line-height: 1.7;
+        }
+        ol.steps li:last-child { border-bottom: none; }
+        .step-num {
+            flex-shrink: 0;
+            width: 24px; height: 24px;
+            background: rgba(192,64,74,0.45);
+            border: 1px solid #c0404a;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.78em;
+            font-weight: bold;
+            margin-top: 2px;
+        }
+        .hl { color: #ffcc88; }
+
+        /* ── インフォボックス ── */
+        .info-box {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 6px;
+            padding: 14px 18px;
+            margin-top: 16px;
+            font-size: 0.85em;
+            line-height: 1.75;
+            opacity: 0.85;
+        }
+        .info-box + .info-box { margin-top: 10px; }
+
+        /* ── セキュリティボックス ── */
+        .security-box {
+            background: rgba(30,80,30,0.25);
+            border: 1px solid rgba(80,160,80,0.3);
+            border-radius: 6px;
+            padding: 14px 18px;
+            margin-top: 16px;
+            font-size: 0.85em;
+            line-height: 1.75;
+            opacity: 0.88;
+        }
+        .security-box strong { color: #88dd88; }
+
+        /* ── クレジット ── */
+        .credit-list { list-style: none; margin-top: 4px; }
+        .credit-list li {
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            font-size: 0.88em;
+            opacity: 0.8;
+            display: flex;
+            gap: 16px;
+            line-height: 1.65;
+        }
+        .credit-list li:last-child { border-bottom: none; }
+        .credit-role {
+            flex-shrink: 0;
+            min-width: 210px;
+            opacity: 0.45;
+            font-size: 0.88em;
+        }
+
+        .notice {
+            background: rgba(192,64,74,0.12);
+            border: 1px solid rgba(192,64,74,0.28);
+            border-radius: 6px;
+            padding: 14px 18px;
+            margin-top: 18px;
+            font-size: 0.84em;
+            line-height: 1.75;
+            opacity: 0.82;
+        }
+
+        /* ── Footer ── */
+        footer {
+            text-align: center;
+            margin-top: 44px;
+            font-size: 0.66em;
+            opacity: 0.28;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <header>
+        <div class="site-title">X millennium Web <span style="font-size:0.42em; opacity:0.45; letter-spacing:1px; vertical-align:middle;">v0.3.0</span></div>
+        <div class="site-subtitle">SHARP X1 シリーズ エミュレータ for Web Browser</div>
+        <div class="based-on">Based on X millennium by ぷにゅ氏 / T_tune 改変版</div>
+    </header>
+
+    <div class="launch-wrap">
+        <a class="btn-launch" href="./xmillennium.html">▶ エミュレーターを起動</a>
+        <div class="launch-note">Chrome / Firefox / Safari / Edge 最新版を推奨します</div>
+        <div class="launch-note" style="margin-top:6px; color:rgba(255,180,180,0.45);">本ソフトウェアは無保証です。ご使用は自己責任にてお願いします。</div>
+    </div>
+
+    <!-- 概要 -->
+    <div class="panel">
+        <div class="panel-title">概要</div>
+        <p>X millennium Web は、SHARP X1 シリーズ（X1 / X1turbo / X1turboZ）の Windows 用エミュレータ「X millennium」をブラウザ上で動作するように移植したものです。インストール不要でブラウザ上で X1 のソフトウェアを動作させることができます。</p>
+        <p>フロッピーディスク（D88 / 2D 形式）、カセットテープ（CAS 形式）、SASI ハードディスクに対応しています。読み込んだファイルはお使いのブラウザ内にのみ保存されます。</p>
+        <div class="security-box">
+            <strong>プライバシーについて</strong>：読み込んだ ROM ・ディスクイメージ・設定は、すべてお使いのブラウザ内にのみ保存されます。これらのファイルがサーバーに送信されることはありません。エミュレーション処理もブラウザ内で完結します。<br>
+            Google Drive 連携を使用する場合も、ファイルのやり取りはお使いの Google アカウントとの間で直接行われます。
+        </div>
+    </div>
+
+    <!-- 必要な ROM -->
+    <div class="panel">
+        <div class="panel-title">ROM について</div>
+        <p>本エミュレータには最低限の動作を可能にするスタブ BIOS が内蔵されており、IPL ROM がなくても起動できます。ただし実機の BIOS を使用した場合と比べて動作が異なるソフトウェアがある場合があります。より正確なエミュレーションのため、実機の ROM の使用を推奨します。</p>
+        <p>ROM イメージは著作権物のため同梱していません。実機または合法的な手段で入手してください。</p>
+        <table class="rom-table">
+            <tr>
+                <th>ファイル名</th>
+                <th>内容</th>
+                <th></th>
+            </tr>
+            <tr>
+                <td class="rom-name">IPLROM.X1</td>
+                <td>IPL ROM（標準 X1 用）</td>
+                <td class="rom-req">任意（省略時はスタブ BIOS で動作）</td>
+            </tr>
+            <tr>
+                <td class="rom-name">IPLROM.X1T</td>
+                <td>IPL ROM（X1turbo / turboZ 用）</td>
+                <td class="rom-req">任意（省略時はスタブ BIOS で動作）</td>
+            </tr>
+            <tr>
+                <td class="rom-name">FNT0808.X1</td>
+                <td>CG-ROM（ANK 8×8）</td>
+                <td class="rom-req">任意（内蔵フォントで代替可）</td>
+            </tr>
+            <tr>
+                <td class="rom-name">FNT0816.X1</td>
+                <td>CG-ROM（ANK 8×16）</td>
+                <td class="rom-req">任意</td>
+            </tr>
+            <tr>
+                <td class="rom-name">FNT1616.X1</td>
+                <td>CG-ROM（漢字 16×16）</td>
+                <td class="rom-req">任意（漢字表示に必要）</td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- 使い方 -->
+    <div class="panel">
+        <div class="panel-title">使い方</div>
+        <ol class="steps">
+            <li>
+                <span class="step-num">1</span>
+                <span>エミュレーターを起動すると、内蔵スタブ BIOS ですぐに動作を開始します。実機の IPL ROM を使用する場合は、Settings パネルの ROM セクションから読み込んでください（X1 用: <span class="hl">IPLROM.X1</span>、turbo 用: <span class="hl">IPLROM.X1T</span>）。一度読み込むと次回以降は自動的に使用されます。</span>
+            </li>
+            <li>
+                <span class="step-num">2</span>
+                <span>必要に応じてフォント ROM（<span class="hl">FNT0808.X1</span> / <span class="hl">FNT0816.X1</span> / <span class="hl">FNT1616.X1</span>）を読み込みます。省略した場合は内蔵フォントで動作します（漢字表示は不可）。</span>
+            </li>
+            <li>
+                <span class="step-num">3</span>
+                <span>FDD パネルの「DRIVE 0」にディスクイメージ（D88 / 2D 形式）を挿入して電源ボタンを押すと起動します。ファイルはライブラリに登録しておくと次回以降すぐに選択できます。</span>
+            </li>
+            <li>
+                <span class="step-num">4</span>
+                <span>キーボードは基本的に PC のキー配置に対応しています。画面をダブルクリックするとフルスクリーンになります。</span>
+            </li>
+        </ol>
+    </div>
+
+    <!-- Google Drive 連携 -->
+    <div class="panel">
+        <div class="panel-title">Google Drive 連携</div>
+        <p>Google Drive と連携することで、ライブラリのディスクイメージを Drive にバックアップしたり、別の端末・ブラウザに持ち込んだりできます。</p>
+
+        <ol class="steps" style="margin-top:14px">
+            <li>
+                <span class="step-num">1</span>
+                <span>Settings パネルの <span class="hl">☁ Drive 接続</span> ボタンをクリックすると Google アカウントのサインインが求められます。接続するとライブラリや各スロットに Drive 連携ボタンが現れます。</span>
+            </li>
+            <li>
+                <span class="step-num">2</span>
+                <span>ファイルライブラリの各エントリ右端に <span class="hl" style="font-size:1.1em;letter-spacing:0">☁</span> ボタンが表示されます。クリックするとそのファイルがあなたの Google Drive の「<span class="hl">X millennium Web</span>」フォルダに保存されます。</span>
+            </li>
+            <li>
+                <span class="step-num">3</span>
+                <span>ライブラリパネル上部の <span class="hl">☁ 保存済み</span> ボタンを押すと、Drive の「X millennium Web」フォルダに保存済みのファイル一覧が表示されます。選択するとブラウザにダウンロードしてマウントできます。別の端末・ブラウザで同じデータを使いたいときに便利です。</span>
+            </li>
+            <li>
+                <span class="step-num">4</span>
+                <span><span class="hl">☁ Drive 接続</span> ボタンを再度押すと切断されます。アクセス権の完全な取り消しは <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer" style="color:#ffcc88">Google アカウント設定</a> から行えます。</span>
+            </li>
+        </ol>
+
+        <div class="security-box" style="margin-top:18px">
+            <strong>Google Drive 連携のセキュリティについて</strong><br>
+            アクセス権限は最小限に設定されています。このアプリが保存したファイルにのみアクセスでき、Drive 内の他のファイルやフォルダには一切アクセスしません。<br><br>
+            Google の安全な認証システムが使用されます。パスワードは本アプリに渡されません。認証情報はブラウザのメモリにのみ保持され、ページを閉じると消去されます。<br><br>
+            アップロード・ダウンロードはユーザーの明示的な操作によってのみ行われます。バックグラウンドでファイルが自動送信されることはありません。
+        </div>
+        <div class="notice" style="margin-top:10px">
+            <strong>著作権についての注意</strong><br>
+            Google Drive に保存したファイルはクラウドサーバー上に複製されます。著作権法上、オンラインストレージへのアップロードは「家庭内の私的複製」の範囲外と解釈される場合があり、国・地域によっては私的複製の例外規定が適用されないこともあります。Drive 連携では、ご自身がすべての権利を保有するデータ（自作プログラム・自作データ等）のみをアップロードすることを推奨します。
+        </div>
+    </div>
+
+    <!-- 動作環境 -->
+    <div class="panel">
+        <div class="panel-title">動作環境</div>
+        <p>Chrome / Firefox / Safari / Edge の最新版を推奨します。読み込んだファイルはブラウザ内のストレージに保存されます。なお、<span class="hl">file://</span> での直接起動は動作しません。ローカルで試す場合は HTTP サーバー経由でアクセスしてください。</p>
+    </div>
+
+    <!-- 権利情報・クレジット -->
+    <div class="panel">
+        <div class="panel-title">権利情報・クレジット</div>
+        <ul class="credit-list">
+            <li>
+                <span class="credit-role">原作エミュレータ</span>
+                <span>X millennium — ぷにゅ氏</span>
+            </li>
+            <li>
+                <span class="credit-role">T_tune 改変版</span>
+                <span>原作をベースに機能追加・チューニングを施した版。本 Web 版はこちらのソースを使用しています。</span>
+            </li>
+            <li>
+                <span class="credit-role">PSG / FM 音源エミュレーション</span>
+                <span>Tatsuyuki Satoh（fm.c v0.37, MAME Project）/ 旧 MAME License（非商用）</span>
+            </li>
+            <li>
+                <span class="credit-role">FDD シミュレーションデータ</span>
+                <span>nerd 氏</span>
+            </li>
+            <li>
+                <span class="credit-role">Web 版移植</span>
+                <span>ひろし☆H.O SOFT — ブラウザ向けに移植。原作の頒布条件（フリーウェア・非商用・無保証）を継承します。</span>
+            </li>
+        </ul>
+        <div class="notice" style="margin-top:18px;">
+            <a href="./privacy.html" style="color:#ffcc88;">プライバシーポリシー</a> ／
+            <a href="./terms.html" style="color:#ffcc88;">利用規約</a> ／
+            <a href="./licenses.html" style="color:#ffcc88;">サードパーティライセンス</a>
+        </div>
+    </div>
+
+    <footer>
+        X millennium Web &mdash; based on X millennium by ぷにゅ氏 / T_tune 改変版
+    </footer>
+
+</div>
+</body>
+</html>

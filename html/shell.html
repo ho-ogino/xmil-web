@@ -1,0 +1,2192 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' https://www.googleapis.com https://accounts.google.com blob:; worker-src blob:; frame-src https://accounts.google.com; object-src 'none'; base-uri 'none';">
+    <!-- Note: frame-ancestors は <meta> CSP では効きません。埋め込み禁止には -->
+    <!-- サーバー側レスポンスヘッダ Content-Security-Policy: frame-ancestors 'none' が必要です -->
+    <title>X millennium Web - SHARP X1 Emulator</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#8F2124">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: linear-gradient(135deg, #4a0e10 0%, #8F2124 100%);
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container { max-width: 900px; width: 100%; }
+
+        header { text-align: center; margin-bottom: 24px; }
+        h1 { font-size: 2.5em; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); margin-bottom: 8px; }
+        .subtitle { font-size: 1.2em; opacity: 0.9; }
+        .based-on { font-size: 0.72em; opacity: 0.4; margin-top: 5px; font-family: 'Courier New', monospace; letter-spacing: 0.5px; }
+
+        /* ── ローディング ── */
+        .loading { text-align: center; padding: 20px; }
+        .spinner {
+            border: 4px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top: 4px solid #fff;
+            width: 40px; height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .hidden { display: none !important; }
+
+        /* ════════════════════════════════════════════════════════════
+           マシンパネル (統合枠)
+        ════════════════════════════════════════════════════════════ */
+        .machine-panel {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        /* スクリーン */
+        .machine-screen {
+            background: #000;
+            border: 3px solid #c0404a;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            margin-bottom: 10px;
+            position: relative;
+        }
+
+        #canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            background: #000;
+            /* image-rendering: pixelated; */
+            /* image-rendering: crisp-edges; */
+        }
+
+        /* フルスクリーンボタン */
+        #btn-fullscreen {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.55);
+            border: 1px solid rgba(255,255,255,0.25);
+            border-radius: 5px;
+            color: #ccc;
+            font-size: 16px;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 10;
+            padding: 0;
+        }
+        .machine-screen:hover #btn-fullscreen { opacity: 1; }
+        #btn-fullscreen:hover { background: rgba(192,64,74,0.75); color: #fff; border-color: #c0404a; }
+
+        /* ステータストースト */
+        #status-text {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: #eee;
+            font-size: 0.8em;
+            padding: 4px 14px;
+            border-radius: 4px;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 20;
+        }
+        #status-text.visible { opacity: 1; }
+
+        /* フルスクリーン時: screen-wrap が画面全体を黒で覆い、canvas をセンタリング */
+        #screen-wrap:fullscreen,
+        #screen-wrap:-webkit-full-screen {
+            background: #000;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #screen-wrap:fullscreen #canvas,
+        #screen-wrap:-webkit-full-screen #canvas {
+            width: min(100vw, calc(100vh * 1.6));
+            height: auto;
+        }
+        /* 疑似フルスクリーン (iOS standalone PWA 等) */
+        #screen-wrap.pseudo-fullscreen {
+            background: #000;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+        }
+        #screen-wrap.pseudo-fullscreen #canvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        /* フルスクリーン時はマウス動作中だけボタンを表示 */
+        #screen-wrap:fullscreen #btn-fullscreen,
+        #screen-wrap:-webkit-full-screen #btn-fullscreen,
+        #screen-wrap.pseudo-fullscreen #btn-fullscreen { opacity: 0; }
+        #screen-wrap:fullscreen.fs-cursor-visible #btn-fullscreen,
+        #screen-wrap:-webkit-full-screen.fs-cursor-visible #btn-fullscreen,
+        #screen-wrap.pseudo-fullscreen.fs-cursor-visible #btn-fullscreen { opacity: 0.6; }
+        /* フルスクリーン中にカーソルを隠す */
+        #screen-wrap:fullscreen:not(.fs-cursor-visible),
+        #screen-wrap:-webkit-full-screen:not(.fs-cursor-visible),
+        #screen-wrap.pseudo-fullscreen:not(.fs-cursor-visible) { cursor: none; }
+
+        /* ════════════════════════════════════════════════════════════
+           ハードウェアバー (コントロール + FDD)
+        ════════════════════════════════════════════════════════════ */
+        .machine-hw-bar {
+            background: #1e1e1e;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        /* 左ブロック: 電源 + RESET + トグル群 */
+        .hw-ctrl-area {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+
+        /* ── 電源ボタン ── */
+        .hw-power-btn {
+            width: 30px; height: 30px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 40% 35%, #2e2e2e 0%, #111 100%);
+            border: 2px solid #383838;
+            border-bottom-color: #505050;
+            color: #444;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            padding: 0;
+            transition: color 0.2s, box-shadow 0.2s, background 0.2s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05);
+            flex-shrink: 0;
+        }
+        .hw-power-btn:hover { filter: brightness(1.3); }
+        .hw-power-btn.on {
+            background: radial-gradient(circle at 40% 35%, #004d1a 0%, #002a0d 100%);
+            border-color: #009944;
+            color: #00ff77;
+            box-shadow: 0 0 10px rgba(0,180,80,0.55), 0 2px 5px rgba(0,0,0,0.8);
+        }
+
+        /* ── RESET 枠 ── */
+        .hw-reset-box {
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        .hw-reset-title {
+            font-size: 0.65em;
+            font-weight: bold;
+            color: #000;
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            background: #c0c0c0;
+            text-align: center;
+            padding: 3px 10px;
+        }
+
+        .hw-reset-body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 5px 10px 7px;
+            gap: 6px;
+        }
+
+        .hw-btn-row {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+        }
+
+        .hw-btn-cell {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+        }
+
+        .hw-cell-label {
+            font-size: 0.6em;
+            font-weight: bold;
+            color: #ccc;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
+
+        /* ソケット（黒い四角い凹み）*/
+        .hw-socket {
+            width: 34px; height: 34px;
+            background: #0d0d0d;
+            border: 2px solid #070707;
+            border-radius: 3px;
+            box-shadow: inset 0 3px 6px rgba(0,0,0,0.9);
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        /* プッシュボタン本体 */
+        .hw-push-btn {
+            width: 22px; height: 22px;
+            border-radius: 2px;
+            border: none;
+            cursor: pointer;
+            transition: filter 0.08s, transform 0.08s;
+            padding: 0;
+        }
+        .hw-push-btn:active { transform: translateY(2px); filter: brightness(0.75); }
+
+        .hw-push-red {
+            background: linear-gradient(165deg, #ee2200 0%, #aa1400 55%, #7a0900 100%);
+            box-shadow: 0 2px 3px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,100,70,0.35);
+        }
+        .hw-push-grey {
+            background: linear-gradient(165deg, #c8c8c8 0%, #989898 55%, #6e6e6e 100%);
+            box-shadow: 0 2px 3px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.5);
+        }
+
+        /* ── トグルスイッチ群 ── */
+        .hw-switches {
+            display: flex;
+            align-items: flex-end;
+            gap: 10px;
+        }
+
+        .hw-switch-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .hw-switch-caption {
+            font-size: 0.57em;
+            color: #9a9a9a;
+            letter-spacing: 1px;
+            text-align: center;
+            line-height: 1.3;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .hw-switch-labels {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
+        }
+
+        .hw-switch-label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: default;
+        }
+
+        .hw-ind {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #1a1a1a;
+            border: 1px solid #2e2e2e;
+            box-shadow: inset 0 1px 1px rgba(0,0,0,0.9);
+            flex-shrink: 0;
+            transition: background 0.15s, box-shadow 0.15s;
+        }
+
+        .hw-switch-label.active .hw-ind {
+            background: #e0e0e0;
+            border-color: #bbb;
+            box-shadow: 0 0 4px rgba(220,220,220,0.45);
+        }
+
+        .hw-label-text {
+            font-size: 0.6em;
+            color: #555;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            transition: color 0.15s;
+        }
+        .hw-switch-label.active .hw-label-text { color: #ccc; }
+
+        /* ロッカースイッチ本体 */
+        .hw-rocker-btn {
+            width: 26px; height: 26px;
+            background: linear-gradient(180deg, #1a1a1a 0%, #0e0e0e 100%);
+            border: 2px solid #080808;
+            border-top-color: #2a2a2a;
+            border-left-color: #222;
+            border-radius: 2px;
+            cursor: pointer;
+            padding: 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.7);
+            transition: transform 0.1s, filter 0.1s;
+        }
+        .hw-rocker-btn:hover { filter: brightness(1.4); }
+        .hw-rocker-btn:active { transform: translateY(2px); filter: brightness(0.8); }
+
+        /* ── ハードウェアバー区切り ── */
+        .hw-divider {
+            width: 1px;
+            align-self: stretch;
+            background: #333;
+            margin: 0 2px;
+            flex-shrink: 0;
+        }
+
+        /* ════════════════════════════════════════════════════════════
+           FDD ドライブパネル
+        ════════════════════════════════════════════════════════════ */
+        .hw-state-area {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            padding: 0 4px;
+        }
+        .hw-state-title {
+            font-size: 0.65em;
+            color: #888;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .hw-state-btns {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .hw-state-btn {
+            background: #2a2a2a;
+            color: #ccc;
+            border: 1px solid #555;
+            border-radius: 3px;
+            padding: 3px 7px;
+            font-size: 0.7em;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            line-height: 1.2;
+        }
+        .hw-state-btn:hover { background: #3a3a3a; color: #fff; }
+        .hw-state-btn:active { background: #555; }
+        .hw-state-btn-list { background: #1a2a3a; border-color: #4a6a8a; }
+        .hw-state-btn-list:hover { background: #2a4a6a; }
+        .hw-state-btn-danger { background: #3a1a1a; border-color: #8a4a4a; color: #c88; }
+        .hw-state-btn-danger:hover { background: #5a2a2a; color: #faa; }
+        .hw-state-btn.overwrite-on { border-color: #cc3344; color: #ff9999; }
+
+        /* ステートパネル固有 */
+        .state-panel-actions {
+            display: flex;
+            gap: 8px;
+            padding: 8px 16px;
+            border-bottom: 1px solid #2e2e2e;
+            flex-shrink: 0;
+            align-items: center;
+        }
+        .state-panel-actions .hw-state-btn-danger { margin-left: auto; }
+        .state-panel-actions .hw-state-btn {
+            padding: 5px 12px;
+            font-size: 0.8em;
+        }
+        .state-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-bottom: 1px solid #1e1e1e;
+        }
+        .state-row:hover { background: #222; }
+        .state-row-info { flex: 1; min-width: 0; }
+        .state-row-name {
+            font-size: 0.85em;
+            color: #ddd;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .state-row-meta {
+            font-size: 0.7em;
+            color: #777;
+            margin-top: 2px;
+        }
+        .state-row-mounts {
+            display: flex;
+            gap: 3px;
+            flex-wrap: wrap;
+            margin-top: 2px;
+        }
+        .state-mount-badge {
+            font-size: 0.6em;
+            background: #1a2a1a;
+            color: #6a8;
+            border: 1px solid #3a5a3a;
+            border-radius: 2px;
+            padding: 0 4px;
+        }
+        .state-row-btns {
+            display: flex;
+            gap: 3px;
+            flex-shrink: 0;
+        }
+        .state-row-btns button {
+            background: #2a2a2a;
+            color: #aaa;
+            border: 1px solid #444;
+            border-radius: 3px;
+            padding: 3px 6px;
+            font-size: 0.7em;
+            cursor: pointer;
+        }
+        .state-row-btns button:hover { background: #3a3a3a; color: #fff; }
+        .state-row-btns .state-btn-load { background: #1a2a3a; border-color: #4a6a8a; color: #8af; }
+        .state-row-btns .state-btn-load:hover { background: #2a4a6a; }
+        .state-row-btns .state-btn-del { color: #a66; }
+        .state-row-btns .state-btn-del:hover { background: #3a1a1a; color: #faa; }
+        .state-empty {
+            text-align: center;
+            padding: 32px 16px;
+            color: #666;
+            font-size: 0.85em;
+        }
+
+        .hw-fdd-area {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .fdd-bay {
+            flex: 1;
+            min-width: 160px;
+        }
+
+        .fdd-bay-face {
+            background: linear-gradient(180deg, #282828 0%, #1a1a1a 60%, #111 100%);
+            border: 1px solid #3c3c3c;
+            border-bottom: none;
+            border-radius: 4px 4px 0 0;
+            padding: 7px 9px 9px;
+        }
+
+        .fdd-face-header {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 7px;
+        }
+
+        .fdd-drive-label {
+            font-size: 0.62em;
+            color: #555;
+            letter-spacing: 2px;
+            font-weight: bold;
+        }
+
+        /* アクセスランプ */
+        .fdd-led {
+            width: 16px; height: 9px;
+            border-radius: 2px;
+            background: #0e0500;
+            border: 1px solid #1e0c00;
+            transition: background 0.06s, box-shadow 0.06s;
+            flex-shrink: 0;
+        }
+        .fdd-led.led-2d  { background: #180000; border-color: #360000; }
+        .fdd-led.led-2hd { background: #001400; border-color: #002800; }
+        .fdd-led.led-2d.active  { background: #ff1500; border-color: #ff4422; box-shadow: 0 0 4px #ff1500, 0 0 9px rgba(255,30,0,0.65); animation: fdd-flash-2d 0.3s ease-in-out; }
+        .fdd-led.led-2hd.active { background: #00cc44; border-color: #00ff66; box-shadow: 0 0 4px #00cc44, 0 0 9px rgba(0,200,70,0.65); animation: fdd-flash-2hd 0.3s ease-in-out; }
+        .fdd-led.active         { background: #ff5500; border-color: #ff7700; box-shadow: 0 0 4px #ff5500, 0 0 9px rgba(255,80,0,0.55); animation: fdd-flash-default 0.3s ease-in-out; }
+
+        @keyframes fdd-flash-default { 0%,100%{background:#ff5500;box-shadow:0 0 4px #ff4400,0 0 9px rgba(255,80,0,0.55)} 50%{background:#ff7722;box-shadow:0 0 7px #ff6600,0 0 14px rgba(255,100,0,0.7)} }
+        @keyframes fdd-flash-2d      { 0%,100%{background:#ff1500;box-shadow:0 0 4px #ff1500,0 0 9px rgba(255,30,0,0.65)} 50%{background:#ff4422;box-shadow:0 0 7px #ff2200,0 0 14px rgba(255,50,0,0.75)} }
+        @keyframes fdd-flash-2hd     { 0%,100%{background:#00cc44;box-shadow:0 0 4px #00cc44,0 0 9px rgba(0,200,70,0.65)} 50%{background:#00ff66;box-shadow:0 0 7px #00ee55,0 0 14px rgba(0,240,100,0.75)} }
+
+        .fdd-slot-row { display: flex; align-items: center; gap: 5px; }
+
+        .fdd-slot {
+            flex: 1; height: 22px;
+            background: #060606;
+            border: 1px solid #111;
+            border-top-color: #1c1c1c;
+            border-left-color: #1c1c1c;
+            border-radius: 2px;
+            display: flex; align-items: center;
+            padding: 0 5px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.7);
+            overflow: hidden;
+        }
+
+        .fdd-slot-slit {
+            width: 100%; height: 5px;
+            background: #0c0c0c;
+            border: 1px solid #181818;
+            border-radius: 1px;
+            transition: background 0.25s, border-color 0.25s;
+        }
+        .fdd-bay.disk-in .fdd-slot-slit { background: linear-gradient(90deg,#252520 0%,#353530 50%,#252520 100%); border-color: #3a3a35; }
+
+        .fdd-hw-eject {
+            width: 10px; height: 22px;
+            background: linear-gradient(90deg,#363636 0%,#4a4a4a 40%,#363636 100%);
+            border: 1px solid #1e1e1e;
+            border-right-color: #555; border-bottom-color: #555;
+            border-radius: 2px;
+            cursor: pointer; padding: 0; flex-shrink: 0;
+        }
+        .fdd-hw-eject:active { background: linear-gradient(90deg,#222 0%,#333 40%,#222 100%); transform: translateY(1px); }
+
+        .fdd-bay-footer {
+            background: #111;
+            border: 1px solid #2e2e2e;
+            border-top: 1px solid #1e1e1e;
+            border-radius: 0 0 4px 4px;
+            padding: 5px 8px;
+            display: flex; align-items: center; gap: 6px;
+            min-width: 0;
+        }
+
+        .fdd-disk-name {
+            flex: 1;
+            font-size: 0.68em; color: #444;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            min-width: 0; font-style: italic;
+        }
+        .fdd-disk-name.loaded { color: #7ac8e0; font-style: normal; }
+
+        .fdd-bay-btns { display: flex; gap: 3px; flex-shrink: 0; }
+
+        .fdd-btn {
+            background: #1c1c1c; border: 1px solid #3c3c3c;
+            color: #999; font-size: 0.68em; padding: 2px 7px;
+            border-radius: 3px; cursor: pointer; font-family: inherit; white-space: nowrap;
+        }
+        .fdd-btn:hover { background: #262626; border-color: #606060; color: #ccc; }
+        .fdd-btn:disabled { opacity: 0.35; cursor: default; }
+        .fdd-btn-eject { padding: 2px 5px; }
+
+        /* ════════════════════════════════════════════════════════════
+           CMT デッキ
+        ════════════════════════════════════════════════════════════ */
+        .machine-cmt {
+        }
+
+        .cmt-deck {
+            background: #111008;
+            border: 1px solid #2e2100;
+            border-radius: 6px;
+            padding: 10px 12px 8px;
+        }
+
+        .cmt-deck-header {
+            display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+        }
+        .cmt-deck-label { font-size: 0.72em; color: #5a4200; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; flex-shrink: 0; }
+        .cmt-deck-tape-name { flex: 1; font-size: 0.82em; color: #7a5a10; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+        .cmt-deck-tape-name.loaded { color: #c8920a; font-style: normal; }
+        .cmt-deck-badge { font-size: 0.72em; padding: 2px 8px; border-radius: 3px; background: #0a0800; border: 1px solid #2a1f00; color: #3a2a00; font-family: monospace; letter-spacing: 1px; white-space: nowrap; transition: all 0.2s; flex-shrink: 0; }
+        .cmt-deck-badge.state-stop  { border-color: #5a3d00; color: #c8820a; }
+        .cmt-deck-badge.state-play  { background: #003a1a; border-color: #00aa55; color: #00ff88; box-shadow: 0 0 6px rgba(0,200,100,0.35); }
+        .cmt-deck-badge.state-ff    { background: #2a1200; border-color: #dd6600; color: #ff8833; box-shadow: 0 0 6px rgba(255,100,0,0.35); }
+        .cmt-deck-badge.state-rew   { background: #00102a; border-color: #3377dd; color: #66aaff; box-shadow: 0 0 6px rgba(70,130,255,0.35); }
+
+        .cmt-deck-reels { display: flex; align-items: center; justify-content: center; margin-bottom: 6px; }
+        .cmt-reel-wrap { width: 54px; height: 54px; flex-shrink: 0; }
+        .cmt-reel-svg { width: 100%; height: 100%; transition: filter 0.2s; }
+        .cmt-tape-path { flex: 1; height: 54px; display: flex; flex-direction: column; align-items: stretch; justify-content: center; padding: 0 4px; min-width: 40px; }
+        .cmt-tape-top-guide, .cmt-tape-bot-guide { height: 3px; background: #2a1c00; border-radius: 2px; }
+        .cmt-tape-top-guide { margin-bottom: 2px; }
+        .cmt-tape-bot-guide { margin-top: 2px; }
+        .cmt-tape-head-area { flex: 1; display: flex; align-items: center; justify-content: center; }
+        .cmt-tape-head { width: 10px; height: 18px; background: #2a1c00; border: 1px solid #4a3200; border-radius: 2px; }
+
+        @keyframes reel-cw  { to { transform: rotate(360deg);  } }
+        @keyframes reel-ccw { to { transform: rotate(-360deg); } }
+        .cmt-reel-svg.anim-play { animation: reel-cw  2.2s linear infinite; filter: drop-shadow(0 0 5px rgba(0,220,90,0.55)); }
+        .cmt-reel-svg.anim-ff   { animation: reel-cw  0.38s linear infinite; filter: drop-shadow(0 0 5px rgba(255,110,0,0.55)); }
+        .cmt-reel-svg.anim-rew  { animation: reel-ccw 0.38s linear infinite; filter: drop-shadow(0 0 5px rgba(60,140,255,0.55)); }
+
+        .cmt-deck-transport { display: flex; align-items: center; gap: 5px; margin-bottom: 6px; }
+        .cmt-trans-btn { flex: 1; text-align: center; padding: 5px 6px; border: 1px solid #1c1400; border-radius: 4px; font-size: 0.75em; font-family: monospace; color: #2e2000; background: #0a0800; transition: all 0.12s; letter-spacing: 0.3px; cursor: pointer; user-select: none; white-space: nowrap; }
+        .cmt-trans-btn:hover   { filter: brightness(1.7); transform: translateY(-1px); }
+        .cmt-trans-btn:active  { transform: translateY(1px); filter: brightness(0.8); }
+        .cmt-trans-btn.on-stop { border-color: #5a3d00; color: #c8820a; background: #120d00; }
+        .cmt-trans-btn.on-play { border-color: #00aa55; color: #00ff88; background: #002a12; box-shadow: 0 0 4px rgba(0,200,100,0.3); }
+        .cmt-trans-btn.on-ff   { border-color: #dd6600; color: #ff8833; background: #200e00; box-shadow: 0 0 4px rgba(255,100,0,0.3); }
+        .cmt-trans-btn.on-rew  { border-color: #3377dd; color: #66aaff; background: #000e20; box-shadow: 0 0 4px rgba(70,130,255,0.3); }
+
+        .cmt-deck-sep { color: #2a1c00; font-size: 1.1em; padding: 0 3px; flex-shrink: 0; user-select: none; }
+
+        .cmt-media-btn { padding: 5px 10px; border-radius: 4px; font-size: 0.78em; cursor: pointer; font-family: monospace; transition: all 0.12s; flex-shrink: 0; font-weight: bold; }
+        .cmt-media-btn:active:not(:disabled) { transform: translateY(1px); }
+        .cmt-insert-btn { background: #050d08; border: 1px solid #1a4a2a; color: #2a8a4a; }
+        .cmt-insert-btn:hover { background: #0a1e10; border-color: #00aa55; color: #00ee77; transform: translateY(-1px); box-shadow: 0 0 5px rgba(0,200,100,0.35); }
+        .cmt-eject-btn { background: #0e0505; border: 1px solid #4a1a1a; color: #7a3030; }
+        .cmt-eject-btn:hover:not(:disabled) { background: #1e0a0a; border-color: #cc3333; color: #ff5555; transform: translateY(-1px); box-shadow: 0 0 5px rgba(200,50,50,0.35); }
+        .cmt-eject-btn:disabled { opacity: 0.28; cursor: not-allowed; transform: none; }
+
+        .cmt-deck-footer { display: flex; align-items: center; gap: 8px; }
+        .cmt-deck-time { font-size: 0.72em; font-family: monospace; color: #7a5a10; white-space: nowrap; min-width: 86px; }
+        .cmt-deck-time.loaded { color: #c8820a; }
+        .cmt-deck-bar-wrap { flex: 1; height: 5px; background: #0a0800; border-radius: 3px; border: 1px solid #1c1400; overflow: hidden; }
+        .cmt-deck-bar-fill { height: 100%; background: linear-gradient(90deg,#5a3d00,#c8820a,#ffcc44); border-radius: 3px; transition: width 0.4s linear; width: 0%; }
+
+        /* ════════════════════════════════════════════════════════════
+           ROM スロットパネル
+        ════════════════════════════════════════════════════════════ */
+        .machine-rom-bar {
+            display: flex;
+            gap: 6px;
+            padding: 8px 10px;
+            background: #090f09;
+            border: 1px solid #162416;
+            border-radius: 5px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .rom-slot {
+            flex: 1;
+            min-width: 140px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #060c06;
+            border: 1px solid #112211;
+            border-radius: 3px;
+            padding: 4px 7px;
+        }
+
+        .rom-led {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #050d05;
+            border: 1px solid #0e1e0e;
+            flex-shrink: 0;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        .rom-led.loaded {
+            background: #009944;
+            border-color: #00bb55;
+            box-shadow: 0 0 4px rgba(0,160,60,0.7);
+        }
+
+        .rom-slot-label {
+            font-size: 0.57em;
+            color: #2a4a2a;
+            letter-spacing: 1px;
+            font-weight: bold;
+            text-transform: uppercase;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .rom-chip-name {
+            flex: 1;
+            font-size: 0.68em;
+            color: #1c341c;
+            font-family: monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-style: italic;
+            min-width: 0;
+        }
+        .rom-chip-name.loaded { color: #33bb66; font-style: normal; }
+
+        .rom-btn {
+            background: #080f08;
+            border: 1px solid #183018;
+            color: #245a24;
+            font-size: 0.68em;
+            padding: 2px 6px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+            flex-shrink: 0;
+            transition: background 0.1s, color 0.1s, border-color 0.1s;
+        }
+        .rom-btn:hover { background: #0f1f0f; border-color: #007733; color: #00cc55; }
+        .rom-btn-clear { color: #3a1c1c; border-color: #221010; background: #080505; }
+        .rom-btn-clear:hover:not(:disabled) { background: #120808; border-color: #882020; color: #cc4444; }
+        .rom-btn-clear:disabled { opacity: 0.25; cursor: not-allowed; }
+
+        /* ════════════════════════════════════════════════════════════
+           設定パネル / ステータス
+        ════════════════════════════════════════════════════════════ */
+        .panel-box {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+        }
+        .panel-box h2 { font-size: 1.3em; margin-bottom: 12px; border-bottom: 2px solid #c0404a; padding-bottom: 8px; }
+
+        .button-group { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+
+        /* 汎用ボタン (panel-box 内) */
+        .gen-btn {
+            background: linear-gradient(135deg, #c0404a 0%, #8F2124 100%);
+            color: #fff; border: none; padding: 10px 20px;
+            font-size: 0.95em; border-radius: 5px; cursor: pointer;
+            transition: all 0.3s; font-weight: bold; font-family: inherit;
+        }
+        .gen-btn:hover { background: linear-gradient(135deg, #d45060 0%, #a02830 100%); transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .gen-btn:active { transform: translateY(0); }
+        .gen-btn:disabled { background: #666; cursor: not-allowed; opacity: 0.5; }
+
+        .file-input-group { margin-bottom: 12px; }
+        .file-input-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9em; }
+
+        input[type="file"] { display: block; padding: 8px; background: rgba(255,255,255,0.1); border: 1px solid #c0404a; border-radius: 5px; color: #fff; width: 100%; }
+        input[type="radio"], input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #c0404a; }
+
+        .settings-row { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 12px; align-items: flex-start; }
+        .settings-group { flex: 1; min-width: 160px; }
+        .settings-group label.group-title { display: block; font-weight: bold; margin-bottom: 8px; font-size: 0.85em; opacity: 0.8; text-transform: uppercase; }
+        .radio-group, .checkbox-group { display: flex; flex-direction: column; gap: 6px; }
+        .radio-group label, .checkbox-group label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9em; }
+        .settings-note { font-size: 0.78em; opacity: 0.6; font-style: italic; }
+
+        .status { background: rgba(0,0,0,0.3); border-radius: 5px; padding: 12px 15px; margin-bottom: 20px; font-family: monospace; }
+        .status-line { padding: 3px 0; }
+
+        /* ════════════════════════════════════════════════════════════
+           設定パネル (レトロコンピュータ風)
+        ════════════════════════════════════════════════════════════ */
+        .config-panel {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 0;
+            flex-wrap: wrap;
+        }
+
+        .cfg-block {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            padding: 0 18px;
+        }
+        .cfg-block:first-child { padding-left: 0; }
+        .cfg-block:last-child  { padding-right: 0; }
+
+        .cfg-block-title {
+            font-size: 0.55em;
+            color: rgba(255,255,255,0.28);
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+        }
+
+        .cfg-divider {
+            width: 1px;
+            align-self: stretch;
+            background: rgba(255,255,255,0.08);
+            flex-shrink: 0;
+        }
+
+        /* ── MODEL 選択ボタン ── */
+        .cfg-model-row { display: flex; gap: 4px; }
+
+        .cfg-model-btn {
+            padding: 4px 11px;
+            font-size: 0.7em;
+            background: #110709;
+            border: 1px solid #2a1215;
+            border-radius: 3px;
+            color: #442022;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0.3px;
+            transition: all 0.12s;
+            white-space: nowrap;
+            user-select: none;
+            display: inline-block;
+        }
+        .cfg-model-btn:hover { border-color: #7a3040; color: #aa5060; }
+        .cfg-model-btn.active {
+            background: #280d10;
+            border-color: #c0404a;
+            color: #ff9090;
+            box-shadow: 0 0 6px rgba(192,64,74,0.3);
+        }
+
+        .cfg-model-note {
+            font-size: 0.56em;
+            color: rgba(255,255,255,0.18);
+            font-style: italic;
+        }
+
+        /* ── オプショントグル ── */
+        .cfg-toggles { display: flex; flex-direction: column; gap: 6px; }
+
+        .cfg-toggle-item {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .cfg-led {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #160606;
+            border: 1px solid #250d0d;
+            flex-shrink: 0;
+            transition: background 0.15s, box-shadow 0.15s;
+        }
+        .cfg-toggle-item.on .cfg-led {
+            background: #cc3344;
+            border-color: #ff5566;
+            box-shadow: 0 0 4px rgba(200,50,60,0.6);
+        }
+
+        .cfg-toggle-label {
+            font-size: 0.62em;
+            color: rgba(255,255,255,0.2);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            font-family: 'Courier New', monospace;
+            transition: color 0.15s;
+        }
+        .cfg-toggle-item.on .cfg-toggle-label { color: rgba(255,145,150,0.7); }
+
+        /* ── ユーティリティボタン ── */
+        .cfg-util-btn {
+            background: #110709;
+            border: 1px solid #2a1215;
+            color: #442022;
+            font-family: 'Courier New', monospace;
+            font-size: 0.68em;
+            padding: 5px 13px;
+            border-radius: 3px;
+            cursor: pointer;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.12s;
+            white-space: nowrap;
+        }
+        .cfg-util-btn:hover { border-color: #993333; color: #dd5555; background: #1c0b0d; }
+
+        .cfg-block--danger { margin-left: auto; padding-right: 0; }
+
+        /* ── シーク音ボリュームスライダー ── */
+        .cfg-vol-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 4px;
+            position: relative;
+            z-index: 1;
+        }
+        .cfg-vol-label {
+            font-size: 0.55em;
+            color: rgba(255,255,255,0.22);
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            font-family: 'Courier New', monospace;
+            white-space: nowrap;
+            transition: color 0.15s, opacity 0.15s;
+        }
+        .cfg-vol-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 80px;
+            height: 3px;
+            border-radius: 2px;
+            background: #2a1215;
+            outline: none;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: opacity 0.15s;
+        }
+        .cfg-vol-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #cc3344;
+            box-shadow: 0 0 4px rgba(200,50,60,0.5);
+            cursor: pointer;
+        }
+        .cfg-vol-slider::-moz-range-thumb {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: none;
+            background: #cc3344;
+            box-shadow: 0 0 4px rgba(200,50,60,0.5);
+            cursor: pointer;
+        }
+        .cfg-vol-val {
+            font-size: 0.55em;
+            color: rgba(255,145,150,0.5);
+            font-family: 'Courier New', monospace;
+            width: 24px;
+            text-align: right;
+            transition: color 0.15s, opacity 0.15s;
+        }
+        .cfg-toggle-item.on + .cfg-vol-row .cfg-vol-label,
+        .cfg-toggle-item.on + .cfg-vol-row .cfg-vol-val {
+            color: rgba(255,145,150,0.75);
+        }
+        .cfg-vol-row.off .cfg-vol-label,
+        .cfg-vol-row.off .cfg-vol-val {
+            opacity: 0.45;
+        }
+        .cfg-vol-row.off .cfg-vol-slider {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .cfg-util-btn--danger {
+            border-color: #5a1a1a;
+            color: #aa3333;
+        }
+        .cfg-util-btn--danger:hover { border-color: #cc2222; color: #ff4444; background: #2a0808; }
+
+        /* ════════════════════════════════════════════════════════════
+           HDD スロットパネル
+        ════════════════════════════════════════════════════════════ */
+        .machine-hdd-bar {
+            display: flex;
+            gap: 6px;
+            padding: 8px 10px;
+            background: #0f0d08;
+            border: 1px solid #2e2810;
+            border-radius: 5px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .hdd-slot {
+            flex: 1;
+            min-width: 160px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            background: #080600;
+            border: 1px solid #1e1a08;
+            border-radius: 3px;
+            padding: 4px 7px;
+        }
+
+        .hdd-led {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #0d0900;
+            border: 1px solid #1e1400;
+            flex-shrink: 0;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        .hdd-led.loaded {
+            background: #997700;
+            border-color: #cc9900;
+            box-shadow: 0 0 4px rgba(170,130,0,0.7);
+        }
+
+        .hdd-slot-label {
+            font-size: 0.57em;
+            color: #2a2200;
+            letter-spacing: 1px;
+            font-weight: bold;
+            text-transform: uppercase;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .hdd-chip-name {
+            flex: 1;
+            font-size: 0.68em;
+            color: #1e1a04;
+            font-family: monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-style: italic;
+            min-width: 0;
+        }
+        .hdd-chip-name.loaded { color: #cc9922; font-style: normal; }
+
+        .hdd-btn {
+            background: #080600;
+            border: 1px solid #1e1800;
+            color: #3a3000;
+            font-size: 0.68em;
+            padding: 2px 6px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+            flex-shrink: 0;
+            transition: background 0.1s, color 0.1s, border-color 0.1s;
+        }
+        .hdd-btn:hover { background: #141000; border-color: #665500; color: #ddaa00; }
+        .hdd-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+        .hdd-btn-danger { color: #3a1c0a; border-color: #221408; background: #060400; }
+        .hdd-btn-danger:hover:not(:disabled) { background: #120804; border-color: #883300; color: #cc5500; }
+
+        .info { background: rgba(255,255,255,0.1); border-radius: 10px; padding: 20px; }
+        .info h2 { font-size: 1.3em; margin-bottom: 10px; }
+        .info p { line-height: 1.6; margin-bottom: 10px; }
+
+        /* ════════════════════════════════════════════════════════════
+           ファイルライブラリ パネル
+        ════════════════════════════════════════════════════════════ */
+        .library-panel {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.78);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .library-panel-inner {
+            background: #1a1a1a;
+            border: 1px solid #3a3a3a;
+            border-radius: 8px;
+            width: 700px;
+            max-width: 96vw;
+            max-height: 82vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.7);
+        }
+
+        .lib-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 11px 16px;
+            border-bottom: 1px solid #2e2e2e;
+            background: #111;
+            flex-shrink: 0;
+        }
+
+        .lib-panel-title {
+            font-size: 0.9em;
+            font-weight: bold;
+            color: #bbb;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .lib-close-btn {
+            background: none;
+            border: 1px solid #3a3a3a;
+            color: #666;
+            font-size: 0.75em;
+            padding: 3px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.1s;
+        }
+        .lib-close-btn:hover { border-color: #cc4444; color: #ff7777; }
+
+        .lib-filters {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 9px 14px;
+            border-bottom: 1px solid #222;
+            background: #131313;
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+
+        .lib-filter {
+            background: #1e1e1e;
+            border: 1px solid #333;
+            color: #555;
+            font-size: 0.7em;
+            padding: 4px 13px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 1px;
+            transition: all 0.1s;
+        }
+        .lib-filter:hover { border-color: #666; color: #999; }
+        .lib-filter.active { background: #2a1012; border-color: #c0404a; color: #ff9090; }
+
+        .lib-add-btn {
+            margin-left: auto;
+            background: #0a1e0a;
+            border: 1px solid #225522;
+            color: #44aa44;
+            font-size: 0.75em;
+            padding: 5px 14px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: inherit;
+            letter-spacing: 0.3px;
+            transition: all 0.1s;
+        }
+        .lib-add-btn:hover { background: #162816; border-color: #44aa44; color: #88ff88; }
+
+        .lib-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 10px;
+            min-height: 100px;
+        }
+
+        .lib-empty {
+            text-align: center;
+            padding: 36px 20px;
+            color: #444;
+            font-size: 0.85em;
+            line-height: 1.8;
+        }
+        .lib-empty small { color: #333; }
+
+        .lib-row {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 8px;
+            border-radius: 4px;
+            border: 1px solid transparent;
+            margin-bottom: 3px;
+            transition: background 0.1s;
+        }
+        .lib-row:hover { background: #222; }
+        .lib-row.mounted { background: #151d10; border-color: #253a18; }
+
+        .lib-type-badge {
+            font-size: 0.58em;
+            font-weight: bold;
+            letter-spacing: 1px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            flex-shrink: 0;
+            font-family: 'Courier New', monospace;
+        }
+        .lib-badge-fdd { background: #0d1e36; border: 1px solid #1a4a88; color: #5599ee; }
+        .lib-badge-hdd { background: #281c00; border: 1px solid #775500; color: #ccaa44; }
+        .lib-badge-cmt { background: #0a180a; border: 1px solid #1e4a1e; color: #44aa44; }
+
+        .lib-file-name {
+            flex: 1;
+            font-size: 0.82em;
+            color: #aaa;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-family: monospace;
+            min-width: 0;
+        }
+
+        .lib-file-size {
+            font-size: 0.7em;
+            color: #484848;
+            white-space: nowrap;
+            flex-shrink: 0;
+            min-width: 46px;
+            text-align: right;
+        }
+
+        .lib-row-btns { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
+
+        .lib-mount-btn {
+            background: #161628;
+            border: 1px solid #2a2a55;
+            color: #4a4a99;
+            font-size: 0.63em;
+            padding: 3px 9px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0.5px;
+            transition: all 0.1s;
+            white-space: nowrap;
+        }
+        .lib-mount-btn:hover { border-color: #6666cc; color: #9999ff; background: #1e1e3a; }
+        .lib-mount-btn.active { background: #162010; border-color: #338833; color: #66ee66; }
+
+        .lib-dl-btn, .lib-del-btn {
+            background: none;
+            border: 1px solid transparent;
+            font-size: 0.82em;
+            padding: 2px 7px;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+        .lib-dl-btn { color: #3a4a55; }
+        .lib-dl-btn:hover { background: #161e28; border-color: #3a5a77; color: #7aaccc; }
+        .lib-del-btn { color: #3a2222; }
+        .lib-del-btn:hover { background: #201616; border-color: #663333; color: #bb5555; }
+
+        /* ── Drive 連携ボタン ── */
+        .cfg-drive-btn { background: #0a1a2e; border: 1px solid #1a4a88; color: #5599ee; }
+        .cfg-drive-btn:hover { background: #0d2244; border-color: #3a7acc; color: #88bbff; }
+        .cfg-drive-btn.connected { background: #0a1e0a; border-color: #2a7a2a; color: #55cc55; }
+        .lib-drive-pick-btn {
+            background: #0a1a2e; border: 1px solid #1a4a88; color: #5599ee;
+            font-size: 0.72em; padding: 4px 12px; border-radius: 3px; cursor: pointer;
+            font-family: 'Courier New', monospace; letter-spacing: 0.5px;
+            transition: all 0.1s;
+        }
+        .lib-drive-pick-btn:hover { background: #0d2244; border-color: #3a7acc; color: #88bbff; }
+        .lib-picker-btn { border-color: #2a5a1a; color: #66bb44; }
+        .lib-picker-btn:hover { background: #0d2a0d; border-color: #3a8a2a; color: #99dd66; }
+        .lib-drive-save-btn {
+            background: none; border: 1px solid transparent; color: #2a3a4a;
+            padding: 2px 6px; border-radius: 3px; cursor: pointer;
+            font-size: 0.9em; transition: all 0.1s;
+        }
+        .lib-drive-save-btn.linked  { color: #3a7acc; border-color: #1a4a55; }
+        .lib-drive-save-btn:hover   { background: #0a1a2e; border-color: #1a4a88; color: #5599ee; }
+        .lib-drive-save-btn.saving  { opacity: 0.5; cursor: default; pointer-events: none; }
+
+        #drive-status {
+            padding: 5px 14px;
+            font-size: 0.82em;
+            font-family: monospace;
+            border-top: 1px solid #1a1a1a;
+            flex-shrink: 0;
+            min-height: 24px;
+        }
+        #drive-status.hidden         { display: none; }
+        #drive-status.drive-progress { color: #88aacc; }
+        #drive-status.drive-success  { color: #44bb66; }
+        #drive-status.drive-error    { color: #cc5555; }
+
+        /* ── Drive ファイルブラウザ モーダル ── */
+        #drive-browser-modal {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.72);
+            z-index: 2000;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #drive-browser-modal.hidden { display: none !important; }
+        .drive-browser-dialog {
+            background: #0d1a2e;
+            border: 1px solid #1a4a88;
+            border-radius: 7px;
+            width: 500px; max-width: 95vw;
+            max-height: 80vh;
+            display: flex; flex-direction: column;
+            color: #aaccee;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+            font-family: 'Courier New', monospace;
+        }
+        .drive-browser-header {
+            padding: 10px 16px;
+            font-size: 0.95em; font-weight: bold;
+            border-bottom: 1px solid #1a3a5a;
+            color: #88bbff;
+            letter-spacing: 0.5px;
+        }
+        .drive-browser-search {
+            padding: 8px 12px;
+            display: flex; gap: 6px;
+            border-bottom: 1px solid #1a3a5a;
+        }
+        .drive-browser-search input {
+            flex: 1;
+            background: #0a1220; border: 1px solid #1a4a55;
+            color: #aaccee; padding: 5px 9px;
+            border-radius: 3px; font-size: 0.88em;
+            font-family: 'Courier New', monospace;
+            outline: none;
+        }
+        .drive-browser-search input:focus { border-color: #3a7acc; }
+        .drive-browser-search button {
+            background: #0a2040; border: 1px solid #1a4a88;
+            color: #5599ee; padding: 5px 12px;
+            border-radius: 3px; cursor: pointer; font-size: 0.85em;
+            font-family: 'Courier New', monospace;
+            transition: all 0.1s;
+        }
+        .drive-browser-search button:hover { background: #0d2a50; border-color: #3a7acc; color: #88bbff; }
+        .drive-file-list {
+            list-style: none; margin: 0; padding: 0;
+            overflow-y: auto; flex: 1;
+            min-height: 100px; max-height: 320px;
+        }
+        .drive-file-item {
+            display: flex; align-items: center;
+            padding: 8px 14px;
+            cursor: pointer;
+            border-bottom: 1px solid #0d2030;
+            transition: background 0.1s;
+        }
+        .drive-file-item:hover { background: #0a2040; }
+        .drive-file-item:last-child { border-bottom: none; }
+        .drive-file-name {
+            flex: 1; font-size: 0.88em;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            color: #cce4ff;
+        }
+        .drive-file-size {
+            font-size: 0.76em; color: #5a7a8a;
+            margin-left: 10px; flex-shrink: 0;
+        }
+        .drive-file-msg {
+            padding: 18px 14px;
+            color: #5a7a8a; font-size: 0.85em;
+            list-style: none; text-align: center;
+        }
+        .drive-file-error { color: #cc5555; }
+        .drive-browser-footer {
+            padding: 8px 14px;
+            display: flex; align-items: center; justify-content: space-between;
+            border-top: 1px solid #1a3a5a;
+            flex-shrink: 0;
+        }
+        .drive-browser-hint {
+            font-size: 0.75em; color: #3a5a6a; font-style: italic;
+        }
+        .drive-browser-footer button {
+            background: #0a1a2e; border: 1px solid #1a4a55;
+            color: #5a7a8a; padding: 4px 14px;
+            border-radius: 3px; cursor: pointer;
+            font-family: 'Courier New', monospace; font-size: 0.85em;
+            transition: all 0.1s;
+        }
+        .drive-browser-footer button:hover { border-color: #3a7acc; color: #aaccee; }
+
+        .lib-capacity {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 14px;
+            border-top: 1px solid #1e1e1e;
+            background: #0c0c0c;
+            flex-shrink: 0;
+            min-height: 30px;
+        }
+        .lib-cap-bar-wrap {
+            flex: 1;
+            height: 6px;
+            background: #141414;
+            border: 1px solid #222;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .lib-cap-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #1a4428, #3a9944, #99cc33);
+            border-radius: 3px;
+            transition: width 0.5s;
+        }
+        .lib-cap-text {
+            font-size: 0.68em;
+            color: #484848;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        /* ════════════════════════════════════════════════════════════
+           ソフトウェアキーボード
+        ════════════════════════════════════════════════════════════ */
+        .sk-bar {
+            display: flex; justify-content: center; gap: 6px;
+            padding: 3px 0 4px;
+        }
+        .sk-toggle {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 32px; height: 22px;
+            padding: 0;
+            background: transparent; color: rgba(255,255,255,0.35);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 3px; font-size: 14px; cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .sk-toggle:hover { color: rgba(255,255,255,0.7); border-color: rgba(255,255,255,0.35); }
+        .sk-toggle.on { color: #fff; background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.4); }
+        .x1-kb {
+            width: 100%; max-width: 900px; margin: 6px auto 0;
+            padding: 4px;
+            user-select: none; -webkit-user-select: none;
+            touch-action: none;
+        }
+        .x1-kb-row {
+            display: flex; gap: 2px; margin-bottom: 2px;
+            justify-content: center;
+        }
+        .x1-key {
+            flex: 1; min-width: 0; height: 34px;
+            font-size: 10px; font-family: monospace;
+            background: #c8c8c8; color: #111; border: 1px solid #888;
+            border-radius: 3px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; white-space: nowrap;
+        }
+        .x1-key:active, .x1-key.pressed { background: #888; color: #fff; }
+        .x1-key.mod { background: #666; color: #eee; }
+        .x1-key.mod:active, .x1-key.mod.pressed { background: #444; }
+        .x1-key.active { background: #c04040; color: #fff; }
+        .x1-key.w15 { flex: 1.5; }
+        .x1-key.w2  { flex: 2; }
+        .x1-key.w25 { flex: 2.5; }
+        .x1-key.w4  { flex: 4; }
+        .x1-key.fn  { height: 26px; font-size: 9px; background: #555; color: #ddd; }
+        .x1-key.fn:active, .x1-key.fn.pressed { background: #333; }
+        .x1-key.arrow { flex: none; width: 34px; }
+        .x1-key.arrow-first { margin-left: auto; }
+        .x1-kb-numpad {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;
+            margin-top: 4px; border-top: 1px solid #555; padding-top: 4px;
+            max-width: 200px; margin-left: auto; margin-right: auto;
+        }
+        .x1-kb-numpad .x1-key { flex: none; }
+        .x1-kb-numpad .np-ret { grid-row: span 2; height: auto; }
+
+        /* ════════════════════════════════════════════════════════════
+           モバイル対応 (縦持ちスマートフォン)
+        ════════════════════════════════════════════════════════════ */
+        @media (max-width: 600px) {
+            body { padding: 8px; }
+            h1 { font-size: 1.6em; }
+            .subtitle { font-size: 0.9em; }
+            .based-on { font-size: 0.6em; }
+
+            /* ハードウェアバー: 縦積み */
+            .machine-hw-bar {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+                padding: 8px;
+            }
+            .hw-ctrl-area {
+                justify-content: center;
+            }
+            .hw-divider {
+                width: 100%; height: 1px;
+                margin: 0;
+            }
+
+            /* FDD: 横並びを維持しつつ収まるようにする */
+            .hw-fdd-area {
+                width: 100%;
+                flex: none;
+            }
+            .fdd-bay {
+                min-width: 0;
+                flex: 1;
+            }
+
+            /* CMT: トランスポートボタン折り返し */
+            .cmt-deck-transport {
+                flex-wrap: wrap;
+                gap: 4px;
+            }
+            .cmt-trans-btn {
+                flex: 1 1 auto;
+                min-width: 50px;
+            }
+            .cmt-deck-sep {
+                display: none;
+            }
+            .cmt-media-btn {
+                flex: 0 1 auto;
+            }
+
+            /* HDD スロット: 縦積み */
+            .machine-hdd-bar {
+                flex-direction: column;
+            }
+            .hdd-slot {
+                min-width: 0;
+                width: 100%;
+            }
+
+            /* ROM / フォントスロット: 縦積み */
+            .machine-rom-bar {
+                flex-direction: column;
+            }
+            .rom-slot {
+                min-width: 0;
+                width: 100%;
+            }
+
+            /* 設定パネル: 縦積み */
+            .config-panel {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+                padding: 10px 12px;
+            }
+            .cfg-block {
+                padding: 0;
+            }
+            .cfg-block:first-child { padding-left: 0; }
+            .cfg-block:last-child  { padding-right: 0; }
+            .cfg-divider {
+                width: 100%; height: 1px;
+                margin: 0;
+            }
+            .cfg-block--danger {
+                margin-left: 0;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>X millennium Web</h1>
+        <div class="subtitle">SHARP X1 Emulator for Web Browser</div>
+        <div class="based-on">v0.3.0 &mdash; based on X millennium t-tune Ver0.26 step1.43</div>
+    </header>
+
+    <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <p>エミュレータを読み込み中...</p>
+    </div>
+
+    <!-- ════ 非表示ファイル入力 ════ -->
+    <!-- ライブラリ追加: 全タイプ対応、複数ファイル同時選択可 -->
+    <input type="file" id="file-add-to-library"
+           multiple style="display:none">
+    <input type="file" id="file-rom-x1"   accept=".X1,.x1" style="display:none">
+    <input type="file" id="file-rom-x1t"  accept=".X1T,.x1t,.X1,.x1" style="display:none">
+    <input type="file" id="file-fnt-ank8" accept=".X1,.x1" style="display:none">
+    <input type="file" id="file-fnt-ank16" accept=".X1,.x1" style="display:none">
+    <input type="file" id="file-fnt-knj"  accept=".X1,.x1" style="display:none">
+
+    <!-- ════ DIPスイッチ 隠しチェックボックス (pre.js から参照) ════ -->
+    <input type="checkbox" id="dip-highres" style="display:none">
+    <input type="checkbox" id="dip-2hd"     style="display:none">
+
+    <div id="main-content" class="hidden">
+
+        <!-- ════════════════════════════════════════════════════════
+             統合マシンパネル
+        ════════════════════════════════════════════════════════ -->
+        <div class="machine-panel">
+
+            <!-- スクリーン -->
+            <div class="machine-screen">
+                <div id="screen-wrap">
+                    <canvas id="canvas" width="640" height="400"></canvas>
+                    <button id="btn-fullscreen" title="フルスクリーン">⛶</button>
+                </div>
+                <div id="status-text"></div>
+            </div>
+
+            <!-- ソフトウェアキーボード トグル -->
+            <div class="sk-bar">
+                <button id="sk-toggle" class="sk-toggle" title="ソフトウェアキーボード"><svg width="18" height="12" viewBox="0 0 18 12" fill="none"><rect x=".6" y=".6" width="16.8" height="10.8" rx="1.5" stroke="currentColor" stroke-width="1.1"/><g fill="currentColor"><rect x="2.5" y="2.2" width="2" height="1.6" rx=".3"/><rect x="5.5" y="2.2" width="2" height="1.6" rx=".3"/><rect x="8.5" y="2.2" width="2" height="1.6" rx=".3"/><rect x="11.5" y="2.2" width="4" height="1.6" rx=".3"/><rect x="2.5" y="4.8" width="2" height="1.6" rx=".3"/><rect x="5.5" y="4.8" width="2" height="1.6" rx=".3"/><rect x="8.5" y="4.8" width="2" height="1.6" rx=".3"/><rect x="11.5" y="4.8" width="4" height="1.6" rx=".3"/><rect x="4.5" y="7.8" width="9" height="1.8" rx=".3"/></g></svg></button>
+            </div>
+            <div id="soft-keyboard" class="x1-kb hidden">
+              <!-- Row 0: Function + Tape -->
+              <div class="x1-kb-row">
+                <span class="x1-key fn" data-vk="0x70">F1</span>
+                <span class="x1-key fn" data-vk="0x71">F2</span>
+                <span class="x1-key fn" data-vk="0x72">F3</span>
+                <span class="x1-key fn" data-vk="0x73">F4</span>
+                <span class="x1-key fn" data-vk="0x74">F5</span>
+                <span style="flex:2"></span>
+                <span class="x1-key fn" data-action="cmt_rew">&#x23EA;</span>
+                <span class="x1-key fn" data-action="cmt_stop">&#x23F9;</span>
+                <span class="x1-key fn" data-action="cmt_ff">&#x23E9;</span>
+              </div>
+              <!-- Row 1: Number row -->
+              <div class="x1-kb-row">
+                <span class="x1-key mod" data-vk="0x1b">ESC</span>
+                <span class="x1-key" data-vk="0x31">1</span>
+                <span class="x1-key" data-vk="0x32">2</span>
+                <span class="x1-key" data-vk="0x33">3</span>
+                <span class="x1-key" data-vk="0x34">4</span>
+                <span class="x1-key" data-vk="0x35">5</span>
+                <span class="x1-key" data-vk="0x36">6</span>
+                <span class="x1-key" data-vk="0x37">7</span>
+                <span class="x1-key" data-vk="0x38">8</span>
+                <span class="x1-key" data-vk="0x39">9</span>
+                <span class="x1-key" data-vk="0x30">0</span>
+                <span class="x1-key" data-vk="0xbd">-</span>
+                <span class="x1-key" data-vk="0xde">^</span>
+                <span class="x1-key" data-vk="0xdc">&yen;</span>
+                <span class="x1-key mod" data-vk="0x13">BRK</span>
+              </div>
+              <!-- Row 2: QWERTY top -->
+              <div class="x1-kb-row">
+                <span class="x1-key mod w15" data-vk="0x09">TAB</span>
+                <span class="x1-key" data-vk="0x51">Q</span>
+                <span class="x1-key" data-vk="0x57">W</span>
+                <span class="x1-key" data-vk="0x45">E</span>
+                <span class="x1-key" data-vk="0x52">R</span>
+                <span class="x1-key" data-vk="0x54">T</span>
+                <span class="x1-key" data-vk="0x59">Y</span>
+                <span class="x1-key" data-vk="0x55">U</span>
+                <span class="x1-key" data-vk="0x49">I</span>
+                <span class="x1-key" data-vk="0x4f">O</span>
+                <span class="x1-key" data-vk="0x50">P</span>
+                <span class="x1-key" data-vk="0xc0">@</span>
+                <span class="x1-key" data-vk="0xdb">[</span>
+                <span class="x1-key mod" data-vk="0x2d">INS</span>
+                <span class="x1-key mod" data-vk="0x2e">DEL</span>
+              </div>
+              <!-- Row 3: Home row -->
+              <div class="x1-kb-row">
+                <span class="x1-key mod w15" data-vk="0x11" data-latch="oneshot">CTRL</span>
+                <span class="x1-key" data-vk="0x41">A</span>
+                <span class="x1-key" data-vk="0x53">S</span>
+                <span class="x1-key" data-vk="0x44">D</span>
+                <span class="x1-key" data-vk="0x46">F</span>
+                <span class="x1-key" data-vk="0x47">G</span>
+                <span class="x1-key" data-vk="0x48">H</span>
+                <span class="x1-key" data-vk="0x4a">J</span>
+                <span class="x1-key" data-vk="0x4b">K</span>
+                <span class="x1-key" data-vk="0x4c">L</span>
+                <span class="x1-key" data-vk="0xbb">;</span>
+                <span class="x1-key" data-vk="0xba">:</span>
+                <span class="x1-key" data-vk="0xdd">]</span>
+                <span class="x1-key w2" data-vk="0x0d">RET</span>
+              </div>
+              <!-- Row 4: Bottom row -->
+              <div class="x1-kb-row">
+                <span class="x1-key mod w2" data-vk="0x10" data-latch="oneshot">SHIFT</span>
+                <span class="x1-key" data-vk="0x5a">Z</span>
+                <span class="x1-key" data-vk="0x58">X</span>
+                <span class="x1-key" data-vk="0x43">C</span>
+                <span class="x1-key" data-vk="0x56">V</span>
+                <span class="x1-key" data-vk="0x42">B</span>
+                <span class="x1-key" data-vk="0x4e">N</span>
+                <span class="x1-key" data-vk="0x4d">M</span>
+                <span class="x1-key" data-vk="0xbc">,</span>
+                <span class="x1-key" data-vk="0xbe">.</span>
+                <span class="x1-key" data-vk="0xbf">/</span>
+                <span class="x1-key" data-vk="0xe2">_</span>
+                <span class="x1-key mod" data-vk="0x10" data-latch="oneshot">SHIFT</span>
+                <span class="x1-key arrow arrow-first" data-vk="0x26">&#x2191;</span>
+              </div>
+              <!-- Row 5: Space row + arrows -->
+              <div class="x1-kb-row">
+                <span class="x1-key mod w15" data-vk="0x12" data-latch="toggle">GRP</span>
+                <span class="x1-key mod w15" data-vk="0x14" data-latch="toggle">CAPS</span>
+                <span class="x1-key w4" data-vk="0x20">SPACE</span>
+                <span class="x1-key mod w15" data-vk="0x15" data-latch="toggle">&#x30AB;&#x30CA;</span>
+                <span class="x1-key arrow arrow-first" data-vk="0x25">&#x2190;</span>
+                <span class="x1-key arrow" data-vk="0x27">&#x2192;</span>
+                <span class="x1-key arrow" data-vk="0x28">&#x2193;</span>
+              </div>
+              <!-- Numpad (collapsible, CSS grid 4 columns) -->
+              <div id="sk-numpad" class="x1-kb-numpad hidden">
+                <span class="x1-key" data-vk="0x24">CLR</span>
+                <span class="x1-key" data-vk="0x6f">/</span>
+                <span class="x1-key" data-vk="0x6a">*</span>
+                <span class="x1-key" data-vk="0x6d">-</span>
+                <span class="x1-key" data-vk="0x67">7</span>
+                <span class="x1-key" data-vk="0x68">8</span>
+                <span class="x1-key" data-vk="0x69">9</span>
+                <span class="x1-key" data-vk="0x6b">+</span>
+                <span class="x1-key" data-vk="0x64">4</span>
+                <span class="x1-key" data-vk="0x65">5</span>
+                <span class="x1-key" data-vk="0x66">6</span>
+                <span class="x1-key" data-vk="0x92">=</span>
+                <span class="x1-key" data-vk="0x61">1</span>
+                <span class="x1-key" data-vk="0x62">2</span>
+                <span class="x1-key" data-vk="0x63">3</span>
+                <span class="x1-key" data-vk="0x6e">.</span>
+                <span class="x1-key" data-vk="0x60">0</span>
+                <span class="x1-key" data-vk="0x6c">,</span>
+                <span class="x1-key" data-vk="0x26">&#x2191;</span>
+                <span class="x1-key np-ret" data-vk="0x0d">RET</span>
+                <span class="x1-key" data-vk="0x25">&#x2190;</span>
+                <span class="x1-key" data-vk="0x27">&#x2192;</span>
+                <span class="x1-key" data-vk="0x28">&#x2193;</span>
+              </div>
+              <div style="text-align:center;padding-top:2px">
+                <button id="sk-numpad-toggle" class="sk-toggle" title="テンキー表示切替"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x=".6" y=".6" width="10.8" height="10.8" rx="1.2" stroke="currentColor" stroke-width="1"/><g fill="currentColor"><rect x="2" y="2" width="2" height="2" rx=".3"/><rect x="5" y="2" width="2" height="2" rx=".3"/><rect x="8" y="2" width="2" height="2" rx=".3"/><rect x="2" y="5" width="2" height="2" rx=".3"/><rect x="5" y="5" width="2" height="2" rx=".3"/><rect x="8" y="5" width="2" height="2" rx=".3"/><rect x="2" y="8" width="5" height="2" rx=".3"/><rect x="8" y="8" width="2" height="2" rx=".3"/></g></svg></button>
+              </div>
+            </div>
+
+            <!-- ハードウェアバー -->
+            <div class="machine-hw-bar">
+
+                <!-- 電源 + RESET + トグル -->
+                <div class="hw-ctrl-area">
+
+                    <!-- 電源ボタン -->
+                    <button class="hw-power-btn" id="ctrl-power" title="電源 ON/OFF">⏻</button>
+
+                    <!-- RESET 枠 -->
+                    <div class="hw-reset-box">
+                        <span class="hw-reset-title">RESET</span>
+                        <div class="hw-reset-body">
+                            <div class="hw-btn-row">
+                                <div class="hw-btn-cell">
+                                    <span class="hw-cell-label">IPL</span>
+                                    <div class="hw-socket">
+                                        <button class="hw-push-btn hw-push-red" id="ctrl-ipl" title="IPL RESET"></button>
+                                    </div>
+                                </div>
+                                <div class="hw-btn-cell">
+                                    <span class="hw-cell-label">NMI</span>
+                                    <div class="hw-socket">
+                                        <button class="hw-push-btn hw-push-grey" id="ctrl-nmi" title="NMI RESET"></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- トグルスイッチ群 -->
+                    <div class="hw-switches">
+                        <!-- START DISK: 2D / 2HD -->
+                        <div class="hw-switch-item">
+                            <span class="hw-switch-caption">START<br>DISK</span>
+                            <div class="hw-switch-labels">
+                                <div class="hw-switch-label active" id="sw-disk-2d">
+                                    <span class="hw-ind"></span>
+                                    <span class="hw-label-text">2D</span>
+                                </div>
+                                <div class="hw-switch-label" id="sw-disk-2hd">
+                                    <span class="hw-ind"></span>
+                                    <span class="hw-label-text">2HD</span>
+                                </div>
+                            </div>
+                            <div class="hw-socket">
+                                <button class="hw-rocker-btn" id="sw-disk-toggle" title="2D / 2HD 切り替え"></button>
+                            </div>
+                        </div>
+
+                        <!-- RESOLUTION: STANDARD / HIGH -->
+                        <div class="hw-switch-item">
+                            <span class="hw-switch-caption">RESOLUTION</span>
+                            <div class="hw-switch-labels">
+                                <div class="hw-switch-label active" id="sw-res-std">
+                                    <span class="hw-ind"></span>
+                                    <span class="hw-label-text">STANDARD</span>
+                                </div>
+                                <div class="hw-switch-label" id="sw-res-high">
+                                    <span class="hw-ind"></span>
+                                    <span class="hw-label-text">HIGH</span>
+                                </div>
+                            </div>
+                            <div class="hw-socket">
+                                <button class="hw-rocker-btn" id="sw-res-toggle" title="STANDARD / HIGH 切り替え"></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hw-divider"></div>
+
+                <!-- FDD ドライブ -->
+                <div class="hw-fdd-area">
+
+                    <!-- ドライブ 0 -->
+                    <div class="fdd-bay" id="fdd-bay-0">
+                        <div class="fdd-bay-face">
+                            <div class="fdd-face-header">
+                                <div class="fdd-led" id="fdd-led-0"></div>
+                                <span class="fdd-drive-label">DRIVE 0</span>
+                            </div>
+                            <div class="fdd-slot-row">
+                                <div class="fdd-slot"><div class="fdd-slot-slit"></div></div>
+                                <button class="fdd-hw-eject" id="fdd-hw-eject-0" title="イジェクト"></button>
+                            </div>
+                        </div>
+                        <div class="fdd-bay-footer">
+                            <span class="fdd-disk-name" id="fdd-disk-name-0">未挿入</span>
+                            <div class="fdd-bay-btns">
+                                <button class="fdd-btn" id="fdd-open-0" title="ライブラリを開く">📂</button>
+                                <button class="fdd-btn fdd-btn-eject" id="fdd-eject-0" disabled>⏏</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ドライブ 1 -->
+                    <div class="fdd-bay" id="fdd-bay-1">
+                        <div class="fdd-bay-face">
+                            <div class="fdd-face-header">
+                                <div class="fdd-led" id="fdd-led-1"></div>
+                                <span class="fdd-drive-label">DRIVE 1</span>
+                            </div>
+                            <div class="fdd-slot-row">
+                                <div class="fdd-slot"><div class="fdd-slot-slit"></div></div>
+                                <button class="fdd-hw-eject" id="fdd-hw-eject-1" title="イジェクト"></button>
+                            </div>
+                        </div>
+                        <div class="fdd-bay-footer">
+                            <span class="fdd-disk-name" id="fdd-disk-name-1">未挿入</span>
+                            <div class="fdd-bay-btns">
+                                <button class="fdd-btn" id="fdd-open-1" title="ライブラリを開く">📂</button>
+                                <button class="fdd-btn fdd-btn-eject" id="fdd-eject-1" disabled>⏏</button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div><!-- /.hw-fdd-area -->
+
+                <div class="hw-divider"></div>
+
+                <!-- ステートセーブ/ロード -->
+                <div class="hw-state-area">
+                    <span class="hw-state-title">STATE</span>
+                    <div class="hw-state-btns">
+                        <button class="hw-state-btn" id="state-quick-save" title="クイックセーブ">SAVE</button>
+                        <button class="hw-state-btn" id="state-quick-load" title="クイックロード">LOAD</button>
+                        <button class="hw-state-btn hw-state-btn-list" id="state-open-panel" title="ステート一覧">LIST</button>
+                    </div>
+                </div>
+            </div><!-- /.machine-hw-bar -->
+
+            <!-- CMT デッキ -->
+            <div class="machine-cmt">
+                <div class="cmt-deck" id="cmt-deck">
+                    <div class="cmt-deck-header">
+                        <span class="cmt-deck-label">CMT</span>
+                        <span class="cmt-deck-tape-name" id="cmt-deck-name">未挿入</span>
+                        <span class="cmt-deck-badge" id="cmt-deck-badge">● EJECT</span>
+                    </div>
+                    <div class="cmt-deck-reels">
+                        <div class="cmt-reel-wrap">
+                            <svg class="cmt-reel-svg" id="cmt-reel-l" viewBox="0 0 50 50">
+                                <circle cx="25" cy="25" r="22" fill="#0a0800" stroke="#4a3200" stroke-width="2"/>
+                                <circle id="cmt-tape-ring-l" cx="25" cy="25" r="14" fill="none" stroke="#2e1e00" stroke-width="5"/>
+                                <line x1="25" y1="5"  x2="25" y2="45" stroke="#4a3200" stroke-width="1.5"/>
+                                <line x1="5"  y1="25" x2="45" y2="25" stroke="#4a3200" stroke-width="1.5"/>
+                                <line x1="10" y1="10" x2="40" y2="40" stroke="#4a3200" stroke-width="1.5"/>
+                                <line x1="40" y1="10" x2="10" y2="40" stroke="#4a3200" stroke-width="1.5"/>
+                                <circle cx="25" cy="25" r="7"   fill="#1e1400" stroke="#4a3200" stroke-width="1.5"/>
+                                <circle cx="25" cy="25" r="2.5" fill="#4a3200"/>
+                            </svg>
+                        </div>
+                        <div class="cmt-tape-path">
+                            <div class="cmt-tape-top-guide"></div>
+                            <div class="cmt-tape-head-area"><div class="cmt-tape-head"></div></div>
+                            <div class="cmt-tape-bot-guide"></div>
+                        </div>
+                        <div class="cmt-reel-wrap">
+                            <svg class="cmt-reel-svg" id="cmt-reel-r" viewBox="0 0 50 50">
+                                <circle cx="25" cy="25" r="22" fill="#0a0800" stroke="#4a3200" stroke-width="2"/>
+                                <circle id="cmt-tape-ring-r" cx="25" cy="25" r="7"  fill="none" stroke="#2e1e00" stroke-width="5"/>
+                                <line x1="25" y1="5"  x2="25" y2="45" stroke="#4a3200" stroke-width="1.5"/>
+                                <line x1="5"  y1="25" x2="45" y2="25" stroke="#4a3200" stroke-width="1.5"/>
+                                <line x1="10" y1="10" x2="40" y2="40" stroke="#4a3200" stroke-width="1.5"/>
+                                <line x1="40" y1="10" x2="10" y2="40" stroke="#4a3200" stroke-width="1.5"/>
+                                <circle cx="25" cy="25" r="7"   fill="#1e1400" stroke="#4a3200" stroke-width="1.5"/>
+                                <circle cx="25" cy="25" r="2.5" fill="#4a3200"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="cmt-deck-transport">
+                        <div class="cmt-trans-btn" id="cdeck-rew">⏮ REW</div>
+                        <div class="cmt-trans-btn" id="cdeck-stop">■ STOP</div>
+                        <div class="cmt-trans-btn" id="cdeck-play">▶ PLAY</div>
+                        <div class="cmt-trans-btn" id="cdeck-ff">⏭ FF</div>
+                        <span class="cmt-deck-sep">│</span>
+                        <button class="cmt-media-btn cmt-insert-btn" id="cdeck-insert" title="テープを挿入">📂 挿入</button>
+                        <button class="cmt-media-btn cmt-eject-btn"  id="cdeck-eject"  disabled title="テープを取り出す">⏏ 取出</button>
+                    </div>
+                    <div class="cmt-deck-footer">
+                        <span class="cmt-deck-time" id="cmt-deck-time">--:-- / --:--</span>
+                        <div class="cmt-deck-bar-wrap">
+                            <div class="cmt-deck-bar-fill" id="cmt-deck-bar"></div>
+                        </div>
+                    </div>
+                </div>
+            </div><!-- /.machine-cmt -->
+
+            <!-- HDD スロット -->
+            <div class="machine-hdd-bar">
+                <!-- HDD 0 -->
+                <div class="hdd-slot" id="hdd-slot-0">
+                    <div class="hdd-led" id="hdd0-led"></div>
+                    <span class="hdd-slot-label">HDD 0</span>
+                    <span class="hdd-chip-name" id="hdd0-name">（未挿入）</span>
+                    <button class="hdd-btn" id="hdd-open-0" title="ライブラリを開く">📂</button>
+                    <button class="hdd-btn" id="btn-hdd0-eject" disabled title="イジェクト（アンマウント）">⏏</button>
+                </div>
+                <!-- HDD 1 -->
+                <div class="hdd-slot" id="hdd-slot-1">
+                    <div class="hdd-led" id="hdd1-led"></div>
+                    <span class="hdd-slot-label">HDD 1</span>
+                    <span class="hdd-chip-name" id="hdd1-name">（未挿入）</span>
+                    <button class="hdd-btn" id="hdd-open-1" title="ライブラリを開く">📂</button>
+                    <button class="hdd-btn" id="btn-hdd1-eject" disabled title="イジェクト（アンマウント）">⏏</button>
+                </div>
+            </div>
+
+            <!-- ROM スロット -->
+            <div class="machine-rom-bar">
+                <div class="rom-slot" id="rom-slot-x1">
+                    <div class="rom-led" id="rom-led-x1"></div>
+                    <span class="rom-slot-label">X1 ROM</span>
+                    <span class="rom-chip-name" id="rom-name-x1">未ロード</span>
+                    <button class="rom-btn" id="btn-rom-x1-open" title="ROM読み込み">📂</button>
+                    <button class="rom-btn rom-btn-clear" id="rom-clear-x1" disabled title="クリア">✕</button>
+                </div>
+                <div class="rom-slot" id="rom-slot-x1t">
+                    <div class="rom-led" id="rom-led-x1t"></div>
+                    <span class="rom-slot-label">TURBO ROM</span>
+                    <span class="rom-chip-name" id="rom-name-x1t">未ロード</span>
+                    <button class="rom-btn" id="btn-rom-x1t-open" title="ROM読み込み">📂</button>
+                    <button class="rom-btn rom-btn-clear" id="rom-clear-x1t" disabled title="クリア">✕</button>
+                </div>
+            </div>
+
+            <!-- フォント ROM スロット -->
+            <div class="machine-rom-bar">
+                <div class="rom-slot" id="fnt-slot-ank8">
+                    <div class="rom-led" id="fnt-led-ank8"></div>
+                    <span class="rom-slot-label">ANK 8x8</span>
+                    <span class="rom-chip-name" id="fnt-name-ank8">内蔵フォント</span>
+                    <button class="rom-btn" id="btn-fnt-ank8-open" title="FNT0808.X1 読み込み">📂</button>
+                    <button class="rom-btn rom-btn-clear" id="fnt-clear-ank8" disabled title="クリア">✕</button>
+                </div>
+                <div class="rom-slot" id="fnt-slot-ank16">
+                    <div class="rom-led" id="fnt-led-ank16"></div>
+                    <span class="rom-slot-label">ANK 8x16</span>
+                    <span class="rom-chip-name" id="fnt-name-ank16">未ロード</span>
+                    <button class="rom-btn" id="btn-fnt-ank16-open" title="FNT0816.X1 読み込み">📂</button>
+                    <button class="rom-btn rom-btn-clear" id="fnt-clear-ank16" disabled title="クリア">✕</button>
+                </div>
+                <div class="rom-slot" id="fnt-slot-knj">
+                    <div class="rom-led" id="fnt-led-knj"></div>
+                    <span class="rom-slot-label">KNJ 16x16</span>
+                    <span class="rom-chip-name" id="fnt-name-knj">未ロード</span>
+                    <button class="rom-btn" id="btn-fnt-knj-open" title="FNT1616.X1 読み込み">📂</button>
+                    <button class="rom-btn rom-btn-clear" id="fnt-clear-knj" disabled title="クリア">✕</button>
+                </div>
+            </div>
+
+        </div><!-- /.machine-panel -->
+
+        <!-- ════ 設定パネル ════ -->
+        <div class="config-panel">
+
+            <!-- MODEL -->
+            <div class="cfg-block">
+                <span class="cfg-block-title">Model</span>
+                <div class="cfg-model-row">
+                    <label class="cfg-model-btn active" id="cfgbtn-x1">
+                        <input type="radio" name="rom-type" value="1" id="rom-x1" checked style="display:none">X1
+                    </label>
+                    <label class="cfg-model-btn" id="cfgbtn-turbo">
+                        <input type="radio" name="rom-type" value="2" id="rom-turbo" style="display:none">X1 turbo
+                    </label>
+                    <label class="cfg-model-btn" id="cfgbtn-turboz">
+                        <input type="radio" name="rom-type" value="3" id="rom-turboz" style="display:none">X1 turboZ
+                    </label>
+                </div>
+                <span class="cfg-model-note">※ リセット後に反映</span>
+            </div>
+
+            <div class="cfg-divider"></div>
+
+            <!-- OPTIONS -->
+            <div class="cfg-block">
+                <span class="cfg-block-title">Options</span>
+                <div class="cfg-toggles">
+                    <label class="cfg-toggle-item" id="cfg-scanline-item">
+                        <input type="checkbox" id="skip-line" style="display:none">
+                        <span class="cfg-led"></span>
+                        <span class="cfg-toggle-label">Scan Line</span>
+                    </label>
+                    <label class="cfg-toggle-item on" id="cfg-motor-item">
+                        <input type="checkbox" id="motor-sound" checked style="display:none">
+                        <span class="cfg-led"></span>
+                        <span class="cfg-toggle-label">Seek Snd</span>
+                    </label>
+                    <div class="cfg-vol-row" id="cfg-seek-vol-row">
+                        <span class="cfg-vol-label">Vol</span>
+                        <input type="range" id="seek-volume" class="cfg-vol-slider"
+                               min="0" max="100" value="80">
+                        <span class="cfg-vol-val" id="seek-volume-val">80</span>
+                    </div>
+                    <label class="cfg-toggle-item on" id="cfg-joystick-item">
+                        <input type="checkbox" id="joystick-enable" checked style="display:none">
+                        <span class="cfg-led"></span>
+                        <span class="cfg-toggle-label">Joystick</span>
+                    </label>
+                    <label class="cfg-toggle-item" id="cfg-mouse-item">
+                        <input type="checkbox" id="mouse-enable" style="display:none">
+                        <span class="cfg-led"></span>
+                        <span class="cfg-toggle-label">Mouse</span>
+                    </label>
+                    <label class="cfg-toggle-item" id="cfg-status-item">
+                        <input type="checkbox" id="status-toast-enable" style="display:none">
+                        <span class="cfg-led"></span>
+                        <span class="cfg-toggle-label">Status</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="cfg-divider"></div>
+
+            <!-- KEY MODE -->
+            <div class="cfg-block">
+                <span class="cfg-block-title">Key Mode</span>
+                <div class="cfg-model-row">
+                    <label class="cfg-model-btn active" id="cfgbtn-key-std">
+                        <input type="radio" name="key-mode" value="0" id="key-mode-std" checked style="display:none">KB
+                    </label>
+                    <label class="cfg-model-btn" id="cfgbtn-key-joy1">
+                        <input type="radio" name="key-mode" value="1" id="key-mode-joy1" style="display:none">Joy1
+                    </label>
+                    <label class="cfg-model-btn" id="cfgbtn-key-joy2">
+                        <input type="radio" name="key-mode" value="2" id="key-mode-joy2" style="display:none">Joy2
+                    </label>
+                </div>
+            </div>
+
+            <div class="cfg-divider"></div>
+
+            <!-- STORAGE -->
+            <div class="cfg-block">
+                <span class="cfg-block-title">Storage</span>
+                <button class="cfg-util-btn cfg-drive-btn" id="btn-drive-connect">☁ Drive 接続</button>
+            </div>
+
+            <!-- DANGER ZONE: margin-left:auto で右端へ -->
+            <div class="cfg-block cfg-block--danger">
+                <button class="cfg-util-btn cfg-util-btn--danger" id="btn-clear-data">⚠ Clear Data</button>
+            </div>
+
+        </div><!-- /.config-panel -->
+
+    </div><!-- /#main-content -->
+</div><!-- /.container -->
+
+<!-- ════════════════════════════════════════════════════════════
+     ファイルライブラリ パネル (モーダル)
+════════════════════════════════════════════════════════════ -->
+<div id="library-panel" class="library-panel hidden">
+    <div class="library-panel-inner">
+        <div class="lib-panel-header">
+            <span class="lib-panel-title">ファイルライブラリ</span>
+            <button class="lib-close-btn" id="lib-close-btn">✕ 閉じる</button>
+        </div>
+        <div class="lib-filters">
+            <button class="lib-filter active" data-type="all">ALL</button>
+            <button class="lib-filter" data-type="fdd">FDD</button>
+            <button class="lib-filter" data-type="hdd">HDD</button>
+            <button class="lib-filter" data-type="cmt">CMT</button>
+            <button class="lib-drive-pick-btn hidden" id="btn-drive-pick"
+                    title="アプリが保存済みのファイルを一覧表示">☁ 保存済み</button>
+            <button class="lib-add-btn" id="lib-add-btn">＋ 追加</button>
+        </div>
+        <div id="library-list" class="lib-list"></div>
+        <div id="drive-status" class="hidden"></div>
+        <div id="library-capacity" class="lib-capacity"></div>
+    </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     ステートセーブ パネル (モーダル)
+════════════════════════════════════════════════════════════ -->
+<div id="state-panel" class="library-panel hidden">
+    <div class="library-panel-inner">
+        <div class="lib-panel-header">
+            <span class="lib-panel-title">ステートセーブ</span>
+            <button class="lib-close-btn" id="state-close-btn">✕ 閉じる</button>
+        </div>
+        <div class="state-panel-actions">
+            <button class="hw-state-btn" id="state-new-save">新規セーブ</button>
+            <button class="hw-state-btn" id="state-import-btn">インポート</button>
+            <input type="file" id="state-import-file" accept=".xmst" style="display:none">
+            <label class="cfg-toggle-item" id="cfg-overwrite-item">
+                <input type="checkbox" id="state-overwrite-mode" style="display:none">
+                <span class="cfg-led"></span>
+                <span class="cfg-toggle-label">OVERWRITE</span>
+            </label>
+            <button class="hw-state-btn hw-state-btn-danger" id="state-delete-all">全削除</button>
+        </div>
+        <div id="state-list" class="lib-list"></div>
+    </div>
+</div>
+
+<!-- ================================================================
+     Drive ファイルブラウザ モーダル
+     (Google Picker の代替: gapi.js 不使用・Drive API v3 REST で直接取得)
+     ================================================================ -->
+<div id="drive-browser-modal" class="hidden">
+    <div class="drive-browser-dialog">
+        <div class="drive-browser-header">☁ Drive 保存済みファイル一覧</div>
+        <div class="drive-browser-search">
+            <input type="text" id="drive-search-input" placeholder="ファイル名で検索..." autocomplete="off" />
+            <button id="drive-search-btn">検索</button>
+        </div>
+        <ul id="drive-file-list" class="drive-file-list"></ul>
+        <div class="drive-browser-footer">
+            <span class="drive-browser-hint">「X millennium Web」フォルダに保存済みのファイルのみ表示されます</span>
+            <button id="drive-browser-cancel">キャンセル</button>
+        </div>
+    </div>
+</div>
+
+<footer style="text-align:center; padding:18px 0 24px; margin-top:24px; border-top:1px solid #222;">
+    <a href="index.html" style="color:#888; font-size:0.85em; text-decoration:none; letter-spacing:0.5px;">&larr; Home</a>
+</footer>
+
+<script src="storage.js"></script>
+<script src="config.js"></script>
+<script src="drive_integration.js"></script>
+{{{ SCRIPT }}}
+</body>
+</html>

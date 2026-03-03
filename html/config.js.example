@@ -1,0 +1,11 @@
+// config.js - Google Drive API 設定
+// このファイルを config.js にコピーして使用してください。
+// config.js は .gitignore に含まれているためリポジトリにはコミットされません。
+//
+// Google Cloud Console で取得:
+//   DRIVE_CLIENT_ID : APIとサービス > 認証情報 > OAuth 2.0 クライアントID
+//                     必ずリファラ制限（許可する JavaScript 生成元）を設定してください
+
+window.XmilConfig = {
+    DRIVE_CLIENT_ID: 'your-client-id.apps.googleusercontent.com'
+};

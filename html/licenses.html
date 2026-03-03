@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Licenses — X millennium Web</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: linear-gradient(135deg, #4a0e10 0%, #8F2124 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 40px 20px 60px;
+        }
+
+        .container { max-width: 860px; margin: 0 auto; }
+
+        /* ── Header ── */
+        header { text-align: center; padding: 36px 0 40px; }
+        .site-title { font-size: 2em; letter-spacing: 3px; text-shadow: 2px 2px 8px rgba(0,0,0,0.6); }
+        .site-subtitle { font-size: 0.8em; opacity: 0.5; margin-top: 8px; letter-spacing: 1px; }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 28px;
+            color: rgba(255,200,200,0.6);
+            text-decoration: none;
+            font-size: 0.78em;
+            letter-spacing: 1px;
+            transition: color 0.12s;
+        }
+        .back-link:hover { color: rgba(255,200,200,0.9); }
+
+        /* ── パネル ── */
+        .panel {
+            background: rgba(0,0,0,0.32);
+            border: 1px solid rgba(255,255,255,0.09);
+            border-radius: 10px;
+            padding: 26px 30px;
+            margin-bottom: 18px;
+        }
+        .panel-title {
+            font-size: 0.62em;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.32);
+            font-weight: bold;
+            margin-bottom: 6px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+        }
+        .comp-name {
+            font-size: 1em;
+            color: #ffcc88;
+            margin: 14px 0 4px;
+        }
+        .comp-files {
+            font-size: 0.72em;
+            color: rgba(255,255,255,0.35);
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+        }
+        p {
+            line-height: 1.85;
+            font-size: 0.88em;
+            opacity: 0.82;
+        }
+        p + p { margin-top: 8px; }
+
+        /* ── ライセンス全文ブロック ── */
+        pre.license-text {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 6px;
+            padding: 16px 18px;
+            margin-top: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.78em;
+            line-height: 1.7;
+            color: rgba(255,255,255,0.6);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .license-tag {
+            display: inline-block;
+            font-size: 0.65em;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            padding: 2px 8px;
+            border-radius: 3px;
+            border: 1px solid rgba(192,64,74,0.5);
+            color: rgba(255,145,150,0.7);
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+
+        .divider {
+            border: none;
+            border-top: 1px solid rgba(255,255,255,0.07);
+            margin: 20px 0;
+        }
+
+        /* ── Footer ── */
+        footer {
+            text-align: center;
+            margin-top: 44px;
+            font-size: 0.66em;
+            opacity: 0.28;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <header>
+        <div class="site-title">Licenses</div>
+        <div class="site-subtitle">X millennium Web — Third-Party Notices</div>
+    </header>
+
+    <a class="back-link" href="./index.html">← トップページへ戻る</a>
+
+    <!-- X millennium 本体 -->
+    <div class="panel">
+        <div class="panel-title">原作エミュレータ</div>
+
+        <div class="comp-name">X millennium <span class="license-tag">Freeware / Non-commercial</span></div>
+        <div class="comp-files">原作者: ぷにゅ氏</div>
+        <p>
+            フリーウェアとして頒布されています。非商用・無保証の条件で利用・改変できます。
+            本 Web 版はこの頒布条件を継承します。
+        </p>
+
+        <hr class="divider">
+
+        <div class="comp-name">T_tune 改変版 <span class="license-tag">Freeware / Non-commercial</span></div>
+        <p>
+            X millennium をベースに機能追加・チューニングを施した版。
+            本 Web 版はこちらのソースを使用しています。原作の頒布条件（フリーウェア・非商用・無保証）を継承します。
+        </p>
+
+        <hr class="divider">
+
+        <div class="comp-name">FDD シミュレーションデータ</div>
+        <div class="comp-files">作者: nerd 氏</div>
+        <p>フロッピーディスクドライブのシミュレーション用 WAV データ。作者の許諾のもと使用しています。</p>
+    </div>
+
+    <!-- PSG / FM 音源 -->
+    <div class="panel">
+        <div class="panel-title">PSG / FM 音源エミュレーション</div>
+
+        <div class="comp-name">fm.c <span class="license-tag">Old MAME License</span></div>
+        <div class="comp-files">web/src/OPMSOUND/fm.cpp</div>
+        <p>YM2151 (OPM) / OPN / OPL 系 FM 音源のソフトウェアエミュレーション。</p>
+        <pre class="license-text">File: fm.c -- software implementation of FM sound generator
+Copyright (C) 1998 Tatsuyuki Satoh, MultiArcadeMachineEmulator development
+Version 0.37d
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU Library General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Library General Public License for more details.
+
+Usage of the MAME sound core outside of MAME is prohibited.
+The MAME sound core may only be used in a manner consistent with the
+MAME license, i.e. for non-commercial purposes only.</pre>
+
+        <hr class="divider">
+
+        <div class="comp-name">ay8910.c <span class="license-tag">Old MAME License</span></div>
+        <div class="comp-files">web/src/OPMSOUND/ay8910.cpp</div>
+        <p>AY-3-8910 / YM2149 PSG 音源のエミュレーション。</p>
+        <pre class="license-text">ay8910.c -- Emulation of the AY-3-8910 / YM2149 sound chip.
+
+Based on various code snippets by Ville Hallik, Michael Cuddy,
+Tatsuyuki Satoh, Fabrice Frances, Nicola Salmoria.
+
+For further information, see the MAME source code or contact the authors.
+Non-commercial use only. See fm.c license above.</pre>
+    </div>
+
+    <!-- Z80 CPU -->
+    <div class="panel">
+        <div class="panel-title">Z80 CPU エミュレーション</div>
+
+        <div class="comp-name">chips z80.h <span class="license-tag">zlib/libpng License</span></div>
+        <div class="comp-files">web/platform/z80.h &mdash; <a href="https://github.com/floooh/chips" target="_blank" rel="noopener noreferrer" style="color:#ffcc88">github.com/floooh/chips</a></div>
+        <pre class="license-text">zlib/libpng license
+
+Copyright (c) 2021 Andre Weissflog
+
+This software is provided 'as-is', without any express or implied warranty.
+In no event will the authors be held liable for any damages arising from the
+use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+       claim that you wrote the original software. If you use this software
+       in a product, an acknowledgment in the product documentation would be
+       appreciated but is not required.
+    2. Altered source versions must be plainly marked as such, and must not
+       be misrepresented as being the original software.
+    3. This notice may not be removed or altered from any source distribution.</pre>
+    </div>
+
+    <!-- Emscripten -->
+    <div class="panel">
+        <div class="panel-title">ビルドツール・ランタイム</div>
+
+        <div class="comp-name">Emscripten <span class="license-tag">MIT / University of Illinois</span></div>
+        <div class="comp-files"><a href="https://emscripten.org" target="_blank" rel="noopener noreferrer" style="color:#ffcc88">emscripten.org</a></div>
+        <p>C/C++ を WebAssembly にコンパイルするツールチェーン。生成された JavaScript ランタイムを含みます。</p>
+        <pre class="license-text">Emscripten is available under 2 licenses, the MIT license and the
+University of Illinois/NCSA Open Source License.
+
+Copyright (c) 2010-2014 Emscripten contributors.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.</pre>
+    </div>
+
+    <footer>
+        X millennium Web &mdash; based on X millennium by ぷにゅ氏 / T_tune 改変版
+    </footer>
+
+</div>
+</body>
+</html>

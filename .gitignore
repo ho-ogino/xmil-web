@@ -1,0 +1,36 @@
+# ビルド成果物
+build/
+dist/
+
+# ROM・バイナリ (著作権物)
+*.X1
+*.X1T
+*.D88
+*.d88
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# CMake キャッシュ
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# コンパイル済みオブジェクト
+*.o
+*.a
+*.so
+
+# Google Drive API 認証情報（ビルド時注入、コミット禁止）
+html/config.js
+
+# Google Search Console 認証ファイル（個人用、公開リポジトリに含めない）
+html/google*.html
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+*.swo

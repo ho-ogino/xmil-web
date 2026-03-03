@@ -1,0 +1,29 @@
+X millennium Web Port License
+
+Portions Copyright (c) 2025-2026 Hiroshi OGINO (Web port)
+Portions Copyright (c) 1999-2000 Studio Milmake (Original X millennium)
+Portions Copyright (c) 2000 T_tune (T_tune variant)
+
+This software is provided as freeware for non-commercial use.
+
+To the extent permitted by applicable upstream licenses, permission is
+granted to use, copy, modify, and redistribute this software and its
+source code, subject to the following conditions:
+
+  1. This software may not be used for commercial purposes.
+  2. This copyright notice, the accompanying THIRD_PARTY_LICENSES.md,
+     and all per-file license and copyright notices shall be included
+     in all copies or substantial portions of the software.
+  3. The software is provided "as is", without warranty of any kind.
+
+This project includes code from third-party projects with their own
+license terms. See THIRD_PARTY_LICENSES.md for details.
+
+If this license conflicts with any third-party license, the third-party
+license terms shall prevail.
+
+This license applies to this repository as a distribution notice and does
+not replace or override notices in individual third-party source files.
+
+SHARP and X1 are trademarks of Sharp Corporation. This project is not
+affiliated with or endorsed by Sharp Corporation.
