@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <zlib.h>
 #include "common.h"
 #include "x1.h"
 #include "X1_CRTC.H"
@@ -82,11 +83,24 @@ extern BYTE palandply;
 
 // --- Save ---
 
-BYTE* save_full_state(int *out_size)
+BYTE* save_full_state(int *out_size, int save_flags)
 {
-    // Allocate output: header(8) + ~30 sections * (8+data) + end(8)
-    // Largest: BANK=512KB, GVRA=128KB, MRAM=64KB → ~800KB total
-    int alloc_size = 0x100000; // 1MB
+    // Calculate buffer size: base 1MB + EMM data if Portable
+    int alloc_size = 0x100000; // 1MB base
+    if (save_flags & STATE_FLAG_PORTABLE_EMM) {
+        // Add space for each EMM file + 128KB margin
+        for (int i = 0; i < MAX_EMM; i++) {
+            char path[32];
+            sprintf(path, "/EMM%d.MEM", i);
+            FILE *fp = fopen(path, "rb");
+            if (fp) {
+                fseek(fp, 0, SEEK_END);
+                alloc_size += (int)ftell(fp);
+                fclose(fp);
+            }
+        }
+        alloc_size += 128 * 1024; // margin for headers, zlib overhead
+    }
     BYTE *buf = (BYTE*)malloc(alloc_size);
     if (!buf) { *out_size = 0; return NULL; }
 
@@ -96,11 +110,13 @@ BYTE* save_full_state(int *out_size)
     int pos = 0;
     int n;
 
-    // Header
+    // Header: flags = ROM_TYPE(bit0-1) | PORTABLE_EMM(bit2)
     memcpy(buf + pos, STATE_MAGIC, 4); pos += 4;
     WORD ver = STATE_VERSION;
     memcpy(buf + pos, &ver, 2); pos += 2;
     WORD flags = (WORD)(x1flg.ROM_TYPE & 0x03);
+    if (save_flags & STATE_FLAG_PORTABLE_EMM)
+        flags |= STATE_FLAG_PORTABLE_EMM;
     memcpy(buf + pos, &flags, 2); pos += 2;
 
     // FLAG (x1flg, lastmem, v_cnt, flame, events)
@@ -192,6 +208,68 @@ BYTE* save_full_state(int *out_size)
     // VRAM control
     n = vram_save_state(scratch, SECTION_BUF_SIZE);
     write_section(buf, pos, "VRAM", scratch, n);
+
+    // Portable EMM: compress EMM files into EMDn sections
+    if (save_flags & STATE_FLAG_PORTABLE_EMM) {
+        for (int i = 0; i < MAX_EMM; i++) {
+            char path[32];
+            sprintf(path, "/EMM%d.MEM", i);
+            FILE *fp = fopen(path, "rb");
+            if (!fp) continue;
+
+            fseek(fp, 0, SEEK_END);
+            long raw_size = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+
+            if (raw_size <= 0 || raw_size > 16 * 1024 * 1024) {
+                fclose(fp);
+                continue;
+            }
+
+            BYTE *raw = (BYTE*)malloc(raw_size);
+            if (!raw) { fclose(fp); continue; }
+            if ((long)fread(raw, 1, raw_size, fp) != raw_size) {
+                free(raw);
+                fclose(fp);
+                continue;
+            }
+            fclose(fp);
+
+            // Compress with zlib
+            uLongf comp_size = compressBound((uLong)raw_size);
+            BYTE *comp = (BYTE*)malloc(comp_size);
+            if (!comp) { free(raw); continue; }
+
+            if (compress2(comp, &comp_size, raw, (uLong)raw_size, Z_DEFAULT_COMPRESSION) != Z_OK) {
+                free(comp);
+                free(raw);
+                continue;
+            }
+            free(raw);
+
+            // Ensure buffer has room: section hdr(8) + raw_size(4) + comp_data
+            int need = pos + 8 + 4 + (int)comp_size + 8; // +8 for END marker
+            if (need > alloc_size) {
+                alloc_size = need + 64 * 1024;
+                BYTE *nbuf = (BYTE*)realloc(buf, alloc_size);
+                if (!nbuf) { free(comp); continue; }
+                buf = nbuf;
+            }
+
+            // Write EMDn section: tag(4) + len(4) + raw_size(4) + compressed_data
+            char tag[5];
+            sprintf(tag, "EMD%d", i);
+            int section_data_len = 4 + (int)comp_size;
+            memcpy(buf + pos, tag, 4); pos += 4;
+            DWORD slen = (DWORD)section_data_len;
+            memcpy(buf + pos, &slen, 4); pos += 4;
+            DWORD rs = (DWORD)raw_size;
+            memcpy(buf + pos, &rs, 4); pos += 4;
+            memcpy(buf + pos, comp, (int)comp_size); pos += (int)comp_size;
+
+            free(comp);
+        }
+    }
 
     // End marker
     write_end(buf, pos);
@@ -325,7 +403,23 @@ int load_full_state(const BYTE *data, int size)
     load_section_warn(data, size, body, "SIO0", sio_load_state, warn, wmax);
     load_section_warn(data, size, body, "8255", ppi_load_state, warn, wmax);
     load_memory(data, size, body, "SCPU", &scpu, sizeof(scpu));
-    load_memory(data, size, body, "EMM0", &emm, sizeof(emm));
+
+    // EMM0: safe load with zero-init for backward compat (dirty_slots field)
+    {
+        int emm0_len = 0;
+        const BYTE* emm0_sec = find_section(data, size, body, "EMM0", emm0_len);
+        if (emm0_sec && emm0_len > 0) {
+            EMM_TABLE tmp;
+            ZeroMemory(&tmp, sizeof(tmp));
+            tmp.sel = 0xff;
+            int copy_len = (emm0_len < (int)sizeof(tmp)) ? emm0_len : (int)sizeof(tmp);
+            memcpy(&tmp, emm0_sec, copy_len);
+            emm = tmp;
+        } else {
+            init_emm();
+        }
+    }
+
     load_memory(data, size, body, "SASI", &sasi, sizeof(sasi));
     load_memory(data, size, body, "PCG0", &pcg, sizeof(pcg));
 
@@ -369,6 +463,50 @@ int load_full_state(const BYTE *data, int size)
 
     // 15. VRAM control
     load_section_warn(data, size, body, "VRAM", vram_load_state, warn, wmax);
+
+    // 15.5. Portable EMM: decompress EMDn sections → VFS files
+    //       Only for v2+ states with PORTABLE_EMM flag
+    if (ver >= 2 && (flags & STATE_FLAG_PORTABLE_EMM)) {
+        for (int i = 0; i < MAX_EMM; i++) {
+            char tag[5];
+            sprintf(tag, "EMD%d", i);
+            int sec_len = 0;
+            const BYTE *sec = find_section(data, size, body, tag, sec_len);
+            if (!sec || sec_len < 4) continue;
+
+            DWORD raw_size;
+            memcpy(&raw_size, sec, 4);
+            if (raw_size == 0 || raw_size > 16 * 1024 * 1024) continue;
+
+            int comp_len = sec_len - 4;
+            if (comp_len <= 0) continue;
+
+            BYTE *raw = (BYTE*)malloc(raw_size);
+            if (!raw) continue;
+
+            uLongf dest_len = (uLongf)raw_size;
+            if (uncompress(raw, &dest_len, sec + 4, (uLong)comp_len) != Z_OK) {
+                free(raw);
+                int wl = (int)strlen(warn);
+                if (wl > 0 && wl + 1 < wmax) { warn[wl] = ','; warn[wl+1] = '\0'; wl++; }
+                if (wl + 4 < wmax) { memcpy(warn + wl, tag, 4); warn[wl + 4] = '\0'; }
+                continue;
+            }
+
+            // Write decompressed data to VFS
+            char path[32];
+            sprintf(path, "/EMM%d.MEM", i);
+            FILE *fp = fopen(path, "wb");
+            if (fp) {
+                fwrite(raw, 1, (size_t)dest_len, fp);
+                fclose(fp);
+            }
+            free(raw);
+
+            // Clear error flag and page cache for this slot
+            emm_reset_slot(i);
+        }
+    }
 
     // 16. Recalculate derived display mode from restored CRTC registers.
     //     dispmode, pal_bank, pal_disp are globals in X1_CRTC.CPP that

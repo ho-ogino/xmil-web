@@ -13,7 +13,7 @@
 #include	"x1_sio.h"
 #include	"x1_sound.h"
 #if T_TUNE
-#include	"x1_emm.h"
+#include	"X1_EMM.H"
 #include	"x1_sasi.h"
 #endif
 

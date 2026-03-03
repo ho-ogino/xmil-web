@@ -32,7 +32,7 @@
 #if T_TUNE
 #include	"x1_event.h"
 #include	"x1_irq.h"
-#include	"x1_emm.h"
+#include	"X1_EMM.H"
 #include	"x1_sasi.h"
 #include	"drawinfo.h"
 #include	"fdd_mtr.h"

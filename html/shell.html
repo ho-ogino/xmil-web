@@ -1088,6 +1088,115 @@
         .hdd-btn-danger { color: #3a1c0a; border-color: #221408; background: #060400; }
         .hdd-btn-danger:hover:not(:disabled) { background: #120804; border-color: #883300; color: #cc5500; }
 
+        .emm-manage-btn { color: #553388; border-color: #2a1840; background: #0a0610; }
+        .emm-manage-btn:hover { background: #140e20; border-color: #7744bb; color: #aa88dd; }
+
+        /* EMM 10スロット固定ビュー */
+        .emm-slot-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-bottom: 1px solid #1a1a1a;
+        }
+        .emm-slot-row.mounted { background: #151d10; }
+        .emm-slot-label {
+            font-size: 0.75em;
+            font-family: 'Courier New', monospace;
+            color: #9966cc;
+            width: 40px;
+            flex-shrink: 0;
+            font-weight: bold;
+        }
+        .emm-slot-info {
+            flex: 1;
+            font-size: 0.75em;
+            color: #999;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .emm-unassigned { color: #cc4444; font-style: italic; }
+        .emm-slot-btns {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        .emm-action-btn {
+            font-size: 0.65em;
+            padding: 2px 8px;
+            border: 1px solid #333;
+            border-radius: 3px;
+            background: #1a1a1a;
+            color: #888;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.1s;
+        }
+        .emm-action-btn:hover:not(:disabled) {
+            border-color: #7744bb;
+            color: #bb99dd;
+            background: #1e1020;
+        }
+        .emm-action-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+        .emm-action-del { color: #994444; border-color: #331818; }
+        .emm-action-del:hover:not(:disabled) {
+            border-color: #aa3333;
+            color: #ff6666;
+            background: #1a0808;
+        }
+
+        /* EMM サイズ選択ラジオ */
+        .emm-size-radio {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            user-select: none;
+            padding: 3px 8px;
+            border: 1px solid #333;
+            border-radius: 4px;
+            background: #1a1a1a;
+            transition: all 0.1s;
+        }
+        .emm-size-radio:hover { border-color: #666; }
+        .emm-size-radio input[type="radio"] { display: none; }
+        .emm-size-radio .emm-size-led {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: #1e1020;
+            border: 1px solid #2a1840;
+            flex-shrink: 0;
+            transition: background 0.15s, box-shadow 0.15s;
+        }
+        .emm-size-radio input[type="radio"]:checked ~ .emm-size-led {
+            background: #9966cc;
+            border-color: #bb88ee;
+            box-shadow: 0 0 4px rgba(153,102,204,0.6);
+        }
+        .emm-size-radio .emm-size-label {
+            font-size: 0.65em;
+            color: rgba(255,255,255,0.3);
+            letter-spacing: 0.5px;
+            font-family: 'Courier New', monospace;
+            transition: color 0.15s;
+        }
+        .emm-size-radio input[type="radio"]:checked ~ .emm-size-label {
+            color: #bb99dd;
+        }
+        .emm-custom-input {
+            width: 70px;
+            padding: 3px 6px;
+            background: #1a1a1a;
+            color: #ccc;
+            border: 1px solid #444;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 0.75em;
+            text-align: right;
+        }
+        .emm-custom-input:disabled { opacity: 0.3; }
+
         .info { background: rgba(255,255,255,0.1); border-radius: 10px; padding: 20px; }
         .info h2 { font-size: 1.3em; margin-bottom: 10px; }
         .info p { line-height: 1.6; margin-bottom: 10px; }
@@ -1232,6 +1341,7 @@
         .lib-badge-fdd { background: #0d1e36; border: 1px solid #1a4a88; color: #5599ee; }
         .lib-badge-hdd { background: #281c00; border: 1px solid #775500; color: #ccaa44; }
         .lib-badge-cmt { background: #0a180a; border: 1px solid #1e4a1e; color: #44aa44; }
+        .lib-badge-emm { background: #1e1020; border: 1px solid #553388; color: #9966cc; }
 
         .lib-file-name {
             flex: 1;
@@ -1597,7 +1707,7 @@
     <header>
         <h1>X millennium Web</h1>
         <div class="subtitle">SHARP X1 Emulator for Web Browser</div>
-        <div class="based-on">v0.3.0 &mdash; based on X millennium t-tune Ver0.26 step1.43</div>
+        <div class="based-on">v0.4.0 &mdash; based on X millennium t-tune Ver0.26 step1.43</div>
     </header>
 
     <div id="loading" class="loading">
@@ -1970,6 +2080,8 @@
                     <button class="hdd-btn" id="hdd-open-1" title="ライブラリを開く">📂</button>
                     <button class="hdd-btn" id="btn-hdd1-eject" disabled title="イジェクト（アンマウント）">⏏</button>
                 </div>
+                <!-- EMM 管理 -->
+                <button class="hdd-btn emm-manage-btn" id="btn-emm-manage" title="EMM管理">EMM</button>
             </div>
 
             <!-- ROM スロット -->
@@ -2127,6 +2239,7 @@
             <button class="lib-filter" data-type="fdd">FDD</button>
             <button class="lib-filter" data-type="hdd">HDD</button>
             <button class="lib-filter" data-type="cmt">CMT</button>
+            <button class="lib-filter" data-type="emm">EMM</button>
             <button class="lib-drive-pick-btn hidden" id="btn-drive-pick"
                     title="アプリが保存済みのファイルを一覧表示">☁ 保存済み</button>
             <button class="lib-add-btn" id="lib-add-btn">＋ 追加</button>
@@ -2155,9 +2268,61 @@
                 <span class="cfg-led"></span>
                 <span class="cfg-toggle-label">OVERWRITE</span>
             </label>
+            <label class="cfg-toggle-item" id="cfg-portable-emm-item" title="ステートに EMM データを圧縮同梱">
+                <input type="checkbox" id="cfg-portable-emm" style="display:none">
+                <span class="cfg-led"></span>
+                <span class="cfg-toggle-label">PORTABLE EMM</span>
+            </label>
             <button class="hw-state-btn hw-state-btn-danger" id="state-delete-all">全削除</button>
         </div>
         <div id="state-list" class="lib-list"></div>
+    </div>
+</div>
+
+<!-- ================================================================
+     EMM 作成ダイアログ (モーダル)
+     ================================================================ -->
+<div id="emm-create-dialog" class="library-panel hidden">
+    <div class="library-panel-inner" style="max-width: 420px;">
+        <div class="lib-panel-header">
+            <span>EMM ファイル新規作成</span>
+            <button class="lib-close-btn" id="emm-create-close">✕ 閉じる</button>
+        </div>
+        <div style="padding: 12px 16px; display: flex; flex-direction: column; gap: 12px;">
+            <div>
+                <label style="color: #999; font-size: 0.85em; display: block; margin-bottom: 4px;">スロット</label>
+                <select id="emm-create-slot" style="width: 100%; padding: 6px 8px; background: #1a1a1a; color: #ccc; border: 1px solid #444; border-radius: 4px; font-family: inherit;">
+                    <option value="0">EMM0</option>
+                    <option value="1">EMM1</option>
+                    <option value="2">EMM2</option>
+                    <option value="3">EMM3</option>
+                    <option value="4">EMM4</option>
+                    <option value="5">EMM5</option>
+                    <option value="6">EMM6</option>
+                    <option value="7">EMM7</option>
+                    <option value="8">EMM8</option>
+                    <option value="9">EMM9</option>
+                </select>
+            </div>
+            <div>
+                <label style="color: #999; font-size: 0.85em; display: block; margin-bottom: 4px;">サイズ</label>
+                <div id="emm-size-presets" style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="327680"><span class="emm-size-led"></span><span class="emm-size-label">320KB</span></label>
+                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="524288"><span class="emm-size-led"></span><span class="emm-size-label">512KB</span></label>
+                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="1048576" checked><span class="emm-size-led"></span><span class="emm-size-label">1MB</span></label>
+                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="2097152"><span class="emm-size-led"></span><span class="emm-size-label">2MB</span></label>
+                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="4194304"><span class="emm-size-led"></span><span class="emm-size-label">4MB</span></label>
+                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="8388608"><span class="emm-size-led"></span><span class="emm-size-label">8MB</span></label>
+                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="16777216"><span class="emm-size-led"></span><span class="emm-size-label">16MB</span></label>
+                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="custom"><span class="emm-size-led"></span><span class="emm-size-label">custom</span></label>
+                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                        <input type="number" id="emm-custom-size" class="emm-custom-input" min="1" max="16384" step="1" value="1024" disabled>
+                        <span style="color: #666; font-size: 0.7em;">KB</span>
+                    </span>
+                </div>
+            </div>
+            <button class="hw-state-btn" id="emm-create-confirm" style="align-self: flex-end; margin-top: 4px;">作成してマウント</button>
+        </div>
     </div>
 </div>
 
