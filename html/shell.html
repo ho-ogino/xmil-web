@@ -143,6 +143,7 @@
         }
         #status-text.visible { opacity: 1; }
 
+        #screen-wrap { position: relative; }
         /* フルスクリーン時: screen-wrap が画面全体を黒で覆い、canvas をセンタリング */
         #screen-wrap:fullscreen,
         #screen-wrap:-webkit-full-screen {
@@ -1460,9 +1461,9 @@
 
         /* ── スクリーンショット ダイアログ ── */
         #screenshot-modal {
-            position: fixed; inset: 0;
+            position: absolute; inset: 0;
             background: rgba(0,0,0,0.72);
-            z-index: 2000;
+            z-index: 100;
             display: flex; align-items: center; justify-content: center;
         }
         #screenshot-modal.hidden { display: none !important; }
@@ -1481,7 +1482,7 @@
         .screenshot-preview {
             border: 1px solid #1a3a5a;
             border-radius: 4px;
-            max-width: 480px;
+            max-width: min(480px, 100%);
             max-height: 50vh;
             image-rendering: pixelated;
         }
@@ -1815,6 +1816,16 @@
                     <canvas id="canvas" width="640" height="400"></canvas>
                     <button id="btn-screenshot" title="スクリーンショット">📷</button>
                     <button id="btn-fullscreen" title="フルスクリーン">⛶</button>
+                    <!-- スクリーンショット ダイアログ（フルスクリーン時も表示するため screen-wrap 内に配置） -->
+                    <div id="screenshot-modal" class="hidden">
+                        <div class="screenshot-dialog">
+                            <img id="screenshot-preview" class="screenshot-preview" alt="screenshot" />
+                            <div class="screenshot-buttons">
+                                <button id="screenshot-save" class="btn-save">保存</button>
+                                <button id="screenshot-cancel">キャンセル</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div id="status-text"></div>
             </div>
@@ -2401,17 +2412,6 @@
                 </div>
             </div>
             <button class="hw-state-btn" id="emm-create-confirm" style="align-self: flex-end; margin-top: 4px;">作成してマウント</button>
-        </div>
-    </div>
-</div>
-
-<!-- スクリーンショット ダイアログ -->
-<div id="screenshot-modal" class="hidden">
-    <div class="screenshot-dialog">
-        <img id="screenshot-preview" class="screenshot-preview" alt="screenshot" />
-        <div class="screenshot-buttons">
-            <button id="screenshot-save" class="btn-save">保存</button>
-            <button id="screenshot-cancel">キャンセル</button>
         </div>
     </div>
 </div>
