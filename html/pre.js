@@ -1744,6 +1744,7 @@
         elements.statusText   = document.getElementById('status-text');
         elements.fpsText      = document.getElementById('fps-text');
         elements.canvas       = document.getElementById('canvas');
+        elements.btnScreenshot = document.getElementById('btn-screenshot');
         elements.romTypeRadios = document.querySelectorAll('input[name="rom-type"]');
         elements.dipHighres   = document.getElementById('dip-highres');
         elements.dip2hd       = document.getElementById('dip-2hd');
@@ -2060,6 +2061,75 @@
                 emmGuardEnd(slotNum);
             }
         });
+
+        // スクリーンショット
+        // 1. エミュレータ停止  2. キャンバスキャプチャ  3. ダイアログ表示
+        // 4. 保存 or キャンセル  5. エミュレータ再開
+        var screenshotBlob = null;
+        var screenshotFilename = '';
+        var screenshotModal = document.getElementById('screenshot-modal');
+        var screenshotPreview = document.getElementById('screenshot-preview');
+        var screenshotSaveBtn = document.getElementById('screenshot-save');
+        var screenshotCancelBtn = document.getElementById('screenshot-cancel');
+
+        function screenshotResume() {
+            if (screenshotBlob) {
+                URL.revokeObjectURL(screenshotPreview.src);
+                screenshotBlob = null;
+            }
+            screenshotModal.classList.add('hidden');
+            Module.ccall('js_xmil_start', null, [], []);
+        }
+
+        function takeScreenshot() {
+            var canvas = document.getElementById('canvas');
+            if (!canvas) return;
+            // エミュレータ停止 — 撮影画面で固定
+            Module.ccall('js_xmil_stop', null, [], []);
+            canvas.toBlob(function(blob) {
+                if (!blob) { screenshotResume(); return; }
+                screenshotBlob = blob;
+                var now = new Date();
+                var ts = now.getFullYear()
+                    + ('0' + (now.getMonth()+1)).slice(-2)
+                    + ('0' + now.getDate()).slice(-2)
+                    + '_'
+                    + ('0' + now.getHours()).slice(-2)
+                    + ('0' + now.getMinutes()).slice(-2)
+                    + ('0' + now.getSeconds()).slice(-2);
+                screenshotFilename = 'xmil_' + ts + '.png';
+                // プレビュー表示
+                screenshotPreview.src = URL.createObjectURL(blob);
+                screenshotModal.classList.remove('hidden');
+            }, 'image/png');
+        }
+
+        if (screenshotSaveBtn) {
+            screenshotSaveBtn.addEventListener('click', function() {
+                if (screenshotBlob) {
+                    var url = URL.createObjectURL(screenshotBlob);
+                    var a = document.createElement('a');
+                    a.href = url;
+                    a.download = screenshotFilename;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    updateStatus('スクリーンショット保存');
+                }
+                screenshotResume();
+            });
+        }
+        if (screenshotCancelBtn) {
+            screenshotCancelBtn.addEventListener('click', function() {
+                screenshotResume();
+            });
+        }
+
+        if (elements.btnScreenshot) {
+            elements.btnScreenshot.addEventListener('click', function(e) {
+                e.stopPropagation();
+                takeScreenshot();
+            });
+        }
 
         // フルスクリーン
         (function() {
