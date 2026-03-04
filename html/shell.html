@@ -79,6 +79,28 @@
         }
 
         /* フルスクリーンボタン */
+        #btn-screenshot {
+            position: absolute;
+            top: 20px;
+            right: 56px;
+            background: rgba(0,0,0,0.55);
+            border: 1px solid rgba(255,255,255,0.25);
+            border-radius: 5px;
+            color: #ccc;
+            font-size: 16px;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 10;
+            padding: 0;
+        }
+        .machine-screen:hover #btn-screenshot { opacity: 1; }
+        #btn-screenshot:hover { background: rgba(64,128,192,0.75); color: #fff; border-color: #4080c0; }
         #btn-fullscreen {
             position: absolute;
             top: 20px;
@@ -121,6 +143,7 @@
         }
         #status-text.visible { opacity: 1; }
 
+        #screen-wrap { position: relative; }
         /* フルスクリーン時: screen-wrap が画面全体を黒で覆い、canvas をセンタリング */
         #screen-wrap:fullscreen,
         #screen-wrap:-webkit-full-screen {
@@ -154,10 +177,16 @@
         /* フルスクリーン時はマウス動作中だけボタンを表示 */
         #screen-wrap:fullscreen #btn-fullscreen,
         #screen-wrap:-webkit-full-screen #btn-fullscreen,
-        #screen-wrap.pseudo-fullscreen #btn-fullscreen { opacity: 0; }
+        #screen-wrap.pseudo-fullscreen #btn-fullscreen,
+        #screen-wrap:fullscreen #btn-screenshot,
+        #screen-wrap:-webkit-full-screen #btn-screenshot,
+        #screen-wrap.pseudo-fullscreen #btn-screenshot { opacity: 0; }
         #screen-wrap:fullscreen.fs-cursor-visible #btn-fullscreen,
         #screen-wrap:-webkit-full-screen.fs-cursor-visible #btn-fullscreen,
-        #screen-wrap.pseudo-fullscreen.fs-cursor-visible #btn-fullscreen { opacity: 0.6; }
+        #screen-wrap.pseudo-fullscreen.fs-cursor-visible #btn-fullscreen,
+        #screen-wrap:fullscreen.fs-cursor-visible #btn-screenshot,
+        #screen-wrap:-webkit-full-screen.fs-cursor-visible #btn-screenshot,
+        #screen-wrap.pseudo-fullscreen.fs-cursor-visible #btn-screenshot { opacity: 0.6; }
         /* フルスクリーン中にカーソルを隠す */
         #screen-wrap:fullscreen:not(.fs-cursor-visible),
         #screen-wrap:-webkit-full-screen:not(.fs-cursor-visible),
@@ -1430,6 +1459,51 @@
         #drive-status.drive-success  { color: #44bb66; }
         #drive-status.drive-error    { color: #cc5555; }
 
+        /* ── スクリーンショット ダイアログ ── */
+        #screenshot-modal {
+            position: absolute; inset: 0;
+            background: rgba(0,0,0,0.72);
+            z-index: 100;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #screenshot-modal.hidden { display: none !important; }
+        .screenshot-dialog {
+            background: #0d1a2e;
+            border: 1px solid #1a4a88;
+            border-radius: 7px;
+            max-width: 95vw;
+            display: flex; flex-direction: column;
+            align-items: center;
+            color: #aaccee;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+            font-family: 'Courier New', monospace;
+            padding: 16px;
+        }
+        .screenshot-preview {
+            border: 1px solid #1a3a5a;
+            border-radius: 4px;
+            max-width: min(480px, 100%);
+            max-height: 50vh;
+            image-rendering: pixelated;
+        }
+        .screenshot-buttons {
+            margin-top: 14px;
+            display: flex; gap: 12px;
+        }
+        .screenshot-buttons button {
+            padding: 7px 20px;
+            border: 1px solid #1a4a88;
+            border-radius: 4px;
+            background: #0a1220;
+            color: #aaccee;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            cursor: pointer;
+        }
+        .screenshot-buttons button:hover { background: #1a3a5a; color: #fff; }
+        .screenshot-buttons .btn-save { border-color: #3a7acc; color: #88bbff; }
+        .screenshot-buttons .btn-save:hover { background: rgba(64,128,192,0.75); color: #fff; }
+
         /* ── Drive ファイルブラウザ モーダル ── */
         #drive-browser-modal {
             position: fixed; inset: 0;
@@ -1740,7 +1814,18 @@
             <div class="machine-screen">
                 <div id="screen-wrap">
                     <canvas id="canvas" width="640" height="400"></canvas>
+                    <button id="btn-screenshot" title="スクリーンショット">📷</button>
                     <button id="btn-fullscreen" title="フルスクリーン">⛶</button>
+                    <!-- スクリーンショット ダイアログ（フルスクリーン時も表示するため screen-wrap 内に配置） -->
+                    <div id="screenshot-modal" class="hidden">
+                        <div class="screenshot-dialog">
+                            <img id="screenshot-preview" class="screenshot-preview" alt="screenshot" />
+                            <div class="screenshot-buttons">
+                                <button id="screenshot-save" class="btn-save">保存</button>
+                                <button id="screenshot-cancel">キャンセル</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div id="status-text"></div>
             </div>
