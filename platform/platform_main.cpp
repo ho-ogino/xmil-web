@@ -286,6 +286,17 @@ void js_set_mouse(int val) {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void js_set_sound_sw(int val) {
+    xmilcfg.SOUND_SW = val ? 1 : 0;
+    x1flg.SOUND_SW = xmilcfg.SOUND_SW;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int js_get_sound_sw() {
+    return (int)x1flg.SOUND_SW;
+}
+
+EMSCRIPTEN_KEEPALIVE
 void js_eject_disk(int drive) {
     if (drive < 0 || drive > 3) drive = 0;
     x1_eject_fd((short)drive);

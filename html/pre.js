@@ -943,6 +943,12 @@
                     if (elements.dip2hd)     elements.dip2hd.checked     = !!(dip & 0x04);
                     if (module._js_set_dip_sw) module._js_set_dip_sw(dip);
                 }
+                // SOUND_SW (FM Board)
+                if (module._js_get_sound_sw) {
+                    var sw = module._js_get_sound_sw();
+                    if (elements.fmEnable) elements.fmEnable.checked = !!sw;
+                    if (module._js_set_sound_sw) module._js_set_sound_sw(sw);
+                }
             }
             syncModelBtnActive();
             syncToggleItems();
@@ -1291,6 +1297,7 @@
                 seekVolume:    elements.seekVolume    ? parseInt(elements.seekVolume.value, 10) : 80,
                 joystickEnable: elements.joystickEnable ? elements.joystickEnable.checked : false,
                 mouseEnable: elements.mouseEnable ? elements.mouseEnable.checked : false,
+                fmEnable: elements.fmEnable ? elements.fmEnable.checked : true,
                 statusToast: elements.statusToastEnable ? elements.statusToastEnable.checked : false,
                 stateOverwrite: elements.stateOverwrite ? elements.stateOverwrite.checked : false,
                 portableEmm: !!(function() { var cb = document.getElementById('cfg-portable-emm'); return cb && cb.checked; })(),
@@ -1325,6 +1332,7 @@
             }
             if (elements.joystickEnable) elements.joystickEnable.checked = !!s.joystickEnable;
             if (elements.mouseEnable) elements.mouseEnable.checked = !!s.mouseEnable;
+            if (elements.fmEnable) elements.fmEnable.checked = (s.fmEnable !== undefined ? !!s.fmEnable : true);
             if (elements.statusToastEnable) elements.statusToastEnable.checked = (s.statusToast !== undefined ? !!s.statusToast : false);
             if (elements.stateOverwrite) elements.stateOverwrite.checked = !!s.stateOverwrite;
             var peCb = document.getElementById('cfg-portable-emm');
@@ -1746,6 +1754,7 @@
         elements.seekVolumeRow = document.getElementById('cfg-seek-vol-row');
         elements.joystickEnable = document.getElementById('joystick-enable');
         elements.mouseEnable = document.getElementById('mouse-enable');
+        elements.fmEnable = document.getElementById('fm-enable');
         elements.statusToastEnable = document.getElementById('status-toast-enable');
         elements.keyModeRadios = document.querySelectorAll('input[name="key-mode"]');
         elements.swDiskToggle = document.getElementById('sw-disk-toggle');
@@ -2175,6 +2184,12 @@
             if (elements.mouseEnable) elements.mouseEnable.checked = !elements.mouseEnable.checked;
             onMouseChange(); saveSettings();
         });
+        var fmItem = document.getElementById('cfg-fm-item');
+        if (fmItem) fmItem.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (elements.fmEnable) elements.fmEnable.checked = !elements.fmEnable.checked;
+            onFmChange(); saveSettings();
+        });
         var statusItem = document.getElementById('cfg-status-item');
         if (statusItem) statusItem.addEventListener('click', function(e) {
             e.preventDefault();
@@ -2283,6 +2298,7 @@
         onMotorVolumeChange();
         onJoystickChange();
         onMouseChange();
+        onFmChange();
         onKeyModeChange();
         syncModelBtnActive();
         syncKeyModeBtnActive();
@@ -3009,6 +3025,12 @@
         }
     }
 
+    function onFmChange() {
+        var on = !!(elements.fmEnable && elements.fmEnable.checked);
+        if (module && module._js_set_sound_sw) module._js_set_sound_sw(on ? 1 : 0);
+        syncToggleItems();
+    }
+
     function onKeyModeChange() {
         syncKeyModeBtnActive();
         var c = document.querySelector('input[name="key-mode"]:checked');
@@ -3047,6 +3069,8 @@
         if (elements.seekVolume) elements.seekVolume.disabled = !motorOn;
         if (joyEl)   joyEl.classList.toggle('on',   !!(elements.joystickEnable && elements.joystickEnable.checked));
         if (mouseEl) mouseEl.classList.toggle('on', !!(elements.mouseEnable   && elements.mouseEnable.checked));
+        var fmEl = document.getElementById('cfg-fm-item');
+        if (fmEl) fmEl.classList.toggle('on', !!(elements.fmEnable && elements.fmEnable.checked));
         var statusEl = document.getElementById('cfg-status-item');
         if (statusEl) statusEl.classList.toggle('on', !!(elements.statusToastEnable && elements.statusToastEnable.checked));
         var owEl = document.getElementById('cfg-overwrite-item');
