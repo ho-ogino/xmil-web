@@ -23,6 +23,7 @@
 #include "X1_PCG.H"   // pcg (電源ON時のPCGクリア用)
 #include "X1_CRTC.H"  // crtc_cold_reset() (電源ON時のパレットリセット用)
 #include "state_save.h"
+#include "X1_EMM.H"
 
 // web_sound.cpp で定義されているサウンドパラメータ (dsounds.h より)
 extern WORD  ds_rate;
@@ -219,6 +220,7 @@ void js_xmil_stop() {
 
 EMSCRIPTEN_KEEPALIVE
 void js_xmil_reset() {
+    emm_flush_all_buffers();
     reset_x1(xmilcfg.ROM_TYPE, xmilcfg.SOUND_SW, xmilcfg.DIP_SW);
 }
 
@@ -340,6 +342,7 @@ void js_xmil_nmi() {
 // 電源 OFF: エミュレータ停止 + 画面を黒にクリア
 EMSCRIPTEN_KEEPALIVE
 void js_xmil_power_off() {
+    emm_flush_all_buffers();
     xmil_stop();
     Platform_Graphics_Clear(0);
     Platform_Graphics_Flip();
@@ -392,8 +395,25 @@ void js_reload_fonts(void) {
 // ---- State save/load ----
 
 EMSCRIPTEN_KEEPALIVE
-BYTE* js_save_state(int *out_size) {
-    return save_full_state(out_size);
+BYTE* js_save_state(int *out_size, int flags) {
+    return save_full_state(out_size, flags);
+}
+
+// ---- EMM ----
+
+EMSCRIPTEN_KEEPALIVE
+void js_emm_flush(void) {
+    emm_flush_all_buffers();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void js_emm_reset_slot(int slot) {
+    emm_reset_slot(slot);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int js_emm_take_dirty_slots(void) {
+    return (int)emm_take_dirty_slots();
 }
 
 EMSCRIPTEN_KEEPALIVE

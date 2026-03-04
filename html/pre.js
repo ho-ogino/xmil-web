@@ -16,20 +16,30 @@
 
     // ----------------------------------------------------------------
     // ファイルライブラリ: スロット状態
-    // slotName: 'drive0', 'drive1', 'hdd0', 'hdd1', 'cmt'
+    // slotName: 'drive0', 'drive1', 'hdd0', 'hdd1', 'cmt', 'emm0'..'emm9'
     // ----------------------------------------------------------------
-    const slotState         = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null };  // OPFS key | null
-    const slotDirty         = { drive0: false, drive1: false, hdd0: false, hdd1: false, cmt: false };
-    const slotFlushInFlight = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null };
-    const slotVfsPath       = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null };
+    const slotState         = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
+    const slotDirty         = { drive0: false, drive1: false, hdd0: false, hdd1: false, cmt: false, emm0: false, emm1: false, emm2: false, emm3: false, emm4: false, emm5: false, emm6: false, emm7: false, emm8: false, emm9: false };
+    const slotFlushInFlight = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
+    const slotVfsPath       = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
 
     let isFlushing = false;
+    var emmImportSlot = -1;       // インポート対象スロット番号
+    var emmImportInput = null;    // 隠し file input (init() で生成)
+    var emmSlotInFlight = {};     // スロット単位の処理中ガード
 
     // スロット→対応タイプ
-    const SLOT_TYPES = { drive0: 'fdd', drive1: 'fdd', hdd0: 'hdd', hdd1: 'hdd', cmt: 'cmt' };
+    const SLOT_TYPES = { drive0: 'fdd', drive1: 'fdd', hdd0: 'hdd', hdd1: 'hdd', cmt: 'cmt', emm0: 'emm', emm1: 'emm', emm2: 'emm', emm3: 'emm', emm4: 'emm', emm5: 'emm', emm6: 'emm', emm7: 'emm', emm8: 'emm', emm9: 'emm' };
 
     // ファイルタイプ別サイズ上限 (DoS防止)
-    const SIZE_LIMIT = { fdd: 32 * 1024 * 1024, cmt: 32 * 1024 * 1024, hdd: 512 * 1024 * 1024 };
+    const SIZE_LIMIT = { fdd: 32 * 1024 * 1024, cmt: 32 * 1024 * 1024, hdd: 512 * 1024 * 1024, emm: 16 * 1024 * 1024 };
+
+    // ---- EMM ユーティリティ ----
+    function emmSlotFromName(filename) {
+        var m = filename.match(/^EMM(\d)\.MEM$/i);
+        return m ? ('emm' + m[1]) : null;
+    }
+    function emmSlotNum(slotName) { return parseInt(slotName.replace('emm', ''), 10); }
 
     // ----------------------------------------------------------------
     // localStorage キー
@@ -103,6 +113,9 @@
 
     // VFS パス生成 (元拡張子保持: x1_set_fd() が拡張子で分岐するため)
     function slotToVfsPath(slotName, ext) {
+        if (slotName.startsWith('emm')) {
+            return '/EMM' + emmSlotNum(slotName) + '.MEM';
+        }
         var base = { drive0: 'fdd0', drive1: 'fdd1', hdd0: 'hdd0', hdd1: 'hdd1', cmt: 'cmt' }[slotName];
         return '/' + base + '.' + ext;
     }
@@ -144,7 +157,225 @@
         if (['d88', '2d', '88d'].includes(ext)) return 'fdd';
         if (['hdd', 'hd'].includes(ext)) return 'hdd';
         if (['cas', 'cmt', 'tap', 'bas', 'bin'].includes(ext)) return 'cmt';
+        if (ext === 'mem' && /^EMM\d\.MEM$/i.test(filename)) return 'emm';
         return null;
+    }
+
+    // ----------------------------------------------------------------
+    // EMM 作成・管理
+    // ----------------------------------------------------------------
+
+    async function createEmm(slotNum, sizeBytes) {
+        if (slotNum < 0 || slotNum > 9) return;
+        if (sizeBytes <= 0 || sizeBytes > 16 * 1024 * 1024) return;
+        // 256B 境界に丸める
+        sizeBytes = Math.ceil(sizeBytes / 256) * 256;
+
+        var slotName = 'emm' + slotNum;
+        var fileName = 'EMM' + slotNum + '.MEM';
+
+        // 既存マウント中ならイジェクト
+        if (slotState[slotName]) await ejectSlot(slotName);
+
+        // ゼロ埋めデータ作成
+        var data = new ArrayBuffer(sizeBytes);
+
+        // OPFS に保存
+        await window.XmilStorage.write(fileName, data);
+
+        // ライブラリ upsert（同キー or 同 name+type を除去してから push）
+        // 古いキーが異なる場合は OPFS の孤児データを削除
+        var oldLib = getLibrary();
+        for (var oi = 0; oi < oldLib.length; oi++) {
+            var oe = oldLib[oi];
+            if (oe.key !== fileName && oe.type === 'emm' && oe.name === fileName) {
+                try { await window.XmilStorage.remove(oe.key); } catch(_) {}
+            }
+        }
+        var lib = oldLib.filter(function(e) {
+            return e.key !== fileName && !(e.type === 'emm' && e.name === fileName);
+        });
+        var entry = { key: fileName, name: fileName, type: 'emm', ext: 'MEM', size: sizeBytes, addedAt: new Date().toISOString() };
+        lib.push(entry);
+        saveLibrary(lib);
+
+        // 即マウント
+        await mountFromLibrary(fileName, slotName);
+        renderLibraryList();
+        updateStatus('EMM' + slotNum + ' 作成 (' + (sizeBytes / 1024) + 'KB)');
+    }
+
+    function openEmmCreateDialog(fixedSlot) {
+        var dlg = document.getElementById('emm-create-dialog');
+        if (!dlg) return;
+        var sel = dlg.querySelector('#emm-create-slot');
+        if (sel) {
+            if (fixedSlot !== undefined) {
+                // スロット固定モード（10スロット UI から呼ばれる）
+                sel.value = fixedSlot;
+                sel.disabled = true;
+            } else {
+                sel.disabled = false;
+                for (var i = 0; i < sel.options.length; i++)
+                    sel.options[i].disabled = !!slotState['emm' + i];
+                for (var j = 0; j < sel.options.length; j++)
+                    if (!sel.options[j].disabled) { sel.selectedIndex = j; break; }
+            }
+        }
+        emmSyncCustomInput();
+        dlg.classList.remove('hidden');
+    }
+
+    function closeEmmCreateDialog() {
+        var dlg = document.getElementById('emm-create-dialog');
+        if (dlg) {
+            dlg.classList.add('hidden');
+            // 固定モード解除
+            var sel = dlg.querySelector('#emm-create-slot');
+            if (sel) sel.disabled = false;
+        }
+    }
+
+    // ラジオ選択に応じて custom 入力欄を有効/無効化
+    function emmSyncCustomInput() {
+        var checked = document.querySelector('input[name="emm-size"]:checked');
+        var inp = document.getElementById('emm-custom-size');
+        if (inp) inp.disabled = !(checked && checked.value === 'custom');
+    }
+
+    // ラジオボタン change イベント (init() 内で設定)
+    function initEmmSizeRadios() {
+        var radios = document.querySelectorAll('input[name="emm-size"]');
+        for (var i = 0; i < radios.length; i++) {
+            radios[i].addEventListener('change', emmSyncCustomInput);
+        }
+        // custom 入力欄クリック時に custom ラジオを自動選択
+        var inp = document.getElementById('emm-custom-size');
+        if (inp) {
+            inp.addEventListener('focus', function() {
+                var customRadio = document.querySelector('input[name="emm-size"][value="custom"]');
+                if (customRadio) { customRadio.checked = true; emmSyncCustomInput(); }
+            });
+        }
+    }
+
+    async function onEmmCreateConfirm() {
+        var sel = document.getElementById('emm-create-slot');
+        if (!sel) return;
+        var slotNum = parseInt(sel.value, 10);
+
+        // サイズ取得
+        var sizeBytes;
+        var checkedRadio = document.querySelector('input[name="emm-size"]:checked');
+        if (checkedRadio && checkedRadio.value === 'custom') {
+            // custom: KB 単位入力 → バイト変換
+            var customInput = document.getElementById('emm-custom-size');
+            var kb = parseInt(customInput ? customInput.value : '0', 10);
+            if (!kb || kb <= 0) { alert('サイズを入力してください'); return; }
+            sizeBytes = kb * 1024;
+        } else if (checkedRadio) {
+            // プリセット: value はバイト単位
+            sizeBytes = parseInt(checkedRadio.value, 10);
+        } else {
+            sizeBytes = 1048576; // デフォルト 1MB
+        }
+
+        if (!sizeBytes || sizeBytes <= 0) { alert('サイズを入力してください'); return; }
+        if (sizeBytes > 16 * 1024 * 1024) { alert('最大 16MB です'); return; }
+        if (sizeBytes % 256 !== 0) { sizeBytes = Math.ceil(sizeBytes / 256) * 256; }
+
+        closeEmmCreateDialog();
+        await createEmm(slotNum, sizeBytes);
+    }
+
+    // ----------------------------------------------------------------
+    // EMM 10スロット固定ビュー
+    // ----------------------------------------------------------------
+
+    function renderEmmSlotList() {
+        var listEl = document.getElementById('library-list');
+        if (!listEl) return;
+        var lib = getLibrary();
+        var html = '';
+        for (var i = 0; i < 10; i++) {
+            var slotName = 'emm' + i;
+            var fileName = 'EMM' + i + '.MEM';
+            var entry = lib.find(function(e) { return e.type === 'emm' && e.name === fileName; });
+            var isMounted = !!slotState[slotName];
+            var hasEntry = !!entry;
+            var busy = !!emmSlotInFlight[i];
+
+            html += '<div class="emm-slot-row' + (isMounted ? ' mounted' : '') + '">';
+            html += '<span class="emm-slot-label">EMM' + i + '</span>';
+
+            if (hasEntry) {
+                var sizeMb = (entry.size / 1024 / 1024).toFixed(1);
+                html += '<span class="emm-slot-info">' + escHtml(entry.name) + ' (' + sizeMb + 'MB)</span>';
+            } else {
+                html += '<span class="emm-slot-info emm-unassigned">未割り当て</span>';
+            }
+
+            html += '<div class="emm-slot-btns">';
+            html += '<button class="emm-action-btn" data-action="emm-create" data-slot="' + i + '"'
+                 + (busy ? ' disabled' : '') + '>作成</button>';
+            html += '<button class="emm-action-btn" data-action="emm-export" data-slot="' + i + '"'
+                 + (!hasEntry || busy ? ' disabled' : '') + '>エクスポート</button>';
+            html += '<button class="emm-action-btn" data-action="emm-import" data-slot="' + i + '"'
+                 + (busy ? ' disabled' : '') + '>インポート</button>';
+            if (hasEntry) {
+                html += '<button class="emm-action-btn emm-action-del" data-action="emm-delete" data-slot="' + i + '"'
+                     + (busy ? ' disabled' : '') + '>削除</button>';
+            }
+            html += '</div></div>';
+        }
+        listEl.innerHTML = html;
+    }
+
+    // ---- EMM ガード（create / import 用）----
+    function emmGuardStart(slotNum) {
+        if (emmSlotInFlight[slotNum]) return false;
+        emmSlotInFlight[slotNum] = true;
+        renderEmmSlotList();
+        return true;
+    }
+    function emmGuardEnd(slotNum) {
+        delete emmSlotInFlight[slotNum];
+        renderEmmSlotList();
+    }
+
+    // ---- EMM スロットアクションハンドラ ----
+    function onEmmSlotCreate(slotNum) {
+        var fileName = 'EMM' + slotNum + '.MEM';
+        var lib = getLibrary();
+        var existing = lib.find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        if (existing) {
+            if (!confirm('現在割り当てられている EMM データを削除して新規に EMM 領域を作成しますか？')) return;
+        }
+        openEmmCreateDialog(slotNum);
+    }
+
+    function onEmmSlotExport(slotNum) {
+        var fileName = 'EMM' + slotNum + '.MEM';
+        var entry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        if (!entry) return;
+        downloadFromLibrary(entry.key, entry.name);
+    }
+
+    function onEmmSlotImport(slotNum) {
+        var fileName = 'EMM' + slotNum + '.MEM';
+        var existing = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        if (existing) {
+            if (!confirm('EMM' + slotNum + ' には既にデータが割り当てられています。上書きしますか？')) return;
+        }
+        emmImportSlot = slotNum;
+        if (emmImportInput) emmImportInput.click();
+    }
+
+    function onEmmSlotDelete(slotNum) {
+        var fileName = 'EMM' + slotNum + '.MEM';
+        var entry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        if (!entry) return;
+        deleteFromLibrary(entry.key);
     }
 
     // ----------------------------------------------------------------
@@ -254,6 +485,11 @@
                         updateStatus('テープロード失敗: ' + entry.name + ' (対応していない形式の可能性があります)');
                         return;  // slotState を更新しない
                     }
+                } else if (slotName.startsWith('emm')) {
+                    // EMM: VFS にファイルが配置済み → C++ エラーフラグ/キャッシュ無効化
+                    if (module._js_emm_reset_slot) {
+                        module._js_emm_reset_slot(emmSlotNum(slotName));
+                    }
                 }
             } catch(e) {
                 console.error('mount emulator call failed:', slotName, e);
@@ -291,6 +527,11 @@
                     module.ccall('js_set_sasi_path', null, ['string', 'number'], ['', 1]);
                 } else if (slotName === 'cmt') {
                     if (module._js_cmt_eject) module._js_cmt_eject();
+                } else if (slotName.startsWith('emm')) {
+                    // EMM: C++ dirty バッファ → VFS にフラッシュ
+                    if (module._js_emm_flush) module._js_emm_flush();
+                    // dirty_slots を JS に反映 (flushSlot が OPFS 保存を判断するため)
+                    syncEmmDirtyFromCpp();
                 }
             } catch(e) {
                 console.error('ejectSlot emulator call failed:', slotName, e);
@@ -298,7 +539,17 @@
         }
 
         // C++がVFSを更新した後にOPFSへ保存
-        if (slotDirty[slotName]) await flushSlot(slotName);
+        // flush 失敗してもスロット状態はクリアする（不整合防止）
+        try {
+            if (slotDirty[slotName]) await flushSlot(slotName);
+        } catch(e) {
+            console.error('ejectSlot flush failed:', slotName, e);
+        }
+
+        // EMM: VFS ファイルも削除
+        if (slotName.startsWith('emm') && slotVfsPath[slotName]) {
+            try { module.FS.unlink(slotVfsPath[slotName]); } catch(e) {}
+        }
 
         slotState[slotName]   = null;
         slotVfsPath[slotName] = null;
@@ -370,14 +621,27 @@
         if (!slotDirty[slotName] || !slotState[slotName]) return Promise.resolve();
         var p = flushVfsToStorage(slotVfsPath[slotName], slotState[slotName])
             .then(function() { slotDirty[slotName] = false; })
-            .catch(function(e) { console.warn('flushSlot(' + slotName + ') failed:', e); })
             .finally(function() { slotFlushInFlight[slotName] = null; });
         slotFlushInFlight[slotName] = p;
         return p;
     }
 
+    // EMM dirty ビットマスクを C++ から取得 (take: 取得+クリアがアトミック)
+    function syncEmmDirtyFromCpp() {
+        if (!module || !module._js_emm_take_dirty_slots) return;
+        var mask = module._js_emm_take_dirty_slots();
+        for (var i = 0; i < 10; i++) {
+            if (mask & (1 << i)) slotDirty['emm' + i] = true;
+        }
+    }
+
     async function flushAllDirty() {
         if (isFlushing) return;
+
+        // EMM: C++ dirty バッファ → VFS → dirty_slots 取得
+        if (module && module._js_emm_flush) module._js_emm_flush();
+        syncEmmDirtyFromCpp();
+
         var anyDirty = false;
         for (var sn in slotDirty) { if (slotDirty[sn]) { anyDirty = true; break; } }
         if (!anyDirty) return;
@@ -393,12 +657,14 @@
     }
 
     // ライフサイクルフラッシュ (visibilitychange が主系)
-    document.addEventListener('visibilitychange', async function() {
-        if (document.visibilityState === 'hidden') await flushAllDirty();
+    // flush 失敗はログのみ（ユーザー操作なしのバックグラウンド処理のため）
+    function silentFlush() { flushAllDirty().catch(function(e) { console.error('background flush failed:', e); }); }
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') silentFlush();
     });
-    window.addEventListener('pagehide', function() { flushAllDirty(); });
-    window.addEventListener('beforeunload', function() { flushAllDirty(); });
-    setInterval(function() { flushAllDirty(); }, 30000);
+    window.addEventListener('pagehide', silentFlush);
+    window.addEventListener('beforeunload', silentFlush);
+    setInterval(silentFlush, 30000);
 
     // ----------------------------------------------------------------
     // ステートセーブ/ロード
@@ -454,9 +720,11 @@
             // 1. dirty VFS → OPFS 書き戻し
             await flushAllDirty();
 
-            // 2. C側セーブ (js_save_state → malloc buffer → JS copy → free)
+            // 2. C側セーブ (js_save_state(sizePtr, flags) → malloc buffer → JS copy → free)
+            var portableEmm = document.getElementById('cfg-portable-emm');
+            var portableFlag = (portableEmm && portableEmm.checked) ? 0x04 : 0;  // STATE_FLAG_PORTABLE_EMM
             var sizePtr = module._malloc(4);
-            var bufPtr  = module._js_save_state(sizePtr);
+            var bufPtr  = module._js_save_state(sizePtr, portableFlag);
             var size    = new Int32Array(module.wasmMemory.buffer, sizePtr, 1)[0];
             module._free(sizePtr);
 
@@ -492,7 +760,8 @@
                 size: size,
                 mounts: Object.assign({}, slotState),
                 mountNames: mNames,
-                hashes: mediaHashes
+                hashes: mediaHashes,
+                portable: !!(portableFlag & 0x04)
             };
             var list = getStateList();
             list.unshift(entry);  // 最新を先頭
@@ -521,10 +790,13 @@
             // 1. 依存メディア存在チェック
             var mounts = entry.mounts || {};
             var mNames = entry.mountNames || {};
+            var isPortable = !!(entry.portable);
             var lib = getLibrary();
             var missing = [];
             for (var sn in mounts) {
                 if (mounts[sn]) {
+                    // Portable モードでは EMM スロットをスキップ（EMD セクションから復元される）
+                    if (isPortable && sn.startsWith('emm')) continue;
                     if (!lib.find(function(e) { return e.key === mounts[sn]; })) {
                         missing.push(sn + ': ' + (mNames[sn] || mounts[sn]));
                     }
@@ -546,6 +818,8 @@
             if (entry.hashes) {
                 var changed = [];
                 for (var sn3 in entry.hashes) {
+                    // Portable EMM はステート内に含まれるためスキップ
+                    if (isPortable && sn3.startsWith('emm')) continue;
                     if (mounts[sn3]) {
                         try {
                             var mediaData = await window.XmilStorage.read(mounts[sn3]);
@@ -577,6 +851,8 @@
             var mountFailed = [];
             for (var sn2 in mounts) {
                 if (mounts[sn2]) {
+                    // Portable EMM はステートロード後に VFS → OPFS で復元
+                    if (isPortable && sn2.startsWith('emm')) continue;
                     await mountFromLibrary(mounts[sn2], sn2);
                     if (slotState[sn2] !== mounts[sn2]) {
                         mountFailed.push(sn2);
@@ -604,6 +880,33 @@
             if (rc < 0) {
                 updateStatus('ステートロード失敗 (データ不正)');
                 return false;
+            }
+
+            // 5.5 Portable EMM: C++ が EMD 展開 → VFS 書き出し済み → OPFS に書き戻し
+            if (isPortable) {
+                for (var ei = 0; ei < 10; ei++) {
+                    var emmPath = '/EMM' + ei + '.MEM';
+                    try {
+                        var stat = module.FS.stat(emmPath);
+                        if (stat && stat.size > 0) {
+                            var emmData = module.FS.readFile(emmPath);
+                            var emmKey = 'EMM' + ei + '.MEM';
+                            await window.XmilStorage.write(emmKey, emmData.buffer);
+                            // ライブラリエントリがなければ作成
+                            var eLib = getLibrary();
+                            if (!eLib.find(function(e) { return e.key === emmKey; })) {
+                                eLib.push({ key: emmKey, name: emmKey, type: 'emm', size: emmData.length, added: new Date().toISOString() });
+                                saveLibrary(eLib);
+                            }
+                            // スロット状態を更新
+                            var emmSn = 'emm' + ei;
+                            slotState[emmSn] = emmKey;
+                            slotVfsPath[emmSn] = emmPath;
+                            slotDirty[emmSn] = false;
+                        }
+                    } catch(e) { /* VFS にファイルが無い場合はスキップ */ }
+                }
+                saveMountState();
             }
 
             // 6. 警告表示
@@ -737,8 +1040,10 @@
         try {
             await flushAllDirty();
 
+            var portableEmm2 = document.getElementById('cfg-portable-emm');
+            var portableFlag2 = (portableEmm2 && portableEmm2.checked) ? 0x04 : 0;
             var sizePtr = module._malloc(4);
-            var bufPtr  = module._js_save_state(sizePtr);
+            var bufPtr  = module._js_save_state(sizePtr, portableFlag2);
             var size    = new Int32Array(module.wasmMemory.buffer, sizePtr, 1)[0];
             module._free(sizePtr);
 
@@ -764,6 +1069,7 @@
             }
             list[idx].time = new Date().toISOString();
             list[idx].size = size;
+            list[idx].portable = !!(portableFlag2 & 0x04);
             list[idx].mounts = Object.assign({}, slotState);
             list[idx].mountNames = mNames2;
             list[idx].hashes = mediaHashes;
@@ -866,12 +1172,25 @@
                 }
             }
 
+            // Portable EMM 判定: ヘッダ flags bit2 を LE で読み取り
+            var importPortable = false;
+            if (arr.length >= 8) {
+                var dv;
+                if (arr instanceof Uint8Array) {
+                    dv = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+                } else {
+                    dv = new DataView(buf, 0, 8);
+                }
+                var importFlags = dv.getUint16(6, true); // LE
+                importPortable = !!(importFlags & 0x04);  // STATE_FLAG_PORTABLE_EMM
+            }
+
             var name = file.name.replace(/\.xmst$/i, '') || 'Imported';
             var key = 'state_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
             // メタ部分を除いた純粋なステートバイナリのみ保存
             await window.XmilStorage.write(key, buf.slice(0, stateLen));
             var list = getStateList();
-            list.push({ key: key, name: name, time: new Date().toISOString(), size: stateLen, mounts: mounts, mountNames: mNames, hashes: hashes });
+            list.push({ key: key, name: name, time: new Date().toISOString(), size: stateLen, mounts: mounts, mountNames: mNames, hashes: hashes, portable: importPortable });
             saveStateList(list);
             updateStatus('ステートインポート完了: ' + name);
             return true;
@@ -974,6 +1293,7 @@
                 mouseEnable: elements.mouseEnable ? elements.mouseEnable.checked : false,
                 statusToast: elements.statusToastEnable ? elements.statusToastEnable.checked : false,
                 stateOverwrite: elements.stateOverwrite ? elements.stateOverwrite.checked : false,
+                portableEmm: !!(function() { var cb = document.getElementById('cfg-portable-emm'); return cb && cb.checked; })(),
                 keyMode: (function() {
                     var c = document.querySelector('input[name="key-mode"]:checked');
                     return c ? parseInt(c.value, 10) : 0;
@@ -1007,6 +1327,8 @@
             if (elements.mouseEnable) elements.mouseEnable.checked = !!s.mouseEnable;
             if (elements.statusToastEnable) elements.statusToastEnable.checked = (s.statusToast !== undefined ? !!s.statusToast : false);
             if (elements.stateOverwrite) elements.stateOverwrite.checked = !!s.stateOverwrite;
+            var peCb = document.getElementById('cfg-portable-emm');
+            if (peCb) peCb.checked = !!s.portableEmm;
             if (s.keyMode !== undefined && elements.keyModeRadios) {
                 elements.keyModeRadios.forEach(function(r) {
                     r.checked = (parseInt(r.value, 10) === s.keyMode);
@@ -1469,6 +1791,11 @@
                 if (action === 'drive-save') {
                     if (window.XmilDrive) window.XmilDrive.saveByKey(key);
                 }
+                // EMM 10スロットビュー用アクション
+                if (action === 'emm-create') onEmmSlotCreate(parseInt(btn.dataset.slot, 10));
+                if (action === 'emm-export') onEmmSlotExport(parseInt(btn.dataset.slot, 10));
+                if (action === 'emm-import') onEmmSlotImport(parseInt(btn.dataset.slot, 10));
+                if (action === 'emm-delete') onEmmSlotDelete(parseInt(btn.dataset.slot, 10));
             });
         }
 
@@ -1505,8 +1832,8 @@
         // 新FDDパネルのイジェクトボタン
         for (var di = 0; di < 2; di++) {
             (function(d) {
-                if (elements.fddEject[d])   elements.fddEject[d].addEventListener('click',   function() { ejectSlot('drive' + d); });
-                if (elements.fddHwEject[d]) elements.fddHwEject[d].addEventListener('click', function() { ejectSlot('drive' + d); });
+                if (elements.fddEject[d])   elements.fddEject[d].addEventListener('click',   function() { ejectSlot('drive' + d).catch(function(e) { console.error('eject failed:', e); }); });
+                if (elements.fddHwEject[d]) elements.fddHwEject[d].addEventListener('click', function() { ejectSlot('drive' + d).catch(function(e) { console.error('eject failed:', e); }); });
             })(di);
         }
 
@@ -1514,7 +1841,7 @@
         for (var hi = 0; hi < 2; hi++) {
             (function(h) {
                 var hddEjectBtn = document.getElementById('btn-hdd' + h + '-eject');
-                if (hddEjectBtn) hddEjectBtn.addEventListener('click', function() { ejectSlot(h === 0 ? 'hdd0' : 'hdd1'); });
+                if (hddEjectBtn) hddEjectBtn.addEventListener('click', function() { ejectSlot(h === 0 ? 'hdd0' : 'hdd1').catch(function(e) { console.error('eject failed:', e); }); });
             })(hi);
         }
 
@@ -1618,10 +1945,10 @@
             if (el) el.addEventListener('click', deckTransport[id]);
         });
         var cdEject = document.getElementById('cdeck-eject');
-        if (cdEject) cdEject.addEventListener('click', function() { ejectSlot('cmt'); });
+        if (cdEject) cdEject.addEventListener('click', function() { ejectSlot('cmt').catch(function(e) { console.error('eject failed:', e); }); });
 
         // CMT ボタン (後方互換)
-        if (elements.btnCmtEject) elements.btnCmtEject.addEventListener('click', function() { ejectSlot('cmt'); });
+        if (elements.btnCmtEject) elements.btnCmtEject.addEventListener('click', function() { ejectSlot('cmt').catch(function(e) { console.error('eject failed:', e); }); });
         if (elements.btnCmtPlay)  elements.btnCmtPlay.addEventListener('click',  function() { if (module && module._js_cmt_play)  { module._js_cmt_play();  updateStatus('CMT 再生');     } });
         if (elements.btnCmtStop)  elements.btnCmtStop.addEventListener('click',  function() { if (module && module._js_cmt_stop)  { module._js_cmt_stop();  updateStatus('CMT 停止');     } });
         if (elements.btnCmtFf)    elements.btnCmtFf.addEventListener('click',   function() { if (module && module._js_cmt_ff)    { module._js_cmt_ff();    updateStatus('CMT 早送り');   } });
@@ -1657,10 +1984,72 @@
             }},
             { id: 'lib-close-btn',      fn: closeLibraryPanel },
             { id: 'lib-add-btn',        fn: function() { var el = document.getElementById('file-add-to-library'); if (el) el.click(); } },
+            { id: 'btn-emm-manage',     fn: function() { openLibraryPanel('emm'); } },
+            { id: 'emm-create-close',   fn: closeEmmCreateDialog },
+            { id: 'emm-create-confirm', fn: onEmmCreateConfirm },
         ];
         _btnMap.forEach(function(b) {
             var el = document.getElementById(b.id);
             if (el) el.addEventListener('click', b.fn);
+        });
+
+        // EMM サイズ選択ラジオ初期化
+        initEmmSizeRadios();
+
+        // EMM インポート用隠し file input
+        emmImportInput = document.createElement('input');
+        emmImportInput.type = 'file';
+        emmImportInput.accept = '.mem,.MEM';
+        emmImportInput.style.display = 'none';
+        document.body.appendChild(emmImportInput);
+        emmImportInput.addEventListener('change', async function(e) {
+            var file = e.target.files[0];
+            e.target.value = '';
+            var slotNum = emmImportSlot;
+            emmImportSlot = -1;
+            if (!file || slotNum < 0) return;
+            if (!emmGuardStart(slotNum)) return;
+            var slotName = 'emm' + slotNum;
+            var fileName = 'EMM' + slotNum + '.MEM';
+            var wasExistingKey = null;
+            try {
+                if (file.size > 16 * 1024 * 1024) { alert('最大 16MB です'); return; }
+                var existingEntry = getLibrary().find(function(ent) {
+                    return ent.type === 'emm' && ent.name === fileName;
+                });
+                wasExistingKey = existingEntry ? existingEntry.key : null;
+                if (slotState[slotName]) await ejectSlot(slotName);
+                var data = await file.arrayBuffer();
+                var key = fileName;
+                await window.XmilStorage.write(key, data);
+                // 古いキーが異なる場合は OPFS の孤児データを削除
+                var oldLib2 = getLibrary();
+                for (var oi2 = 0; oi2 < oldLib2.length; oi2++) {
+                    var oe2 = oldLib2[oi2];
+                    if (oe2.key !== key && oe2.type === 'emm' && oe2.name === fileName) {
+                        try { await window.XmilStorage.remove(oe2.key); } catch(_) {}
+                    }
+                }
+                var lib = oldLib2.filter(function(ent) {
+                    return ent.key !== key && !(ent.type === 'emm' && ent.name === fileName);
+                });
+                lib.push({ key: key, name: fileName, type: 'emm', ext: 'MEM',
+                           size: data.byteLength, addedAt: new Date().toISOString() });
+                saveLibrary(lib);
+                await mountFromLibrary(key, slotName);
+                renderLibraryList();
+                updateCapacityDisplay();
+                updateStatus('インポート完了: ' + fileName);
+            } catch(err) {
+                console.error('EMM import failed:', err);
+                alert('インポートに失敗しました: ' + (err.message || err));
+                if (wasExistingKey && !slotState[slotName]) {
+                    try { await mountFromLibrary(wasExistingKey, slotName); } catch(_) {}
+                }
+                renderLibraryList();
+            } finally {
+                emmGuardEnd(slotNum);
+            }
         });
 
         // フルスクリーン
@@ -1796,6 +2185,13 @@
         if (overwriteItem) overwriteItem.addEventListener('click', function(e) {
             e.preventDefault();
             if (elements.stateOverwrite) elements.stateOverwrite.checked = !elements.stateOverwrite.checked;
+            syncToggleItems(); saveSettings();
+        });
+        var portableEmmItem = document.getElementById('cfg-portable-emm-item');
+        if (portableEmmItem) portableEmmItem.addEventListener('click', function(e) {
+            e.preventDefault();
+            var cb = document.getElementById('cfg-portable-emm');
+            if (cb) cb.checked = !cb.checked;
             syncToggleItems(); saveSettings();
         });
         if (elements.keyModeRadios) {
@@ -2126,7 +2522,7 @@
     // ----------------------------------------------------------------
     // ライブラリ UI
     // ----------------------------------------------------------------
-    var currentLibraryFilter = 'all'; // 'all' | 'fdd' | 'hdd' | 'cmt'
+    var currentLibraryFilter = 'all'; // 'all' | 'fdd' | 'hdd' | 'cmt' | 'emm'
     var pendingSlotName = null;       // ライブラリパネルを開いたスロット名
 
     function openLibraryPanel(type, index) {
@@ -2167,6 +2563,16 @@
         var filter = activeBtn ? activeBtn.dataset.type : 'all';
         currentLibraryFilter = filter;
 
+        // 「＋ 追加」ボタン: EMM タブ時は非表示
+        var addBtn = document.getElementById('lib-add-btn');
+        if (addBtn) addBtn.classList.toggle('hidden', filter === 'emm');
+
+        // EMM タブ → 専用 10 スロットビュー
+        if (filter === 'emm') {
+            renderEmmSlotList();
+            return;
+        }
+
         var lib = getLibrary();
         var filtered = filter === 'all' ? lib : lib.filter(function(e) { return e.type === filter; });
 
@@ -2187,7 +2593,7 @@
             var isMounted = !!mountedBy[entry.key];
             var mountedSlot = mountedBy[entry.key];
 
-            var typeBadge = { fdd: 'FDD', hdd: 'HDD', cmt: 'CMT' }[entry.type] || entry.type.toUpperCase();
+            var typeBadge = { fdd: 'FDD', hdd: 'HDD', cmt: 'CMT', emm: 'EMM' }[entry.type] || entry.type.toUpperCase();
             var typeClass  = 'lib-badge-' + entry.type;
 
             // マウントボタン生成 (data-* 属性でキー/スロットを渡す。onclick 文字列連結は使わない)
@@ -2207,6 +2613,14 @@
             } else if (entry.type === 'cmt') {
                 var cmtActive = mountedSlot === 'cmt';
                 mountBtns += '<button class="lib-mount-btn' + (cmtActive ? ' active' : '') + '" data-action="mount" data-key="' + ek + '" data-slot="cmt" title="CMTにマウント">CMT' + (cmtActive ? '✓' : '') + '</button>';
+            } else if (entry.type === 'emm') {
+                // EMM: ファイル名からスロットが一意に決まる
+                var emmSn = emmSlotFromName(entry.name);
+                if (emmSn) {
+                    var emmActive = mountedSlot === emmSn;
+                    var emmLabel = 'EMM' + emmSlotNum(emmSn);
+                    mountBtns += '<button class="lib-mount-btn' + (emmActive ? ' active' : '') + '" data-action="mount" data-key="' + ek + '" data-slot="' + emmSn + '" title="' + emmLabel + 'にマウント">' + emmLabel + (emmActive ? '✓' : '') + '</button>';
+                }
             }
 
             html += '<div class="lib-row' + (isMounted ? ' mounted' : '') + '">';
@@ -2425,18 +2839,27 @@
         }
     }
 
-    function onResetClick() {
-        if (module && module._js_xmil_reset) {
-            module._js_xmil_reset();
-            reinitAudioForReset();
-            updateStatus('リセット完了');
+    async function onResetClick() {
+        if (!module || !module._js_xmil_reset) return;
+        try {
+            await flushAllDirty();
+        } catch(e) {
+            if (!confirm('EMM データの保存に失敗しました。リセットするとデータが失われる可能性があります。続行しますか？')) return;
         }
+        module._js_xmil_reset();
+        reinitAudioForReset();
+        updateStatus('リセット完了');
     }
 
-    function onPowerToggle() {
+    async function onPowerToggle() {
         if (!module) return;
         if (isRunning) {
-            // 電源 OFF: 画面を黒にクリアして停止
+            // 電源 OFF: flush → 停止
+            try {
+                await flushAllDirty();
+            } catch(e) {
+                if (!confirm('EMM データの保存に失敗しました。電源を切るとデータが失われる可能性があります。続行しますか？')) return;
+            }
             if (module._js_xmil_power_off) { module._js_xmil_power_off(); }
             isRunning = false;
             updateStatus('電源 OFF');
@@ -2452,8 +2875,13 @@
         }
     }
 
-    function onIplResetClick() {
+    async function onIplResetClick() {
         if (!module) return;
+        try {
+            await flushAllDirty();
+        } catch(e) {
+            if (!confirm('EMM データの保存に失敗しました。IPL リセットするとデータが失われる可能性があります。続行しますか？')) return;
+        }
         if (module._js_xmil_reset) { module._js_xmil_reset(); reinitAudioForReset(); }
         updateStatus('IPL リセット');
     }
@@ -2629,6 +3057,9 @@
             saveBtn.classList.toggle('overwrite-on', owOn);
             saveBtn.title = owOn ? 'クイックセーブ（上書き）' : 'クイックセーブ';
         }
+        var peEl = document.getElementById('cfg-portable-emm-item');
+        var peCb = document.getElementById('cfg-portable-emm');
+        if (peEl) peEl.classList.toggle('on', !!(peCb && peCb.checked));
     }
 
     // ----------------------------------------------------------------

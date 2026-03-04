@@ -11,7 +11,12 @@
  */
 
 #define STATE_MAGIC     "XMST"
-#define STATE_VERSION   1
+#define STATE_VERSION   2
+
+/* flags bit assignments */
+/* bit0-1: ROM_TYPE (0-3)  — existing, do not change */
+/* bit2:   Portable EMM    — v2: EMM file data compressed in EMDn sections */
+#define STATE_FLAG_PORTABLE_EMM  0x04
 
 /* ---- serialization helpers ---- */
 
@@ -197,8 +202,9 @@ extern WORD state_load_version;
 
 /* ---- main entry points ---- */
 
-/* Returns malloc'd buffer; caller must free(). *out_size receives byte count. */
-BYTE* save_full_state(int *out_size);
+/* Returns malloc'd buffer; caller must free(). *out_size receives byte count.
+ * flags: 0 = Fast mode, STATE_FLAG_PORTABLE_EMM = include compressed EMM data */
+BYTE* save_full_state(int *out_size, int flags);
 
 /* Returns 0 on success, 1 on success with ROM_TYPE mismatch, -1 on header error.
  * Section-level failures are skipped (not fatal); call get_load_warnings()

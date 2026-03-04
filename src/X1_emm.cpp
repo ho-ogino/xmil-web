@@ -7,7 +7,7 @@
 #include	<stdio.h>
 #include	"x1.h"
 #include	"xmil.h"
-#include	"x1_emm.h"
+#include	"X1_EMM.H"
 #include	"dosio.h"
 
 #define EMM_FILENAME "EMM%d.MEM"
@@ -42,6 +42,9 @@ static int emm_flush_buffer(void)
 	}
 	if (file_close(hdr)) {
 		ret = -1;
+	}
+	if (ret == 0) {
+		emm.dirty_buf = 0;
 	}
 	return(ret);
 }
@@ -92,7 +95,7 @@ static BYTE *x1_emm_get_ptr(int sel)
 
 	cur_ptr = page * 256;
 	if(cur_ptr+256 > filesize )
-		emm.buf_size = (WORD)(emm.filesize - cur_ptr);
+		emm.buf_size = (WORD)(filesize - cur_ptr);
 	else
 		emm.buf_size = 256;
 
@@ -141,6 +144,7 @@ X1_IOW x1_emm_w(WORD port, BYTE value)
 		case 3:
 			*x1_emm_get_ptr(bd) = value;
 			emm.dirty_buf = 1;
+			emm.dirty_slots |= (1 << bd);
 			/* １レコード書き込み終了時にファイルを更新 */
 			if( (++emm.addr[bd] & 0xff) == 0x00)
 				emm_flush_buffer();
@@ -188,4 +192,27 @@ X1_IOR x1_rom_r(WORD port)
 		return *x1_emm_get_ptr(MAX_EMM);
 	return 0xff;
 }
+void emm_flush_all_buffers(void)
+{
+	emm_flush_buffer();
+}
+
+void emm_reset_slot(int sel)
+{
+	if (sel < 0 || sel >= MAX_EMM) return;
+	/* dirty バッファが対象スロットなら先にフラッシュ */
+	if (emm.sel == sel) emm_flush_buffer();
+	/* エラーフラグクリア */
+	emm.addr[sel] &= 0x00FFFFFF;
+	/* ページキャッシュ無効化 */
+	if (emm.sel == sel) emm.sel = 0xff;
+}
+
+WORD emm_take_dirty_slots(void)
+{
+	WORD mask = emm.dirty_slots;
+	emm.dirty_slots = 0;
+	return mask;
+}
+
 #endif /* T_TUNE */
