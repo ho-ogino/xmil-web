@@ -2067,6 +2067,7 @@
         // 4. 保存 or キャンセル  5. エミュレータ再開
         var screenshotBlob = null;
         var screenshotFilename = '';
+        var screenshotWasRunning = false;
         var screenshotModal = document.getElementById('screenshot-modal');
         var screenshotPreview = document.getElementById('screenshot-preview');
         var screenshotSaveBtn = document.getElementById('screenshot-save');
@@ -2078,14 +2079,19 @@
                 screenshotBlob = null;
             }
             screenshotModal.classList.add('hidden');
-            Module.ccall('js_xmil_start', null, [], []);
+            if (screenshotWasRunning) {
+                Module.ccall('js_xmil_start', null, [], []);
+            }
         }
 
         function takeScreenshot() {
             var canvas = document.getElementById('canvas');
             if (!canvas) return;
-            // エミュレータ停止 — 撮影画面で固定
-            Module.ccall('js_xmil_stop', null, [], []);
+            // 撮影前の実行状態を保持し、実行中なら停止
+            screenshotWasRunning = isRunning;
+            if (isRunning) {
+                Module.ccall('js_xmil_stop', null, [], []);
+            }
             canvas.toBlob(function(blob) {
                 if (!blob) { screenshotResume(); return; }
                 screenshotBlob = blob;
