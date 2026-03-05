@@ -10,6 +10,10 @@
 #include	"X1_EMM.H"
 #include	"dosio.h"
 
+#ifdef __EMSCRIPTEN__
+#include	<emscripten.h>
+#endif
+
 #define EMM_FILENAME "EMM%d.MEM"
 #define ROM_FILENAME "ROMBASIC.ROM"
 
@@ -29,6 +33,9 @@ static int emm_flush_buffer(void)
 	if( emm.sel == 0xff || !emm.dirty_buf )
 		return 0;
 
+	int saved_sel = emm.sel;
+	WORD saved_buf_size = emm.buf_size;
+
 	if ((hdr = file_open_c(emm.filename)) == (FILEH)-1) {
 		return(-1);
 	}
@@ -45,6 +52,13 @@ static int emm_flush_buffer(void)
 	}
 	if (ret == 0) {
 		emm.dirty_buf = 0;
+#ifdef __EMSCRIPTEN__
+		EM_ASM({
+			if (window.XMillennium && window.XMillennium.onEmmPageWrite) {
+				window.XMillennium.onEmmPageWrite($0, $1, $2);
+			}
+		}, saved_sel, (int)cur_ptr, (int)saved_buf_size);
+#endif
 	}
 	return(ret);
 }

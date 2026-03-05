@@ -4,7 +4,9 @@
 // Exposes: window.XmilStorage
 //   .write(key, arrayBuffer)          → Promise<void>
 //   .writeStream(key, chunkFn)        → Promise<void>   chunkFn: async()=>Uint8Array|null
+//   .writePatch(key, patches)         → Promise<void>   patches: [{offset,data}] (OPFS only)
 //   .read(key)                        → Promise<ArrayBuffer|null>
+//   .stat(key)                        → Promise<number|null>  file size or null
 //   .remove(key)                      → Promise<void>
 //   .list()                           → Promise<[{key,name,size}]>
 //   .ensureCapacity(neededBytes)      → Promise<void>  throws if insufficient
@@ -112,6 +114,34 @@
         } catch(e) {}
     }
 
+    // Partial write: patches = [{offset: number, data: Uint8Array}, ...]
+    // Uses keepExistingData to preserve unmodified regions.
+    async function opfsWritePatch(key, patches) {
+        var root = await navigator.storage.getDirectory();
+        var fh   = await root.getFileHandle(key, { create: false });
+        var ws   = await fh.createWritable({ keepExistingData: true });
+        try {
+            for (var i = 0; i < patches.length; i++) {
+                await ws.write({ type: 'write', position: patches[i].offset, data: patches[i].data });
+            }
+            await ws.close();
+        } catch(e) {
+            try { await ws.abort(); } catch(_) {}
+            throw e;
+        }
+    }
+
+    async function opfsStat(key) {
+        try {
+            var root = await navigator.storage.getDirectory();
+            var fh   = await root.getFileHandle(key, { create: false });
+            var f    = await fh.getFile();
+            return f.size;
+        } catch(e) {
+            return null;
+        }
+    }
+
     async function opfsList() {
         var result = [];
         try {
@@ -207,6 +237,11 @@
         } catch(e) {}
     }
 
+    async function idbStat(key) {
+        var buf = await idbRead(key);
+        return buf ? buf.byteLength : null;
+    }
+
     async function idbList() {
         try {
             var db = await openIdb();
@@ -272,9 +307,24 @@
             return result;
         },
 
+        async writePatch(key, patches) {
+            var b = await detectBackend();
+            if (b === 'opfs') {
+                await opfsWritePatch(key, patches);
+                _manifestAdd(key);
+            } else {
+                throw new Error('writePatch not supported on IDB backend');
+            }
+        },
+
         async read(key) {
             var b = await detectBackend();
             return b === 'opfs' ? opfsRead(key) : idbRead(key);
+        },
+
+        async stat(key) {
+            var b = await detectBackend();
+            return b === 'opfs' ? opfsStat(key) : idbStat(key);
         },
 
         async remove(key) {

@@ -84,9 +84,9 @@ static int sasi_write_block(void)
 #ifdef __EMSCRIPTEN__
 	EM_ASM({
 		if (window.XMillennium && window.XMillennium.onHddWrite) {
-			window.XMillennium.onHddWrite($0);
+			window.XMillennium.onHddWrite($0, $1, 256);
 		}
-	}, (int)sasi.id);
+	}, (int)sasi.id, (int)(sasi.addr - 256));
 #endif
 
 	return 0;
