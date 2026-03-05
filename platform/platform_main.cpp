@@ -24,6 +24,7 @@
 #include "X1_CRTC.H"  // crtc_cold_reset() (電源ON時のパレットリセット用)
 #include "state_save.h"
 #include "X1_EMM.H"
+#include "X1_SASI.H"
 
 // web_sound.cpp で定義されているサウンドパラメータ (dsounds.h より)
 extern WORD  ds_rate;
@@ -388,6 +389,7 @@ extern char g_sasi_path[2][256];   // X1_sasi.cpp で定義
 EMSCRIPTEN_KEEPALIVE
 void js_set_sasi_path(const char* path, int id) {
     if (id < 0 || id > 1) id = 0;
+    sasi_close_handle();
     if (!path || !path[0]) {
         g_sasi_path[id][0] = '\0';
     } else {

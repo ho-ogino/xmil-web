@@ -20,6 +20,33 @@
 EMM_TABLE emm;
 
 /**********************************************************************
+	ファイルハンドルキャッシュ
+**********************************************************************/
+
+void emm_close_handle(void)
+{
+	if (emm.cached_hdr != NULL && emm.cached_hdr != (FILEH)-1) {
+		file_close(emm.cached_hdr);
+	}
+	emm.cached_hdr = (FILEH)-1;
+	emm.cached_filename[0] = '\0';
+}
+
+static FILEH emm_get_handle(void)
+{
+	if (emm.cached_hdr != (FILEH)-1
+		&& strcmp(emm.cached_filename, emm.filename) == 0) {
+		return emm.cached_hdr;
+	}
+	emm_close_handle();
+	emm.cached_hdr = file_open_c(emm.filename);
+	if (emm.cached_hdr != (FILEH)-1) {
+		strcpy(emm.cached_filename, emm.filename);
+	}
+	return emm.cached_hdr;
+}
+
+/**********************************************************************
 	ファイルの読み書き
 **********************************************************************/
 
@@ -36,7 +63,8 @@ static int emm_flush_buffer(void)
 	int saved_sel = emm.sel;
 	WORD saved_buf_size = emm.buf_size;
 
-	if ((hdr = file_open_c(emm.filename)) == (FILEH)-1) {
+	hdr = emm_get_handle();
+	if (hdr == (FILEH)-1) {
 		return(-1);
 	}
 
@@ -45,9 +73,7 @@ static int emm_flush_buffer(void)
 
 	if ((file_seek(hdr, cur_ptr, FSEEK_SET) != cur_ptr) ||
 		(file_write(hdr, emm.buf, emm.buf_size) != emm.buf_size)) {
-		ret = -1;
-	}
-	if (file_close(hdr)) {
+		emm_close_handle();
 		ret = -1;
 	}
 	if (ret == 0) {
@@ -93,7 +119,8 @@ static BYTE *x1_emm_get_ptr(int sel)
 	else
 		sprintf(emm.filename,EMM_FILENAME,sel);
 
-	if ((hdr = file_open_c(emm.filename)) == (FILEH)-1)
+	hdr = emm_get_handle();
+	if (hdr == (FILEH)-1)
 	{
 		emm.addr[sel] |= 0x80000000;
 		return(&dummy_data);
@@ -103,7 +130,6 @@ static BYTE *x1_emm_get_ptr(int sel)
 	filesize =file_length(hdr);
 	if( emm.addr[sel] >= filesize)
 	{
-		file_close(hdr);
 		return &dummy_data;
 	}
 
@@ -116,12 +142,9 @@ static BYTE *x1_emm_get_ptr(int sel)
 	if ((file_seek(hdr, cur_ptr, FSEEK_SET) != cur_ptr) ||
 		(file_read(hdr, emm.buf, emm.buf_size) != emm.buf_size))
 	{
-		file_close(hdr);
+		emm_close_handle();
 		return &dummy_data;
 	}
-
-	if (file_close(hdr))
-		return &dummy_data;
 
 	emm.page = page;
 	emm.sel = sel;
@@ -131,8 +154,10 @@ static BYTE *x1_emm_get_ptr(int sel)
 /* initialize */
 void init_emm(void)
 {
+	emm_close_handle();
 	ZeroMemory(&emm, sizeof(EMM_TABLE));
-	emm.sel= 0xff;
+	emm.sel = 0xff;
+	emm.cached_hdr = (FILEH)-1;
 }
 
 /* EMM port write */
@@ -220,6 +245,13 @@ void emm_reset_slot(int sel)
 	emm.addr[sel] &= 0x00FFFFFF;
 	/* ページキャッシュ無効化 */
 	if (emm.sel == sel) emm.sel = 0xff;
+	/* キャッシュがこのスロットのファイルなら閉じる */
+	char fname[16];
+	sprintf(fname, EMM_FILENAME, sel);
+	if (emm.cached_hdr != (FILEH)-1
+		&& strcmp(emm.cached_filename, fname) == 0) {
+		emm_close_handle();
+	}
 }
 
 WORD emm_take_dirty_slots(void)

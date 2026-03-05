@@ -32,6 +32,33 @@ char g_sasi_path[2][256] = {"", ""};
 SASI_TABLE sasi;
 
 /**************************************************************/
+/* ファイルハンドルキャッシュ */
+
+void sasi_close_handle(void)
+{
+	if (sasi.cached_hdr != NULL && sasi.cached_hdr != (FILEH)-1) {
+		file_close(sasi.cached_hdr);
+	}
+	sasi.cached_hdr = (FILEH)-1;
+	sasi.cached_filename[0] = '\0';
+}
+
+static FILEH sasi_get_handle(void)
+{
+	if (sasi.cached_hdr != (FILEH)-1
+		&& strcmp(sasi.cached_filename, sasi.filename) == 0) {
+		return sasi.cached_hdr;
+	}
+	sasi_close_handle();
+	sasi.cached_hdr = file_open_c(sasi.filename);
+	if (sasi.cached_hdr != (FILEH)-1) {
+		strncpy(sasi.cached_filename, sasi.filename, sizeof(sasi.cached_filename) - 1);
+		sasi.cached_filename[sizeof(sasi.cached_filename) - 1] = '\0';
+	}
+	return sasi.cached_hdr;
+}
+
+/**************************************************************/
 /* SASI HDD emulation */
 
 /* SASI phase */
@@ -52,7 +79,9 @@ SASI_MESSAGE	/* Message Byte */
 
 void init_sasi(void)
 {
+	sasi_close_handle();
 	ZeroMemory(&sasi, sizeof(SASI_TABLE));
+	sasi.cached_hdr = (FILEH)-1;
 }
 
 /* １セクター分の書き込み */
@@ -61,25 +90,22 @@ static int sasi_write_block(void)
 {
 	FILEH hdr;
 
-	if ((hdr = file_open_c(sasi.filename)) == (FILEH)-1)
+	hdr = sasi_get_handle();
+	if (hdr == (FILEH)-1)
 		return -1;
 
 	/* file size check */
 	if( file_length(hdr) < (sasi.addr) )
 	{
-		file_close(hdr);
 		return -1;
 	}
 
 	if ((file_seek(hdr, sasi.addr-256, FSEEK_SET) != sasi.addr-256) ||
 		(file_write(hdr, sasi.buf, 256) != 256))
 	{
-		file_close(hdr);
+		sasi_close_handle();
 		return -1;
 	}
-
-	if (file_close(hdr))
-		return -1;
 
 #ifdef __EMSCRIPTEN__
 	EM_ASM({
@@ -97,25 +123,22 @@ static int sasi_read_block(void)
 {
 	FILEH hdr;
 
-	if ((hdr = file_open_c(sasi.filename)) == (FILEH)-1)
+	hdr = sasi_get_handle();
+	if (hdr == (FILEH)-1)
 		return -1;
 
 	/* file size check */
 	if( file_length(hdr) < (sasi.addr+256) )
 	{
-		file_close(hdr);
 		return -1;
 	}
 
 	if ((file_seek(hdr, sasi.addr, FSEEK_SET) != sasi.addr) ||
 		(file_read(hdr, sasi.buf, 256) != 256))
 	{
-		file_close(hdr);
+		sasi_close_handle();
 		return -1;
 	}
-
-	if (file_close(hdr))
-		return -1;
 
 	return 0;
 }

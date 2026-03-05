@@ -541,6 +541,10 @@ extern	BYTE	disp_flashscreen;
 
 void x1r_term(void) {
 
+#if T_TUNE
+	emm_close_handle();
+	sasi_close_handle();
+#endif
 	timer_term();
 	x1_opm_stop();
 	x1_psg_stop();
