@@ -59,20 +59,27 @@ BYTE changesector2d(void) {
 	return(0);
 }
 
-void fdd_flush_2d(void) {
+int fdd_flush_2d(void) {
+	int ret = 0;
 	for (int drv = 0; drv < 4; drv++) {
 		if (sec_write[drv] && sec_now[drv] != -1) {
 			FILEH hdl;
 			DWORD seekp = (long)sec_now[drv] << 8;
 			if ((hdl = file_open(FDC_NAME[drv])) != (FILEH)-1) {
 				if ((file_seek(hdl, seekp, FSEEK_SET) == seekp) &&
-					(file_write(hdl, sec_data[drv], 256) == 256)) {
+					(file_write(hdl, sec_data[drv], 256) == 256) &&
+					!file_close(hdl)) {
 					sec_write[drv] = 0;
+				} else {
+					file_close(hdl);
+					ret = -1;
 				}
-				file_close(hdl);
+			} else {
+				ret = -1;
 			}
 		}
 	}
+	return ret;
 }
 
 

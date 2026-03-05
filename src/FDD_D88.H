@@ -23,7 +23,7 @@ typedef struct {
 } D88_SECTOR;
 
 
-void fdd_flush_d88(void);
+int fdd_flush_d88(void);
 short fdd_eject_d88(short drv);
 short fdd_set_d88(short drv, LPSTR fname);
 

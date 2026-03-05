@@ -417,9 +417,11 @@ BYTE* js_save_state(int *out_size, int flags) {
 // ---- FDD ----
 
 EMSCRIPTEN_KEEPALIVE
-void js_fdd_flush(void) {
-    fdd_flush_d88();
-    fdd_flush_2d();
+int js_fdd_flush(void) {
+    int ret = 0;
+    if (fdd_flush_d88() != 0) ret = -1;
+    if (fdd_flush_2d() != 0) ret = -1;
+    return ret;
 }
 
 // ---- EMM ----

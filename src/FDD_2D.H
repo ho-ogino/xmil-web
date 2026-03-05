@@ -1,4 +1,4 @@
-void fdd_flush_2d(void);
+int fdd_flush_2d(void);
 short fdd_eject_2d(short drv);
 short fdd_set_2d(short drv, LPSTR fname);
 

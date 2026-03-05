@@ -710,7 +710,11 @@
         if (isFlushing) return;
 
         // C++ dirty バッファ → VFS にフラッシュ（VFS→OPFS 前に必須）
-        if (module && module._js_fdd_flush) module._js_fdd_flush();
+        // FDD flush 失敗時は VFS が古いままなので FDD スロットの OPFS 同期をスキップ
+        var fddFlushOk = true;
+        if (module && module._js_fdd_flush) {
+            fddFlushOk = (module._js_fdd_flush() === 0);
+        }
         if (module && module._js_emm_flush) module._js_emm_flush();
         syncEmmDirtyFromCpp();
 
@@ -721,7 +725,10 @@
         isFlushing = true;
         updateStatus('保存中...');
         try {
-            for (var slotName in slotState) await flushSlot(slotName);
+            for (var slotName in slotState) {
+                if (!fddFlushOk && (slotName === 'drive0' || slotName === 'drive1')) continue;
+                await flushSlot(slotName);
+            }
             updateStatus('保存完了');
         } finally {
             isFlushing = false;

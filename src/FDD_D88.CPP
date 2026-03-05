@@ -230,8 +230,8 @@ void drvflush(short drv) {
 }
 
 
-void fdd_flush_d88(void) {
-	curdataflush();
+int fdd_flush_d88(void) {
+	return curdataflush();
 }
 
 
