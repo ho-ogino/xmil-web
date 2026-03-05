@@ -12,6 +12,7 @@ static struct {
     int bpp;
     int pitch;
     DWORD palette[256];
+    DWORD palette_version;  // パレット変更カウンタ（符号なし: UB 回避）
     BOOL initialized;
 } g_graphics = {0};
 
@@ -54,6 +55,23 @@ BOOL Platform_Graphics_Init(int width, int height, int bpp) {
     // Canvas要素のサイズ設定
     emscripten_set_canvas_element_size(CANVAS_ID, width, height);
 
+    // 再初期化時の状態持ち越し防止
+    g_graphics.palette_version = 0;
+
+    // JS 側のキャッシュを初期化
+    EM_ASM({
+        var g = {};
+        g.ctx = null;
+        g.imageData = null;
+        g.dataU32 = null;
+        g.width = 0;
+        g.height = 0;
+        g.canvas = null;
+        g.paletteLUT = new Uint32Array(256);
+        g.paletteVersion = -1;
+        window._xmilGfx = g;
+    });
+
     g_graphics.initialized = TRUE;
     return TRUE;
 }
@@ -64,6 +82,9 @@ void Platform_Graphics_Term(void) {
         g_graphics.framebuffer = NULL;
     }
     g_graphics.initialized = FALSE;
+
+    // JS 側のキャッシュをクリア
+    EM_ASM({ window._xmilGfx = null; });
 }
 
 BYTE* Platform_Graphics_LockSurface(int* pitch) {
@@ -85,58 +106,85 @@ void Platform_Graphics_Flip(void) {
         return;
     }
 
-    // Canvas 2Dコンテキストを取得
-    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_get_current_context();
-
-    // JavaScriptコードを実行してCanvasに描画
     EM_ASM({
-        var canvas = document.querySelector('#canvas');
-        if (!canvas) return;
-
-        var ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        var gfx = window._xmilGfx;
+        if (!gfx) return;
 
         var width = $0;
         var height = $1;
         var bpp = $2;
         var framebuffer = $3;
+        var palette = $4;
+        var palVersion = $5;
 
-        // ImageDataを作成
-        var imageData = ctx.createImageData(width, height);
-        var data = imageData.data;
+        // ctx / ImageData のキャッシュ
+        // 再取得条件: 未初期化 / canvas 差替え / サイズ変更 / コンテキストロスト
+        var currentCanvas = document.getElementById('canvas');
+        if (!currentCanvas) return;
+        if (!gfx.ctx || gfx.canvas !== currentCanvas
+            || gfx.width !== width || gfx.height !== height) {
+            gfx.canvas = currentCanvas;
+            gfx.ctx = currentCanvas.getContext('2d');
+            if (!gfx.ctx) return;
+            gfx.imageData = gfx.ctx.createImageData(width, height);
+            gfx.dataU32 = new Uint32Array(gfx.imageData.data.buffer);
+            gfx.width = width;
+            gfx.height = height;
+            gfx.dataU32.fill(0xFF000000); // アルファ一括設定
+            gfx.paletteVersion = -1;      // LUT 再構築を強制
+        }
+
+        var dataU32 = gfx.dataU32;
+        var n = width * height;
 
         if (bpp == 8) {
-            // 8bitパレットモード
-            var palette = $4;
-            for (var i = 0; i < width * height; i++) {
-                var paletteIndex = HEAPU8[framebuffer + i];
-                var color = HEAPU32[(palette >> 2) + paletteIndex];
-                var offset = i * 4;
-                data[offset + 0] = (color >> 16) & 0xFF; // R
-                data[offset + 1] = (color >> 8) & 0xFF;  // G
-                data[offset + 2] = color & 0xFF;         // B
-                data[offset + 3] = 255;                  // A
+            // パレット LUT — version が変わった時のみ再構築
+            if (gfx.paletteVersion !== palVersion) {
+                var lut = gfx.paletteLUT;
+                for (var i = 0; i < 256; i++) {
+                    var argb = HEAPU32[(palette >> 2) + i];
+                    // ARGB (C++) → ABGR (ImageData LE Uint32)
+                    lut[i] = 0xFF000000
+                        | ((argb & 0xFF) << 16)    // B → byte2
+                        | (argb & 0xFF00)           // G → byte1
+                        | ((argb >> 16) & 0xFF);    // R → byte0
+                }
+                gfx.paletteVersion = palVersion;
+            }
+            // 高速ピクセル転送: LUT 参照 1 回のみ（shift/mask/alpha 不要）
+            var lut = gfx.paletteLUT;
+            for (var i = 0; i < n; i++) {
+                dataU32[i] = lut[HEAPU8[framebuffer + i]];
             }
         } else if (bpp == 32) {
-            // 32bitダイレクトカラー
-            for (var i = 0; i < width * height; i++) {
-                var offset = i * 4;
-                data[offset + 0] = HEAPU8[framebuffer + offset + 2]; // R
-                data[offset + 1] = HEAPU8[framebuffer + offset + 1]; // G
-                data[offset + 2] = HEAPU8[framebuffer + offset + 0]; // B
-                data[offset + 3] = 255;                              // A
+            // 32bpp (4096色モード)
+            // C++ 側 (ddraws_web.cpp): BGRA バイト順で書き込み
+            //   pixel = b | (g<<8) | (r<<16) | 0xFF000000
+            //   メモリ上 (LE): [B, G, R, 0xFF]
+            //   HEAPU32 読み値: 0xFF_RR_GG_BB
+            // JS 側: ImageData Uint32 (LE) = 0xAA_BB_GG_RR (ABGR)
+            //   → R と B を入れ替え
+            var srcU32 = (framebuffer >> 2);
+            for (var i = 0; i < n; i++) {
+                var src = HEAPU32[srcU32 + i];
+                dataU32[i] = 0xFF000000
+                    | ((src & 0xFF) << 16)    // B → byte2
+                    | (src & 0xFF00)           // G → byte1
+                    | ((src >> 16) & 0xFF);    // R → byte0
             }
         }
 
-        // Canvasに描画
-        ctx.putImageData(imageData, 0, 0);
+        gfx.ctx.putImageData(gfx.imageData, 0, 0);
     }, g_graphics.width, g_graphics.height, g_graphics.bpp,
-       g_graphics.framebuffer, g_graphics.palette);
+       g_graphics.framebuffer, g_graphics.palette, g_graphics.palette_version);
 }
 
 void Platform_Graphics_SetPalette(BYTE index, BYTE r, BYTE g, BYTE b) {
-    // indexはBYTE型なので常に0-255の範囲内
-    g_graphics.palette[index] = 0xFF000000 | (r << 16) | (g << 8) | b;
+    DWORD newval = 0xFF000000 | (r << 16) | (g << 8) | b;
+    if (g_graphics.palette[index] != newval) {
+        g_graphics.palette[index] = newval;
+        g_graphics.palette_version++;
+    }
 }
 
 BOOL Platform_Graphics_SetMode(int width, int height, int bpp) {
