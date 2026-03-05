@@ -12,11 +12,14 @@ typedef struct {
 	BYTE  msg;				// command message / message out code
 	char filename[64];		// filename
 	BYTE buf[256];			// sector buffer
+	HANDLE cached_hdr;		// cached file handle (avoid repeated open/close)
+	char cached_filename[64];	// filename corresponding to cached_hdr
 } SASI_TABLE;
 
 extern SASI_TABLE sasi;
 
 void init_sasi(void);
+void sasi_close_handle(void);
 X1_IOW x1_sasi_w(WORD port, BYTE value);
 X1_IOR x1_sasi_r(WORD port);
 

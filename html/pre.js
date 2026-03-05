@@ -537,6 +537,10 @@
                     if (module._js_emm_flush) module._js_emm_flush();
                     // dirty_slots を JS に反映 (flushSlot が OPFS 保存を判断するため)
                     syncEmmDirtyFromCpp();
+                    // キャッシュハンドル解放 + エラーフラグ/ページキャッシュ無効化
+                    if (module._js_emm_reset_slot) {
+                        module._js_emm_reset_slot(emmSlotNum(slotName));
+                    }
                 }
             } catch(e) {
                 console.error('ejectSlot emulator call failed:', slotName, e);

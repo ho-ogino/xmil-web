@@ -17,12 +17,15 @@ typedef struct {
 	WORD	buf_size;		// current buffer size
 	BYTE	dirty_buf;		// dirty flag of current page
 	WORD	dirty_slots;	// bitmask of slots written (bit0-9 = EMM0-9)
+	HANDLE	cached_hdr;			// cached file handle (avoid repeated open/close)
+	char	cached_filename[16];	// filename corresponding to cached_hdr
 } EMM_TABLE;
 
 extern EMM_TABLE emm;
 
 void init_emm(void);
 void emm_flush_all_buffers(void);
+void emm_close_handle(void);
 void emm_reset_slot(int sel);
 WORD emm_take_dirty_slots(void);
 

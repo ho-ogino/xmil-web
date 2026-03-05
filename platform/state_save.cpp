@@ -163,7 +163,10 @@ BYTE* save_full_state(int *out_size, int save_flags)
     n = ppi_save_state(scratch, SECTION_BUF_SIZE);
     write_section(buf, pos, "8255", scratch, n);
     write_section(buf, pos, "SCPU", (BYTE*)&scpu, sizeof(scpu));
+    emm_flush_all_buffers();
+    emm_close_handle();
     write_section(buf, pos, "EMM0", (BYTE*)&emm, sizeof(emm));
+    sasi_close_handle();
     write_section(buf, pos, "SASI", (BYTE*)&sasi, sizeof(sasi));
     write_section(buf, pos, "PCG0", (BYTE*)&pcg, sizeof(pcg));
 
@@ -405,6 +408,7 @@ int load_full_state(const BYTE *data, int size)
     load_memory(data, size, body, "SCPU", &scpu, sizeof(scpu));
 
     // EMM0: safe load with zero-init for backward compat (dirty_slots field)
+    emm_close_handle();
     {
         int emm0_len = 0;
         const BYTE* emm0_sec = find_section(data, size, body, "EMM0", emm0_len);
@@ -419,8 +423,13 @@ int load_full_state(const BYTE *data, int size)
             init_emm();
         }
     }
+    emm.cached_hdr = INVALID_HANDLE_VALUE;
+    emm.cached_filename[0] = '\0';
 
+    sasi_close_handle();
     load_memory(data, size, body, "SASI", &sasi, sizeof(sasi));
+    sasi.cached_hdr = INVALID_HANDLE_VALUE;
+    sasi.cached_filename[0] = '\0';
     load_memory(data, size, body, "PCG0", &pcg, sizeof(pcg));
 
     // 7. CRTC
