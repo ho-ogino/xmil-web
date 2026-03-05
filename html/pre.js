@@ -23,6 +23,10 @@
     const slotFlushInFlight = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
     const slotVfsPath       = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
 
+    const slotDirtyPages = {};     // slotName → Set<pageIndex> (64KB pages for OPFS partial write)
+    const slotDirtyEpoch = {};     // slotName → number (incremented per write, for safe dirty clearing)
+    const PAGE_SIZE = 65536;       // 64KB
+
     let isFlushing = false;
     var emmImportSlot = -1;       // インポート対象スロット番号
     var emmImportInput = null;    // 隠し file input (init() で生成)
@@ -499,6 +503,7 @@
         slotState[slotName]   = key;
         slotVfsPath[slotName] = vfsPath;
         slotDirty[slotName]   = false;
+        slotDirtyPages[slotName] = null;
         saveMountState();
         updateSlotUI(slotName, entry.name);
         renderLibraryList();
@@ -554,6 +559,7 @@
         slotState[slotName]   = null;
         slotVfsPath[slotName] = null;
         slotDirty[slotName]   = false;
+        slotDirtyPages[slotName] = null;
         saveMountState();
         updateSlotUI(slotName, null);
         renderLibraryList();
@@ -611,17 +617,78 @@
     }
 
     // ----------------------------------------------------------------
+    // dirty page tracking (OPFS partial write)
+    // ----------------------------------------------------------------
+    function markDirtyRange(slotName, offset, size) {
+        if (!slotState[slotName]) return;
+        if (size <= 0 || offset < 0) return;
+        slotDirty[slotName] = true;
+        slotDirtyEpoch[slotName] = (slotDirtyEpoch[slotName] || 0) + 1;
+        if (!slotDirtyPages[slotName]) slotDirtyPages[slotName] = new Set();
+        var pageStart = Math.floor(offset / PAGE_SIZE);
+        var pageEnd   = Math.floor((offset + size - 1) / PAGE_SIZE);
+        for (var p = pageStart; p <= pageEnd; p++) {
+            slotDirtyPages[slotName].add(p);
+        }
+    }
+
+    function markSlotDirty(slotName) {
+        if (!slotState[slotName]) return;
+        slotDirty[slotName] = true;
+        slotDirtyEpoch[slotName] = (slotDirtyEpoch[slotName] || 0) + 1;
+    }
+
+    // ----------------------------------------------------------------
     // dirty flush
     // slotFlushInFlight には bool ではなく進行中の Promise を保持する。
     // 呼び出し元は await flushSlot() で既存フラッシュの完了を待てる。
     // ----------------------------------------------------------------
     function flushSlot(slotName) {
-        // 進行中なら同じ Promise を返す → 呼び出し元は完了まで待機できる
         if (slotFlushInFlight[slotName]) return slotFlushInFlight[slotName];
         if (!slotDirty[slotName] || !slotState[slotName]) return Promise.resolve();
-        var p = flushVfsToStorage(slotVfsPath[slotName], slotState[slotName])
-            .then(function() { slotDirty[slotName] = false; })
-            .finally(function() { slotFlushInFlight[slotName] = null; });
+
+        var pages = slotDirtyPages[slotName];
+        slotDirtyPages[slotName] = null;
+        var epochAtStart = slotDirtyEpoch[slotName] || 0;
+
+        var p = (async function() {
+            var backend = await window.XmilStorage.detectBackend();
+
+            var usePartial = false;
+            if (pages && pages.size > 0 && backend === 'opfs') {
+                try {
+                    var vfsStat = module.FS.stat(slotVfsPath[slotName]);
+                    var opfsSize = await window.XmilStorage.stat(slotState[slotName]);
+                    var totalPages = Math.ceil(vfsStat.size / PAGE_SIZE);
+                    // サイズ一致 & dirty ページがファイルの半分以下なら部分書き込み
+                    // 半分超はメモリ圧縮+シーケンシャル I/O 効率の観点で全量書き込み
+                    usePartial = opfsSize !== null && opfsSize === vfsStat.size
+                              && pages.size <= totalPages / 2;
+                } catch(e) { /* usePartial remains false → full write */ }
+            }
+
+            if (usePartial) {
+                try {
+                    await flushVfsToStorageDirty(slotVfsPath[slotName], slotState[slotName], pages);
+                } catch(e) {
+                    console.warn('writePatch failed, falling back to full write:', slotName, e);
+                    await flushVfsToStorage(slotVfsPath[slotName], slotState[slotName]);
+                }
+            } else {
+                await flushVfsToStorage(slotVfsPath[slotName], slotState[slotName]);
+            }
+
+            if ((slotDirtyEpoch[slotName] || 0) === epochAtStart) {
+                slotDirty[slotName] = false;
+            }
+        })().catch(function(e) {
+            if (pages && pages.size > 0) {
+                if (!slotDirtyPages[slotName]) slotDirtyPages[slotName] = new Set();
+                pages.forEach(function(pg) { slotDirtyPages[slotName].add(pg); });
+            }
+            throw e;
+        }).finally(function() { slotFlushInFlight[slotName] = null; });
+
         slotFlushInFlight[slotName] = p;
         return p;
     }
@@ -903,6 +970,7 @@
                             slotState[emmSn] = emmKey;
                             slotVfsPath[emmSn] = emmPath;
                             slotDirty[emmSn] = false;
+                            slotDirtyPages[emmSn] = null;
                         }
                     } catch(e) { /* VFS にファイルが無い場合はスキップ */ }
                 }
@@ -2542,6 +2610,43 @@
         }
     }
 
+    // OPFS dirty ページのみ書き戻し (連続ページは結合して syscall 削減)
+    async function flushVfsToStorageDirty(vfsPath, storageKey, dirtyPages) {
+        if (!module || !module.FS || !window.XmilStorage) return;
+        var stat;
+        try { stat = module.FS.stat(vfsPath); }
+        catch(e) { return; }
+
+        var fd = module.FS.open(vfsPath, 'r');
+        var fileSize = stat.size;
+        var patches = [];
+
+        try {
+            var sorted = Array.from(dirtyPages).sort(function(a, b) { return a - b; });
+            var i = 0;
+            while (i < sorted.length) {
+                var startPage = sorted[i];
+                var endPage = startPage;
+                while (i + 1 < sorted.length && sorted[i + 1] === endPage + 1) {
+                    endPage = sorted[++i];
+                }
+                i++;
+                var offset = startPage * PAGE_SIZE;
+                var size   = Math.min((endPage - startPage + 1) * PAGE_SIZE, fileSize - offset);
+                if (size <= 0) continue;
+                var buf = new Uint8Array(size);
+                module.FS.read(fd, buf, 0, size, offset);
+                patches.push({ offset: offset, data: buf });
+            }
+        } finally {
+            try { module.FS.close(fd); } catch(_) {}
+        }
+
+        if (patches.length > 0) {
+            await window.XmilStorage.writePatch(storageKey, patches);
+        }
+    }
+
     // ----------------------------------------------------------------
     // スロット UI 更新
     // ----------------------------------------------------------------
@@ -3234,12 +3339,16 @@
         onFddWrite: function(drive) {
             // FDD 書き込み時のみ dirty マーク (C++ fdd_write_d88/fdd_write_2d から呼ばれる)
             var sn = ['drive0', 'drive1'][drive];
-            if (slotState[sn]) slotDirty[sn] = true;
+            markSlotDirty(sn);
         },
-        onHddWrite: function(id) {
-            // HDD 書き込み時 dirty マーク (C++ sasi_write_block から呼ばれる)
+        onHddWrite: function(id, offset, size) {
+            // HDD 書き込み時 dirty マーク + ページ追跡 (C++ sasi_write_block から呼ばれる)
             var sn = ['hdd0', 'hdd1'][id];
-            if (slotState[sn]) slotDirty[sn] = true;
+            markDirtyRange(sn, offset, size);
+        },
+        onEmmPageWrite: function(slot, offset, size) {
+            // EMM ページ書き込み時 dirty マーク + ページ追跡
+            markDirtyRange('emm' + slot, offset, size);
         },
         onCmtStateChange: onCmtStateChange,
         // ステートセーブ/ロード
