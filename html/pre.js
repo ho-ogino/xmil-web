@@ -702,11 +702,11 @@
         if (!module || !module._js_emm_take_dirty_slots) return;
         var mask = module._js_emm_take_dirty_slots();
         for (var i = 0; i < 10; i++) {
-            if (mask & (1 << i)) slotDirty['emm' + i] = true;
+            if (mask & (1 << i)) { slotDirty['emm' + i] = true; }
         }
     }
 
-    async function flushAllDirty() {
+    async function flushAllDirty(silent) {
         if (isFlushing) return;
 
         // EMM: C++ dirty バッファ → VFS → dirty_slots 取得
@@ -718,10 +718,10 @@
         if (!anyDirty) return;
 
         isFlushing = true;
-        updateStatus('保存中...');
+        if (!silent) updateStatus('保存中...');
         try {
             for (var slotName in slotState) await flushSlot(slotName);
-            updateStatus('保存完了');
+            if (!silent) updateStatus('保存完了');
         } finally {
             isFlushing = false;
         }
@@ -729,7 +729,7 @@
 
     // ライフサイクルフラッシュ (visibilitychange が主系)
     // flush 失敗はログのみ（ユーザー操作なしのバックグラウンド処理のため）
-    function silentFlush() { flushAllDirty().catch(function(e) { console.error('background flush failed:', e); }); }
+    function silentFlush() { flushAllDirty(true).catch(function(e) { console.error('background flush failed:', e); }); }
     document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'hidden') silentFlush();
     });
