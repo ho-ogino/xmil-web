@@ -65,12 +65,12 @@ void fdd_flush_2d(void) {
 			FILEH hdl;
 			DWORD seekp = (long)sec_now[drv] << 8;
 			if ((hdl = file_open(FDC_NAME[drv])) != (FILEH)-1) {
-				if ((file_seek(hdl, seekp, FSEEK_SET) == seekp)) {
-					file_write(hdl, sec_data[drv], 256);
+				if ((file_seek(hdl, seekp, FSEEK_SET) == seekp) &&
+					(file_write(hdl, sec_data[drv], 256) == 256)) {
+					sec_write[drv] = 0;
 				}
 				file_close(hdl);
 			}
-			sec_write[drv] = 0;
 		}
 	}
 }

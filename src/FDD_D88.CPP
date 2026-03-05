@@ -109,7 +109,6 @@ int curdataflush(void) {
 	if (!curwrite) {
 		return(0);
 	}
-	curwrite = 0;
 	if ((hdr = file_open(FDC_NAME[curdrv])) == (FILEH)-1) {
 		return(-1);
 	}
@@ -119,6 +118,9 @@ int curdataflush(void) {
 	}
 	if (file_close(hdr)) {
 		ret = -1;
+	}
+	if (ret == 0) {
+		curwrite = 0;
 	}
 	return(ret);
 }
