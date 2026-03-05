@@ -59,6 +59,23 @@ BYTE changesector2d(void) {
 	return(0);
 }
 
+void fdd_flush_2d(void) {
+	for (int drv = 0; drv < 4; drv++) {
+		if (sec_write[drv] && sec_now[drv] != -1) {
+			FILEH hdl;
+			DWORD seekp = (long)sec_now[drv] << 8;
+			if ((hdl = file_open(FDC_NAME[drv])) != (FILEH)-1) {
+				if ((file_seek(hdl, seekp, FSEEK_SET) == seekp)) {
+					file_write(hdl, sec_data[drv], 256);
+				}
+				file_close(hdl);
+			}
+			sec_write[drv] = 0;
+		}
+	}
+}
+
+
 short fdd_eject_2d(short drv) {
 
 	FILEH	hdl;

@@ -228,6 +228,11 @@ void drvflush(short drv) {
 }
 
 
+void fdd_flush_d88(void) {
+	curdataflush();
+}
+
+
 //**********************************************************************
 
 short fdd_eject_d88(short drv) {

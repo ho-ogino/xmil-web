@@ -709,7 +709,8 @@
     async function flushAllDirty() {
         if (isFlushing) return;
 
-        // EMM: C++ dirty バッファ → VFS → dirty_slots 取得
+        // C++ dirty バッファ → VFS にフラッシュ（VFS→OPFS 前に必須）
+        if (module && module._js_fdd_flush) module._js_fdd_flush();
         if (module && module._js_emm_flush) module._js_emm_flush();
         syncEmmDirtyFromCpp();
 

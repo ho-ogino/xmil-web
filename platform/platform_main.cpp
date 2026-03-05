@@ -25,6 +25,8 @@
 #include "state_save.h"
 #include "X1_EMM.H"
 #include "X1_SASI.H"
+#include "FDD_D88.H"
+#include "FDD_2D.H"
 
 // web_sound.cpp で定義されているサウンドパラメータ (dsounds.h より)
 extern WORD  ds_rate;
@@ -410,6 +412,14 @@ void js_reload_fonts(void) {
 EMSCRIPTEN_KEEPALIVE
 BYTE* js_save_state(int *out_size, int flags) {
     return save_full_state(out_size, flags);
+}
+
+// ---- FDD ----
+
+EMSCRIPTEN_KEEPALIVE
+void js_fdd_flush(void) {
+    fdd_flush_d88();
+    fdd_flush_2d();
 }
 
 // ---- EMM ----
