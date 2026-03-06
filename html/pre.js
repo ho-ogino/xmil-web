@@ -683,6 +683,7 @@
 
             if ((slotDirtyEpoch[slotName] || 0) === epochAtStart) {
                 slotDirty[slotName] = false;
+            } else {
             }
         })().catch(function(e) {
             if (pages && pages.size > 0) {
@@ -701,7 +702,9 @@
         if (!module || !module._js_emm_take_dirty_slots) return;
         var mask = module._js_emm_take_dirty_slots();
         for (var i = 0; i < 10; i++) {
-            if (mask & (1 << i)) slotDirty['emm' + i] = true;
+            if ((mask & (1 << i)) && slotState['emm' + i]) {
+                slotDirty['emm' + i] = true;
+            }
         }
     }
 
