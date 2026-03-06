@@ -743,12 +743,12 @@
                 return;
             }
 
-            updateStatus('保存中...');
+            if (strict) updateStatus('保存中...');
             for (var slotName in slotState) {
                 if (!fddFlushOk && (slotName === 'drive0' || slotName === 'drive1')) continue;
                 await flushSlot(slotName);
             }
-            updateStatus('保存完了');
+            if (strict) updateStatus('保存完了');
 
             if (!fddFlushOk && strict) {
                 throw new Error('FDD flush failed: C++ track buffers could not be written to VFS');
