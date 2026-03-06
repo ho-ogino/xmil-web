@@ -167,6 +167,10 @@ static void web_ds_stramclear(void) {
             window.xmilPcmRead  = 0;
             window.xmilPcmWrite = 0;
         }
+        // AudioWorklet リセット
+        if (window.xmilAudioProcessor && window.xmilAudioProcessor.port) {
+            window.xmilAudioProcessor.port.postMessage({ type: 'reset' });
+        }
     });
 }
 
