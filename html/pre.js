@@ -27,7 +27,6 @@
     const slotDirtyEpoch = {};     // slotName → number (incremented per write, for safe dirty clearing)
     const PAGE_SIZE = 65536;       // 64KB
 
-    let isFlushing = false;
     var emmImportSlot = -1;       // インポート対象スロット番号
     var emmImportInput = null;    // 隠し file input (init() で生成)
     var emmSlotInFlight = {};     // スロット単位の処理中ガード
@@ -706,33 +705,56 @@
         }
     }
 
-    async function flushAllDirty() {
-        if (isFlushing) return;
+    var currentFlushPromise = null;
+    var currentFlushStrict = false;
 
-        // C++ dirty バッファ → VFS にフラッシュ（VFS→OPFS 前に必須）
-        // FDD flush 失敗時は VFS が古いままなので FDD スロットの OPFS 同期をスキップ
-        var fddFlushOk = true;
-        if (module && module._js_fdd_flush) {
-            fddFlushOk = (module._js_fdd_flush() === 0);
+    async function flushAllDirty(opts) {
+        var strict = opts && opts.strict;
+        if (currentFlushPromise) {
+            if (strict && !currentFlushStrict) {
+                // strict 要求が non-strict flush 中: 完了を待ってから strict で再実行
+                await currentFlushPromise.catch(function() {});
+                return flushAllDirty(opts);
+            }
+            // non-strict→any, strict→strict: 進行中 Promise に合流
+            return currentFlushPromise;
         }
-        if (module && module._js_emm_flush) module._js_emm_flush();
-        syncEmmDirtyFromCpp();
+        currentFlushStrict = !!strict;
 
-        var anyDirty = false;
-        for (var sn in slotDirty) { if (slotDirty[sn]) { anyDirty = true; break; } }
-        if (!anyDirty) return;
+        var p = (async function() {
+            // C++ dirty バッファ → VFS にフラッシュ（VFS→OPFS 前に必須）
+            // FDD flush 失敗時は VFS が古いままなので FDD スロットの OPFS 同期をスキップ
+            var fddFlushOk = true;
+            if (module && module._js_fdd_flush) {
+                fddFlushOk = (module._js_fdd_flush() === 0);
+            }
+            if (module && module._js_emm_flush) module._js_emm_flush();
+            syncEmmDirtyFromCpp();
 
-        isFlushing = true;
-        updateStatus('保存中...');
-        try {
+            var anyDirty = false;
+            for (var sn in slotDirty) { if (slotDirty[sn]) { anyDirty = true; break; } }
+            if (!anyDirty) {
+                if (!fddFlushOk && strict) {
+                    throw new Error('FDD flush failed: C++ track buffers could not be written to VFS');
+                }
+                return;
+            }
+
+            updateStatus('保存中...');
             for (var slotName in slotState) {
                 if (!fddFlushOk && (slotName === 'drive0' || slotName === 'drive1')) continue;
                 await flushSlot(slotName);
             }
             updateStatus('保存完了');
-        } finally {
-            isFlushing = false;
-        }
+
+            if (!fddFlushOk && strict) {
+                throw new Error('FDD flush failed: C++ track buffers could not be written to VFS');
+            }
+        })();
+
+        currentFlushPromise = p;
+        p.finally(function() { currentFlushPromise = null; currentFlushStrict = false; });
+        return p;
     }
 
     // ライフサイクルフラッシュ (visibilitychange が主系)
@@ -797,7 +819,7 @@
         updateStatus('ステートセーブ中...');
         try {
             // 1. dirty VFS → OPFS 書き戻し
-            await flushAllDirty();
+            await flushAllDirty({strict: true});
 
             // 2. C側セーブ (js_save_state(sizePtr, flags) → malloc buffer → JS copy → free)
             var portableEmm = document.getElementById('cfg-portable-emm');
@@ -921,7 +943,7 @@
             }
 
             // 3. flush + eject all
-            await flushAllDirty();
+            await flushAllDirty({strict: true});
             for (var slot in slotState) {
                 if (slotState[slot]) await ejectSlot(slot);
             }
@@ -1124,7 +1146,7 @@
 
         updateStatus('ステート上書き中...');
         try {
-            await flushAllDirty();
+            await flushAllDirty({strict: true});
 
             var portableEmm2 = document.getElementById('cfg-portable-emm');
             var portableFlag2 = (portableEmm2 && portableEmm2.checked) ? 0x04 : 0;
@@ -3051,9 +3073,9 @@
     async function onResetClick() {
         if (!module || !module._js_xmil_reset) return;
         try {
-            await flushAllDirty();
+            await flushAllDirty({strict: true});
         } catch(e) {
-            if (!confirm('EMM データの保存に失敗しました。リセットするとデータが失われる可能性があります。続行しますか？')) return;
+            if (!confirm('データの保存に失敗しました。リセットするとデータが失われる可能性があります。続行しますか？')) return;
         }
         module._js_xmil_reset();
         reinitAudioForReset();
@@ -3065,9 +3087,9 @@
         if (isRunning) {
             // 電源 OFF: flush → 停止
             try {
-                await flushAllDirty();
+                await flushAllDirty({strict: true});
             } catch(e) {
-                if (!confirm('EMM データの保存に失敗しました。電源を切るとデータが失われる可能性があります。続行しますか？')) return;
+                if (!confirm('データの保存に失敗しました。電源を切るとデータが失われる可能性があります。続行しますか？')) return;
             }
             if (module._js_xmil_power_off) { module._js_xmil_power_off(); }
             isRunning = false;
@@ -3087,9 +3109,9 @@
     async function onIplResetClick() {
         if (!module) return;
         try {
-            await flushAllDirty();
+            await flushAllDirty({strict: true});
         } catch(e) {
-            if (!confirm('EMM データの保存に失敗しました。IPL リセットするとデータが失われる可能性があります。続行しますか？')) return;
+            if (!confirm('データの保存に失敗しました。IPL リセットするとデータが失われる可能性があります。続行しますか？')) return;
         }
         if (module._js_xmil_reset) { module._js_xmil_reset(); reinitAudioForReset(); }
         updateStatus('IPL リセット');
