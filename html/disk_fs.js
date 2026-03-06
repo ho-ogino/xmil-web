@@ -92,11 +92,13 @@
         var physSPT = (this._fdType === 0x20) ? 26 : 16;
 
         // レイアウト判定: 2HD 物理でも layoutOverride='2d' なら 2D レイアウト
-        var use2hdLayout = (this._fdType === 0x20) && (layoutOverride !== '2d');
+        // layoutOverride='2hd' なら fdType に関係なく 2HD レイアウトを強制 (HDD 等)
+        var use2hdLayout = (layoutOverride === '2hd') ||
+                           ((this._fdType === 0x20) && (layoutOverride !== '2d'));
 
         if (use2hdLayout) {
-            // 標準 2HD レイアウト
-            this._sectorsPerTrack = physSPT;
+            // 標準 2HD レイアウト (SPT=26 を明示固定)
+            this._sectorsPerTrack = 26;
             this._fatSectors = [29, 30];  // 論理セクタ (1-based)
             this._maxClusters = 250;
             this._reservedClusters = 3;
@@ -156,11 +158,20 @@
     };
 
     HuBasicFS.prototype._readLogicalSector = function(logSector) {
+        // LBA 対応コンテナ (HDD/EMM) は CHS 変換をスキップ
+        // HuBASIC 論理セクタは 1-based → LBA は 0-based
+        if (this._container.readSectorLBA) {
+            return this._container.readSectorLBA(logSector - 1);
+        }
         var p = this._logicalToPhysical(logSector);
         return this._container.readSector(p.c, p.h, p.r);
     };
 
     HuBasicFS.prototype._writeLogicalSector = function(logSector, data) {
+        if (this._container.writeSectorLBA) {
+            this._container.writeSectorLBA(logSector - 1, data);
+            return;
+        }
         var p = this._logicalToPhysical(logSector);
         this._container.writeSector(p.c, p.h, p.r, data);
     };
@@ -687,6 +698,7 @@
             this._anomalyDetected = true;
             this.readOnly = true;
             this.readOnlyReason = 'ファイルシステムに異常があるため読み取り専用です';
+            if (!this._dirEntries) this._dirEntries = [];
         }
     }
 
@@ -702,11 +714,20 @@
     };
 
     LsxDodgersFS.prototype._readLogicalSector = function(logSector) {
+        // LBA 対応コンテナ (HDD/EMM) は CHS 変換をスキップ
+        // LSX-Dodgers 論理セクタは 0-based = LBA と一致
+        if (this._container.readSectorLBA) {
+            return this._container.readSectorLBA(logSector);
+        }
         var p = this._logicalToPhysical(logSector);
         return this._container.readSector(p.c, p.h, p.r);
     };
 
     LsxDodgersFS.prototype._writeLogicalSector = function(logSector, data) {
+        if (this._container.writeSectorLBA) {
+            this._container.writeSectorLBA(logSector, data);
+            return;
+        }
         var p = this._logicalToPhysical(logSector);
         this._container.writeSector(p.c, p.h, p.r, data);
     };
@@ -738,6 +759,11 @@
             this._numberOfFATs = boot[0x10];
             this._rootEntries = boot[0x11] | (boot[0x12] << 8);
             this._totalSectors = boot[0x13] | (boot[0x14] << 8);
+            // FAT16/32: 16-bit が 0 なら 32-bit totalSectors (offset 0x20) を使用
+            if (this._totalSectors === 0 && boot.length >= 0x24) {
+                this._totalSectors = ((boot[0x20] | (boot[0x21] << 8) |
+                    (boot[0x22] << 16) | (boot[0x23] << 24)) >>> 0);
+            }
             this._mediaDescriptor = boot[0x15];
             this._sectorsPerFAT = boot[0x16] | (boot[0x17] << 8);
             bpbSPT = boot[0x18] | (boot[0x19] << 8);
@@ -746,23 +772,34 @@
 
         // バリデーション
         if (this._bytesPerSector !== 256 && this._bytesPerSector !== 512) throw new Error('Unsupported sector size: ' + this._bytesPerSector);
-        // BPB セクタサイズとコンテナの物理セクタサイズの整合チェック
-        var physSectorSize = this._container.getGeometry().sectorSize || 256;
-        if (this._bytesPerSector !== physSectorSize) {
-            throw new Error('BPB sector size (' + this._bytesPerSector + ') does not match container (' + physSectorSize + ')');
+        // BPB セクタサイズとコンテナの物理セクタサイズの整合チェック (HDD/EMM のみ)
+        // D88/FDD はセクタサイズ混在がありうる (例: R=1 が 256B, R=2 以降が 512B)
+        var containerGeom = this._container.getGeometry();
+        if (containerGeom.isHdd || containerGeom.isEmm) {
+            var physSectorSize = containerGeom.sectorSize || 256;
+            if (this._bytesPerSector !== physSectorSize) {
+                throw new Error('BPB sector size (' + this._bytesPerSector + ') does not match container (' + physSectorSize + ')');
+            }
         }
         if (this._sectorsPerCluster === 0) throw new Error('Invalid sectors per cluster');
         if (this._numberOfFATs < 1 || this._numberOfFATs > 2) throw new Error('Invalid FAT count');
         if (this._rootEntries === 0) throw new Error('Invalid root entry count');
         if (this._sectorsPerFAT === 0) throw new Error('Invalid FAT size');
-        if (bpbSPT === 0 || bpbHeads === 0) throw new Error('Invalid BPB geometry');
+        // LBA デバイス (HDD/EMM) は CHS ジオメトリ不要 (SPT=0, heads=0 が正常)
+        if (!(containerGeom.isHdd || containerGeom.isEmm)) {
+            if (bpbSPT === 0 || bpbHeads === 0) throw new Error('Invalid BPB geometry');
+        }
 
         // 論理→物理変換パラメータを BPB の値で上書き
         this._sectorsPerTrack = bpbSPT;
         this._heads = bpbHeads;
 
         // フォーマット名を BPB ジオメトリから推定
-        if (this._bytesPerSector === 512) {
+        if (containerGeom.isHdd) {
+            this._formatName = 'HDD';
+        } else if (containerGeom.isEmm) {
+            this._formatName = 'EMM';
+        } else if (this._bytesPerSector === 512) {
             this._formatName = '2DD';
         } else if (this._sectorsPerTrack === 26) {
             this._formatName = '2HD';
@@ -875,6 +912,10 @@
                     });
                     return;
                 }
+
+                // VFAT LFN エントリ (attr=0x0F) とボリュームラベル (attr=0x08) はスキップ
+                var attr = data[off + 0x0B];
+                if (attr === 0x0F || attr === 0x08) continue;
 
                 var rawEntry = data.slice(off, off + 32);
                 var entry = this._parseDosEntry(rawEntry, s, e);
@@ -1036,6 +1077,7 @@
             // サブディレクトリ: クラスタチェーンからエントリを読む
             entries = this._readSubDirectory(startCluster);
         }
+        if (!entries) return [];
 
         var result = [];
         for (var i = 0; i < entries.length; i++) {
@@ -1043,6 +1085,8 @@
             if (e.isEnd) break;
             if (e.isDeleted) continue;
             if (e.name === '.' || e.name === '..') continue;
+            // Hidden+System は OS 内部エントリ (System Volume Information 等)
+            if (e.isHidden && e.isSystem) continue;
             e.index = i;
             e.dirCluster = startCluster || 0;
             result.push(e);
@@ -1079,6 +1123,10 @@
                         entries.push({ mode: 0x00, isEnd: true, sectorIdx: sectorIdx, entryIdx: e });
                         return entries;
                     }
+                    // VFAT LFN エントリ (attr=0x0F) とボリュームラベル (attr=0x08) はスキップ
+                    var attr = data[off + 0x0B];
+                    if (attr === 0x0F || attr === 0x08) continue;
+
                     var rawEntry = data.slice(off, off + 32);
                     entries.push(this._parseDosEntry(rawEntry, sectorIdx, e));
                 }
@@ -1376,15 +1424,20 @@
     function detectFilesystem(container) {
         var geom = container.getGeometry();
 
-        // 1. HuBASIC 判定
-        var huFs = tryHuBasic(container, geom);
-        if (huFs) return huFs;
+        if (geom.isHdd || geom.isEmm) {
+            // HDD/EMM: BPB 付き FAT が主流 → LSX-Dodgers 優先
+            var fatFs = tryLsxDodgers(container, geom);
+            if (fatFs) return fatFs;
+            var huFs = tryHuBasic(container, geom);
+            if (huFs) return huFs;
+        } else {
+            // FDD: 従来通り HuBASIC 優先
+            var huFs = tryHuBasic(container, geom);
+            if (huFs) return huFs;
+            var fatFs = tryLsxDodgers(container, geom);
+            if (fatFs) return fatFs;
+        }
 
-        // 2. LSX-Dodgers FAT 判定
-        var fatFs = tryLsxDodgers(container, geom);
-        if (fatFs) return fatFs;
-
-        // 3. 認識不可
         return null;
     }
 
@@ -1414,6 +1467,22 @@
 
     function tryHuBasic(container, geom) {
         try {
+            var useLBA = !!geom.isHdd || !!geom.isEmm;
+
+            if (useLBA) {
+                // HDD/EMM: LBA で直接読む。2D レイアウト (LS15) を先に試す
+                var fat15 = container.readSectorLBA(14); // LS15 = LBA 14
+                if (checkHuBasicFatSignature(fat15, false)) {
+                    return new HuBasicFS(container, '2d');
+                }
+                // 2HD レイアウト (LS29)
+                var fat29 = container.readSectorLBA(28); // LS29 = LBA 28
+                if (checkHuBasicFatSignature(fat29, true)) {
+                    return new HuBasicFS(container, '2hd');
+                }
+                return null;
+            }
+
             var spt = (geom.fdType === 0x20) ? 26 : 16;
 
             if (geom.fdType === 0x20) {
@@ -1467,12 +1536,21 @@
 
     function tryLsxDodgers(container, geom) {
         try {
+            var useLBA = !!geom.isHdd || !!geom.isEmm;
+
             // 1. 標準 BPB 検出: ブートセクタに JMP + BPB があるか
-            var boot = container.readSector(0, 0, 1);
+            var boot = useLBA ? container.readSectorLBA(0)
+                              : container.readSector(0, 0, 1);
             if (boot && boot.length >= 32 &&
                 (boot[0] === 0xEB || boot[0] === 0xE9)) {
 
                 var bps = boot[0x0B] | (boot[0x0C] << 8);
+                // HDD/EMM: コンテナの sectorSize と BPB の bps が一致するか検証
+                if (useLBA) {
+                    var containerSectorSize = geom.sectorSize || 256;
+                    if (bps !== containerSectorSize) return null;
+                }
+
                 if (bps === 256 || bps === 512) {
                     var spc = boot[0x0D];
                     var numFATs = boot[0x10];
@@ -1480,16 +1558,20 @@
                     var bpbSPT = boot[0x18] | (boot[0x19] << 8);
                     var bpbHeads = boot[0x1A] | (boot[0x1B] << 8);
 
+                    // LBA デバイスは CHS ジオメトリ不要 (SPT=0, heads=0 が正常)
+                    var geomOk = useLBA || (bpbSPT > 0 && bpbHeads > 0);
                     if (spc > 0 && (spc & (spc - 1)) === 0 &&
                         numFATs >= 1 && numFATs <= 2 &&
-                        media >= 0xF0 &&
-                        bpbSPT > 0 && bpbHeads > 0) {
+                        media >= 0xF0 && geomOk) {
                         return new LsxDodgersFS(container);
                     }
                 }
             }
 
-            // 2. BPB レス検出: R=1 が IPL (256B) で R=2 に FAT12 がある場合
+            // 2. BPB レス検出 (FDD のみ; HDD/EMM は誤認識リスクが高いためスキップ)
+            if (useLBA) return null;
+
+            //    R=1 が IPL (256B) で R=2 に FAT12 がある場合
             //    X1 IPL ブート互換 + MSX/PC-88 2DD FAT12 ディスク
             var fat1 = container.readSector(0, 0, 2);
             if (fat1 && fat1.length === 512 && fat1[1] === 0xFF && fat1[2] === 0xFF) {

@@ -274,9 +274,164 @@
     };
 
     // ================================================================
+    // RawHddContainer - HDD/EMM RAW ベタフォーマット (LBA アクセス)
+    // ================================================================
+    // RAW バイト列。MBR パーティション検出 + 可変セクタサイズ (256B/512B)。
+
+    // FAT12/16 系パーティションタイプ (優先)
+    // FAT32 (0x0B, 0x0C) は現 FS 実装が FAT12/16 のみのため除外
+    var FAT_PTYPES = [0x01, 0x04, 0x06, 0x0E];
+    // 拡張パーティション (スキップ対象: 将来 EBR 対応時に分離)
+    var EXTENDED_PTYPES = [0x05, 0x0F, 0x85];
+
+    // entryType: 'hdd' or 'emm' (openContainer から渡される)
+    function RawHddContainer(arrayBuffer, entryType) {
+        if (arrayBuffer.byteLength % 256 !== 0) {
+            throw new Error('HDD/EMM image size must be a multiple of 256 bytes');
+        }
+        this._buf = new Uint8Array(arrayBuffer);
+        this.sectorSize = 256;
+        this._partitionOffset = 0;
+        this._partitionSize = this._buf.length;
+        this.name = '';
+        this.protect = 0;
+        this.fdType = -1;
+        this.isMultiDisk = false;
+        this._mediaType = entryType || 'hdd';
+
+        // MBR パーティションテーブル検出 (HDD のみ。EMM は MBR を持たない)
+        if (entryType !== 'emm' && this._detectMBR()) {
+            this._detectSectorSize();
+        } else {
+            // MBR なし (EMM / non-MBR HDD): 既知オフセットから VBR (BPB) を探索
+            // EMM は先頭 512B がシステム予約で BPB が 0x200 に配置される場合がある
+            this._detectVBR();
+        }
+    }
+
+    // MBR パーティションテーブル検出
+    // 4 エントリを走査し、最初の有効パーティションを選択 (FAT 系優先)
+    RawHddContainer.prototype._detectMBR = function() {
+        if (this._buf.length < 512) return false;
+        if (this._buf[0x1FE] !== 0x55 || this._buf[0x1FF] !== 0xAA) return false;
+
+        var bestEntry = null;
+        for (var i = 0; i < 4; i++) {
+            var pe = 0x1BE + i * 16;
+            var ptype = this._buf[pe + 4];
+            if (ptype === 0) continue;
+            if (EXTENDED_PTYPES.indexOf(ptype) >= 0) continue;
+
+            var lbaStart = ((this._buf[pe + 8]  | (this._buf[pe + 9] << 8) |
+                             (this._buf[pe + 10] << 16) | (this._buf[pe + 11] << 24)) >>> 0);
+            var lbaSize  = ((this._buf[pe + 12] | (this._buf[pe + 13] << 8) |
+                             (this._buf[pe + 14] << 16) | (this._buf[pe + 15] << 24)) >>> 0);
+
+            if (lbaStart === 0 || lbaSize === 0) continue;
+            // パーティション範囲がファイル内に収まるか検証 (MBR LBA は 512B ベース)
+            var partEnd = (lbaStart + lbaSize) * 512;
+            if (partEnd > this._buf.length) continue;
+
+            var isFAT = FAT_PTYPES.indexOf(ptype) >= 0;
+            if (!bestEntry || (isFAT && !bestEntry.isFAT)) {
+                bestEntry = { offset: lbaStart * 512, size: lbaSize * 512, isFAT: isFAT };
+                if (isFAT) break;
+            }
+        }
+
+        if (!bestEntry) return false;
+        this._partitionOffset = bestEntry.offset;
+        this._partitionSize = bestEntry.size;
+        return true;
+    };
+
+    // MBR なし時: VBR (BPB) を既知オフセットから探索
+    // EMM (LSX-Dodgers) は先頭 512B をシステム予約とし BPB を 0x200 に配置する
+    // HDD は 0x000 のみ (0x200 まで探すと非 FAT データを誤検出するリスク)
+    RawHddContainer.prototype._detectVBR = function() {
+        var offsets = (this._mediaType === 'emm') ? [0x000, 0x200] : [0x000];
+        for (var i = 0; i < offsets.length; i++) {
+            var off = offsets[i];
+            if (off + 32 > this._buf.length) continue;
+
+            // JMP 命令チェック (FAT BPB の必須シグネチャ)
+            var b0 = this._buf[off];
+            if (b0 !== 0xEB && b0 !== 0xE9) continue;
+
+            var bps = this._buf[off + 0x0B] | (this._buf[off + 0x0C] << 8);
+            if (bps !== 256 && bps !== 512) continue;
+
+            // BPB 発見 — パーティションオフセットとセクタサイズを設定
+            if (off > 0) {
+                this._partitionOffset = off;
+                this._partitionSize = this._buf.length - off;
+            }
+            this.sectorSize = bps;
+            return;
+        }
+    };
+
+    // パーティション先頭の BPB から論理セクタサイズを検出
+    RawHddContainer.prototype._detectSectorSize = function() {
+        var off = this._partitionOffset;
+        if (off + 32 > this._buf.length) return;
+        var b0 = this._buf[off];
+        if (b0 !== 0xEB && b0 !== 0xE9) return;
+        var bps = this._buf[off + 0x0B] | (this._buf[off + 0x0C] << 8);
+        if (bps === 256 || bps === 512) {
+            this.sectorSize = bps;
+        }
+    };
+
+    RawHddContainer.prototype.readSectorLBA = function(lba) {
+        if (lba < 0) return null;
+        var localOffset = lba * this.sectorSize;
+        if (localOffset + this.sectorSize > this._partitionSize) return null;
+        var absOffset = this._partitionOffset + localOffset;
+        return this._buf.slice(absOffset, absOffset + this.sectorSize);
+    };
+
+    RawHddContainer.prototype.writeSectorLBA = function(lba, data) {
+        if (lba < 0 || data.length !== this.sectorSize) {
+            throw new Error('Invalid LBA write: lba=' + lba +
+                ' data.length=' + data.length + ' expected=' + this.sectorSize);
+        }
+        var localOffset = lba * this.sectorSize;
+        if (localOffset + this.sectorSize > this._partitionSize) {
+            throw new Error('Sector out of range: LBA ' + lba +
+                ' (partition limit: ' + Math.floor(this._partitionSize / this.sectorSize) + ')');
+        }
+        this._buf.set(data, this._partitionOffset + localOffset);
+    };
+
+    // CHS は提供しない
+    RawHddContainer.prototype.readSector = function(c, h, r) {
+        return null;
+    };
+
+    RawHddContainer.prototype.writeSector = function(c, h, r, data) {
+        throw new Error('CHS access not supported on HDD/EMM container');
+    };
+
+    RawHddContainer.prototype.toArrayBuffer = function() {
+        return this._buf.buffer.slice(0);
+    };
+
+    RawHddContainer.prototype.getGeometry = function() {
+        return {
+            sectorSize: this.sectorSize,
+            fdType: -1,
+            isHdd: this._mediaType === 'hdd',
+            isEmm: this._mediaType === 'emm',
+            totalSectors: Math.floor(this._partitionSize / this.sectorSize)
+        };
+    };
+
+    // ================================================================
     // コンテナ自動検出 (内容優先、拡張子補助)
     // ================================================================
-    function openContainer(arrayBuffer, filename) {
+    // entryType: ライブラリの entry.type ('fdd', 'hdd', 'emm') — 省略可
+    function openContainer(arrayBuffer, filename, entryType) {
         if (!arrayBuffer || arrayBuffer.byteLength < 256) return null;
 
         var buf = new Uint8Array(arrayBuffer);
@@ -285,6 +440,11 @@
         if (filename) {
             var dotIdx = filename.lastIndexOf('.');
             if (dotIdx >= 0) ext = filename.substring(dotIdx + 1).toLowerCase();
+        }
+
+        // 0. entryType による最優先判定 (HDD/EMM)
+        if (entryType === 'hdd' || entryType === 'emm') {
+            try { return new RawHddContainer(arrayBuffer, entryType); } catch(e) { return null; }
         }
 
         // 1. D88 ヘッダ妥当性チェック (内容ベース)
@@ -317,6 +477,14 @@
             try { return new Raw2DContainer(arrayBuffer); } catch(e) {}
         }
 
+        // 3.5. HDD/EMM 拡張子フォールバック
+        if (ext === 'hdd' || ext === 'hd') {
+            try { return new RawHddContainer(arrayBuffer, 'hdd'); } catch(e) {}
+        }
+        if (ext === 'mem') {
+            try { return new RawHddContainer(arrayBuffer, 'emm'); } catch(e) {}
+        }
+
         return null; // 不明コンテナ
     }
 
@@ -326,6 +494,7 @@
     window.XmilDiskContainer = {
         D88Container: D88Container,
         Raw2DContainer: Raw2DContainer,
+        RawHddContainer: RawHddContainer,
         openContainer: openContainer,
         decodeSJIS: decodeSJIS
     };

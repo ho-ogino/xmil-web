@@ -60,7 +60,7 @@
         if (!data) { alert('ファイルデータが空です'); return; }
 
         // コンテナ解析
-        var container = window.XmilDiskContainer.openContainer(data, entry.name);
+        var container = window.XmilDiskContainer.openContainer(data, entry.name, entry.type);
         if (!container) {
             alert('ディスクイメージの形式を認識できませんでした');
             return;

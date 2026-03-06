@@ -319,15 +319,25 @@
             }
 
             html += '<div class="emm-slot-btns">';
+            // 挿入/イジェクト (マウント状態で切替)
+            if (isMounted) {
+                html += '<button class="emm-action-btn emm-action-eject" data-action="emm-eject" data-slot="' + i + '"'
+                     + (busy ? ' disabled' : '') + '>イジェクト</button>';
+            } else if (hasEntry) {
+                html += '<button class="emm-action-btn emm-action-insert" data-action="emm-insert" data-slot="' + i + '"'
+                     + (busy ? ' disabled' : '') + '>挿入</button>';
+            }
             html += '<button class="emm-action-btn" data-action="emm-create" data-slot="' + i + '"'
                  + (busy ? ' disabled' : '') + '>作成</button>';
             html += '<button class="emm-action-btn" data-action="emm-export" data-slot="' + i + '"'
                  + (!hasEntry || busy ? ' disabled' : '') + '>エクスポート</button>';
             html += '<button class="emm-action-btn" data-action="emm-import" data-slot="' + i + '"'
                  + (busy ? ' disabled' : '') + '>インポート</button>';
+            html += '<button class="emm-action-btn" data-action="emm-edit" data-slot="' + i + '"'
+                 + (!hasEntry || busy ? ' disabled' : '') + '>編集</button>';
             if (hasEntry) {
                 html += '<button class="emm-action-btn emm-action-del" data-action="emm-delete" data-slot="' + i + '"'
-                     + (busy ? ' disabled' : '') + '>削除</button>';
+                     + (isMounted || busy ? ' disabled' : '') + '>削除</button>';
             }
             html += '</div></div>';
         }
@@ -379,6 +389,35 @@
         var entry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
         if (!entry) return;
         deleteFromLibrary(entry.key);
+    }
+
+    async function onEmmSlotInsert(slotNum) {
+        var slotName = 'emm' + slotNum;
+        var fileName = 'EMM' + slotNum + '.MEM';
+        var entry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        if (!entry) return;
+        if (slotState[slotName]) return; // 既にマウント中
+        if (!emmGuardStart(slotNum)) return;
+        try {
+            await mountFromLibrary(entry.key, slotName);
+        } catch(e) {
+            console.error('EMM insert failed:', slotNum, e);
+        } finally {
+            emmGuardEnd(slotNum);
+        }
+    }
+
+    async function onEmmSlotEject(slotNum) {
+        var slotName = 'emm' + slotNum;
+        if (!slotState[slotName]) return; // マウントされていない
+        if (!emmGuardStart(slotNum)) return;
+        try {
+            await ejectSlot(slotName);
+        } catch(e) {
+            console.error('EMM eject failed:', slotNum, e);
+        } finally {
+            emmGuardEnd(slotNum);
+        }
     }
 
     // ----------------------------------------------------------------
@@ -2063,6 +2102,14 @@
                 if (action === 'emm-export') onEmmSlotExport(parseInt(btn.dataset.slot, 10));
                 if (action === 'emm-import') onEmmSlotImport(parseInt(btn.dataset.slot, 10));
                 if (action === 'emm-delete') onEmmSlotDelete(parseInt(btn.dataset.slot, 10));
+                if (action === 'emm-insert') onEmmSlotInsert(parseInt(btn.dataset.slot, 10));
+                if (action === 'emm-eject') onEmmSlotEject(parseInt(btn.dataset.slot, 10));
+                if (action === 'emm-edit') {
+                    var slotNum = parseInt(btn.dataset.slot, 10);
+                    var emmFileName = 'EMM' + slotNum + '.MEM';
+                    var emmEntry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === emmFileName; });
+                    if (emmEntry && window.XmilDiskEditor) window.XmilDiskEditor.openEditor(emmEntry.key);
+                }
             });
         }
 
@@ -3014,7 +3061,7 @@
             html += '<span class="lib-file-name" title="' + en + '">' + en + '</span>';
             html += '<span class="lib-file-size">' + sizeMb + 'MB</span>';
             html += '<div class="lib-row-btns">' + mountBtns;
-            if (entry.type === 'fdd') {
+            if (entry.type === 'fdd' || entry.type === 'hdd' || entry.type === 'emm') {
                 html += '<button class="lib-edit-btn" data-action="edit" data-key="' + ek + '" title="ディスク編集">&#x270E;</button>';
             }
             html += '<button class="lib-dl-btn" data-action="download" data-key="' + ek + '" data-name="' + en + '" title="ダウンロード">⬇</button>';
