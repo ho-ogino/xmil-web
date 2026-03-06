@@ -2051,6 +2051,9 @@
                 var name   = btn.dataset.name;
                 if (action === 'mount')    mountFromLibrary(key, slot);
                 if (action === 'download') downloadFromLibrary(key, name);
+                if (action === 'edit') {
+                    if (window.XmilDiskEditor) window.XmilDiskEditor.openEditor(key);
+                }
                 if (action === 'delete')   deleteFromLibrary(key);
                 if (action === 'drive-save') {
                     if (window.XmilDrive) window.XmilDrive.saveByKey(key);
@@ -3011,6 +3014,9 @@
             html += '<span class="lib-file-name" title="' + en + '">' + en + '</span>';
             html += '<span class="lib-file-size">' + sizeMb + 'MB</span>';
             html += '<div class="lib-row-btns">' + mountBtns;
+            if (entry.type === 'fdd') {
+                html += '<button class="lib-edit-btn" data-action="edit" data-key="' + ek + '" title="ディスク編集">&#x270E;</button>';
+            }
             html += '<button class="lib-dl-btn" data-action="download" data-key="' + ek + '" data-name="' + en + '" title="ダウンロード">⬇</button>';
             html += '<button class="lib-del-btn" data-action="delete" data-key="' + ek + '" title="削除">🗑</button>';
             html += '<button class="lib-drive-save-btn hidden" data-action="drive-save" data-key="' + ek + '" title="Google Driveへ保存">☁</button>';
