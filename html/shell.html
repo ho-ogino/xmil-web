@@ -1459,6 +1459,99 @@
         #drive-status.drive-success  { color: #44bb66; }
         #drive-status.drive-error    { color: #cc5555; }
 
+        /* ── ディスクエディタ ── */
+        .lib-edit-btn { color: #3a4a3a; }
+        .lib-edit-btn:hover { background: #162816; border-color: #447744; color: #88cc88; }
+        .disk-editor-info {
+            padding: 8px 14px;
+            border-bottom: 1px solid #222;
+            background: #131313;
+            font-size: 0.78em;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+        }
+        .disk-editor-info-item { color: #777; }
+        .disk-editor-warn { color: #cc8833; }
+        .disk-editor-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-bottom: 1px solid #222;
+            background: #131313;
+            flex-shrink: 0;
+        }
+        .disk-editor-tool-btn {
+            background: #0a1e0a;
+            border: 1px solid #225522;
+            color: #44aa44;
+            font-size: 0.75em;
+            padding: 5px 14px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.1s;
+        }
+        .disk-editor-tool-btn:hover { background: #162816; border-color: #44aa44; }
+        .disk-editor-footer {
+            display: flex;
+            justify-content: flex-end;
+            padding: 8px 14px;
+            border-top: 1px solid #222;
+            background: #131313;
+            flex-shrink: 0;
+        }
+        .disk-editor-row {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 5px 8px;
+            border-radius: 4px;
+            border: 1px solid transparent;
+            margin-bottom: 2px;
+            font-size: 0.8em;
+        }
+        .disk-editor-row:hover { background: #222; }
+        .disk-editor-fname {
+            flex: 1;
+            color: #aaa;
+            font-family: 'Courier New', monospace;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .disk-editor-fattr { color: #555; font-size: 0.85em; min-width: 30px; }
+        .disk-editor-fsize { color: #555; font-size: 0.85em; min-width: 55px; text-align: right; }
+        .disk-editor-fdate { color: #444; font-size: 0.85em; min-width: 90px; }
+        .disk-editor-fmode-edit { cursor: pointer; color: #997744; }
+        .disk-editor-fmode-edit:hover { color: #ccaa66; text-decoration: underline; }
+        .disk-editor-faddr { color: #558855; font-size: 0.85em; min-width: 45px; cursor: pointer; font-family: 'Courier New', monospace; }
+        .disk-editor-faddr:hover { color: #88cc88; text-decoration: underline; }
+        .disk-editor-dir-name { cursor: pointer; color: #6699cc; }
+        .disk-editor-dir-name:hover { color: #88bbee; text-decoration: underline; }
+        .disk-editor-breadcrumb { display: flex; align-items: center; gap: 4px; padding: 4px 8px; margin-bottom: 4px; font-size: 0.85em; color: #888; }
+        .disk-editor-breadcrumb-item { cursor: pointer; color: #6699cc; }
+        .disk-editor-breadcrumb-item:hover { color: #88bbee; text-decoration: underline; }
+        .disk-editor-breadcrumb-sep { color: #555; margin: 0 2px; }
+        .disk-editor-breadcrumb-current { color: #ccc; }
+        .disk-editor-row-btns { display: flex; gap: 4px; flex-shrink: 0; }
+        .disk-editor-btn {
+            background: none;
+            border: 1px solid #222;
+            color: #3a4a55;
+            padding: 2px 7px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.1s;
+        }
+        .disk-editor-btn:hover { background: #161e28; border-color: #3a5a77; color: #7aaccc; }
+        .disk-editor-btn-del { color: #3a2222; }
+        .disk-editor-btn-del:hover { background: #201616; border-color: #663333; color: #bb5555; }
+
         /* ── スクリーンショット ダイアログ ── */
         #screenshot-modal {
             position: absolute; inset: 0;
@@ -2435,6 +2528,25 @@
     </div>
 </div>
 
+<!-- ディスクエディタパネル -->
+<div id="disk-editor-panel" class="library-panel hidden">
+    <div class="library-panel-inner" style="max-width:750px">
+        <div class="lib-panel-header">
+            <span class="lib-panel-title" id="disk-editor-title">ディスク編集</span>
+            <button class="lib-close-btn" id="disk-editor-close">&#x2715;</button>
+        </div>
+        <div id="disk-editor-info" class="disk-editor-info"></div>
+        <div class="disk-editor-toolbar">
+            <button id="disk-editor-add-btn" class="disk-editor-tool-btn">&#xFF0B; ファイル追加</button>
+            <input type="file" id="disk-editor-file-input" style="display:none" multiple>
+        </div>
+        <div id="disk-editor-list" class="lib-list"></div>
+        <div class="disk-editor-footer">
+            <button id="disk-editor-save-btn" class="disk-editor-tool-btn">閉じる</button>
+        </div>
+    </div>
+</div>
+
 <footer style="text-align:center; padding:18px 0 24px; margin-top:24px; border-top:1px solid #222;">
     <a href="index.html" style="color:#888; font-size:0.85em; text-decoration:none; letter-spacing:0.5px;">&larr; Home</a>
 </footer>
@@ -2442,6 +2554,9 @@
 <script src="storage.js"></script>
 <script src="config.js"></script>
 <script src="drive_integration.js"></script>
+<script src="disk_container.js"></script>
+<script src="disk_fs.js"></script>
+<script src="disk_editor.js"></script>
 {{{ SCRIPT }}}
 </body>
 </html>
