@@ -53,6 +53,9 @@ emcmake cmake .. -DCMAKE_BUILD_TYPE=Release
 echo "Building..."
 emmake make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
+# CMakeLists.txt からバージョン文字列を取得
+XMIL_VERSION=$(grep 'set(XMIL_VERSION' "${SCRIPT_DIR}/CMakeLists.txt" | sed 's/.*"\(.*\)".*/\1/')
+
 # HTML/JS ファイルを build/ に同期（WASM 再コンパイルなしで更新できるよう明示コピー）
 echo "Copying HTML/JS files..."
 cp "${SCRIPT_DIR}/html/index.html"           ./index.html
@@ -105,6 +108,12 @@ cp ./apple-touch-icon.png "${DIST_DIR}/"
 for f in "${SCRIPT_DIR}"/html/google*.html; do
     [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
 done
+
+# バージョン文字列を注入（@@XMIL_VERSION@@ → 実際のバージョン）
+sed -i.bak "s/@@XMIL_VERSION@@/${XMIL_VERSION}/g" \
+    "${DIST_DIR}/xmillennium.html" \
+    "${DIST_DIR}/index.html"
+rm -f "${DIST_DIR}/xmillennium.html.bak" "${DIST_DIR}/index.html.bak"
 
 # config.js: html/config.js があればそれを使用、なければ空の example を使用
 if [ -f "${SCRIPT_DIR}/html/config.js" ]; then
