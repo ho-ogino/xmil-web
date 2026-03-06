@@ -1478,6 +1478,208 @@
         return Math.floor((window.xmilSampleRate || 44100) * 0.2) * 2;
     }
 
+    // AudioWorklet プロセッサを Blob URL で生成
+    function createWorkletBlobURL() {
+        var code = [
+            'class XmilAudioProcessor extends AudioWorkletProcessor {',
+            '  constructor(options) {',
+            '    super();',
+            '    var sr = options.processorOptions && options.processorOptions.sampleRate || 44100;',
+            '    this.bufSize = sr * 2 * 2;',
+            '    this.buf = new Float32Array(this.bufSize);',
+            '    this.writePos = 0;',
+            '    this.readPos = 0;',
+            '    this.buffering = true;',
+            '    this.latencyTarget = Math.floor(sr * 0.2) * 2;',
+            '    this.overruns = 0;',
+            '    this.underruns = 0;',
+            '    this.port.onmessage = this._onMessage.bind(this);',
+            '  }',
+            '  _onMessage(e) {',
+            '    if (e.data.type === "audio") this._append(e.data.samples);',
+            '    else if (e.data.type === "reset") {',
+            '      this.writePos = 0; this.readPos = 0;',
+            '      this.buffering = true; this.buf.fill(0);',
+            '      this.overruns = 0; this.underruns = 0;',
+            '    } else if (e.data.type === "getStats") {',
+            '      this.port.postMessage({ type: "stats",',
+            '        overruns: this.overruns, underruns: this.underruns });',
+            '    }',
+            '  }',
+            '  _append(data) {',
+            '    var len = data.length, buf = this.buf, size = this.bufSize;',
+            '    var wp = this.writePos, rp = this.readPos;',
+            '    var used = (wp - rp + size) % size;',
+            '    var free = size - used - 2;',
+            '    if (len > free) {',
+            '      this.overruns++;',
+            '      len = free > 0 ? free : 0;',
+            '      if (len === 0) return;',
+            '      data = data.subarray(0, len);',
+            '    }',
+            '    if (wp + len <= size) { buf.set(data, wp); }',
+            '    else { var f = size - wp; buf.set(data.subarray(0, f), wp); buf.set(data.subarray(f), 0); }',
+            '    this.writePos = (wp + len) % size;',
+            '  }',
+            '  process(inputs, outputs) {',
+            '    var outL = outputs[0][0], outR = outputs[0][1], n = outL.length;',
+            '    var buf = this.buf, size = this.bufSize, rp = this.readPos, wp = this.writePos;',
+            '    if (this.buffering) {',
+            '      var avail = (wp - rp + size) % size;',
+            '      if (avail >= this.latencyTarget) {',
+            '        this.readPos = rp = (wp - this.latencyTarget + size) % size;',
+            '        this.buffering = false;',
+            '      } else { outL.fill(0); outR.fill(0); return true; }',
+            '    }',
+            '    for (var i = 0; i < n; i++) {',
+            '      if (((wp - rp + size) % size) >= 2) {',
+            '        outL[i] = buf[rp]; outR[i] = buf[rp + 1]; rp = (rp + 2) % size;',
+            '      } else { outL[i] = outR[i] = 0; this.underruns++; }',
+            '    }',
+            '    this.readPos = rp;',
+            '    if (((wp - rp + size) % size) < 2) {',
+            '      this.buffering = true;',
+            '    }',
+            '    return true;',
+            '  }',
+            '}',
+            'registerProcessor("xmil-audio-processor", XmilAudioProcessor);'
+        ].join('\n');
+        return URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+    }
+
+    // WAV デコード待ちバッファの処理（AudioWorklet / SPN 共通）
+    function decodePendingWavBuffers(ctx) {
+        if (window.xmilWavPending) {
+            window.xmilWavPending.forEach(function(ab, num) {
+                if (!ab) return;
+                ctx.decodeAudioData(ab,
+                    function(buf) {
+                        if (!window.xmilWavBufs) window.xmilWavBufs = [];
+                        window.xmilWavBufs[num] = buf;
+                    },
+                    function(err) { console.warn('[xmil wav] decode error slot=' + num + ': ' + err); }
+                );
+            });
+            window.xmilWavPending = null;
+        }
+    }
+
+    // ScriptProcessorNode フォールバック（AudioWorklet 非対応ブラウザ用）
+    function setupScriptProcessor(ctx) {
+        if (window.xmilAudioProcessor) return;
+        var AUDIO_LATENCY = getAudioLatency();
+        var proc = ctx.createScriptProcessor(2048, 0, 2);
+
+        proc.onaudioprocess = function(e) {
+            var outL = e.outputBuffer.getChannelData(0);
+            var outR = e.outputBuffer.getChannelData(1);
+            var n    = e.outputBuffer.length;
+            var pcm  = window.xmilPcm;
+            var size = window.xmilPcmSize;
+
+            if (!pcm) {
+                for (var j = 0; j < n; j++) { outL[j] = outR[j] = 0; }
+                return;
+            }
+
+            var wp = window.xmilPcmWrite;
+            var rp = window.xmilPcmRead;
+
+            if (window.xmilAudioBuffering) {
+                for (var j = 0; j < n; j++) { outL[j] = outR[j] = 0; }
+                var avail = (wp - rp + size) % size;
+                if (avail >= AUDIO_LATENCY) {
+                    window.xmilPcmRead = (wp - AUDIO_LATENCY + size * 2) % size;
+                    window.xmilAudioBuffering = false;
+                }
+                return;
+            }
+
+            var underflows = 0;
+            for (var i = 0; i < n; i++) {
+                if ((wp - rp + size) % size >= 2) {
+                    outL[i] = pcm[rp]     / 32768.0;
+                    outR[i] = pcm[rp + 1] / 32768.0;
+                    rp = (rp + 2) % size;
+                } else {
+                    outL[i] = outR[i] = 0;
+                    underflows++;
+                }
+            }
+            window.xmilPcmRead = rp;
+            if (underflows >= n) {
+                window.xmilAudioBuffering = true;
+                window.xmilPcmRead = wp;
+            }
+        };
+
+        var master = ctx.createGain();
+        master.connect(ctx.destination);
+        proc.connect(master);
+        window.xmilMasterGain = master;
+        window.xmilAudioProcessor = proc;
+        audioUnlocked = true;
+        decodePendingWavBuffers(ctx);
+    }
+
+    // AudioWorklet パス
+    async function setupAudioWorklet(ctx) {
+        var blobURL = createWorkletBlobURL();
+        try {
+            await ctx.audioWorklet.addModule(blobURL);
+
+
+            var sr = window.xmilSampleRate || 44100;
+            var node = new AudioWorkletNode(ctx, 'xmil-audio-processor', {
+                numberOfInputs: 0,
+                numberOfOutputs: 1,
+                outputChannelCount: [2],
+                processorOptions: { sampleRate: sr }
+            });
+
+            var master = ctx.createGain();
+            master.connect(ctx.destination);
+            node.connect(master);
+            window.xmilMasterGain = master;
+            window.xmilAudioProcessor = node;
+            audioUnlocked = true;
+
+            // フレーム末フラッシュ関数
+            var port = node.port;
+            window.xmilFlushAudio = function() {
+                var pcm = window.xmilPcm;
+                if (!pcm) return;
+                var size = window.xmilPcmSize;
+                var wp = window.xmilPcmWrite;
+                var rp = window.xmilPcmRead;
+                if (wp === rp) return;
+
+                var count = (wp - rp + size) % size;
+                var f32 = new Float32Array(count);
+                for (var i = 0; i < count; i++) {
+                    f32[i] = pcm[(rp + i) % size] / 32768.0;
+                }
+                try {
+                    port.postMessage({ type: 'audio', samples: f32 }, [f32.buffer]);
+                    window.xmilPcmRead = wp;
+                } catch(e) {
+                    // context close 直後等: 次フレームで再試行
+                }
+            };
+
+            decodePendingWavBuffers(ctx);
+            console.log('[xmil audio] AudioWorklet initialized');
+        } catch(e) {
+            console.warn('[xmil audio] AudioWorklet failed, falling back to ScriptProcessor:', e);
+            setupScriptProcessor(ctx);
+        } finally {
+            URL.revokeObjectURL(blobURL);
+        }
+    }
+
+    var xmilAudioSetupPromise = null;
+
     function setupAudioStream() {
         var ctx = window.audioContext;
         if (!ctx) {
@@ -1492,72 +1694,15 @@
 
         var doSetup = function() {
             if (window.xmilAudioProcessor) return;
+            if (xmilAudioSetupPromise) return;
             window.xmilAudioBuffering = true;
-            var AUDIO_LATENCY = getAudioLatency();
-            var proc = ctx.createScriptProcessor(2048, 0, 2);
 
-            proc.onaudioprocess = function(e) {
-                var outL = e.outputBuffer.getChannelData(0);
-                var outR = e.outputBuffer.getChannelData(1);
-                var n    = e.outputBuffer.length;
-                var pcm  = window.xmilPcm;
-                var size = window.xmilPcmSize;
-
-                if (!pcm) {
-                    for (var j = 0; j < n; j++) { outL[j] = outR[j] = 0; }
-                    return;
-                }
-
-                var wp = window.xmilPcmWrite;
-                var rp = window.xmilPcmRead;
-
-                if (window.xmilAudioBuffering) {
-                    for (var j = 0; j < n; j++) { outL[j] = outR[j] = 0; }
-                    var avail = (wp - rp + size) % size;
-                    if (avail >= AUDIO_LATENCY) {
-                        window.xmilPcmRead = (wp - AUDIO_LATENCY + size * 2) % size;
-                        window.xmilAudioBuffering = false;
-                    }
-                    return;
-                }
-
-                var underflows = 0;
-                for (var i = 0; i < n; i++) {
-                    if ((wp - rp + size) % size >= 2) {
-                        outL[i] = pcm[rp]     / 32768.0;
-                        outR[i] = pcm[rp + 1] / 32768.0;
-                        rp = (rp + 2) % size;
-                    } else {
-                        outL[i] = outR[i] = 0;
-                        underflows++;
-                    }
-                }
-                window.xmilPcmRead = rp;
-                if (underflows >= n) {
-                    window.xmilAudioBuffering = true;
-                    window.xmilPcmRead = wp;
-                }
-            };
-
-            var master = ctx.createGain();
-            master.connect(ctx.destination);
-            proc.connect(master);
-            window.xmilMasterGain = master;
-            window.xmilAudioProcessor = proc;
-            audioUnlocked = true;
-
-            if (window.xmilWavPending) {
-                window.xmilWavPending.forEach(function(ab, num) {
-                    if (!ab) return;
-                    ctx.decodeAudioData(ab,
-                        function(buf) {
-                            if (!window.xmilWavBufs) window.xmilWavBufs = [];
-                            window.xmilWavBufs[num] = buf;
-                        },
-                        function(err) { console.warn('[xmil wav] decode error slot=' + num + ': ' + err); }
-                    );
+            if (ctx.audioWorklet && typeof ctx.audioWorklet.addModule === 'function') {
+                xmilAudioSetupPromise = setupAudioWorklet(ctx).finally(function() {
+                    xmilAudioSetupPromise = null;
                 });
-                window.xmilWavPending = null;
+            } else {
+                setupScriptProcessor(ctx);
             }
         };
 
@@ -1573,6 +1718,10 @@
         if (window.xmilPcm) window.xmilPcm.fill(0);
         window.xmilPcmWrite = 0;
         window.xmilPcmRead  = 0;
+        // AudioWorklet にリセット通知
+        if (window.xmilAudioProcessor && window.xmilAudioProcessor.port) {
+            window.xmilAudioProcessor.port.postMessage({ type: 'reset' });
+        }
     }
 
     function testAudio() {

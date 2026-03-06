@@ -125,6 +125,9 @@ void main_loop() {
 
     x1r_exec();
 
+    // AudioWorklet へのバッチ転送（SPN フォールバック時は xmilFlushAudio が未定義で no-op）
+    EM_ASM({ if (window.xmilFlushAudio) window.xmilFlushAudio(); });
+
     g_frame_count++;
 }
 
