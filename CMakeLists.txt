@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(XMillennium-Web)
 
+set(XMIL_VERSION "0.5.0")
+
 # Emscripten用の設定
 if(EMSCRIPTEN)
     message(STATUS "Building for Emscripten/WebAssembly")
@@ -232,5 +234,12 @@ add_custom_command(TARGET xmillennium POST_BUILD
         -DSRC_DIR=${CMAKE_SOURCE_DIR}/html
         -DDST_DIR=${CMAKE_BINARY_DIR}
         -P ${CMAKE_SOURCE_DIR}/cmake/copy_config.cmake
+    # バージョン文字列を注入（@@XMIL_VERSION@@ → 実際のバージョン）
+    COMMAND sed -i.bak "s/@@XMIL_VERSION@@/${XMIL_VERSION}/g"
+        ${CMAKE_BINARY_DIR}/xmillennium.html
+        ${CMAKE_BINARY_DIR}/index.html
+    COMMAND ${CMAKE_COMMAND} -E remove -f
+        ${CMAKE_BINARY_DIR}/xmillennium.html.bak
+        ${CMAKE_BINARY_DIR}/index.html.bak
     COMMENT "Copying HTML files to build directory"
 )
