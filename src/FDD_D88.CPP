@@ -103,13 +103,12 @@ int curdataflush(void) {
 	FILEH	hdr;
 	int		ret = 0;
 
-	if ((!curfp) || (!cursize)) {
-		return(-1);
-	}
 	if (!curwrite) {
 		return(0);
 	}
-	curwrite = 0;
+	if ((!curfp) || (!cursize)) {
+		return(-1);
+	}
 	if ((hdr = file_open(FDC_NAME[curdrv])) == (FILEH)-1) {
 		return(-1);
 	}
@@ -119,6 +118,9 @@ int curdataflush(void) {
 	}
 	if (file_close(hdr)) {
 		ret = -1;
+	}
+	if (ret == 0) {
+		curwrite = 0;
 	}
 	return(ret);
 }
@@ -225,6 +227,11 @@ void drvflush(short drv) {
 		curtrk = -1;
 		cursct = -1;
 	}
+}
+
+
+int fdd_flush_d88(void) {
+	return curdataflush();
 }
 
 
