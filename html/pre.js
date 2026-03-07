@@ -449,15 +449,22 @@
             return null;
         }
 
+        // 同名ファイルの上書き確認
+        var lib = getLibrary();
+        var existingIdx = lib.findIndex(function(e) { return e.key === key; });
+        if (existingIdx >= 0) {
+            if (!confirm('同名のファイルが既に存在します:\n' + file.name + '\n\n上書きしますか？')) {
+                return null;
+            }
+        }
+
         updateStatus('ライブラリに追加中: ' + file.name);
         try {
             var data = await file.arrayBuffer();
             if (window.XmilStorage) await window.XmilStorage.write(key, data);
 
-            var lib = getLibrary();
-            var idx = lib.findIndex(function(e) { return e.key === key; });
             var entry = { key: key, name: file.name, type: type, ext: ext, size: file.size, addedAt: new Date().toISOString() };
-            if (idx >= 0) lib[idx] = entry; else lib.push(entry);
+            if (existingIdx >= 0) lib[existingIdx] = entry; else lib.push(entry);
             saveLibrary(lib);
             updateStatus('追加完了: ' + file.name);
             renderLibraryList();

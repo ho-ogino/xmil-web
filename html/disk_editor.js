@@ -11,10 +11,25 @@
     // ================================================================
     // エディタを開く
     // ================================================================
+    var editorDisclaimerShown = false;
+
     async function openEditor(libraryKey) {
         if (!window.XmilCore || !window.XmilStorage) {
             alert('ストレージが初期化されていません');
             return;
+        }
+
+        // 初回のみ注意事項を表示 (セッション中は再表示しない)
+        if (!editorDisclaimerShown) {
+            var ok = confirm(
+                'ディスク編集についてのご注意\n\n' +
+                'ディスクイメージへの書き込み機能は十分な検証が行われていない' +
+                '場合があります。編集操作によりイメージが破損する可能性がある' +
+                'ため、編集前に必ずバックアップをお取りください。\n\n' +
+                '了承のうえ編集を開始しますか？'
+            );
+            if (!ok) return;
+            editorDisclaimerShown = true;
         }
 
         // 既存の未保存セッションがある場合は確認
