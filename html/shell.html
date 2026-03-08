@@ -1329,6 +1329,42 @@
         }
         .lib-add-btn:hover { background: #162816; border-color: #44aa44; color: #88ff88; }
 
+        .lib-fav-filter {
+            background: #1e1e1e; border: 1px solid #333; color: #555;
+            font-size: 0.8em; padding: 4px 10px; border-radius: 3px;
+            cursor: pointer; transition: all 0.1s; margin-left: 2px;
+        }
+        .lib-fav-filter:hover { border-color: #886622; color: #ccaa44; }
+        .lib-fav-filter.active { background: #2a2210; border-color: #aa8833; color: #ffcc44; }
+
+        .lib-toolbar {
+            display: flex; align-items: center; gap: 6px;
+            padding: 6px 14px; border-bottom: 1px solid #222;
+            background: #151515; flex-shrink: 0;
+        }
+        .lib-search-input {
+            flex: 1; background: #111; border: 1px solid #333; color: #aaa;
+            padding: 5px 9px; border-radius: 3px; font-size: 0.82em;
+            font-family: 'Courier New', monospace; outline: none; min-width: 0;
+        }
+        .lib-search-input:focus { border-color: #666; }
+        .lib-search-input::placeholder { color: #444; }
+        .lib-sort-select {
+            background: #1a1a1a; border: 1px solid #333; color: #888;
+            padding: 5px 8px; border-radius: 3px; font-size: 0.78em;
+            font-family: inherit; outline: none; cursor: pointer; flex-shrink: 0;
+        }
+        .lib-sort-select:focus { border-color: #666; }
+        .lib-sort-select option { background: #1a1a1a; color: #aaa; }
+
+        .lib-fav-btn {
+            background: none; border: 1px solid transparent; color: #333;
+            padding: 2px 4px; cursor: pointer; font-size: 0.95em;
+            transition: all 0.1s; flex-shrink: 0; line-height: 1;
+        }
+        .lib-fav-btn:hover { color: #886622; }
+        .lib-fav-btn.favorited { color: #ccaa44; }
+
         .lib-list {
             flex: 1;
             overflow-y: auto;
@@ -2423,9 +2459,20 @@
             <button class="lib-filter" data-type="hdd">HDD</button>
             <button class="lib-filter" data-type="cmt">CMT</button>
             <button class="lib-filter" data-type="emm">EMM</button>
+            <button class="lib-fav-filter" id="lib-fav-filter" title="お気に入りのみ表示">☆</button>
             <button class="lib-drive-pick-btn hidden" id="btn-drive-pick"
                     title="アプリが保存済みのファイルを一覧表示">☁ 保存済み</button>
             <button class="lib-add-btn" id="lib-add-btn">＋ 追加</button>
+        </div>
+        <div class="lib-toolbar" id="lib-toolbar">
+            <input type="text" class="lib-search-input" id="lib-search-input"
+                   placeholder="ファイル名で検索..." autocomplete="off" />
+            <select class="lib-sort-select" id="lib-sort-select">
+                <option value="name">名前順</option>
+                <option value="type-name">タイプ→名前</option>
+                <option value="date-desc">追加日(新しい順)</option>
+                <option value="size-desc">サイズ(大きい順)</option>
+            </select>
         </div>
         <div id="library-list" class="lib-list"></div>
         <div id="drive-status" class="hidden"></div>

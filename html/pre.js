@@ -30,6 +30,9 @@
     var emmImportSlot = -1;       // インポート対象スロット番号
     var emmImportInput = null;    // 隠し file input (init() で生成)
     var emmSlotInFlight = {};     // スロット単位の処理中ガード
+    var currentLibrarySort = 'name';      // 'name' | 'type-name' | 'date-desc' | 'size-desc'
+    var currentLibrarySearch = '';         // 検索テキスト
+    var currentFavoritesOnly = false;     // ★フィルタ ON/OFF
 
     // マルチタブ検出 (BroadcastChannel requestId 付きハンドシェイク)
     // 初期化直後から ping に応答する。キャンセル時のみ close() する。
@@ -220,10 +223,15 @@
                 try { await window.XmilStorage.remove(oe.key); } catch(_) {}
             }
         }
+        var existingFav = false;
         var lib = oldLib.filter(function(e) {
-            return e.key !== fileName && !(e.type === 'emm' && e.name === fileName);
+            if (e.key === fileName || (e.type === 'emm' && e.name === fileName)) {
+                if (e.favorite) existingFav = true;
+                return false;
+            }
+            return true;
         });
-        var entry = { key: fileName, name: fileName, type: 'emm', ext: 'MEM', size: sizeBytes, addedAt: new Date().toISOString() };
+        var entry = { key: fileName, name: fileName, type: 'emm', ext: 'MEM', size: sizeBytes, addedAt: new Date().toISOString(), favorite: existingFav };
         lib.push(entry);
         saveLibrary(lib);
 
@@ -488,7 +496,8 @@
             var data = await file.arrayBuffer();
             if (window.XmilStorage) await window.XmilStorage.write(key, data);
 
-            var entry = { key: key, name: file.name, type: type, ext: ext, size: file.size, addedAt: new Date().toISOString() };
+            var existingFav = (existingIdx >= 0) ? !!lib[existingIdx].favorite : false;
+            var entry = { key: key, name: file.name, type: type, ext: ext, size: file.size, addedAt: new Date().toISOString(), favorite: existingFav };
             if (existingIdx >= 0) lib[existingIdx] = entry; else lib.push(entry);
             saveLibrary(lib);
             updateStatus('追加完了: ' + file.name);
@@ -1480,7 +1489,8 @@
                 keyMode: (function() {
                     var c = document.querySelector('input[name="key-mode"]:checked');
                     return c ? parseInt(c.value, 10) : 0;
-                })()
+                })(),
+                libSort: currentLibrarySort
             };
             localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
         } catch(e) {
@@ -1517,6 +1527,11 @@
                 elements.keyModeRadios.forEach(function(r) {
                     r.checked = (parseInt(r.value, 10) === s.keyMode);
                 });
+            }
+            if (s.libSort) {
+                currentLibrarySort = s.libSort;
+                var sortSel = document.getElementById('lib-sort-select');
+                if (sortSel) sortSel.value = s.libSort;
             }
         } catch(e) {
             console.warn('loadSettings failed:', e);
@@ -2126,6 +2141,7 @@
                     if (window.XmilDiskEditor) window.XmilDiskEditor.openEditor(key);
                 }
                 if (action === 'delete')   deleteFromLibrary(key);
+                if (action === 'toggle-fav') toggleFavorite(key);
                 if (action === 'drive-save') {
                     if (window.XmilDrive) window.XmilDrive.saveByKey(key);
                 }
@@ -2142,6 +2158,34 @@
                     var emmEntry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === emmFileName; });
                     if (emmEntry && window.XmilDiskEditor) window.XmilDiskEditor.openEditor(emmEntry.key);
                 }
+            });
+        }
+
+        // ライブラリ: 検索入力
+        var libSearchInput = document.getElementById('lib-search-input');
+        if (libSearchInput) {
+            libSearchInput.addEventListener('input', function() {
+                currentLibrarySearch = libSearchInput.value;
+                renderLibraryList();
+            });
+        }
+        // ライブラリ: ソートセレクト
+        var libSortSelect = document.getElementById('lib-sort-select');
+        if (libSortSelect) {
+            libSortSelect.addEventListener('change', function() {
+                currentLibrarySort = libSortSelect.value;
+                renderLibraryList();
+                saveSettings();
+            });
+        }
+        // ライブラリ: お気に入りフィルタ
+        var libFavFilter = document.getElementById('lib-fav-filter');
+        if (libFavFilter) {
+            libFavFilter.addEventListener('click', function() {
+                currentFavoritesOnly = !currentFavoritesOnly;
+                libFavFilter.classList.toggle('active', currentFavoritesOnly);
+                libFavFilter.textContent = currentFavoritesOnly ? '★' : '☆';
+                renderLibraryList();
             });
         }
 
@@ -2376,11 +2420,17 @@
                         try { await window.XmilStorage.remove(oe2.key); } catch(_) {}
                     }
                 }
+                var existingFav = false;
                 var lib = oldLib2.filter(function(ent) {
-                    return ent.key !== key && !(ent.type === 'emm' && ent.name === fileName);
+                    if (ent.key === key || (ent.type === 'emm' && ent.name === fileName)) {
+                        if (ent.favorite) existingFav = true;
+                        return false;
+                    }
+                    return true;
                 });
                 lib.push({ key: key, name: fileName, type: 'emm', ext: 'MEM',
-                           size: data.byteLength, addedAt: new Date().toISOString() });
+                           size: data.byteLength, addedAt: new Date().toISOString(),
+                           favorite: existingFav });
                 saveLibrary(lib);
                 await mountFromLibrary(key, slotName);
                 renderLibraryList();
@@ -3026,6 +3076,20 @@
             });
         }
 
+        // 検索テキストをクリア
+        currentLibrarySearch = '';
+        var searchInput = document.getElementById('lib-search-input');
+        if (searchInput) searchInput.value = '';
+
+        // お気に入りフィルタをリセット
+        currentFavoritesOnly = false;
+        var favBtn = document.getElementById('lib-fav-filter');
+        if (favBtn) { favBtn.classList.remove('active'); favBtn.textContent = '☆'; }
+
+        // ソートセレクト値を復元
+        var sortSel = document.getElementById('lib-sort-select');
+        if (sortSel) sortSel.value = currentLibrarySort;
+
         var panel = document.getElementById('library-panel');
         if (panel) panel.classList.remove('hidden');
         renderLibraryList();
@@ -3036,6 +3100,40 @@
         var panel = document.getElementById('library-panel');
         if (panel) panel.classList.add('hidden');
         pendingSlotName = null;
+    }
+
+    var TYPE_ORDER = { fdd: 0, hdd: 1, cmt: 2, emm: 3 };
+
+    function sortLibraryEntries(entries, sortKey) {
+        var sorted = entries.slice();
+        sorted.sort(function(a, b) {
+            var fa = a.favorite ? 0 : 1;
+            var fb = b.favorite ? 0 : 1;
+            if (fa !== fb) return fa - fb;
+            switch (sortKey) {
+                case 'type-name':
+                    var ta = TYPE_ORDER[a.type] !== undefined ? TYPE_ORDER[a.type] : 9;
+                    var tb = TYPE_ORDER[b.type] !== undefined ? TYPE_ORDER[b.type] : 9;
+                    if (ta !== tb) return ta - tb;
+                    return a.name.localeCompare(b.name, 'ja');
+                case 'date-desc':
+                    return (b.addedAt || '').localeCompare(a.addedAt || '');
+                case 'size-desc':
+                    return (b.size || 0) - (a.size || 0);
+                default:
+                    return a.name.localeCompare(b.name, 'ja');
+            }
+        });
+        return sorted;
+    }
+
+    function toggleFavorite(key) {
+        var lib = getLibrary();
+        var entry = lib.find(function(e) { return e.key === key; });
+        if (!entry) return;
+        entry.favorite = !entry.favorite;
+        saveLibrary(lib);
+        renderLibraryList();
     }
 
     function renderLibraryList() {
@@ -3051,6 +3149,12 @@
         var addBtn = document.getElementById('lib-add-btn');
         if (addBtn) addBtn.classList.toggle('hidden', filter === 'emm');
 
+        // ★ フィルタボタン / ツールバー: EMM タブ時は非表示
+        var favFilterBtn = document.getElementById('lib-fav-filter');
+        if (favFilterBtn) favFilterBtn.classList.toggle('hidden', filter === 'emm');
+        var toolbar = document.getElementById('lib-toolbar');
+        if (toolbar) toolbar.classList.toggle('hidden', filter === 'emm');
+
         // EMM タブ → 専用 10 スロットビュー
         if (filter === 'emm') {
             renderEmmSlotList();
@@ -3060,10 +3164,32 @@
         var lib = getLibrary();
         var filtered = filter === 'all' ? lib : lib.filter(function(e) { return e.type === filter; });
 
+        // お気に入りフィルタ
+        if (currentFavoritesOnly) {
+            filtered = filtered.filter(function(e) { return !!e.favorite; });
+        }
+        // テキスト検索フィルタ
+        var searchText = currentLibrarySearch.trim().toLowerCase();
+        if (searchText) {
+            filtered = filtered.filter(function(e) {
+                return e.name.toLowerCase().indexOf(searchText) >= 0;
+            });
+        }
+
         if (filtered.length === 0) {
-            listEl.innerHTML = '<div class="lib-empty">ライブラリにファイルがありません<br><small>「＋ 追加」からファイルを追加してください</small></div>';
+            var emptyMsg = searchText
+                ? '一致するファイルがありません'
+                : (currentFavoritesOnly
+                    ? 'お気に入りに登録されたファイルがありません'
+                    : 'ライブラリにファイルがありません<br><small>「＋ 追加」からファイルを追加してください</small>');
+            listEl.innerHTML = '<div class="lib-empty">' + emptyMsg + '</div>';
             return;
         }
+
+        // ソート適用
+        var sortSel = document.getElementById('lib-sort-select');
+        var sortKey = sortSel ? sortSel.value : 'name';
+        filtered = sortLibraryEntries(filtered, sortKey);
 
         // マウント中のスロット情報を逆引き
         var mountedBy = {};
@@ -3107,7 +3233,11 @@
                 }
             }
 
+            var favClass = entry.favorite ? ' favorited' : '';
+            var favIcon  = entry.favorite ? '★' : '☆';
+
             html += '<div class="lib-row' + (isMounted ? ' mounted' : '') + '">';
+            html += '<button class="lib-fav-btn' + favClass + '" data-action="toggle-fav" data-key="' + ek + '" title="お気に入り">' + favIcon + '</button>';
             html += '<span class="lib-type-badge ' + typeClass + '">' + typeBadge + '</span>';
             html += '<span class="lib-file-name" title="' + en + '">' + en + '</span>';
             html += '<span class="lib-file-size">' + sizeMb + 'MB</span>';
