@@ -31,6 +31,31 @@
     var emmImportInput = null;    // 隠し file input (init() で生成)
     var emmSlotInFlight = {};     // スロット単位の処理中ガード
 
+    // マルチタブ検出 (BroadcastChannel requestId 付きハンドシェイク)
+    // 初期化直後から ping に応答する。キャンセル時のみ close() する。
+    var _multiTabPromise = null;
+    var _tabChannel = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+        _tabChannel = new BroadcastChannel('xmil_tab');
+        var _myTabId = Math.random().toString(36).slice(2);
+        _multiTabPromise = new Promise(function(resolve) {
+            var detected = false;
+            _tabChannel.onmessage = function(e) {
+                if (!e.data) return;
+                if (e.data.type === 'ping') {
+                    _tabChannel.postMessage({ type: 'pong', replyTo: e.data.id });
+                } else if (e.data.type === 'pong' && e.data.replyTo === _myTabId) {
+                    if (!detected) { detected = true; resolve(true); }
+                }
+            };
+            _tabChannel.postMessage({ type: 'ping', id: _myTabId });
+            setTimeout(function() { if (!detected) resolve(false); }, 500);
+        });
+        window.addEventListener('pagehide', function() {
+            if (_tabChannel) { _tabChannel.close(); _tabChannel = null; }
+        });
+    }
+
     // スロット→対応タイプ
     const SLOT_TYPES = { drive0: 'fdd', drive1: 'fdd', hdd0: 'hdd', hdd1: 'hdd', cmt: 'cmt', emm0: 'emm', emm1: 'emm', emm2: 'emm', emm3: 'emm', emm4: 'emm', emm5: 'emm', emm6: 'emm', emm7: 'emm', emm8: 'emm', emm9: 'emm' };
 
@@ -2657,7 +2682,28 @@
     }
 
     // モジュール読み込み完了時
-    function onModuleReady() {
+    async function onModuleReady() {
+        // マルチタブ警告
+        if (_multiTabPromise) {
+            var otherTabExists = await _multiTabPromise;
+            if (otherTabExists) {
+                var ok = confirm(
+                    'このエミュレーターは別のタブで既に起動しています。\n\n' +
+                    '複数のタブで同時に使用すると、ディスクイメージの' +
+                    'データが競合し破損する可能性があります。\n\n' +
+                    'このタブでも起動しますか？'
+                );
+                if (!ok) {
+                    // 起動中止 — チャネルを閉じて以後 ping に応答しない
+                    if (_tabChannel) { _tabChannel.close(); _tabChannel = null; }
+                    if (elements.loading) {
+                        elements.loading.textContent =
+                            '他のタブを閉じてからページをリロードしてください。';
+                    }
+                    return;
+                }
+            }
+        }
         module = window.Module;
 
         if (elements.loading)     elements.loading.classList.add('hidden');
@@ -2669,11 +2715,9 @@
         updatePowerBtn();
 
         // ROM/フォント自動ロード → マウント状態復元 (非同期)
-        (async function() {
-            autoLoadRom();
-            autoLoadFonts();
-            await autoRestoreMounts();
-        })();
+        autoLoadRom();
+        autoLoadFonts();
+        await autoRestoreMounts();
     }
 
     function applyInitialSettings() {
