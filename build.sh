@@ -130,6 +130,11 @@ cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" ] && \
     cp "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" "${DIST_DIR}/"
 
+# Pages Functions (Cloudflare Workers)
+if [ -d "${SCRIPT_DIR}/functions" ]; then
+    cp -r "${SCRIPT_DIR}/functions" "${DIST_DIR}/functions"
+fi
+
 # Google Search Console 所有権確認ファイル（あれば）
 for f in "${SCRIPT_DIR}"/html/google*.html; do
     [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
