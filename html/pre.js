@@ -3449,7 +3449,77 @@
         cmtPlay: function() { if (module && module._js_cmt_play) module._js_cmt_play(); },
         cmtStop: function() { if (module && module._js_cmt_stop) module._js_cmt_stop(); },
         cmtFf:   function() { if (module && module._js_cmt_ff) module._js_cmt_ff(); },
-        cmtRew:  function() { if (module && module._js_cmt_rew) module._js_cmt_rew(); }
+        cmtRew:  function() { if (module && module._js_cmt_rew) module._js_cmt_rew(); },
+
+        // EMM スロット操作
+        onEmmSlotCreate: onEmmSlotCreate,
+        onEmmSlotExport: onEmmSlotExport,
+        onEmmSlotImport: onEmmSlotImport,
+        onEmmSlotDelete: onEmmSlotDelete,
+        onEmmSlotInsert: onEmmSlotInsert,
+        onEmmSlotEject:  onEmmSlotEject,
+        openEmmCreateDialog: openEmmCreateDialog,
+        closeEmmCreateDialog: closeEmmCreateDialog,
+        onEmmCreateConfirm: onEmmCreateConfirm,
+        initEmmSizeRadios: initEmmSizeRadios,
+
+        // EMM import input 生成 (init() 外で呼べるように)
+        createEmmImportInput: function() {
+            if (emmImportInput) return;
+            emmImportInput = document.createElement('input');
+            emmImportInput.type = 'file';
+            emmImportInput.accept = '.mem,.MEM';
+            emmImportInput.style.display = 'none';
+            document.body.appendChild(emmImportInput);
+            emmImportInput.addEventListener('change', async function(e) {
+                var file = e.target.files[0];
+                e.target.value = '';
+                var slotNum = emmImportSlot;
+                emmImportSlot = -1;
+                if (!file || slotNum < 0) return;
+                if (!emmGuardStart(slotNum)) return;
+                var slotName = 'emm' + slotNum;
+                var fileName = 'EMM' + slotNum + '.MEM';
+                var wasExistingKey = null;
+                try {
+                    if (file.size > 16 * 1024 * 1024) { alert('最大 16MB です'); return; }
+                    var existingEntry = getLibrary().find(function(ent) {
+                        return ent.type === 'emm' && ent.name === fileName;
+                    });
+                    wasExistingKey = existingEntry ? existingEntry.key : null;
+                    if (slotState[slotName]) await ejectSlot(slotName);
+                    var data = await file.arrayBuffer();
+                    var key = fileName;
+                    await window.XmilStorage.write(key, data);
+                    var oldLib = getLibrary();
+                    for (var oi = 0; oi < oldLib.length; oi++) {
+                        var oe = oldLib[oi];
+                        if (oe.type === 'emm' && oe.name === fileName && oe.key !== key) {
+                            try { await window.XmilStorage.remove(oe.key); } catch(_) {}
+                        }
+                    }
+                    var lib = getLibrary().filter(function(ent) {
+                        return !(ent.type === 'emm' && ent.name === fileName);
+                    });
+                    var existingFav = (existingEntry && existingEntry.favorite) || false;
+                    lib.push({ key: key, name: fileName, type: 'emm', size: file.size,
+                               addedAt: new Date().toISOString(), ext: 'mem',
+                               favorite: existingFav });
+                    saveLibrary(lib);
+                    await mountFromLibrary(key, slotName);
+                    renderLibraryList();
+                    updateCapacityDisplay();
+                } catch(err) {
+                    alert('インポートに失敗しました: ' + (err.message || err));
+                    if (wasExistingKey && !slotState[slotName]) {
+                        try { await mountFromLibrary(wasExistingKey, slotName); } catch(_) {}
+                    }
+                    renderLibraryList();
+                } finally {
+                    emmGuardEnd(slotNum);
+                }
+            });
+        }
     };
 
     // X1Pen 用: ライブラリ内部関数を公開

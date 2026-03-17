@@ -262,6 +262,24 @@ window.__X1PEN_MODE = true;
                 if (action === 'download' && lib.downloadFromLibrary) lib.downloadFromLibrary(key, name);
                 if (action === 'delete'   && lib.deleteFromLibrary)   lib.deleteFromLibrary(key);
                 if (action === 'toggle-fav' && lib.toggleFavorite)    lib.toggleFavorite(key);
+                if (action === 'edit' && window.XmilDiskEditor)       window.XmilDiskEditor.openEditor(key);
+                // EMM スロット操作
+                var ctrl = window.XmilControls;
+                if (ctrl) {
+                    if (action === 'emm-create') ctrl.onEmmSlotCreate(parseInt(btn.dataset.slot, 10));
+                    if (action === 'emm-export') ctrl.onEmmSlotExport(parseInt(btn.dataset.slot, 10));
+                    if (action === 'emm-import') ctrl.onEmmSlotImport(parseInt(btn.dataset.slot, 10));
+                    if (action === 'emm-delete') ctrl.onEmmSlotDelete(parseInt(btn.dataset.slot, 10));
+                    if (action === 'emm-insert') ctrl.onEmmSlotInsert(parseInt(btn.dataset.slot, 10));
+                    if (action === 'emm-eject')  ctrl.onEmmSlotEject(parseInt(btn.dataset.slot, 10));
+                    if (action === 'emm-edit') {
+                        var slotNum = parseInt(btn.dataset.slot, 10);
+                        var emmFileName = 'EMM' + slotNum + '.MEM';
+                        var emmLib = window.XmilCore ? window.XmilCore.getLibrary() : [];
+                        var emmEntry = emmLib.find(function(ent) { return ent.type === 'emm' && ent.name === emmFileName; });
+                        if (emmEntry && window.XmilDiskEditor) window.XmilDiskEditor.openEditor(emmEntry.key);
+                    }
+                }
             });
         }
 
@@ -294,6 +312,17 @@ window.__X1PEN_MODE = true;
                 window.XmilLibrary.renderLibraryList();
             }
         });
+
+        // EMM ダイアログ: 閉じる/確認ボタン + サイズラジオ初期化 + import input 生成
+        var ctrl = window.XmilControls;
+        if (ctrl) {
+            var emmCloseBtn = document.getElementById('emm-create-close');
+            if (emmCloseBtn) emmCloseBtn.addEventListener('click', function() { ctrl.closeEmmCreateDialog(); });
+            var emmConfirmBtn = document.getElementById('emm-create-confirm');
+            if (emmConfirmBtn) emmConfirmBtn.addEventListener('click', function() { ctrl.onEmmCreateConfirm(); });
+            ctrl.initEmmSizeRadios();
+            ctrl.createEmmImportInput();
+        }
     }
 
     // ── ドロップダウンメニュー開閉 ──
