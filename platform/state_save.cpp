@@ -284,7 +284,9 @@ BYTE* save_full_state(int *out_size, int save_flags)
     uLongf comp_bound = compressBound((uLong)body_size);
     BYTE *comp_buf = (BYTE*)malloc(8 + 4 + comp_bound);
     if (!comp_buf) {
-        // Compression alloc failed — fall back to uncompressed
+        // Compression alloc failed — fall back to uncompressed v2
+        WORD fallback_ver = 2;
+        memcpy(buf + 4, &fallback_ver, 2);
         BYTE *result = (BYTE*)realloc(buf, pos);
         if (!result) result = buf;
         *out_size = pos;
@@ -301,8 +303,10 @@ BYTE* save_full_state(int *out_size, int save_flags)
     // Compress body
     uLongf comp_size = comp_bound;
     if (compress2(comp_buf + 12, &comp_size, buf + 8, (uLong)body_size, Z_DEFAULT_COMPRESSION) != Z_OK) {
-        // Compression failed — fall back to uncompressed
+        // Compression failed — fall back to uncompressed v2
         free(comp_buf);
+        WORD fallback_ver = 2;
+        memcpy(buf + 4, &fallback_ver, 2);
         BYTE *result = (BYTE*)realloc(buf, pos);
         if (!result) result = buf;
         *out_size = pos;
@@ -387,7 +391,8 @@ int load_full_state(const BYTE *data, int size)
         if (size < 12) return -1;  // need uncompressed_size field
         DWORD unc_size;
         memcpy(&unc_size, data + 8, 4);
-        if (unc_size == 0 || unc_size > 16 * 1024 * 1024) return -1;  // sanity check
+        // 256MB: base ~1MB + up to 10 EMM slots × 16MB each
+        if (unc_size == 0 || unc_size > 256 * 1024 * 1024) return -1;
 
         decompressed = (BYTE*)malloc(8 + unc_size);
         if (!decompressed) return -1;
