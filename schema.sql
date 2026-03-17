@@ -3,7 +3,8 @@
 
 CREATE TABLE IF NOT EXISTS shares (
     id TEXT PRIMARY KEY,
-    basic TEXT NOT NULL,
-    asm TEXT,
+    data BLOB NOT NULL,
+    codec TEXT NOT NULL,
+    raw_size INTEGER NOT NULL,
     created_at INTEGER NOT NULL
 );

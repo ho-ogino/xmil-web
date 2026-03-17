@@ -201,16 +201,32 @@ window.__X1PEN_MODE = true;
         if (!src) { elStatus.textContent = 'Nothing to share'; return; }
 
         var asmSrc = elAsmEditor ? elAsmEditor.value.trim() : '';
+        var payload = JSON.stringify({ basic: src, asm: asmSrc || null });
+        var rawBytes = new TextEncoder().encode(payload);
+
+        // サイズ警告 (目安)
+        if (rawBytes.length > 400 * 1024) {
+            elStatus.textContent = 'Code is large, share may fail';
+        }
+
         elStatus.textContent = 'Sharing...';
         try {
-            var payload = { basic: src };
-            if (asmSrc) payload.asm = asmSrc;
+            // gzip 圧縮
+            var cs = new CompressionStream('gzip');
+            var writer = cs.writable.getWriter();
+            writer.write(rawBytes);
+            writer.close();
+            var compressed = await new Response(cs.readable).arrayBuffer();
+
             var resp = await fetch('/api/share', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: compressed
             });
-            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            if (!resp.ok) {
+                var errBody = await resp.json().catch(function() { return {}; });
+                throw new Error(errBody.error || 'HTTP ' + resp.status);
+            }
             var result = await resp.json();
             var url = location.origin + '/x1pen?id=' + result.id;
             await navigator.clipboard.writeText(url);
@@ -311,7 +327,15 @@ window.__X1PEN_MODE = true;
             try {
                 var shareResp = await fetch('/api/share/' + encodeURIComponent(urlId));
                 if (shareResp.ok) {
-                    var shared = await shareResp.json();
+                    var shared;
+                    var codec = shareResp.headers.get('X-X1pen-Codec');
+                    if (codec === 'gzip') {
+                        var ds = new DecompressionStream('gzip');
+                        var decompText = await new Response(shareResp.body.pipeThrough(ds)).text();
+                        shared = JSON.parse(decompText);
+                    } else {
+                        shared = await shareResp.json();
+                    }
                     elEditor.value = shared.basic;
                     if (elAsmEditor) {
                         elAsmEditor.value = shared.asm || '';
