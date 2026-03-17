@@ -26,6 +26,9 @@ Makefile
 # Google Drive API 認証情報（ビルド時注入、コミット禁止）
 html/config.js
 
+# Cloudflare Wrangler 設定（個人の D1 database_id 等を含む）
+wrangler.toml
+
 # Google Search Console 認証ファイル（個人用、公開リポジトリに含めない）
 html/google*.html
 
