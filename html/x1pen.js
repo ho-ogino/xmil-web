@@ -15,6 +15,8 @@ window.__X1PEN_MODE = true;
     var elBtnStop   = document.getElementById('btn-stop');
     var elStatus    = document.getElementById('x1pen-status');
     var elEditor    = document.getElementById('basic-editor');
+    var elAsmEditor = document.getElementById('asm-editor');
+    var activeTab   = 'basic';
 
     // ── ステート復元 (専用経路 — マウント復元なし) ──
 
@@ -141,12 +143,15 @@ window.__X1PEN_MODE = true;
         var src = elEditor.value.trim();
         if (!src) { elStatus.textContent = 'Nothing to share'; return; }
 
+        var asmSrc = elAsmEditor ? elAsmEditor.value.trim() : '';
         elStatus.textContent = 'Sharing...';
         try {
+            var payload = { basic: src };
+            if (asmSrc) payload.asm = asmSrc;
             var resp = await fetch('/api/share', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ basic: src })
+                body: JSON.stringify(payload)
             });
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             var result = await resp.json();
@@ -240,6 +245,9 @@ window.__X1PEN_MODE = true;
                 if (shareResp.ok) {
                     var shared = await shareResp.json();
                     elEditor.value = shared.basic;
+                    if (shared.asm && elAsmEditor) {
+                        elAsmEditor.value = shared.asm;
+                    }
                     onRunClick();
                 } else if (shareResp.status === 400) {
                     elStatus.textContent = 'Invalid share ID';
@@ -628,8 +636,8 @@ window.__X1PEN_MODE = true;
         }
     });
 
-    // エディタ内の Tab キーでスペース挿入
-    elEditor.addEventListener('keydown', function(e) {
+    // エディタ内の Tab キーでスペース挿入 (両エディタ共通)
+    function onEditorTab(e) {
         if (e.key === 'Tab') {
             e.preventDefault();
             var start = this.selectionStart;
@@ -637,15 +645,47 @@ window.__X1PEN_MODE = true;
             this.value = this.value.substring(0, start) + '  ' + this.value.substring(end);
             this.selectionStart = this.selectionEnd = start + 2;
         }
-    });
+    }
+    elEditor.addEventListener('keydown', onEditorTab);
+    if (elAsmEditor) elAsmEditor.addEventListener('keydown', onEditorTab);
 
     // エディタ内容を localStorage に自動保存/復元
-    var LS_EDITOR = 'x1pen_editor';
+    var LS_EDITOR_BASIC = 'x1pen_editor';
+    var LS_EDITOR_ASM   = 'x1pen_editor_asm';
     try {
-        var saved = localStorage.getItem(LS_EDITOR);
-        if (saved) elEditor.value = saved;
+        var savedBasic = localStorage.getItem(LS_EDITOR_BASIC);
+        if (savedBasic) elEditor.value = savedBasic;
+        if (elAsmEditor) {
+            var savedAsm = localStorage.getItem(LS_EDITOR_ASM);
+            if (savedAsm) elAsmEditor.value = savedAsm;
+        }
     } catch(e) {}
     elEditor.addEventListener('input', function() {
-        try { localStorage.setItem(LS_EDITOR, elEditor.value); } catch(e) {}
+        try { localStorage.setItem(LS_EDITOR_BASIC, elEditor.value); } catch(e) {}
     });
+    if (elAsmEditor) elAsmEditor.addEventListener('input', function() {
+        try { localStorage.setItem(LS_EDITOR_ASM, elAsmEditor.value); } catch(e) {}
+    });
+
+    // タブ切り替え
+    var editorTabs = document.getElementById('editor-tabs');
+    if (editorTabs) {
+        editorTabs.addEventListener('click', function(e) {
+            var tab = e.target.closest('.editor-tab');
+            if (!tab) return;
+            var target = tab.dataset.tab;
+            if (target === activeTab) return;
+            activeTab = target;
+            editorTabs.querySelectorAll('.editor-tab').forEach(function(t) {
+                t.classList.toggle('active', t.dataset.tab === target);
+            });
+            if (target === 'basic') {
+                elEditor.classList.remove('hidden');
+                if (elAsmEditor) elAsmEditor.classList.add('hidden');
+            } else {
+                elEditor.classList.add('hidden');
+                if (elAsmEditor) elAsmEditor.classList.remove('hidden');
+            }
+        });
+    }
 })();

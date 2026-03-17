@@ -111,18 +111,30 @@
             min-width: 0;
         }
 
-        #editor-header {
+        #editor-tabs {
             display: flex;
-            align-items: center;
-            padding: 4px 8px;
             background: #16213e;
             border-bottom: 1px solid #0f3460;
-            font-size: 0.8em;
-            color: #888;
             flex-shrink: 0;
         }
+        .editor-tab {
+            font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+            padding: 5px 16px;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: #556;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .editor-tab:hover { color: #aaa; }
+        .editor-tab.active {
+            color: #e94560;
+            border-bottom-color: #e94560;
+        }
 
-        #basic-editor {
+        #basic-editor, #asm-editor {
             flex: 1;
             width: 100%;
             background: #0d1117;
@@ -137,7 +149,7 @@
             tab-size: 4;
         }
 
-        #basic-editor::placeholder {
+        #basic-editor::placeholder, #asm-editor::placeholder {
             color: #484f58;
         }
 
@@ -290,9 +302,14 @@
     </div>
     <div id="x1pen-main">
         <div id="editor-panel">
-            <div id="editor-header">FuzzyBASIC</div>
+            <div id="editor-tabs">
+                <button class="editor-tab active" data-tab="basic">BASIC</button>
+                <button class="editor-tab" data-tab="asm">ASM</button>
+            </div>
             <textarea id="basic-editor" spellcheck="false" wrap="off"
                 placeholder="10 PRINT &quot;HELLO WORLD&quot;&#10;20 GOTO 10"></textarea>
+            <textarea id="asm-editor" class="hidden" spellcheck="false" wrap="off"
+                placeholder="; Z80 Assembly&#10;ORG &amp;HE000&#10;    LD A,&amp;H41&#10;    RET"></textarea>
         </div>
         <div id="emu-panel">
             <canvas id="canvas" width="640" height="400"></canvas>

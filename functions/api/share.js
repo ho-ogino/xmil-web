@@ -8,11 +8,13 @@ export async function onRequestPost({ request, env }) {
         return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 });
     }
 
-    const { basic } = body;
+    const { basic, asm } = body;
     if (!basic || typeof basic !== 'string') {
         return new Response(JSON.stringify({ error: 'No code' }), { status: 400 });
     }
-    if (basic.length > 64 * 1024) {
+    const asmText = (asm && typeof asm === 'string') ? asm : null;
+    const totalSize = basic.length + (asmText ? asmText.length : 0);
+    if (totalSize > 128 * 1024) {
         return new Response(JSON.stringify({ error: 'Too large' }), { status: 413 });
     }
 
@@ -27,8 +29,8 @@ export async function onRequestPost({ request, env }) {
             .map(b => chars[b % 62]).join('');
         try {
             await env.X1PEN_DB
-                .prepare('INSERT INTO shares (id, basic, created_at) VALUES (?, ?, ?)')
-                .bind(id, basic, Date.now())
+                .prepare('INSERT INTO shares (id, basic, asm, created_at) VALUES (?, ?, ?, ?)')
+                .bind(id, basic, asmText, Date.now())
                 .run();
             break;
         } catch (e) {

@@ -6,7 +6,7 @@ export async function onRequestGet({ params, env }) {
     }
 
     const row = await env.X1PEN_DB
-        .prepare('SELECT basic, created_at FROM shares WHERE id = ?')
+        .prepare('SELECT basic, asm, created_at FROM shares WHERE id = ?')
         .bind(params.id)
         .first();
 
@@ -14,7 +14,11 @@ export async function onRequestGet({ params, env }) {
         return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 });
     }
 
-    return new Response(JSON.stringify({ basic: row.basic, createdAt: row.created_at }), {
+    return new Response(JSON.stringify({
+        basic: row.basic,
+        asm: row.asm || null,
+        createdAt: row.created_at
+    }), {
         headers: { 'Content-Type': 'application/json' }
     });
 }
