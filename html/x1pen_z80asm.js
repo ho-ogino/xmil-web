@@ -1,0 +1,784 @@
+// x1pen_z80asm.js — Z80 Assembler for X1Pen
+// 2-pass assembler: Pass 1 collects labels, Pass 2 emits bytes
+
+(function() {
+    'use strict';
+
+    // ================================================================
+    // Register encoding tables
+    // ================================================================
+
+    var R8 = { B:0, C:1, D:2, E:3, H:4, L:5, '(HL)':6, A:7 };
+    var QQ = { BC:0, DE:1, HL:2, SP:3 };
+    var PP = { BC:0, DE:1, HL:2, AF:3 };
+    var CC = { NZ:0, Z:1, NC:2, C:3, PO:4, PE:5, P:6, M:7 };
+    var RST_VALS = [0x00, 0x08, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38];
+
+    // ================================================================
+    // Expression parser
+    // ================================================================
+
+    function parseNumber(s) {
+        s = s.trim();
+        if (s === '') return null;
+        // Character literal 'X'
+        if (s.length === 3 && s[0] === "'" && s[2] === "'") return s.charCodeAt(1);
+        // 0x prefix
+        if (/^0x[0-9a-f]+$/i.test(s)) return parseInt(s, 16);
+        // $ prefix hex
+        if (/^\$[0-9a-f]+$/i.test(s)) return parseInt(s.slice(1), 16);
+        // Nh suffix hex (must start with digit)
+        if (/^[0-9][0-9a-f]*h$/i.test(s)) return parseInt(s.slice(0, -1), 16);
+        // %prefix binary
+        if (/^%[01]+$/.test(s)) return parseInt(s.slice(1), 2);
+        // Nb suffix binary
+        if (/^[01]+b$/i.test(s)) return parseInt(s.slice(0, -1), 2);
+        // Decimal
+        if (/^[0-9]+$/.test(s)) return parseInt(s, 10);
+        return null;
+    }
+
+    // Tokenize expression string into tokens: NUMBER, SYMBOL, OP, LPAREN, RPAREN
+    function tokenizeExpr(s) {
+        var tokens = [];
+        var i = 0;
+        while (i < s.length) {
+            var c = s[i];
+            if (c === ' ' || c === '\t') { i++; continue; }
+            if (c === '+') { tokens.push({ type: 'OP', val: '+' }); i++; continue; }
+            if (c === '-') { tokens.push({ type: 'OP', val: '-' }); i++; continue; }
+            if (c === '(') { tokens.push({ type: 'LPAREN' }); i++; continue; }
+            if (c === ')') { tokens.push({ type: 'RPAREN' }); i++; continue; }
+            if (c === '$' && (i + 1 >= s.length || !/[0-9a-f]/i.test(s[i + 1]))) {
+                tokens.push({ type: 'DOLLAR' }); i++; continue;
+            }
+            // Number or symbol
+            var start = i;
+            if (c === "'" && i + 2 < s.length && s[i + 2] === "'") {
+                tokens.push({ type: 'NUMBER', val: s.charCodeAt(i + 1) });
+                i += 3; continue;
+            }
+            if (c === '$' || /[0-9]/.test(c)) {
+                // Try to parse as number
+                while (i < s.length && /[0-9a-fA-FxXhHbB%$]/.test(s[i])) i++;
+                var ns = s.substring(start, i);
+                var nv = parseNumber(ns);
+                if (nv !== null) { tokens.push({ type: 'NUMBER', val: nv }); continue; }
+                // fallback to symbol
+                i = start;
+            }
+            if (/[a-zA-Z_.%]/.test(c)) {
+                while (i < s.length && /[a-zA-Z0-9_.]/.test(s[i])) i++;
+                tokens.push({ type: 'SYMBOL', val: s.substring(start, i) });
+                continue;
+            }
+            // Unknown character
+            return null;
+        }
+        return tokens;
+    }
+
+    function evalExpr(exprStr, symbols, pc) {
+        var tokens = tokenizeExpr(exprStr);
+        if (!tokens) return null;
+
+        var pos = 0;
+        function peek() { return pos < tokens.length ? tokens[pos] : null; }
+        function next() { return tokens[pos++]; }
+
+        function parseAtom() {
+            var t = peek();
+            if (!t) return null;
+            if (t.type === 'NUMBER') { next(); return t.val; }
+            if (t.type === 'DOLLAR') { next(); return pc; }
+            if (t.type === 'SYMBOL') {
+                next();
+                var key = t.val.toUpperCase();
+                if (key in symbols) return symbols[key];
+                return undefined; // unresolved
+            }
+            if (t.type === 'LPAREN') {
+                next();
+                var v = parseAddSub();
+                if (peek() && peek().type === 'RPAREN') next();
+                return v;
+            }
+            if (t.type === 'OP' && t.val === '-') {
+                next();
+                var v2 = parseAtom();
+                if (v2 === null || v2 === undefined) return v2;
+                return (-v2) & 0xFFFF;
+            }
+            return null;
+        }
+
+        function parseAddSub() {
+            var left = parseAtom();
+            while (true) {
+                var t = peek();
+                if (!t || t.type !== 'OP') break;
+                var op = next().val;
+                var right = parseAtom();
+                if (left === null || left === undefined || right === null || right === undefined)
+                    return undefined;
+                if (op === '+') left = (left + right) & 0xFFFF;
+                else left = (left - right) & 0xFFFF;
+            }
+            return left;
+        }
+
+        var result = parseAddSub();
+        if (pos < tokens.length) return null; // leftover tokens
+        return result;
+    }
+
+    // ================================================================
+    // Line parser
+    // ================================================================
+
+    function parseLine(line) {
+        // Returns { label, mnemonic, operands, comment, raw }
+        var result = { label: null, mnemonic: null, operands: '', comment: null, raw: line };
+
+        // Strip comment
+        var commentIdx = -1;
+        var inString = false;
+        for (var i = 0; i < line.length; i++) {
+            if (line[i] === '"') inString = !inString;
+            if (!inString && line[i] === ';') { commentIdx = i; break; }
+        }
+        var code = commentIdx >= 0 ? line.substring(0, commentIdx) : line;
+        if (commentIdx >= 0) result.comment = line.substring(commentIdx);
+
+        code = code.trimEnd();
+        if (code.trim() === '') return result;
+
+        // Check for label: at start of line
+        var m = code.match(/^(\.[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*)\s*:/);
+        if (m) {
+            result.label = m[1];
+            code = code.substring(m[0].length);
+        }
+
+        code = code.trim();
+        if (code === '') return result;
+
+        // Check for EQU (special: label without colon)
+        var equMatch = code.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s+EQU\s+(.+)$/i);
+        if (equMatch && !result.label) {
+            result.label = equMatch[1];
+            result.mnemonic = 'EQU';
+            result.operands = equMatch[2].trim();
+            return result;
+        }
+
+        // Mnemonic + operands
+        var parts = code.match(/^([a-zA-Z]+)\s*(.*)?$/);
+        if (parts) {
+            result.mnemonic = parts[1].toUpperCase();
+            result.operands = (parts[2] || '').trim();
+        }
+
+        return result;
+    }
+
+    // Split operands by comma, respecting parentheses
+    function splitOperands(s) {
+        if (s === '') return [];
+        var parts = [];
+        var depth = 0;
+        var current = '';
+        var inString = false;
+        for (var i = 0; i < s.length; i++) {
+            var c = s[i];
+            if (c === '"') inString = !inString;
+            if (!inString) {
+                if (c === '(') depth++;
+                if (c === ')') depth--;
+                if (c === ',' && depth === 0) {
+                    parts.push(current.trim());
+                    current = '';
+                    continue;
+                }
+            }
+            current += c;
+        }
+        parts.push(current.trim());
+        return parts;
+    }
+
+    // ================================================================
+    // Operand classification
+    // ================================================================
+
+    function classifyOperand(s, symbols, pc, pass) {
+        var su = s.toUpperCase().trim();
+
+        // Single 8-bit register
+        if (su in R8) return { type: 'r8', reg: R8[su], name: su };
+
+        // Register pairs
+        if (su in QQ) return { type: 'qq', reg: QQ[su], name: su };
+        if (su === 'AF') return { type: 'pp', reg: PP.AF, name: 'AF' };
+        if (su === "AF'") return { type: 'af_prime' };
+
+        // IX, IY
+        if (su === 'IX') return { type: 'ix' };
+        if (su === 'IY') return { type: 'iy' };
+
+        // (HL), (BC), (DE), (SP)
+        if (su === '(HL)') return { type: 'r8', reg: 6, name: '(HL)' };
+        if (su === '(BC)') return { type: 'ind_bc' };
+        if (su === '(DE)') return { type: 'ind_de' };
+        if (su === '(SP)') return { type: 'ind_sp' };
+
+        // (IX+d), (IY+d)
+        var ixm = su.match(/^\((IX|IY)\s*([+\-].*)\)$/i);
+        if (ixm) {
+            var val = evalExpr(ixm[2], symbols, pc);
+            return { type: 'ind_idx', idx: ixm[1].toUpperCase(), disp: val };
+        }
+        var ixm0 = su.match(/^\((IX|IY)\)$/i);
+        if (ixm0) {
+            return { type: 'ind_idx', idx: ixm0[1].toUpperCase(), disp: 0 };
+        }
+
+        // (C) - for IN/OUT
+        if (su === '(C)') return { type: 'ind_c' };
+
+        // (nn) - indirect memory
+        var indm = su.match(/^\((.+)\)$/);
+        if (indm) {
+            var addr = evalExpr(indm[1], symbols, pc);
+            return { type: 'ind_nn', val: addr };
+        }
+
+        // Condition codes
+        if (su in CC) return { type: 'cc', code: CC[su], name: su };
+
+        // Immediate / expression
+        var v = evalExpr(s, symbols, pc);
+        if (v !== null && v !== undefined) return { type: 'imm', val: v };
+
+        // Unresolved (pass 1)
+        if (pass === 1) return { type: 'imm', val: 0 }; // placeholder
+
+        return { type: 'unknown', raw: s };
+    }
+
+    // ================================================================
+    // Instruction encoders (family-based)
+    // ================================================================
+
+    function encodeBasic(mnemonic, ops, symbols, pc, pass) {
+        // ops: array of classified operands
+        var mn = mnemonic;
+        var o = ops;
+        var bytes = [];
+
+        // --- No operand instructions ---
+        var NOARG = {
+            NOP: [0x00], HALT: [0x76], DI: [0xF3], EI: [0xFB],
+            RLCA: [0x07], RRCA: [0x0F], RLA: [0x17], RRA: [0x1F],
+            DAA: [0x27], CPL: [0x2F], SCF: [0x37], CCF: [0x3F],
+            EXX: [0xD9],
+            RET: [0xC9]
+        };
+        if (o.length === 0 && mn in NOARG) return NOARG[mn];
+
+        // --- LD family ---
+        if (mn === 'LD') return encodeLD(o, symbols, pc, pass);
+
+        // --- PUSH / POP ---
+        if (mn === 'PUSH' && o.length === 1) {
+            if (o[0].type === 'pp') return [0xC5 + o[0].reg * 16];
+            if (o[0].type === 'ix') return [0xDD, 0xE5];
+            if (o[0].type === 'iy') return [0xFD, 0xE5];
+        }
+        if (mn === 'POP' && o.length === 1) {
+            if (o[0].type === 'pp') return [0xC1 + o[0].reg * 16];
+            if (o[0].type === 'ix') return [0xDD, 0xE1];
+            if (o[0].type === 'iy') return [0xFD, 0xE1];
+        }
+
+        // --- EX ---
+        if (mn === 'EX') {
+            if (o.length === 2) {
+                if (o[0].type === 'qq' && o[0].name === 'DE' && o[1].type === 'qq' && o[1].name === 'HL') return [0xEB];
+                if (o[0].type === 'pp' && o[0].name === 'AF' && o[1].type === 'af_prime') return [0x08];
+                if (o[0].type === 'ind_sp' && o[1].type === 'qq' && o[1].name === 'HL') return [0xE3];
+                if (o[0].type === 'ind_sp' && o[1].type === 'ix') return [0xDD, 0xE3];
+                if (o[0].type === 'ind_sp' && o[1].type === 'iy') return [0xFD, 0xE3];
+            }
+        }
+
+        // --- Arithmetic/Logic (A, operand) ---
+        var ALU_A = { ADD: 0, ADC: 1, SUB: 2, SBC: 3, AND: 4, XOR: 5, OR: 6, CP: 7 };
+        if (mn in ALU_A) {
+            var aluBase = ALU_A[mn];
+            if (o.length === 1) {
+                // SUB r, AND r, etc. (implied A)
+                if (o[0].type === 'r8') return [0x80 + aluBase * 8 + o[0].reg];
+                if (o[0].type === 'ind_idx') return [o[0].idx === 'IX' ? 0xDD : 0xFD, 0x86 + aluBase * 8, o[0].disp & 0xFF];
+                if (o[0].type === 'imm') return [0xC6 + aluBase * 8, o[0].val & 0xFF];
+            }
+            if (o.length === 2 && o[0].type === 'r8' && o[0].name === 'A') {
+                if (o[1].type === 'r8') return [0x80 + aluBase * 8 + o[1].reg];
+                if (o[1].type === 'ind_idx') return [o[1].idx === 'IX' ? 0xDD : 0xFD, 0x86 + aluBase * 8, o[1].disp & 0xFF];
+                if (o[1].type === 'imm') return [0xC6 + aluBase * 8, o[1].val & 0xFF];
+            }
+            // ADD HL,ss / ADD IX,ss / ADD IY,ss
+            if (mn === 'ADD' && o.length === 2) {
+                if (o[0].type === 'qq' && o[0].name === 'HL' && o[1].type === 'qq')
+                    return [0x09 + o[1].reg * 16];
+                if (o[0].type === 'ix' && o[1].type === 'qq')
+                    return [0xDD, 0x09 + o[1].reg * 16];
+                if (o[0].type === 'iy' && o[1].type === 'qq')
+                    return [0xFD, 0x09 + o[1].reg * 16];
+            }
+        }
+
+        // --- INC / DEC ---
+        if (mn === 'INC' || mn === 'DEC') {
+            var idOff = mn === 'INC' ? 0 : 1;
+            if (o.length === 1) {
+                if (o[0].type === 'r8') return [0x04 + o[0].reg * 8 + idOff];
+                if (o[0].type === 'qq') return [0x03 + o[0].reg * 16 + idOff * 8];
+                if (o[0].type === 'ix') return [0xDD, 0x23 + idOff * 8];
+                if (o[0].type === 'iy') return [0xFD, 0x23 + idOff * 8];
+                if (o[0].type === 'ind_idx') return [o[0].idx === 'IX' ? 0xDD : 0xFD, 0x34 + idOff, o[0].disp & 0xFF];
+            }
+        }
+
+        // --- JP ---
+        if (mn === 'JP') {
+            if (o.length === 1) {
+                if (o[0].type === 'r8' && o[0].name === '(HL)') return [0xE9];
+                if (o[0].type === 'ix') return [0xDD, 0xE9]; // JP (IX)
+                if (o[0].type === 'iy') return [0xFD, 0xE9]; // JP (IY)
+                if (o[0].type === 'imm' || o[0].type === 'ind_nn') {
+                    var addr = o[0].type === 'ind_nn' ? null : o[0].val;
+                    if (o[0].type === 'imm') return [0xC3, o[0].val & 0xFF, (o[0].val >> 8) & 0xFF];
+                }
+                // might be a cc that looks like label
+                if (o[0].type === 'cc') return null; // error: JP cc needs address
+            }
+            if (o.length === 2 && o[0].type === 'cc') {
+                if (o[1].type === 'imm') return [0xC2 + o[0].code * 8, o[1].val & 0xFF, (o[1].val >> 8) & 0xFF];
+            }
+        }
+
+        // --- JR ---
+        if (mn === 'JR') {
+            if (o.length === 1 && o[0].type === 'imm') {
+                var rel = (o[0].val - (pc + 2)) & 0xFF;
+                if (pass === 2) {
+                    var diff = o[0].val - (pc + 2);
+                    if (diff < -128 || diff > 127) return null; // range error
+                }
+                return [0x18, rel];
+            }
+            if (o.length === 2 && o[0].type === 'cc') {
+                var jrCC = { NZ: 0, Z: 1, NC: 2, C: 3 };
+                if (!(o[0].name in jrCC)) return null;
+                var rel2 = (o[1].val - (pc + 2)) & 0xFF;
+                return [0x20 + jrCC[o[0].name] * 8, rel2];
+            }
+        }
+
+        // --- DJNZ ---
+        if (mn === 'DJNZ' && o.length === 1 && o[0].type === 'imm') {
+            var rel3 = (o[0].val - (pc + 2)) & 0xFF;
+            return [0x10, rel3];
+        }
+
+        // --- CALL ---
+        if (mn === 'CALL') {
+            if (o.length === 1 && o[0].type === 'imm')
+                return [0xCD, o[0].val & 0xFF, (o[0].val >> 8) & 0xFF];
+            if (o.length === 2 && o[0].type === 'cc' && o[1].type === 'imm')
+                return [0xC4 + o[0].code * 8, o[1].val & 0xFF, (o[1].val >> 8) & 0xFF];
+        }
+
+        // --- RET cc ---
+        if (mn === 'RET' && o.length === 1 && o[0].type === 'cc')
+            return [0xC0 + o[0].code * 8];
+
+        // --- RST ---
+        if (mn === 'RST' && o.length === 1 && o[0].type === 'imm') {
+            var idx = RST_VALS.indexOf(o[0].val);
+            if (idx >= 0) return [0xC7 + idx * 8];
+        }
+
+        // --- IN / OUT (basic) ---
+        if (mn === 'IN' && o.length === 2 && o[0].type === 'r8' && o[0].name === 'A' && o[1].type === 'ind_nn')
+            return [0xDB, o[1].val & 0xFF];
+        if (mn === 'OUT' && o.length === 2 && o[0].type === 'ind_nn' && o[1].type === 'r8' && o[1].name === 'A')
+            return [0xD3, o[0].val & 0xFF];
+
+        // --- NEG (basic listing has it, but it's ED-family) ---
+        if (mn === 'NEG' && o.length === 0) return [0xED, 0x44];
+
+        return null; // not handled here
+    }
+
+    // LD instruction encoder
+    function encodeLD(o, symbols, pc, pass) {
+        if (o.length !== 2) return null;
+        var dst = o[0], src = o[1];
+
+        // LD r,r
+        if (dst.type === 'r8' && src.type === 'r8')
+            return [0x40 + dst.reg * 8 + src.reg];
+
+        // LD r,n
+        if (dst.type === 'r8' && src.type === 'imm')
+            return [0x06 + dst.reg * 8, src.val & 0xFF];
+
+        // LD r,(IX+d) / LD r,(IY+d)
+        if (dst.type === 'r8' && dst.name !== '(HL)' && src.type === 'ind_idx')
+            return [src.idx === 'IX' ? 0xDD : 0xFD, 0x46 + dst.reg * 8, src.disp & 0xFF];
+
+        // LD (IX+d),r / LD (IY+d),r
+        if (dst.type === 'ind_idx' && src.type === 'r8' && src.name !== '(HL)')
+            return [dst.idx === 'IX' ? 0xDD : 0xFD, 0x70 + src.reg, dst.disp & 0xFF];
+
+        // LD (IX+d),n / LD (IY+d),n
+        if (dst.type === 'ind_idx' && src.type === 'imm')
+            return [dst.idx === 'IX' ? 0xDD : 0xFD, 0x36, dst.disp & 0xFF, src.val & 0xFF];
+
+        // LD dd,nn (16-bit load)
+        if (dst.type === 'qq' && src.type === 'imm')
+            return [0x01 + dst.reg * 16, src.val & 0xFF, (src.val >> 8) & 0xFF];
+        if (dst.type === 'ix' && src.type === 'imm')
+            return [0xDD, 0x21, src.val & 0xFF, (src.val >> 8) & 0xFF];
+        if (dst.type === 'iy' && src.type === 'imm')
+            return [0xFD, 0x21, src.val & 0xFF, (src.val >> 8) & 0xFF];
+
+        // LD (nn),A / LD A,(nn)
+        if (dst.type === 'ind_nn' && src.type === 'r8' && src.name === 'A')
+            return [0x32, dst.val & 0xFF, (dst.val >> 8) & 0xFF];
+        if (dst.type === 'r8' && dst.name === 'A' && src.type === 'ind_nn')
+            return [0x3A, src.val & 0xFF, (src.val >> 8) & 0xFF];
+
+        // LD (BC/DE),A / LD A,(BC/DE)
+        if (dst.type === 'ind_bc' && src.type === 'r8' && src.name === 'A') return [0x02];
+        if (dst.type === 'ind_de' && src.type === 'r8' && src.name === 'A') return [0x12];
+        if (dst.type === 'r8' && dst.name === 'A' && src.type === 'ind_bc') return [0x0A];
+        if (dst.type === 'r8' && dst.name === 'A' && src.type === 'ind_de') return [0x1A];
+
+        // LD SP,HL / LD SP,IX / LD SP,IY
+        if (dst.type === 'qq' && dst.name === 'SP') {
+            if (src.type === 'qq' && src.name === 'HL') return [0xF9];
+            if (src.type === 'ix') return [0xDD, 0xF9];
+            if (src.type === 'iy') return [0xFD, 0xF9];
+        }
+
+        // LD (nn),HL / LD HL,(nn) — direct
+        if (dst.type === 'ind_nn' && src.type === 'qq' && src.name === 'HL')
+            return [0x22, dst.val & 0xFF, (dst.val >> 8) & 0xFF];
+        if (dst.type === 'qq' && dst.name === 'HL' && src.type === 'ind_nn')
+            return [0x2A, src.val & 0xFF, (src.val >> 8) & 0xFF];
+
+        // LD (nn),dd / LD dd,(nn) — ED prefix
+        if (dst.type === 'ind_nn' && src.type === 'qq')
+            return [0xED, 0x43 + src.reg * 16, dst.val & 0xFF, (dst.val >> 8) & 0xFF];
+        if (dst.type === 'qq' && src.type === 'ind_nn')
+            return [0xED, 0x4B + dst.reg * 16, src.val & 0xFF, (src.val >> 8) & 0xFF];
+
+        // LD (nn),IX/IY / LD IX/IY,(nn)
+        if (dst.type === 'ind_nn' && src.type === 'ix')
+            return [0xDD, 0x22, dst.val & 0xFF, (dst.val >> 8) & 0xFF];
+        if (dst.type === 'ind_nn' && src.type === 'iy')
+            return [0xFD, 0x22, dst.val & 0xFF, (dst.val >> 8) & 0xFF];
+        if (dst.type === 'ix' && src.type === 'ind_nn')
+            return [0xDD, 0x2A, src.val & 0xFF, (src.val >> 8) & 0xFF];
+        if (dst.type === 'iy' && src.type === 'ind_nn')
+            return [0xFD, 0x2A, src.val & 0xFF, (src.val >> 8) & 0xFF];
+
+        // LD I,A / LD R,A / LD A,I / LD A,R
+        if (dst.name === 'I' || dst.name === 'R' || src.name === 'I' || src.name === 'R') {
+            // These use special symbols
+            var dsu = (dst.raw || dst.name || '').toUpperCase();
+            var ssu = (src.raw || src.name || '').toUpperCase();
+        }
+
+        return null;
+    }
+
+    // CB family encoder
+    function encodeCB(mnemonic, ops, symbols, pc, pass) {
+        var CB_OPS = { RLC:0x00, RRC:0x08, RL:0x10, RR:0x18, SLA:0x20, SRA:0x28, SRL:0x38 };
+        var CB_BIT = { BIT:0x40, RES:0x80, SET:0xC0 };
+
+        if (mnemonic in CB_OPS) {
+            if (ops.length === 1) {
+                if (ops[0].type === 'r8') return [0xCB, CB_OPS[mnemonic] + ops[0].reg];
+                if (ops[0].type === 'ind_idx') {
+                    return [ops[0].idx === 'IX' ? 0xDD : 0xFD, 0xCB, ops[0].disp & 0xFF, CB_OPS[mnemonic] + 6];
+                }
+            }
+        }
+        if (mnemonic in CB_BIT) {
+            if (ops.length === 2 && ops[0].type === 'imm') {
+                var bit = ops[0].val;
+                if (bit < 0 || bit > 7) return null;
+                if (ops[1].type === 'r8')
+                    return [0xCB, CB_BIT[mnemonic] + bit * 8 + ops[1].reg];
+                if (ops[1].type === 'ind_idx')
+                    return [ops[1].idx === 'IX' ? 0xDD : 0xFD, 0xCB, ops[1].disp & 0xFF, CB_BIT[mnemonic] + bit * 8 + 6];
+            }
+        }
+        return null;
+    }
+
+    // ED family encoder
+    function encodeED(mnemonic, ops) {
+        // No-operand ED instructions
+        var ED_NOARG = {
+            RETI: [0xED, 0x4D], RETN: [0xED, 0x45],
+            RRD: [0xED, 0x67], RLD: [0xED, 0x6F],
+            LDI: [0xED, 0xA0], LDIR: [0xED, 0xB0],
+            LDD: [0xED, 0xA8], LDDR: [0xED, 0xB8],
+            CPI: [0xED, 0xA1], CPIR: [0xED, 0xB1],
+            CPD: [0xED, 0xA9], CPDR: [0xED, 0xB9],
+            INI: [0xED, 0xA2], INIR: [0xED, 0xB2],
+            IND: [0xED, 0xAA], INDR: [0xED, 0xBA],
+            OUTI: [0xED, 0xA3], OTIR: [0xED, 0xB3],
+            OUTD: [0xED, 0xAB], OTDR: [0xED, 0xBB]
+        };
+        if (ops.length === 0 && mnemonic in ED_NOARG) return ED_NOARG[mnemonic];
+
+        // IM n
+        if (mnemonic === 'IM' && ops.length === 1 && ops[0].type === 'imm') {
+            var imMap = { 0: 0x46, 1: 0x56, 2: 0x5E };
+            if (ops[0].val in imMap) return [0xED, imMap[ops[0].val]];
+        }
+
+        // IN r,(C) / OUT (C),r
+        if (mnemonic === 'IN' && ops.length === 2 && ops[0].type === 'r8' && ops[1].type === 'ind_c')
+            return [0xED, 0x40 + ops[0].reg * 8];
+        if (mnemonic === 'OUT' && ops.length === 2 && ops[0].type === 'ind_c' && ops[1].type === 'r8')
+            return [0xED, 0x41 + ops[1].reg * 8];
+
+        // ADC HL,ss / SBC HL,ss
+        if ((mnemonic === 'ADC' || mnemonic === 'SBC') && ops.length === 2 &&
+            ops[0].type === 'qq' && ops[0].name === 'HL' && ops[1].type === 'qq') {
+            var base = mnemonic === 'ADC' ? 0x4A : 0x42;
+            return [0xED, base + ops[1].reg * 16];
+        }
+
+        return null;
+    }
+
+    // ================================================================
+    // Main assembler
+    // ================================================================
+
+    function assemble(source) {
+        var lines = source.split('\n');
+        var symbols = {};
+        var errors = [];
+        var org = 0;
+        var output = [];
+        var lineAddrs = [];
+        var lastGlobalLabel = '';
+
+        function resolveLocalLabel(name) {
+            if (name[0] === '.') return lastGlobalLabel + name;
+            return name;
+        }
+
+        // ---- Pass 1: collect labels, determine sizes ----
+        var pc = 0;
+        var pendingOrg = null;
+
+        for (var i = 0; i < lines.length; i++) {
+            var parsed = parseLine(lines[i]);
+            lineAddrs[i] = pc;
+
+            if (parsed.label) {
+                var lbl = resolveLocalLabel(parsed.label).toUpperCase();
+                if (parsed.label[0] !== '.') lastGlobalLabel = parsed.label.toUpperCase();
+
+                if (parsed.mnemonic === 'EQU') {
+                    var eqVal = evalExpr(parsed.operands, symbols, pc);
+                    if (eqVal === null || eqVal === undefined) eqVal = 0; // resolve in pass 2
+                    symbols[lbl] = eqVal;
+                    continue;
+                }
+                symbols[lbl] = pc + org;
+            }
+
+            if (!parsed.mnemonic) continue;
+
+            if (parsed.mnemonic === 'ORG') {
+                var orgVal = evalExpr(parsed.operands, symbols, pc);
+                if (orgVal !== null && orgVal !== undefined) {
+                    if (output.length === 0) {
+                        org = orgVal;
+                        pc = 0;
+                    } else {
+                        // Mid-stream ORG
+                        org = orgVal;
+                        pc = 0;
+                    }
+                }
+                continue;
+            }
+
+            var size = getInstructionSize(parsed, symbols, pc + org, 1);
+            if (size < 0) {
+                errors.push({ line: i + 1, msg: 'Unknown instruction: ' + parsed.mnemonic + ' ' + parsed.operands });
+                continue;
+            }
+            pc += size;
+        }
+
+        // ---- Pass 2: emit bytes ----
+        pc = 0;
+        org = 0;
+        lastGlobalLabel = '';
+
+        // Re-resolve EQU with full symbol table
+        for (var i2 = 0; i2 < lines.length; i2++) {
+            var p2 = parseLine(lines[i2]);
+            if (p2.label && p2.mnemonic === 'EQU') {
+                var lbl2 = resolveLocalLabel(p2.label).toUpperCase();
+                if (p2.label[0] !== '.') lastGlobalLabel = p2.label.toUpperCase();
+                var eqVal2 = evalExpr(p2.operands, symbols, pc + org);
+                if (eqVal2 !== null && eqVal2 !== undefined) symbols[lbl2] = eqVal2;
+            }
+            if (p2.label && p2.label[0] !== '.') lastGlobalLabel = p2.label.toUpperCase();
+        }
+
+        lastGlobalLabel = '';
+        for (var j = 0; j < lines.length; j++) {
+            var parsed2 = parseLine(lines[j]);
+
+            if (parsed2.label) {
+                if (parsed2.label[0] !== '.') lastGlobalLabel = parsed2.label.toUpperCase();
+                if (parsed2.mnemonic === 'EQU') continue;
+            }
+
+            if (!parsed2.mnemonic) continue;
+
+            if (parsed2.mnemonic === 'ORG') {
+                var orgVal2 = evalExpr(parsed2.operands, symbols, pc + org);
+                if (orgVal2 !== null && orgVal2 !== undefined) {
+                    org = orgVal2;
+                    pc = 0;
+                }
+                continue;
+            }
+
+            var bytes = emitInstruction(parsed2, symbols, pc + org, 2);
+            if (bytes === null) {
+                errors.push({ line: j + 1, msg: 'Failed to encode: ' + parsed2.mnemonic + ' ' + parsed2.operands });
+                continue;
+            }
+            for (var k = 0; k < bytes.length; k++) {
+                output.push(bytes[k] & 0xFF);
+            }
+            pc += bytes.length;
+        }
+
+        return {
+            bytes: new Uint8Array(output),
+            org: org,
+            errors: errors,
+            symbols: symbols
+        };
+    }
+
+    function getInstructionSize(parsed, symbols, pc, pass) {
+        var bytes = emitInstruction(parsed, symbols, pc, pass);
+        if (bytes === null) return -1;
+        return bytes.length;
+    }
+
+    function emitInstruction(parsed, symbols, pc, pass) {
+        var mn = parsed.mnemonic;
+        var opStr = parsed.operands;
+
+        // Pseudo-instructions
+        if (mn === 'DB' || mn === 'DEFB') return emitDB(opStr, symbols, pc, pass);
+        if (mn === 'DW' || mn === 'DEFW') return emitDW(opStr, symbols, pc, pass);
+        if (mn === 'DS' || mn === 'DEFS') return emitDS(opStr, symbols, pc, pass);
+
+        // Classify operands
+        var rawOps = splitOperands(opStr);
+        var ops = rawOps.map(function(s) { return classifyOperand(s, symbols, pc, pass); });
+
+        // Try each family
+        var result = encodeBasic(mn, ops, symbols, pc, pass);
+        if (result) return result;
+
+        result = encodeCB(mn, ops, symbols, pc, pass);
+        if (result) return result;
+
+        result = encodeED(mn, ops);
+        if (result) return result;
+
+        return null;
+    }
+
+    function emitDB(opStr, symbols, pc, pass) {
+        var bytes = [];
+        var parts = [];
+        // Split by comma, but respect strings
+        var current = '';
+        var inStr = false;
+        for (var i = 0; i < opStr.length; i++) {
+            if (opStr[i] === '"') { inStr = !inStr; current += opStr[i]; continue; }
+            if (!inStr && opStr[i] === ',') { parts.push(current.trim()); current = ''; continue; }
+            current += opStr[i];
+        }
+        if (current.trim()) parts.push(current.trim());
+
+        for (var j = 0; j < parts.length; j++) {
+            var p = parts[j];
+            if (p.length >= 2 && p[0] === '"' && p[p.length - 1] === '"') {
+                // String literal
+                for (var k = 1; k < p.length - 1; k++) bytes.push(p.charCodeAt(k));
+            } else {
+                var v = evalExpr(p, symbols, pc + bytes.length);
+                if (v === null || v === undefined) v = 0;
+                bytes.push(v & 0xFF);
+            }
+        }
+        return bytes;
+    }
+
+    function emitDW(opStr, symbols, pc, pass) {
+        var bytes = [];
+        var parts = splitOperands(opStr);
+        for (var i = 0; i < parts.length; i++) {
+            var v = evalExpr(parts[i], symbols, pc + bytes.length);
+            if (v === null || v === undefined) v = 0;
+            bytes.push(v & 0xFF);
+            bytes.push((v >> 8) & 0xFF);
+        }
+        return bytes;
+    }
+
+    function emitDS(opStr, symbols, pc, pass) {
+        var parts = splitOperands(opStr);
+        var count = evalExpr(parts[0], symbols, pc);
+        if (count === null || count === undefined) count = 0;
+        var fill = parts.length > 1 ? evalExpr(parts[1], symbols, pc) : 0;
+        if (fill === null || fill === undefined) fill = 0;
+        var bytes = [];
+        for (var i = 0; i < count; i++) bytes.push(fill & 0xFF);
+        return bytes;
+    }
+
+    // ================================================================
+    // Public API
+    // ================================================================
+
+    window.X1PenZ80Asm = {
+        assemble: assemble
+    };
+
+})();
