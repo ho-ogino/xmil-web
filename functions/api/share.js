@@ -16,6 +16,10 @@ export async function onRequestPost({ request, env }) {
         return new Response(JSON.stringify({ error: 'Too large' }), { status: 413 });
     }
 
+    if (!env.X1PEN_DB) {
+        return new Response(JSON.stringify({ error: 'DB not configured' }), { status: 500 });
+    }
+
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     let id;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -28,9 +32,16 @@ export async function onRequestPost({ request, env }) {
                 .run();
             break;
         } catch (e) {
-            if (attempt === 2) {
-                return new Response(JSON.stringify({ error: 'ID generation failed' }), { status: 503 });
+            const msg = (e.message || '').toLowerCase();
+            if (msg.includes('unique') || msg.includes('constraint')) {
+                // PRIMARY KEY 衝突 → 次の ID で再試行
+                if (attempt === 2) {
+                    return new Response(JSON.stringify({ error: 'ID generation failed' }), { status: 503 });
+                }
+                continue;
             }
+            // DB エラー (テーブル未作成、接続失敗等)
+            return new Response(JSON.stringify({ error: 'DB error: ' + e.message }), { status: 500 });
         }
     }
 

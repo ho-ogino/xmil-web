@@ -250,6 +250,7 @@ window.__X1PEN_MODE = true;
                 }
             } catch(e) {
                 console.warn('[x1pen] Failed to load shared code:', e);
+                elStatus.textContent = 'Shared code load failed';
             }
         }
     };
