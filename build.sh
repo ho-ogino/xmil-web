@@ -128,6 +128,7 @@ cp ./apple-touch-icon.png "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen.html"           "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen.js"             "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" ] && \
     cp "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" "${DIST_DIR}/"
 
