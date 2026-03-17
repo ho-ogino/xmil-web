@@ -21,8 +21,12 @@
     function parseNumber(s) {
         s = s.trim();
         if (s === '') return null;
-        // Character literal 'X'
-        if (s.length === 3 && s[0] === "'" && s[2] === "'") return s.charCodeAt(1);
+        // Character literal 'X' (ASCII only)
+        if (s.length === 3 && s[0] === "'" && s[2] === "'") {
+            var cv = s.charCodeAt(1);
+            if (cv > 0x7F) return null; // non-ASCII
+            return cv;
+        }
         // 0x prefix
         if (/^0x[0-9a-f]+$/i.test(s)) return parseInt(s, 16);
         // $ prefix hex
@@ -596,8 +600,14 @@
         var output = [];
         var lastGlobalLabel = '';
 
-        function resolveLocalLabel(name) {
-            if (name[0] === '.') return lastGlobalLabel + name;
+        function resolveLocalLabel(name, lineNum) {
+            if (name[0] === '.') {
+                if (!lastGlobalLabel) {
+                    errors.push({ line: lineNum, msg: 'Local label "' + name + '" without preceding global label' });
+                    return name;
+                }
+                return lastGlobalLabel + name;
+            }
             return name;
         }
 
@@ -627,7 +637,7 @@
             var parsed = parseLine(lines[i]);
 
             if (parsed.label) {
-                var lbl = resolveLocalLabel(parsed.label).toUpperCase();
+                var lbl = resolveLocalLabel(parsed.label, i + 1).toUpperCase();
                 if (parsed.label[0] !== '.') lastGlobalLabel = parsed.label.toUpperCase();
 
                 if (parsed.mnemonic === 'EQU') {
@@ -667,7 +677,7 @@
                 if (parsed2.label[0] !== '.') lastGlobalLabel = parsed2.label.toUpperCase();
                 if (parsed2.mnemonic === 'EQU') {
                     // Re-resolve EQU with full symbol table + correct PC
-                    var lbl2 = resolveLocalLabel(parsed2.label).toUpperCase();
+                    var lbl2 = resolveLocalLabel(parsed2.label, j + 1).toUpperCase();
                     var eqVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel);
                     if (eqVal2 !== null && eqVal2 !== undefined) symbols[lbl2] = eqVal2;
                     continue;
@@ -751,8 +761,12 @@
         for (var j = 0; j < parts.length; j++) {
             var p = parts[j];
             if (p.length >= 2 && p[0] === '"' && p[p.length - 1] === '"') {
-                // String literal
-                for (var k = 1; k < p.length - 1; k++) bytes.push(p.charCodeAt(k));
+                // String literal (ASCII only)
+                for (var k = 1; k < p.length - 1; k++) {
+                    var ch = p.charCodeAt(k);
+                    if (ch > 0x7F) return null; // non-ASCII error
+                    bytes.push(ch);
+                }
             } else {
                 var v = evalExpr(p, symbols, pc + bytes.length, globalLabel);
                 if (v === null || v === undefined) v = 0;
