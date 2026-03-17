@@ -65,6 +65,7 @@ cp "${SCRIPT_DIR}/html/drive_integration.js" ./drive_integration.js
 cp "${SCRIPT_DIR}/html/disk_container.js"   ./disk_container.js
 cp "${SCRIPT_DIR}/html/disk_fs.js"          ./disk_fs.js
 cp "${SCRIPT_DIR}/html/disk_editor.js"      ./disk_editor.js
+cp "${SCRIPT_DIR}/html/library.css"        ./library.css
 cp "${SCRIPT_DIR}/html/favicon.svg"          ./favicon.svg
 cp "${SCRIPT_DIR}/html/manifest.json"       ./manifest.json
 cp "${SCRIPT_DIR}/html/icon-192.png"        ./icon-192.png
@@ -105,6 +106,7 @@ cp ./drive_integration.js "${DIST_DIR}/"
 cp ./disk_container.js   "${DIST_DIR}/"
 cp ./disk_fs.js          "${DIST_DIR}/"
 cp ./disk_editor.js      "${DIST_DIR}/"
+cp ./library.css          "${DIST_DIR}/"
 cp ./favicon.svg          "${DIST_DIR}/"
 [ -f ./favicon.ico ] && cp ./favicon.ico "${DIST_DIR}/"
 cp ./manifest.json        "${DIST_DIR}/"

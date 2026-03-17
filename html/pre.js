@@ -3324,6 +3324,134 @@
         applySettingsFromStorage: applySettingsFromStorage
     };
 
+    // X1Pen 用: DOM 不要の設定保存 (部分更新: read-modify-write)
+    function saveSettingsDirect(overrides) {
+        try {
+            var raw = localStorage.getItem(LS_SETTINGS);
+            var settings = raw ? JSON.parse(raw) : {};
+            Object.assign(settings, overrides);
+            localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
+        } catch(e) { console.warn('saveSettingsDirect failed:', e); }
+    }
+
+    // X1Pen 用: ROM を VFS に配置するだけ (reset なし, 旧キー互換あり)
+    function loadRomToVfs() {
+        var old = loadFile(LS_ROM);
+        if (old) {
+            var fn = old.name.toUpperCase();
+            if (fn === 'IPLROM.X1' && !loadFile(LS_ROM_X1))
+                saveFile(LS_ROM_X1, old.name, old.data.buffer);
+            else if (fn === 'IPLROM.X1T' && !loadFile(LS_ROM_X1T))
+                saveFile(LS_ROM_X1T, old.name, old.data.buffer);
+        }
+        var savedX1 = loadFile(LS_ROM_X1);
+        if (savedX1) writeFileToVFS('/IPLROM.X1', savedX1.data);
+        var savedX1t = loadFile(LS_ROM_X1T);
+        if (savedX1t) writeFileToVFS('/IPLROM.X1T', savedX1t.data);
+    }
+
+    // X1Pen 用: フォントを VFS に配置するだけ (js_reload_fonts なし)
+    function loadFontsToVfs() {
+        Object.keys(FONT_CFG).forEach(function(type) {
+            var cfg = FONT_CFG[type];
+            var saved = loadFile(cfg.lsKey);
+            if (saved) writeFileToVFS(cfg.vfsPath, saved.data);
+        });
+    }
+
+    // X1Pen 用: コントロール API
+    window.XmilControls = {
+        // Reset
+        iplReset: onIplResetClick,
+        nmiReset: onNmiResetClick,
+
+        // 設定変更 (C export + localStorage 永続化)
+        setRomType: function(v) {
+            if (module && module._js_set_rom_type) module._js_set_rom_type(v);
+            saveSettingsDirect({ romType: v });
+        },
+        setDipHighres: function(on) {
+            if (module && module._js_get_dip_sw && module._js_set_dip_sw) {
+                var dip = module._js_get_dip_sw();
+                if (on) dip &= ~0x01; else dip |= 0x01;
+                module._js_set_dip_sw(dip);
+            }
+            saveSettingsDirect({ dipHighres: on });
+        },
+        setDip2hd: function(on) {
+            if (module && module._js_get_dip_sw && module._js_set_dip_sw) {
+                var dip = module._js_get_dip_sw();
+                if (on) dip |= 0x04; else dip &= ~0x04;
+                module._js_set_dip_sw(dip);
+            }
+            saveSettingsDirect({ dip2hd: on });
+        },
+        setSkipLine: function(on) {
+            if (module && module._js_set_skip_line) module._js_set_skip_line(on ? 1 : 0);
+            saveSettingsDirect({ skipLine: on });
+        },
+        setMotorSound: function(on) {
+            if (module && module._js_set_motor) module._js_set_motor(on ? 1 : 0);
+            saveSettingsDirect({ motorSound: on });
+        },
+        setMotorVolume: function(v) {
+            if (module && module._js_set_motor_volume) module._js_set_motor_volume(v);
+            saveSettingsDirect({ seekVolume: v });
+        },
+        setJoystick: function(on) {
+            if (module && module._js_set_joystick) module._js_set_joystick(on ? 1 : 0);
+            saveSettingsDirect({ joystickEnable: on });
+        },
+        setMouse: function(on) {
+            if (module && module._js_set_mouse) module._js_set_mouse(on ? 1 : 0);
+            saveSettingsDirect({ mouseEnable: on });
+        },
+        setFmSound: function(on) {
+            if (module && module._js_set_sound_sw) module._js_set_sound_sw(on ? 1 : 0);
+            saveSettingsDirect({ fmEnable: on });
+        },
+        setKeyMode: function(v) {
+            if (module && module._js_set_key_mode) module._js_set_key_mode(v);
+            saveSettingsDirect({ keyMode: v });
+        },
+
+        // 設定読み取り
+        getSettings: function() {
+            try {
+                var raw = localStorage.getItem(LS_SETTINGS);
+                return raw ? JSON.parse(raw) : {};
+            } catch(e) { return {}; }
+        },
+
+        // ROM/Font 管理
+        onRomFileChange: onRomFileChange,
+        onFontFileChange: onFontFileChange,
+        clearRom: clearRom,
+        clearFont: clearFont,
+        loadRomToVfs: loadRomToVfs,
+        loadFontsToVfs: loadFontsToVfs,
+
+        // ROM/Font 状態取得
+        getRomStatus: function() {
+            var status = {};
+            var x1  = loadFile(LS_ROM_X1);
+            var x1t = loadFile(LS_ROM_X1T);
+            status.x1  = x1  ? x1.name  : null;
+            status.x1t = x1t ? x1t.name : null;
+            Object.keys(FONT_CFG).forEach(function(type) {
+                var saved = loadFile(FONT_CFG[type].lsKey);
+                status[type] = saved ? saved.name : null;
+            });
+            return status;
+        },
+
+        // CMT transport
+        cmtPlay: function() { if (module && module._js_cmt_play) module._js_cmt_play(); },
+        cmtStop: function() { if (module && module._js_cmt_stop) module._js_cmt_stop(); },
+        cmtFf:   function() { if (module && module._js_cmt_ff) module._js_cmt_ff(); },
+        cmtRew:  function() { if (module && module._js_cmt_rew) module._js_cmt_rew(); }
+    };
+
     // X1Pen 用: ライブラリ内部関数を公開
     window.XmilLibrary = {
         addToLibrary: addToLibrary,
