@@ -56,6 +56,7 @@ emmake make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 # CMakeLists.txt からバージョン文字列を取得
 XMIL_VERSION=$(grep 'set(XMIL_VERSION' "${SCRIPT_DIR}/CMakeLists.txt" | sed 's/.*"\(.*\)".*/\1/')
 COLD_STATE_FILE="fuzzybasic_cold.v1.xmst"
+BOOT_DISK_FILE="fuzzybasic_boot.v1.d88"
 
 # HTML/JS ファイルを build/ に同期（WASM 再コンパイルなしで更新できるよう明示コピー）
 echo "Copying HTML/JS files..."
@@ -81,6 +82,8 @@ cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
 [ -f "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" ] && \
     cp "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" "./${COLD_STATE_FILE}"
+[ -f "${SCRIPT_DIR}/assets/${BOOT_DISK_FILE}" ] && \
+    cp "${SCRIPT_DIR}/assets/${BOOT_DISK_FILE}" "./${BOOT_DISK_FILE}"
 
 echo ""
 echo "======================================"
@@ -131,6 +134,8 @@ cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" ] && \
     cp "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" "${DIST_DIR}/"
+[ -f "${SCRIPT_DIR}/assets/${BOOT_DISK_FILE}" ] && \
+    cp "${SCRIPT_DIR}/assets/${BOOT_DISK_FILE}" "${DIST_DIR}/"
 
 # Pages Functions (Cloudflare Workers)
 if [ -d "${SCRIPT_DIR}/functions" ]; then

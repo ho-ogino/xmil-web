@@ -7,3 +7,6 @@
 
 /fuzzybasic_cold.*
   Cache-Control: public, max-age=31536000, immutable
+
+/fuzzybasic_boot.*
+  Cache-Control: public, max-age=31536000, immutable

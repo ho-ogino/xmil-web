@@ -687,10 +687,12 @@
     }
 
     // 起動時: マウント状態を復元
-    async function autoRestoreMounts() {
+    async function autoRestoreMounts(excludeSlots) {
         var state = getMountState();
         var lib = getLibrary();
+        var exclude = excludeSlots || [];
         for (var slotName in state) {
+            if (exclude.indexOf(slotName) >= 0) continue;
             var key = state[slotName];
             if (!key) continue;
             var exists = lib.find(function(e) { return e.key === key; });
@@ -3450,6 +3452,20 @@
         cmtStop: function() { if (module && module._js_cmt_stop) module._js_cmt_stop(); },
         cmtFf:   function() { if (module && module._js_cmt_ff) module._js_cmt_ff(); },
         cmtRew:  function() { if (module && module._js_cmt_rew) module._js_cmt_rew(); },
+
+        // 一時ディスクマウント (X1Pen PROGRAM ディスク用)
+        mountTempDisk: function(arrayBuffer, slotName) {
+            var vfsPath = slotToVfsPath(slotName, 'd88');
+            writeFileToVFS(vfsPath, new Uint8Array(arrayBuffer));
+            if (module) {
+                var driveIndex = slotName === 'drive0' ? 0 : 1;
+                module.ccall('js_insert_disk', null, ['string', 'number'], [vfsPath, driveIndex]);
+            }
+            slotState[slotName] = '__x1pen_temp__';
+            slotVfsPath[slotName] = vfsPath;
+            slotDirty[slotName] = false;
+            // saveMountState() は呼ばない (一時マウント)
+        },
 
         // EMM スロット操作
         onEmmSlotCreate: onEmmSlotCreate,

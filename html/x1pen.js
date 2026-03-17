@@ -8,8 +8,10 @@ window.__X1PEN_MODE = true;
     'use strict';
 
     var COLD_STATE_FILE = 'fuzzybasic_cold.v1.xmst';
+    var BOOT_DISK_FILE  = 'fuzzybasic_boot.v1.d88';
     var module = null;
     var coldStateData = null;
+    var bootDiskData  = null;
 
     var elBtnRun    = document.getElementById('btn-run');
     var elBtnStop   = document.getElementById('btn-stop');
@@ -89,18 +91,41 @@ window.__X1PEN_MODE = true;
                     ' coldStateData=' + !!coldStateData);
         if (!module || !coldStateData) return;
 
-        // 1. コールドステート復元 (マシンを FuzzyBASIC Ok プロンプト状態に)
+        var asmSrc = elAsmEditor ? elAsmEditor.value.trim() : '';
+        var hasProgramDisk = false;
+
+        // 1. ASM アセンブル (タブに内容がある場合)
+        var asmResult = null;
+        if (asmSrc) {
+            asmResult = window.X1PenZ80Asm.assemble(asmSrc);
+            if (asmResult.errors.length > 0) {
+                elStatus.textContent = 'ASM error (L' + asmResult.errors[0].line + '): ' +
+                                       asmResult.errors[0].msg;
+                return;
+            }
+        }
+
+        // 2. コールドステート復元 (マシンを FuzzyBASIC Ok プロンプト状態に)
         if (!restoreColdState()) {
             elStatus.textContent = 'State restore failed';
             return;
         }
 
-        // 2. FDD 等のマウント状態を再適用 (ステート復元でクリアされるため)
-        if (window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
-            await window.XmilLibrary.autoRestoreMounts();
+        // 3. ASM バイナリをディスクに配置して FDD0 にマウント
+        if (asmResult && asmResult.bytes.length > 0) {
+            if (!mountProgramDisk(asmResult.bytes)) {
+                elStatus.textContent = 'Disk write failed';
+                return;
+            }
+            hasProgramDisk = true;
         }
 
-        // 3. BASIC ソースをトークナイズ
+        // 4. FDD 等のマウント状態を再適用 (PROGRAM ディスク使用時は drive0 を除外)
+        if (window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
+            await window.XmilLibrary.autoRestoreMounts(hasProgramDisk ? ['drive0'] : []);
+        }
+
+        // 5. BASIC ソースをトークナイズ
         var src = elEditor.value.trim();
         if (!src) {
             elStatus.textContent = 'No program to run';
@@ -115,16 +140,48 @@ window.__X1PEN_MODE = true;
             return;
         }
 
-        // 4. エミュレータメモリに注入
+        // 6. エミュレータメモリに注入
         injectProgram(tokenized);
 
-        // 5. エミュレータ開始 + "RUN"+Enter キー注入
+        // 7. エミュレータ開始 + "RUN"+Enter キー注入
         console.log('[x1pen] starting emulator + injecting RUN command');
         module._js_xmil_start();
         simulateRunCommand();
 
         elStatus.textContent = 'Running';
         elEditor.blur();  // キャンバスにフォーカス移動
+    }
+
+    // ── PROGRAM ディスク マウント ──
+
+    function mountProgramDisk(programBytes) {
+        if (!bootDiskData) {
+            console.error('[x1pen] Boot disk not loaded');
+            return false;
+        }
+
+        // 1. ベースディスクを ArrayBuffer としてコピー
+        var diskCopy = bootDiskData.slice(0);
+
+        // 2. D88 コンテナとして開く
+        var container = window.XmilDiskContainer.openContainer(diskCopy, 'boot.d88', 'fdd');
+        if (!container) return false;
+
+        // 3. LSX-Dodgers FS で PROGRAM.BIN を書き込み
+        try {
+            var fs = new window.XmilDiskFS.LsxDodgersFS(container);
+            fs.addFile('PROGRAM', 'BIN', new Uint8Array(programBytes));
+        } catch(e) {
+            console.error('[x1pen] Disk write failed:', e);
+            return false;
+        }
+
+        // 4. D88 バイナリを取得
+        var d88Data = container.toArrayBuffer();
+
+        // 5. FDD0 マウント (slotState 同期)
+        if (window.XmilControls) window.XmilControls.mountTempDisk(d88Data, 'drive0');
+        return true;
     }
 
     // ── STOP (ESC キー注入) ──
@@ -198,6 +255,17 @@ window.__X1PEN_MODE = true;
         } catch(e) {
             elStatus.textContent = 'Failed to load FuzzyBASIC state: ' + e.message;
             return;
+        }
+
+        // ベースディスクイメージを fetch (ASM 用、失敗しても起動は継続)
+        try {
+            var bootResp = await fetch(BOOT_DISK_FILE);
+            if (bootResp.ok) {
+                bootDiskData = await bootResp.arrayBuffer();
+                console.log('[x1pen] boot disk loaded: ' + bootDiskData.byteLength + ' bytes');
+            }
+        } catch(e) {
+            console.warn('[x1pen] Boot disk not available:', e.message);
         }
 
         // 共通初期化: 設定反映 (DOM 不要で localStorage から直接適用) + オーディオアンロック
@@ -422,6 +490,7 @@ window.__X1PEN_MODE = true;
 
     function getSlotFileName(slotState, slotName) {
         if (!slotState || !slotState[slotName]) return null;
+        if (slotState[slotName] === '__x1pen_temp__') return '(PROGRAM)';
         var lib = window.XmilCore ? window.XmilCore.getLibrary() : [];
         var entry = lib.find(function(e) { return e.key === slotState[slotName]; });
         return entry ? entry.name : '(mounted)';
