@@ -7,6 +7,7 @@ window.__X1PEN_MODE = true;
 (function() {
     'use strict';
 
+    var COLD_STATE_FILE = 'fuzzybasic_cold.v1.xmst';
     var module = null;
     var coldStateData = null;
 
@@ -162,7 +163,7 @@ window.__X1PEN_MODE = true;
 
         // 事前焼き込みステートを fetch で取得
         try {
-            var resp = await fetch('fuzzybasic_cold.xmst');
+            var resp = await fetch(COLD_STATE_FILE);
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             coldStateData = await resp.arrayBuffer();
             console.log('[x1pen] cold state loaded: ' + coldStateData.byteLength + ' bytes');

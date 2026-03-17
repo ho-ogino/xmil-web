@@ -55,6 +55,7 @@ emmake make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 # CMakeLists.txt からバージョン文字列を取得
 XMIL_VERSION=$(grep 'set(XMIL_VERSION' "${SCRIPT_DIR}/CMakeLists.txt" | sed 's/.*"\(.*\)".*/\1/')
+COLD_STATE_FILE="fuzzybasic_cold.v1.xmst"
 
 # HTML/JS ファイルを build/ に同期（WASM 再コンパイルなしで更新できるよう明示コピー）
 echo "Copying HTML/JS files..."
@@ -77,6 +78,8 @@ cp "${SCRIPT_DIR}/html/apple-touch-icon.png" ./apple-touch-icon.png
 cp "${SCRIPT_DIR}/html/x1pen.html"           ./x1pen.html
 cp "${SCRIPT_DIR}/html/x1pen.js"             ./x1pen.js
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
+[ -f "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" ] && \
+    cp "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" "./${COLD_STATE_FILE}"
 
 echo ""
 echo "======================================"
@@ -124,8 +127,8 @@ cp ./apple-touch-icon.png "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen.html"           "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen.js"             "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
-[ -f "${SCRIPT_DIR}/assets/fuzzybasic_cold.xmst" ] && \
-    cp "${SCRIPT_DIR}/assets/fuzzybasic_cold.xmst" "${DIST_DIR}/"
+[ -f "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" ] && \
+    cp "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" "${DIST_DIR}/"
 
 # Google Search Console 所有権確認ファイル（あれば）
 for f in "${SCRIPT_DIR}"/html/google*.html; do
