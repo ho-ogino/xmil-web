@@ -3305,7 +3305,7 @@
             if (module._js_set_motor)       module._js_set_motor((s.motorSound !== undefined ? s.motorSound : true) ? 1 : 0);
             // MOTORVOL: default 80
             if (module._js_set_motor_volume) module._js_set_motor_volume(s.seekVolume !== undefined ? s.seekVolume : 80);
-            // JOYSTICK: default false (無効)
+            // JOYSTICK: default true (有効)
             if (module._js_set_joystick)    module._js_set_joystick((s.joystickEnable !== undefined ? s.joystickEnable : true) ? 1 : 0);
             // MOUSE: default false (無効)
             if (module._js_set_mouse)       module._js_set_mouse(s.mouseEnable ? 1 : 0);
