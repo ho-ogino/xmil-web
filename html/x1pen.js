@@ -113,7 +113,7 @@ window.__X1PEN_MODE = true;
 
         // 3. ASM バイナリをディスクに配置して FDD0 にマウント
         if (asmResult && asmResult.bytes.length > 0) {
-            if (!mountProgramDisk(asmResult.bytes)) {
+            if (!(await mountProgramDisk(asmResult.bytes))) {
                 elStatus.textContent = 'Disk write failed';
                 return;
             }
@@ -154,7 +154,7 @@ window.__X1PEN_MODE = true;
 
     // ── PROGRAM ディスク マウント ──
 
-    function mountProgramDisk(programBytes) {
+    async function mountProgramDisk(programBytes) {
         if (!bootDiskData) {
             console.error('[x1pen] Boot disk not loaded');
             return false;
@@ -180,7 +180,7 @@ window.__X1PEN_MODE = true;
         var d88Data = container.toArrayBuffer();
 
         // 5. FDD0 マウント (slotState 同期)
-        if (window.XmilControls) window.XmilControls.mountTempDisk(d88Data, 'drive0');
+        if (window.XmilControls) await window.XmilControls.mountTempDisk(d88Data, 'drive0');
         return true;
     }
 

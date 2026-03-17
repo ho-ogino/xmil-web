@@ -735,6 +735,12 @@
     function flushSlot(slotName) {
         if (slotFlushInFlight[slotName]) return slotFlushInFlight[slotName];
         if (!slotDirty[slotName] || !slotState[slotName]) return Promise.resolve();
+        // 一時ディスク (__x1pen_temp__) は保存対象外
+        if (slotState[slotName] === '__x1pen_temp__') {
+            slotDirty[slotName] = false;
+            slotDirtyPages[slotName] = null;
+            return Promise.resolve();
+        }
 
         var pages = slotDirtyPages[slotName];
         slotDirtyPages[slotName] = null;
@@ -3454,7 +3460,11 @@
         cmtRew:  function() { if (module && module._js_cmt_rew) module._js_cmt_rew(); },
 
         // 一時ディスクマウント (X1Pen PROGRAM ディスク用)
-        mountTempDisk: function(arrayBuffer, slotName) {
+        mountTempDisk: async function(arrayBuffer, slotName) {
+            // 既存ディスクが通常マウントなら flush/eject して変更を保存
+            if (slotState[slotName] && slotState[slotName] !== '__x1pen_temp__') {
+                try { await ejectSlot(slotName); } catch(e) {}
+            }
             var vfsPath = slotToVfsPath(slotName, 'd88');
             writeFileToVFS(vfsPath, new Uint8Array(arrayBuffer));
             if (module) {
@@ -3464,6 +3474,7 @@
             slotState[slotName] = '__x1pen_temp__';
             slotVfsPath[slotName] = vfsPath;
             slotDirty[slotName] = false;
+            slotDirtyPages[slotName] = null;
             // saveMountState() は呼ばない (一時マウント)
         },
 
