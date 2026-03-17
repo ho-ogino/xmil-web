@@ -197,8 +197,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // 自動的に開始
-    xmil_start();
+    // X1Pen モード時は自動開始しない
+    // (JS 側でステート復元後に js_xmil_start() で手動開始)
+    int x1penMode = EM_ASM_INT({ return window.__X1PEN_MODE ? 1 : 0; });
+    if (!x1penMode) {
+        xmil_start();
+    }
 
     // Emscriptenのメインループを設定（60FPS）
     emscripten_set_main_loop(main_loop, 60, 1);
@@ -452,6 +456,11 @@ int js_load_state(const BYTE *data, int size) {
 EMSCRIPTEN_KEEPALIVE
 const char* js_get_load_warnings(void) {
     return get_load_warnings();
+}
+
+EMSCRIPTEN_KEEPALIVE
+BYTE* js_get_main_ram(void) {
+    return mMAIN;
 }
 
 #ifdef __cplusplus

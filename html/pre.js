@@ -39,7 +39,8 @@
     var _multiTabPromise = null;
     var _tabChannel = null;
     if (typeof BroadcastChannel !== 'undefined') {
-        _tabChannel = new BroadcastChannel('xmil_tab');
+        var _channelName = window.__X1PEN_MODE ? 'x1pen_tab' : 'xmil_tab';
+        _tabChannel = new BroadcastChannel(_channelName);
         var _myTabId = Math.random().toString(36).slice(2);
         _multiTabPromise = new Promise(function(resolve) {
             var detected = false;
@@ -58,6 +59,9 @@
             if (_tabChannel) { _tabChannel.close(); _tabChannel = null; }
         });
     }
+    // X1Pen モード用: マルチタブ promise をグローバル公開
+    window.__multiTabPromise = _multiTabPromise;
+    window.__tabChannel = _tabChannel;
 
     // スロット→対応タイプ
     const SLOT_TYPES = { drive0: 'fdd', drive1: 'fdd', hdd0: 'hdd', hdd1: 'hdd', cmt: 'cmt', emm0: 'emm', emm1: 'emm', emm2: 'emm', emm3: 'emm', emm4: 'emm', emm5: 'emm', emm6: 'emm', emm7: 'emm', emm8: 'emm', emm9: 'emm' };
@@ -3280,6 +3284,27 @@
     window.openLibraryPanel  = openLibraryPanel;
     window.closeLibraryPanel = closeLibraryPanel;
 
+    // X1Pen 用: 共通初期化関数を公開
+    window.XmilInit = {
+        setupAudioStream: setupAudioStream,
+        applyInitialSettings: applyInitialSettings
+    };
+
+    // X1Pen 用: ライブラリ内部関数を公開
+    window.XmilLibrary = {
+        addToLibrary: addToLibrary,
+        mountFromLibrary: mountFromLibrary,
+        downloadFromLibrary: downloadFromLibrary,
+        deleteFromLibrary: deleteFromLibrary,
+        toggleFavorite: toggleFavorite,
+        renderLibraryList: renderLibraryList,
+        autoRestoreMounts: autoRestoreMounts,
+        setSearch: function(v) { currentLibrarySearch = v; },
+        setSort:   function(v) { currentLibrarySort = v; },
+        setFavoritesOnly: function(v) { currentFavoritesOnly = v; },
+        getFavoritesOnly: function()  { return currentFavoritesOnly; }
+    };
+
     // FDD ベイの「ライブラリを開く」ボタン用 (shell.htmlから呼ばれる)
     window.openFddLibrary = function(drive) { openLibraryPanel('fdd', drive); };
     window.openHddLibrary = function(id)    { openLibraryPanel('hdd', id);    };
@@ -3719,7 +3744,14 @@
     // ----------------------------------------------------------------
     window.Module = {
         preRun: [function() {}],
-        postRun: [function() { onModuleReady(); }],
+        postRun: [function() {
+            if (window.__X1PEN_MODE) {
+                module = window.Module;  // pre.js 内部の module 参照を設定
+                if (window.__x1pen_onModuleReady) window.__x1pen_onModuleReady();
+            } else {
+                onModuleReady();
+            }
+        }],
         print:    function(text) { /* リリース: stdout 抑制 */ },
         printErr: function(text) { console.warn('[xmil]', text); },
         canvas: (function() {
@@ -3737,11 +3769,13 @@
         onRuntimeInitialized: function() {}
     };
 
-    // ページ読み込み完了時に初期化
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
+    // ページ読み込み完了時に初期化 (X1Pen モードでは呼ばない)
+    if (!window.__X1PEN_MODE) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
     }
 
     // グローバル公開

@@ -71,6 +71,11 @@ cp "${SCRIPT_DIR}/html/icon-192.png"        ./icon-192.png
 cp "${SCRIPT_DIR}/html/icon-512.png"        ./icon-512.png
 cp "${SCRIPT_DIR}/html/apple-touch-icon.png" ./apple-touch-icon.png
 
+# X1Pen IDE ファイル
+cp "${SCRIPT_DIR}/html/x1pen.html"           ./x1pen.html
+cp "${SCRIPT_DIR}/html/x1pen.js"             ./x1pen.js
+cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
+
 echo ""
 echo "======================================"
 echo "Build completed successfully!"
@@ -107,8 +112,16 @@ cp ./icon-192.png         "${DIST_DIR}/"
 cp ./icon-512.png         "${DIST_DIR}/"
 cp ./apple-touch-icon.png "${DIST_DIR}/"
 
-# Cloudflare Pages ヘッダー（frame-ancestors 等）
+# Cloudflare Pages ヘッダー / リダイレクト
 [ -f "${SCRIPT_DIR}/html/_headers" ] && cp "${SCRIPT_DIR}/html/_headers" "${DIST_DIR}/_headers"
+[ -f "${SCRIPT_DIR}/html/_redirects" ] && cp "${SCRIPT_DIR}/html/_redirects" "${DIST_DIR}/_redirects"
+
+# X1Pen IDE
+cp "${SCRIPT_DIR}/html/x1pen.html"           "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen.js"             "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
+[ -f "${SCRIPT_DIR}/assets/fuzzybasic_cold.xmst" ] && \
+    cp "${SCRIPT_DIR}/assets/fuzzybasic_cold.xmst" "${DIST_DIR}/"
 
 # Google Search Console 所有権確認ファイル（あれば）
 for f in "${SCRIPT_DIR}"/html/google*.html; do
@@ -118,8 +131,9 @@ done
 # バージョン文字列を注入（@@XMIL_VERSION@@ → 実際のバージョン）
 sed -i.bak "s/@@XMIL_VERSION@@/${XMIL_VERSION}/g" \
     "${DIST_DIR}/xmillennium.html" \
-    "${DIST_DIR}/index.html"
-rm -f "${DIST_DIR}/xmillennium.html.bak" "${DIST_DIR}/index.html.bak"
+    "${DIST_DIR}/index.html" \
+    "${DIST_DIR}/x1pen.html"
+rm -f "${DIST_DIR}/xmillennium.html.bak" "${DIST_DIR}/index.html.bak" "${DIST_DIR}/x1pen.html.bak"
 
 # config.js: html/config.js があればそれを使用、なければ空の example を使用
 if [ -f "${SCRIPT_DIR}/html/config.js" ]; then
