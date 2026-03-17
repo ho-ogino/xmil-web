@@ -87,7 +87,7 @@
     const LS_FNT_ANK16   = 'xmil_fnt_ank16';
     const LS_FNT_KNJ     = 'xmil_fnt_knj';
     const LS_LIBRARY     = 'xmil_library';     // LibraryEntry[] JSON
-    const LS_MOUNT_STATE = 'xmil_mount_state'; // スロット→OPFSキー JSON
+    const LS_MOUNT_STATE = window.__X1PEN_MODE ? 'x1pen_mount_state' : 'xmil_mount_state';
     const LS_STATES      = 'xmil_savestates';  // SaveStateEntry[] JSON
     const QUICK_STATE_KEY = 'xmil_quick_state'; // 最新クイックセーブキー
 
@@ -3284,10 +3284,44 @@
     window.openLibraryPanel  = openLibraryPanel;
     window.closeLibraryPanel = closeLibraryPanel;
 
+    // X1Pen 用: DOM 不要で localStorage から設定を読み C 側に直接適用
+    // デフォルト値は platform_main.cpp の xmilcfg 初期値と一致させること
+    function applySettingsFromStorage() {
+        if (!module) return;
+        try {
+            var raw = localStorage.getItem(LS_SETTINGS);
+            var s = raw ? JSON.parse(raw) : {};
+            // ROM_TYPE: default 1 (X1)
+            if (module._js_set_rom_type)    module._js_set_rom_type(s.romType !== undefined ? s.romType : 1);
+            // DIP_SW: default 1 (bit0=高解像度OFF)
+            if (module._js_set_dip_sw) {
+                var dip = 0;
+                if (!s.dipHighres) dip |= 0x01;  // NOT: unchecked = bit set
+                if (s.dip2hd)      dip |= 0x04;
+                module._js_set_dip_sw(dip);
+            }
+            if (module._js_set_skip_line)   module._js_set_skip_line(s.skipLine ? 1 : 0);
+            // MOTOR: default 1 (有効)
+            if (module._js_set_motor)       module._js_set_motor((s.motorSound !== undefined ? s.motorSound : true) ? 1 : 0);
+            // MOTORVOL: default 80
+            if (module._js_set_motor_volume) module._js_set_motor_volume(s.seekVolume !== undefined ? s.seekVolume : 80);
+            // JOYSTICK: default false (無効)
+            if (module._js_set_joystick)    module._js_set_joystick(s.joystickEnable ? 1 : 0);
+            // MOUSE: default false (無効)
+            if (module._js_set_mouse)       module._js_set_mouse(s.mouseEnable ? 1 : 0);
+            // SOUND_SW (FM): default true (有効)
+            if (module._js_set_sound_sw)    module._js_set_sound_sw((s.fmEnable !== undefined ? s.fmEnable : true) ? 1 : 0);
+            // KEY_MODE: default 0
+            if (module._js_set_key_mode)    module._js_set_key_mode(s.keyMode !== undefined ? s.keyMode : 0);
+        } catch(e) {
+            console.warn('[x1pen] applySettingsFromStorage failed:', e);
+        }
+    }
+
     // X1Pen 用: 共通初期化関数を公開
     window.XmilInit = {
         setupAudioStream: setupAudioStream,
-        applyInitialSettings: applyInitialSettings
+        applySettingsFromStorage: applySettingsFromStorage
     };
 
     // X1Pen 用: ライブラリ内部関数を公開

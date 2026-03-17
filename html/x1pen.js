@@ -171,9 +171,9 @@ window.__X1PEN_MODE = true;
             return;
         }
 
-        // 共通初期化: 設定反映 + オーディオアンロック
+        // 共通初期化: 設定反映 (DOM 不要で localStorage から直接適用) + オーディオアンロック
         if (window.XmilInit) {
-            window.XmilInit.applyInitialSettings();
+            window.XmilInit.applySettingsFromStorage();
             // 最初のユーザー操作で AudioContext をアンロック
             var unlockOnce = function() { window.XmilInit.setupAudioStream(); };
             document.addEventListener('click',      unlockOnce, { once: true });
