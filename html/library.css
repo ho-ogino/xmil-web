@@ -498,3 +498,18 @@
     white-space: nowrap;
     flex-shrink: 0;
 }
+
+/* ── 共通ボタン (EMM 作成ダイアログ等) ── */
+.hw-state-btn {
+    background: #2a2a2a;
+    color: #ccc;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 3px 7px;
+    font-size: 0.7em;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    line-height: 1.2;
+}
+.hw-state-btn:hover { background: #3a3a3a; color: #fff; }

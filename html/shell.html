@@ -1288,8 +1288,6 @@
 
     <!-- ════ 非表示ファイル入力 ════ -->
     <!-- ライブラリ追加: 全タイプ対応、複数ファイル同時選択可 -->
-    <input type="file" id="file-add-to-library"
-           multiple style="display:none">
     <input type="file" id="file-rom-x1"   accept=".X1,.x1" style="display:none">
     <input type="file" id="file-rom-x1t"  accept=".X1T,.x1t,.X1,.x1" style="display:none">
     <input type="file" id="file-fnt-ank8" accept=".X1,.x1" style="display:none">
@@ -1815,38 +1813,6 @@
 <!-- ════════════════════════════════════════════════════════════
      ファイルライブラリ パネル (モーダル)
 ════════════════════════════════════════════════════════════ -->
-<div id="library-panel" class="library-panel hidden">
-    <div class="library-panel-inner">
-        <div class="lib-panel-header">
-            <span class="lib-panel-title">ファイルライブラリ</span>
-            <button class="lib-close-btn" id="lib-close-btn">✕ 閉じる</button>
-        </div>
-        <div class="lib-filters">
-            <button class="lib-filter active" data-type="all">ALL</button>
-            <button class="lib-filter" data-type="fdd">FDD</button>
-            <button class="lib-filter" data-type="hdd">HDD</button>
-            <button class="lib-filter" data-type="cmt">CMT</button>
-            <button class="lib-filter" data-type="emm">EMM</button>
-            <button class="lib-fav-filter" id="lib-fav-filter" title="お気に入りのみ表示">☆</button>
-            <button class="lib-drive-pick-btn hidden" id="btn-drive-pick"
-                    title="アプリが保存済みのファイルを一覧表示">☁ 保存済み</button>
-            <button class="lib-add-btn" id="lib-add-btn">＋ 追加</button>
-        </div>
-        <div class="lib-toolbar" id="lib-toolbar">
-            <input type="text" class="lib-search-input" id="lib-search-input"
-                   placeholder="ファイル名で検索..." autocomplete="off" />
-            <select class="lib-sort-select" id="lib-sort-select">
-                <option value="name">名前順</option>
-                <option value="type-name">タイプ→名前</option>
-                <option value="date-desc">追加日(新しい順)</option>
-                <option value="size-desc">サイズ(大きい順)</option>
-            </select>
-        </div>
-        <div id="library-list" class="lib-list"></div>
-        <div id="drive-status" class="hidden"></div>
-        <div id="library-capacity" class="lib-capacity"></div>
-    </div>
-</div>
 
 <!-- ════════════════════════════════════════════════════════════
      ステートセーブ パネル (モーダル)
@@ -1877,52 +1843,6 @@
     </div>
 </div>
 
-<!-- ================================================================
-     EMM 作成ダイアログ (モーダル)
-     ================================================================ -->
-<div id="emm-create-dialog" class="library-panel hidden">
-    <div class="library-panel-inner" style="max-width: 420px;">
-        <div class="lib-panel-header">
-            <span>EMM ファイル新規作成</span>
-            <button class="lib-close-btn" id="emm-create-close">✕ 閉じる</button>
-        </div>
-        <div style="padding: 12px 16px; display: flex; flex-direction: column; gap: 12px;">
-            <div>
-                <label style="color: #999; font-size: 0.85em; display: block; margin-bottom: 4px;">スロット</label>
-                <select id="emm-create-slot" style="width: 100%; padding: 6px 8px; background: #1a1a1a; color: #ccc; border: 1px solid #444; border-radius: 4px; font-family: inherit;">
-                    <option value="0">EMM0</option>
-                    <option value="1">EMM1</option>
-                    <option value="2">EMM2</option>
-                    <option value="3">EMM3</option>
-                    <option value="4">EMM4</option>
-                    <option value="5">EMM5</option>
-                    <option value="6">EMM6</option>
-                    <option value="7">EMM7</option>
-                    <option value="8">EMM8</option>
-                    <option value="9">EMM9</option>
-                </select>
-            </div>
-            <div>
-                <label style="color: #999; font-size: 0.85em; display: block; margin-bottom: 4px;">サイズ</label>
-                <div id="emm-size-presets" style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
-                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="327680"><span class="emm-size-led"></span><span class="emm-size-label">320KB</span></label>
-                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="524288"><span class="emm-size-led"></span><span class="emm-size-label">512KB</span></label>
-                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="1048576" checked><span class="emm-size-led"></span><span class="emm-size-label">1MB</span></label>
-                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="2097152"><span class="emm-size-led"></span><span class="emm-size-label">2MB</span></label>
-                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="4194304"><span class="emm-size-led"></span><span class="emm-size-label">4MB</span></label>
-                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="8388608"><span class="emm-size-led"></span><span class="emm-size-label">8MB</span></label>
-                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="16777216"><span class="emm-size-led"></span><span class="emm-size-label">16MB</span></label>
-                    <label class="emm-size-radio"><input type="radio" name="emm-size" value="custom"><span class="emm-size-led"></span><span class="emm-size-label">custom</span></label>
-                    <span style="display: inline-flex; align-items: center; gap: 4px;">
-                        <input type="number" id="emm-custom-size" class="emm-custom-input" min="1" max="16384" step="1" value="1024" disabled>
-                        <span style="color: #666; font-size: 0.7em;">KB</span>
-                    </span>
-                </div>
-            </div>
-            <button class="hw-state-btn" id="emm-create-confirm" style="align-self: flex-end; margin-top: 4px;">作成してマウント</button>
-        </div>
-    </div>
-</div>
 
 <!-- ================================================================
      Drive ファイルブラウザ モーダル
@@ -1943,30 +1863,13 @@
     </div>
 </div>
 
-<!-- ディスクエディタパネル -->
-<div id="disk-editor-panel" class="library-panel hidden">
-    <div class="library-panel-inner" style="max-width:750px">
-        <div class="lib-panel-header">
-            <span class="lib-panel-title" id="disk-editor-title">ディスク編集</span>
-            <button class="lib-close-btn" id="disk-editor-close">&#x2715;</button>
-        </div>
-        <div id="disk-editor-info" class="disk-editor-info"></div>
-        <div class="disk-editor-toolbar">
-            <button id="disk-editor-add-btn" class="disk-editor-tool-btn">&#xFF0B; ファイル追加</button>
-            <input type="file" id="disk-editor-file-input" style="display:none" multiple>
-        </div>
-        <div id="disk-editor-list" class="lib-list"></div>
-        <div class="disk-editor-footer">
-            <button id="disk-editor-save-btn" class="disk-editor-tool-btn">閉じる</button>
-        </div>
-    </div>
-</div>
 
 <footer style="text-align:center; padding:18px 0 24px; margin-top:24px; border-top:1px solid #222;">
     <a href="index.html" style="color:#888; font-size:0.85em; text-decoration:none; letter-spacing:0.5px;">&larr; Home</a>
 </footer>
 
 <script src="storage.js"></script>
+<script src="ui_fragments.js"></script>
 <script src="config.js"></script>
 <script src="drive_integration.js"></script>
 <script src="disk_container.js"></script>
