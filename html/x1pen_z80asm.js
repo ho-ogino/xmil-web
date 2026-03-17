@@ -59,7 +59,9 @@
             // Number or symbol
             var start = i;
             if (c === "'" && i + 2 < s.length && s[i + 2] === "'") {
-                tokens.push({ type: 'NUMBER', val: s.charCodeAt(i + 1) });
+                var cv = s.charCodeAt(i + 1);
+                if (cv > 0x7F) return null; // non-ASCII
+                tokens.push({ type: 'NUMBER', val: cv });
                 i += 3; continue;
             }
             if (c === '$' || /[0-9]/.test(c)) {
