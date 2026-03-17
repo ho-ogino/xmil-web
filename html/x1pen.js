@@ -537,6 +537,9 @@ window.__X1PEN_MODE = true;
             if (menuName === 'fdd') {
                 setFileName('ec-fdd0-name', getSlotFileName(ss, 'drive0'));
                 setFileName('ec-fdd1-name', getSlotFileName(ss, 'drive1'));
+                // Show Save button only for temp PROGRAM disk
+                var saveBtn = document.getElementById('ec-fdd0-save');
+                if (saveBtn) saveBtn.classList.toggle('hidden', ss['drive0'] !== '__x1pen_temp__');
             } else if (menuName === 'hdd') {
                 setFileName('ec-hdd0-name', getSlotFileName(ss, 'hdd0'));
                 setFileName('ec-hdd1-name', getSlotFileName(ss, 'hdd1'));
@@ -619,6 +622,20 @@ window.__X1PEN_MODE = true;
         var fdd1Eject = document.getElementById('ec-fdd1-eject');
         if (fdd0Mount) fdd0Mount.addEventListener('click', function() { closeAllMenus(); if (window.openFddLibrary) window.openFddLibrary(0); });
         if (fdd0Eject) fdd0Eject.addEventListener('click', function() { if (core) core.ejectSlot('drive0'); updateMenuState('fdd'); });
+        var fdd0Save = document.getElementById('ec-fdd0-save');
+        if (fdd0Save) fdd0Save.addEventListener('click', function() {
+            if (!module || !module.FS) return;
+            try {
+                var data = module.FS.readFile('/fdd0.d88');
+                var blob = new Blob([data], { type: 'application/octet-stream' });
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url; a.download = 'PROGRAM.d88';
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch(e) { console.error('[x1pen] FDD0 save failed:', e); }
+        });
         if (fdd1Mount) fdd1Mount.addEventListener('click', function() { closeAllMenus(); if (window.openFddLibrary) window.openFddLibrary(1); });
         if (fdd1Eject) fdd1Eject.addEventListener('click', function() { if (core) core.ejectSlot('drive1'); updateMenuState('fdd'); });
 
