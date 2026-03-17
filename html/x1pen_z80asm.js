@@ -78,7 +78,7 @@
         return tokens;
     }
 
-    function evalExpr(exprStr, symbols, pc) {
+    function evalExpr(exprStr, symbols, pc, globalLabel) {
         var tokens = tokenizeExpr(exprStr);
         if (!tokens) return null;
 
@@ -94,6 +94,10 @@
             if (t.type === 'SYMBOL') {
                 next();
                 var key = t.val.toUpperCase();
+                // Resolve local labels: .foo → LASTGLOBAL.FOO
+                if (key[0] === '.' && globalLabel) {
+                    key = globalLabel + key;
+                }
                 if (key in symbols) return symbols[key];
                 return undefined; // unresolved
             }
@@ -211,7 +215,7 @@
     // Operand classification
     // ================================================================
 
-    function classifyOperand(s, symbols, pc, pass) {
+    function classifyOperand(s, symbols, pc, pass, globalLabel) {
         var su = s.toUpperCase().trim();
 
         // Single 8-bit register
@@ -235,7 +239,7 @@
         // (IX+d), (IY+d)
         var ixm = su.match(/^\((IX|IY)\s*([+\-].*)\)$/i);
         if (ixm) {
-            var val = evalExpr(ixm[2], symbols, pc);
+            var val = evalExpr(ixm[2], symbols, pc, globalLabel);
             return { type: 'ind_idx', idx: ixm[1].toUpperCase(), disp: val };
         }
         var ixm0 = su.match(/^\((IX|IY)\)$/i);
@@ -249,7 +253,7 @@
         // (nn) - indirect memory
         var indm = su.match(/^\((.+)\)$/);
         if (indm) {
-            var addr = evalExpr(indm[1], symbols, pc);
+            var addr = evalExpr(indm[1], symbols, pc, globalLabel);
             return { type: 'ind_nn', val: addr };
         }
 
@@ -257,7 +261,7 @@
         if (su in CC) return { type: 'cc', code: CC[su], name: su };
 
         // Immediate / expression
-        var v = evalExpr(s, symbols, pc);
+        var v = evalExpr(s, symbols, pc, globalLabel);
         if (v !== null && v !== undefined) return { type: 'imm', val: v };
 
         // Unresolved (pass 1)
@@ -382,6 +386,10 @@
                 var jrCC = { NZ: 0, Z: 1, NC: 2, C: 3 };
                 if (!(o[0].name in jrCC)) return null;
                 var rel2 = (o[1].val - (pc + 2)) & 0xFF;
+                if (pass === 2) {
+                    var diff2 = o[1].val - (pc + 2);
+                    if (diff2 < -128 || diff2 > 127) return null;
+                }
                 return [0x20 + jrCC[o[0].name] * 8, rel2];
             }
         }
@@ -389,6 +397,10 @@
         // --- DJNZ ---
         if (mn === 'DJNZ' && o.length === 1 && o[0].type === 'imm') {
             var rel3 = (o[0].val - (pc + 2)) & 0xFF;
+            if (pass === 2) {
+                var diff3 = o[0].val - (pc + 2);
+                if (diff3 < -128 || diff3 > 127) return null;
+            }
             return [0x10, rel3];
         }
 
@@ -619,7 +631,7 @@
                 if (parsed.label[0] !== '.') lastGlobalLabel = parsed.label.toUpperCase();
 
                 if (parsed.mnemonic === 'EQU') {
-                    var eqVal = evalExpr(parsed.operands, symbols, pass1Addr);
+                    var eqVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel);
                     if (eqVal === null || eqVal === undefined) eqVal = 0;
                     symbols[lbl] = eqVal;
                     continue;
@@ -630,7 +642,7 @@
             if (!parsed.mnemonic) continue;
 
             if (parsed.mnemonic === 'ORG') {
-                var orgVal = evalExpr(parsed.operands, symbols, pass1Addr);
+                var orgVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel);
                 if (orgVal !== null && orgVal !== undefined) {
                     if (pass1BaseOrg < 0) pass1BaseOrg = orgVal;
                     pass1Addr = orgVal;
@@ -638,7 +650,7 @@
                 continue;
             }
 
-            var size = getInstructionSize(parsed, symbols, pass1Addr, 1);
+            var size = getInstructionSize(parsed, symbols, pass1Addr, 1, lastGlobalLabel);
             if (size < 0) {
                 errors.push({ line: i + 1, msg: 'Unknown instruction: ' + parsed.mnemonic + ' ' + parsed.operands });
                 continue;
@@ -648,39 +660,31 @@
 
         // ---- Pass 2: emit bytes ----
         lastGlobalLabel = '';
-
-        // Re-resolve EQU with full symbol table
-        for (var i2 = 0; i2 < lines.length; i2++) {
-            var p2 = parseLine(lines[i2]);
-            if (p2.label && p2.mnemonic === 'EQU') {
-                var lbl2 = resolveLocalLabel(p2.label).toUpperCase();
-                if (p2.label[0] !== '.') lastGlobalLabel = p2.label.toUpperCase();
-                var eqVal2 = evalExpr(p2.operands, symbols, curAddr);
-                if (eqVal2 !== null && eqVal2 !== undefined) symbols[lbl2] = eqVal2;
-            }
-            if (p2.label && p2.label[0] !== '.') lastGlobalLabel = p2.label.toUpperCase();
-        }
-
-        lastGlobalLabel = '';
         for (var j = 0; j < lines.length; j++) {
             var parsed2 = parseLine(lines[j]);
 
             if (parsed2.label) {
                 if (parsed2.label[0] !== '.') lastGlobalLabel = parsed2.label.toUpperCase();
-                if (parsed2.mnemonic === 'EQU') continue;
+                if (parsed2.mnemonic === 'EQU') {
+                    // Re-resolve EQU with full symbol table + correct PC
+                    var lbl2 = resolveLocalLabel(parsed2.label).toUpperCase();
+                    var eqVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel);
+                    if (eqVal2 !== null && eqVal2 !== undefined) symbols[lbl2] = eqVal2;
+                    continue;
+                }
             }
 
             if (!parsed2.mnemonic) continue;
 
             if (parsed2.mnemonic === 'ORG') {
-                var orgVal2 = evalExpr(parsed2.operands, symbols, curAddr);
+                var orgVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel);
                 if (orgVal2 !== null && orgVal2 !== undefined) {
                     handleOrg(orgVal2, j + 1);
                 }
                 continue;
             }
 
-            var bytes = emitInstruction(parsed2, symbols, curAddr, 2);
+            var bytes = emitInstruction(parsed2, symbols, curAddr, 2, lastGlobalLabel);
             if (bytes === null) {
                 errors.push({ line: j + 1, msg: 'Failed to encode: ' + parsed2.mnemonic + ' ' + parsed2.operands });
                 continue;
@@ -699,24 +703,24 @@
         };
     }
 
-    function getInstructionSize(parsed, symbols, pc, pass) {
-        var bytes = emitInstruction(parsed, symbols, pc, pass);
+    function getInstructionSize(parsed, symbols, pc, pass, globalLabel) {
+        var bytes = emitInstruction(parsed, symbols, pc, pass, globalLabel);
         if (bytes === null) return -1;
         return bytes.length;
     }
 
-    function emitInstruction(parsed, symbols, pc, pass) {
+    function emitInstruction(parsed, symbols, pc, pass, globalLabel) {
         var mn = parsed.mnemonic;
         var opStr = parsed.operands;
 
         // Pseudo-instructions
-        if (mn === 'DB' || mn === 'DEFB') return emitDB(opStr, symbols, pc, pass);
-        if (mn === 'DW' || mn === 'DEFW') return emitDW(opStr, symbols, pc, pass);
-        if (mn === 'DS' || mn === 'DEFS') return emitDS(opStr, symbols, pc, pass);
+        if (mn === 'DB' || mn === 'DEFB') return emitDB(opStr, symbols, pc, pass, globalLabel);
+        if (mn === 'DW' || mn === 'DEFW') return emitDW(opStr, symbols, pc, pass, globalLabel);
+        if (mn === 'DS' || mn === 'DEFS') return emitDS(opStr, symbols, pc, pass, globalLabel);
 
         // Classify operands
         var rawOps = splitOperands(opStr);
-        var ops = rawOps.map(function(s) { return classifyOperand(s, symbols, pc, pass); });
+        var ops = rawOps.map(function(s) { return classifyOperand(s, symbols, pc, pass, globalLabel); });
 
         // Try each family
         var result = encodeBasic(mn, ops, symbols, pc, pass);
@@ -731,7 +735,7 @@
         return null;
     }
 
-    function emitDB(opStr, symbols, pc, pass) {
+    function emitDB(opStr, symbols, pc, pass, globalLabel) {
         var bytes = [];
         var parts = [];
         // Split by comma, but respect strings
@@ -750,7 +754,7 @@
                 // String literal
                 for (var k = 1; k < p.length - 1; k++) bytes.push(p.charCodeAt(k));
             } else {
-                var v = evalExpr(p, symbols, pc + bytes.length);
+                var v = evalExpr(p, symbols, pc + bytes.length, globalLabel);
                 if (v === null || v === undefined) v = 0;
                 bytes.push(v & 0xFF);
             }
@@ -758,11 +762,11 @@
         return bytes;
     }
 
-    function emitDW(opStr, symbols, pc, pass) {
+    function emitDW(opStr, symbols, pc, pass, globalLabel) {
         var bytes = [];
         var parts = splitOperands(opStr);
         for (var i = 0; i < parts.length; i++) {
-            var v = evalExpr(parts[i], symbols, pc + bytes.length);
+            var v = evalExpr(parts[i], symbols, pc + bytes.length, globalLabel);
             if (v === null || v === undefined) v = 0;
             bytes.push(v & 0xFF);
             bytes.push((v >> 8) & 0xFF);
@@ -770,11 +774,11 @@
         return bytes;
     }
 
-    function emitDS(opStr, symbols, pc, pass) {
+    function emitDS(opStr, symbols, pc, pass, globalLabel) {
         var parts = splitOperands(opStr);
-        var count = evalExpr(parts[0], symbols, pc);
+        var count = evalExpr(parts[0], symbols, pc, globalLabel);
         if (count === null || count === undefined) count = 0;
-        var fill = parts.length > 1 ? evalExpr(parts[1], symbols, pc) : 0;
+        var fill = parts.length > 1 ? evalExpr(parts[1], symbols, pc, globalLabel) : 0;
         if (fill === null || fill === undefined) fill = 0;
         var bytes = [];
         for (var i = 0; i < count; i++) bytes.push(fill & 0xFF);
