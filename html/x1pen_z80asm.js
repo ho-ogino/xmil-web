@@ -579,9 +579,9 @@
         var lines = source.split('\n');
         var symbols = {};
         var errors = [];
-        var org = 0;
+        var baseOrg = -1;  // first ORG (returned as .org)
+        var curAddr = 0;   // current absolute address
         var output = [];
-        var lineAddrs = [];
         var lastGlobalLabel = '';
 
         function resolveLocalLabel(name) {
@@ -589,55 +589,64 @@
             return name;
         }
 
+        // Handle ORG: set curAddr, pad output with 0 if needed
+        function handleOrg(addr, lineNum) {
+            if (baseOrg < 0) {
+                // First ORG
+                baseOrg = addr;
+                curAddr = addr;
+            } else if (addr >= curAddr) {
+                // Forward ORG: pad with 0
+                var pad = addr - curAddr;
+                for (var p = 0; p < pad; p++) output.push(0);
+                curAddr = addr;
+            } else {
+                // Backward ORG: error
+                errors.push({ line: lineNum, msg: 'ORG cannot go backward (current: 0x' +
+                    curAddr.toString(16).toUpperCase() + ', requested: 0x' + addr.toString(16).toUpperCase() + ')' });
+            }
+        }
+
         // ---- Pass 1: collect labels, determine sizes ----
-        var pc = 0;
-        var pendingOrg = null;
+        var pass1Addr = 0;
+        var pass1BaseOrg = -1;
 
         for (var i = 0; i < lines.length; i++) {
             var parsed = parseLine(lines[i]);
-            lineAddrs[i] = pc;
 
             if (parsed.label) {
                 var lbl = resolveLocalLabel(parsed.label).toUpperCase();
                 if (parsed.label[0] !== '.') lastGlobalLabel = parsed.label.toUpperCase();
 
                 if (parsed.mnemonic === 'EQU') {
-                    var eqVal = evalExpr(parsed.operands, symbols, pc);
-                    if (eqVal === null || eqVal === undefined) eqVal = 0; // resolve in pass 2
+                    var eqVal = evalExpr(parsed.operands, symbols, pass1Addr);
+                    if (eqVal === null || eqVal === undefined) eqVal = 0;
                     symbols[lbl] = eqVal;
                     continue;
                 }
-                symbols[lbl] = pc + org;
+                symbols[lbl] = pass1Addr;
             }
 
             if (!parsed.mnemonic) continue;
 
             if (parsed.mnemonic === 'ORG') {
-                var orgVal = evalExpr(parsed.operands, symbols, pc);
+                var orgVal = evalExpr(parsed.operands, symbols, pass1Addr);
                 if (orgVal !== null && orgVal !== undefined) {
-                    if (output.length === 0) {
-                        org = orgVal;
-                        pc = 0;
-                    } else {
-                        // Mid-stream ORG
-                        org = orgVal;
-                        pc = 0;
-                    }
+                    if (pass1BaseOrg < 0) pass1BaseOrg = orgVal;
+                    pass1Addr = orgVal;
                 }
                 continue;
             }
 
-            var size = getInstructionSize(parsed, symbols, pc + org, 1);
+            var size = getInstructionSize(parsed, symbols, pass1Addr, 1);
             if (size < 0) {
                 errors.push({ line: i + 1, msg: 'Unknown instruction: ' + parsed.mnemonic + ' ' + parsed.operands });
                 continue;
             }
-            pc += size;
+            pass1Addr += size;
         }
 
         // ---- Pass 2: emit bytes ----
-        pc = 0;
-        org = 0;
         lastGlobalLabel = '';
 
         // Re-resolve EQU with full symbol table
@@ -646,7 +655,7 @@
             if (p2.label && p2.mnemonic === 'EQU') {
                 var lbl2 = resolveLocalLabel(p2.label).toUpperCase();
                 if (p2.label[0] !== '.') lastGlobalLabel = p2.label.toUpperCase();
-                var eqVal2 = evalExpr(p2.operands, symbols, pc + org);
+                var eqVal2 = evalExpr(p2.operands, symbols, curAddr);
                 if (eqVal2 !== null && eqVal2 !== undefined) symbols[lbl2] = eqVal2;
             }
             if (p2.label && p2.label[0] !== '.') lastGlobalLabel = p2.label.toUpperCase();
@@ -664,15 +673,14 @@
             if (!parsed2.mnemonic) continue;
 
             if (parsed2.mnemonic === 'ORG') {
-                var orgVal2 = evalExpr(parsed2.operands, symbols, pc + org);
+                var orgVal2 = evalExpr(parsed2.operands, symbols, curAddr);
                 if (orgVal2 !== null && orgVal2 !== undefined) {
-                    org = orgVal2;
-                    pc = 0;
+                    handleOrg(orgVal2, j + 1);
                 }
                 continue;
             }
 
-            var bytes = emitInstruction(parsed2, symbols, pc + org, 2);
+            var bytes = emitInstruction(parsed2, symbols, curAddr, 2);
             if (bytes === null) {
                 errors.push({ line: j + 1, msg: 'Failed to encode: ' + parsed2.mnemonic + ' ' + parsed2.operands });
                 continue;
@@ -680,12 +688,12 @@
             for (var k = 0; k < bytes.length; k++) {
                 output.push(bytes[k] & 0xFF);
             }
-            pc += bytes.length;
+            curAddr += bytes.length;
         }
 
         return {
             bytes: new Uint8Array(output),
-            org: org,
+            org: baseOrg >= 0 ? baseOrg : 0,
             errors: errors,
             symbols: symbols
         };
