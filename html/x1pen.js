@@ -245,8 +245,8 @@ window.__X1PEN_MODE = true;
                 if (shareResp.ok) {
                     var shared = await shareResp.json();
                     elEditor.value = shared.basic;
-                    if (shared.asm && elAsmEditor) {
-                        elAsmEditor.value = shared.asm;
+                    if (elAsmEditor) {
+                        elAsmEditor.value = shared.asm || '';
                     }
                     onRunClick();
                 } else if (shareResp.status === 400) {
