@@ -78,8 +78,18 @@
             background: #7a0d0d !important;
         }
 
-        #x1pen-status {
+        #btn-share {
+            border-color: #1a4a88 !important;
+            color: #5599ee !important;
+            background: #0d1e36 !important;
             margin-left: auto;
+        }
+        #btn-share:hover:not(:disabled) {
+            background: #0d2244 !important;
+            color: #88bbff !important;
+        }
+
+        #x1pen-status {
             font-size: 0.85em;
             color: #888;
             white-space: nowrap;
@@ -275,6 +285,7 @@
         <span class="brand">X1Pen</span>
         <button id="btn-run" disabled title="Ctrl+Enter">&#x25B6; RUN</button>
         <button id="btn-stop" title="Escape">&#x25A0; STOP</button>
+        <button id="btn-share" title="Share code">Share</button>
         <span id="x1pen-status">Loading...</span>
     </div>
     <div id="x1pen-main">

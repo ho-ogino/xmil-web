@@ -135,6 +135,29 @@ window.__X1PEN_MODE = true;
         elStatus.textContent = 'Stopped';
     }
 
+    // ── Share ──
+
+    async function onShareClick() {
+        var src = elEditor.value.trim();
+        if (!src) { elStatus.textContent = 'Nothing to share'; return; }
+
+        elStatus.textContent = 'Sharing...';
+        try {
+            var resp = await fetch('/api/share', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ basic: src })
+            });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            var result = await resp.json();
+            var url = location.origin + '/x1pen?id=' + result.id;
+            await navigator.clipboard.writeText(url);
+            elStatus.textContent = 'URL copied!';
+        } catch(e) {
+            elStatus.textContent = 'Share failed: ' + e.message;
+        }
+    }
+
     // ── Module Ready コールバック ──
 
     window.__x1pen_onModuleReady = async function() {
@@ -207,6 +230,28 @@ window.__X1PEN_MODE = true;
 
         elBtnRun.disabled = false;
         elStatus.textContent = 'Ready';
+
+        // 共有コード読み込み (?id=xxx)
+        var urlId = new URLSearchParams(location.search).get('id');
+        if (urlId) {
+            elStatus.textContent = 'Loading shared code...';
+            try {
+                var shareResp = await fetch('/api/share/' + encodeURIComponent(urlId));
+                if (shareResp.ok) {
+                    var shared = await shareResp.json();
+                    elEditor.value = shared.basic;
+                    onRunClick();
+                } else if (shareResp.status === 400) {
+                    elStatus.textContent = 'Invalid share ID';
+                } else if (shareResp.status === 404) {
+                    elStatus.textContent = 'Shared code not found';
+                } else {
+                    elStatus.textContent = 'Failed to load shared code';
+                }
+            } catch(e) {
+                console.warn('[x1pen] Failed to load shared code:', e);
+            }
+        }
     };
 
     // ── ライブラリ イベントリスナー登録 ──
@@ -571,6 +616,8 @@ window.__X1PEN_MODE = true;
 
     elBtnRun.addEventListener('click', onRunClick);
     elBtnStop.addEventListener('click', onStopClick);
+    var elBtnShare = document.getElementById('btn-share');
+    if (elBtnShare) elBtnShare.addEventListener('click', onShareClick);
 
     // Ctrl+Enter で RUN
     document.addEventListener('keydown', function(e) {
