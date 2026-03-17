@@ -771,7 +771,9 @@
                 }
             } else {
                 var v = evalExpr(p, symbols, pc + bytes.length, globalLabel);
-                if (v === null || v === undefined) v = 0;
+                if (v === null) return null; // parse error (e.g. non-ASCII literal)
+                if (v === undefined && pass === 2) return null; // unresolved
+                if (v === undefined) v = 0; // pass 1 placeholder
                 bytes.push(v & 0xFF);
             }
         }
@@ -783,7 +785,9 @@
         var parts = splitOperands(opStr);
         for (var i = 0; i < parts.length; i++) {
             var v = evalExpr(parts[i], symbols, pc + bytes.length, globalLabel);
-            if (v === null || v === undefined) v = 0;
+            if (v === null) return null;
+            if (v === undefined && pass === 2) return null;
+            if (v === undefined) v = 0;
             bytes.push(v & 0xFF);
             bytes.push((v >> 8) & 0xFF);
         }
