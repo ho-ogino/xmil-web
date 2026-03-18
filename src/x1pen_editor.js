@@ -3,7 +3,7 @@
 
 import { EditorView, keymap, placeholder as cmPlaceholder, lineNumbers } from '@codemirror/view';
 import { EditorState, Annotation } from '@codemirror/state';
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentMore, indentLess } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { bracketMatching, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
@@ -13,17 +13,26 @@ import { z80AsmLanguage } from './x1pen_asm_lang.js';
 // Annotation to suppress onChange callback (e.g. share load)
 const silentAnnotation = Annotation.define();
 
-// Tab → align to next 4-space tab stop
-const tabToSpaces = keymap.of([{
+// Tab: block indent if selection spans lines, otherwise align to 4-space tab stop
+// Shift-Tab: block unindent
+const tabHandlers = keymap.of([{
     key: 'Tab',
     run: (view) => {
-        var cursor = view.state.selection.main.head;
-        var line = view.state.doc.lineAt(cursor);
-        var col = cursor - line.from;
+        var sel = view.state.selection.main;
+        if (sel.from !== sel.to) {
+            // Selection exists → block indent
+            return indentMore(view);
+        }
+        // No selection → insert spaces to next tab stop
+        var line = view.state.doc.lineAt(sel.head);
+        var col = sel.head - line.from;
         var spaces = 4 - (col % 4) || 4;
         view.dispatch(view.state.replaceSelection(' '.repeat(spaces)));
         return true;
     }
+}, {
+    key: 'Shift-Tab',
+    run: indentLess
 }]);
 
 // Dark theme matching existing X1Pen editor colors
@@ -113,7 +122,7 @@ function createEditor(container, opts) {
         history(),
         bracketMatching(),
         highlightSelectionMatches(),
-        tabToSpaces,
+        tabHandlers,
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
         x1penTheme,
         syntaxHighlighting(x1penHighlight),
