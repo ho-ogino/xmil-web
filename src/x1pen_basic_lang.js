@@ -109,8 +109,9 @@ var fuzzyBasicParser = {
         if (stream.match(/^&H[0-9A-Fa-f]+/i)) return 'number';
         if (stream.match(/^\$[0-9A-Fa-f]+/)) return 'number';
 
-        // Binary %nnnn
-        if (stream.match(/^%[01]+/)) return 'number';
+        // Binary &Bnnnn or &nnnn
+        if (stream.match(/^&B[01]+/i)) return 'number';
+        if (stream.match(/^&[01]+/)) return 'number';
 
         // Word (keyword, function, variable)
         if (stream.match(/^[A-Za-z_][A-Za-z0-9_$@^]*/)) {
