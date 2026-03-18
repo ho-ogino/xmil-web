@@ -5,7 +5,7 @@ import { EditorView, keymap, placeholder as cmPlaceholder, lineNumbers } from '@
 import { EditorState, Annotation } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentMore, indentLess } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
-import { bracketMatching, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { bracketMatching, HighlightStyle, syntaxHighlighting, indentUnit } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { fuzzyBasicLanguage, basicAutoLineNumber } from './x1pen_basic_lang.js';
 import { z80AsmLanguage } from './x1pen_asm_lang.js';
@@ -13,15 +13,19 @@ import { z80AsmLanguage } from './x1pen_asm_lang.js';
 // Annotation to suppress onChange callback (e.g. share load)
 const silentAnnotation = Annotation.define();
 
-// Tab: block indent if selection spans lines, otherwise align to 4-space tab stop
+// Tab: block indent if selection spans multiple lines, otherwise align to 4-space tab stop
 // Shift-Tab: block unindent
 const tabHandlers = keymap.of([{
     key: 'Tab',
     run: (view) => {
         var sel = view.state.selection.main;
         if (sel.from !== sel.to) {
-            // Selection exists → block indent
-            return indentMore(view);
+            var fromLine = view.state.doc.lineAt(sel.from).number;
+            var toLine = view.state.doc.lineAt(sel.to).number;
+            if (fromLine !== toLine) {
+                // Multi-line selection → block indent
+                return indentMore(view);
+            }
         }
         // No selection → insert spaces to next tab stop
         var line = view.state.doc.lineAt(sel.head);
@@ -119,6 +123,7 @@ function createEditor(container, opts) {
     }
 
     extensions.push(
+        indentUnit.of('    '),
         history(),
         bracketMatching(),
         highlightSelectionMatches(),
