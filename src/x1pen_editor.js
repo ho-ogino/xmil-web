@@ -13,11 +13,11 @@ import { z80AsmLanguage } from './x1pen_asm_lang.js';
 // Annotation to suppress onChange callback (e.g. share load)
 const silentAnnotation = Annotation.define();
 
-// Tab → 2 spaces (matches existing textarea behavior)
+// Tab → 4 spaces
 const tabToSpaces = keymap.of([{
     key: 'Tab',
     run: (view) => {
-        view.dispatch(view.state.replaceSelection('  '));
+        view.dispatch(view.state.replaceSelection('    '));
         return true;
     }
 }]);
