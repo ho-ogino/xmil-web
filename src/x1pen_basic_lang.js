@@ -11,11 +11,11 @@ var BASIC_KEYWORDS = new Set([
     'DEC','DELETE','DEVICE','DEVI','DEVO','DIR','DOT',
     'ELSE','END','FILES','FOR','FRESET','FSET',
     'GOTO','GOSUB','GRAPH',
-    'IF','INC','INPUT','INCKEY',
+    'IF','INC','INPUT','INKEY',
     'KILL',
     'LDIR','LDDR','LET','LIMIT','LINPUT','LINE','LOCATE','LOCAL',
     'MERGE','MEM',
-    'OUTPUT','ON',
+    'OUT','ON',
     'PAUSE','POKE','PRINT','PRMODE','PROC','PULL','PUSH',
     'RANDOMIZE','REPEAT','RESET','RETURN',
     'SET','STOP','STOFF','STON','SWAP',
@@ -116,8 +116,8 @@ var fuzzyBasicParser = {
         // Word (keyword, function, variable)
         if (stream.match(/^[A-Za-z_][A-Za-z0-9_$@^]*/)) {
             var word = stream.current().toUpperCase();
-            // USR^A..H, FN^A..H
-            if (word.startsWith('USR') || word.startsWith('FN')) return 'keyword';
+            // USR^A..H, FN^A..H (exact match only)
+            if (/^(USR\^[A-H]|USR@?|FN\^[A-H])$/.test(word)) return 'keyword';
             if (BASIC_KEYWORDS.has(word)) return 'keyword';
             if (BASIC_OPERATORS.has(word)) return 'operator';
             return null;
