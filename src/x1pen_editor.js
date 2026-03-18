@@ -7,7 +7,7 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { bracketMatching, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import { fuzzyBasicLanguage } from './x1pen_basic_lang.js';
+import { fuzzyBasicLanguage, basicAutoLineNumber } from './x1pen_basic_lang.js';
 import { z80AsmLanguage } from './x1pen_asm_lang.js';
 
 // Annotation to suppress onChange callback (e.g. share load)
@@ -98,6 +98,11 @@ function createEditor(container, opts) {
     // Line numbers (opt-out for BASIC tab)
     if (opts.showLineNumbers !== false) {
         extensions.push(lineNumbers());
+    }
+
+    // BASIC AUTO line number (must be before defaultKeymap to take priority)
+    if (opts.language === 'basic') {
+        extensions.push(keymap.of([{ key: 'Enter', run: basicAutoLineNumber }]));
     }
 
     extensions.push(

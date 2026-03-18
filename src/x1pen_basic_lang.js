@@ -139,3 +139,59 @@ var fuzzyBasicParser = {
 };
 
 export var fuzzyBasicLanguage = StreamLanguage.define(fuzzyBasicParser);
+
+// BASIC AUTO line number: Enter at end of a numbered line inserts next number
+export function basicAutoLineNumber(view) {
+    var state = view.state;
+    var sel = state.selection.main;
+
+    // Only when no selection and cursor at end of line
+    if (sel.from !== sel.to) return false;
+    var cursor = sel.head;
+    var currentLine = state.doc.lineAt(cursor);
+    if (cursor !== currentLine.to) return false;
+
+    // Current line must start with a line number
+    var match = currentLine.text.match(/^(\d+)\s?(.*)/);
+    if (!match) return false;
+
+    var currentNum = parseInt(match[1], 10);
+    var body = match[2];
+
+    // Line number only (no body) → clear the line number (exit AUTO)
+    if (!body.trim()) {
+        view.dispatch({
+            changes: { from: currentLine.from, to: currentLine.to, insert: '' }
+        });
+        return true;
+    }
+
+    // Check next line for existing line number
+    var nextLineNum = null;
+    if (currentLine.number < state.doc.lines) {
+        var nextLine = state.doc.line(currentLine.number + 1);
+        var nextMatch = nextLine.text.match(/^(\d+)/);
+        if (nextMatch) nextLineNum = parseInt(nextMatch[1], 10);
+    }
+
+    // Calculate new line number
+    var newNum;
+    if (nextLineNum !== null) {
+        // Between lines: midpoint
+        newNum = Math.floor((currentNum + nextLineNum) / 2);
+        if (newNum <= currentNum || newNum >= nextLineNum) {
+            return false; // No room → normal Enter
+        }
+    } else {
+        // At end: +10
+        newNum = currentNum + 10;
+        if (newNum > 65535) return false;
+    }
+
+    var insertText = '\n' + newNum + ' ';
+    view.dispatch({
+        changes: { from: cursor, insert: insertText },
+        selection: { anchor: cursor + insertText.length }
+    });
+    return true;
+}
