@@ -13,12 +13,47 @@ window.__X1PEN_MODE = true;
     var coldStateData = null;
     var bootDiskData  = null;
 
+    var LS_EDITOR_BASIC = 'x1pen_editor';
+    var LS_EDITOR_ASM   = 'x1pen_editor_asm';
+
     var elBtnRun    = document.getElementById('btn-run');
     var elBtnStop   = document.getElementById('btn-stop');
     var elStatus    = document.getElementById('x1pen-status');
-    var elEditor    = document.getElementById('basic-editor');
-    var elAsmEditor = document.getElementById('asm-editor');
     var activeTab   = 'basic';
+
+    // CodeMirror editors
+    var pauseCallbacks = {
+        onFocus: function() { if (module && module._js_xmil_stop) module._js_xmil_stop(); },
+        onBlur:  function() { if (module && module._js_xmil_start) module._js_xmil_start(); }
+    };
+
+    var basicEditor = window.X1PenEditor.create(
+        document.getElementById('basic-editor-container'),
+        { language: 'basic',
+          showLineNumbers: false,
+          placeholder: '10 PRINT "HELLO WORLD"\n20 GOTO 10',
+          onChange: function(text) { try { localStorage.setItem(LS_EDITOR_BASIC, text); } catch(e) {} },
+          onFocus: pauseCallbacks.onFocus,
+          onBlur:  pauseCallbacks.onBlur }
+    );
+
+    var asmEditor = window.X1PenEditor.create(
+        document.getElementById('asm-editor-container'),
+        { language: 'asm',
+          showLineNumbers: true,
+          placeholder: '; Z80 Assembly\nORG 0E000h\n    LD A,042h\n    RET',
+          onChange: function(text) { try { localStorage.setItem(LS_EDITOR_ASM, text); } catch(e) {} },
+          onFocus: pauseCallbacks.onFocus,
+          onBlur:  pauseCallbacks.onBlur }
+    );
+
+    // localStorage から復元 (silent: onChange を発火させない)
+    try {
+        var savedBasic = localStorage.getItem(LS_EDITOR_BASIC);
+        if (savedBasic) basicEditor.setValue(savedBasic, { silent: true });
+        var savedAsm = localStorage.getItem(LS_EDITOR_ASM);
+        if (savedAsm) asmEditor.setValue(savedAsm, { silent: true });
+    } catch(e) {}
 
     // ── ステート復元 (専用経路 — マウント復元なし) ──
 
@@ -91,7 +126,7 @@ window.__X1PEN_MODE = true;
                     ' coldStateData=' + !!coldStateData);
         if (!module || !coldStateData) return;
 
-        var asmSrc = elAsmEditor ? elAsmEditor.value.trim() : '';
+        var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
         var hasProgramDisk = false;
 
         // 1. ASM アセンブル (タブに内容がある場合)
@@ -106,7 +141,7 @@ window.__X1PEN_MODE = true;
         }
 
         // 2. BASIC ソースをトークナイズ (ディスク書き込みと RAM 注入の両方に使う)
-        var src = elEditor.value.trim();
+        var src = basicEditor.getValue().trim();
         var tokenized = null;
         if (src) {
             try {
@@ -150,7 +185,9 @@ window.__X1PEN_MODE = true;
         simulateRunCommand();
 
         elStatus.textContent = 'Running';
-        elEditor.blur();  // キャンバスにフォーカス移動
+        // キャンバスにフォーカス移動 (エミュ再開のため blur が必要)
+        var canvas = document.getElementById('canvas');
+        if (canvas) canvas.focus();
     }
 
     // ── PROGRAM ディスク マウント ──
@@ -201,10 +238,10 @@ window.__X1PEN_MODE = true;
     // ── Share ──
 
     async function onShareClick() {
-        var src = elEditor.value.trim();
+        var src = basicEditor.getValue().trim();
         if (!src) { elStatus.textContent = 'Nothing to share'; return; }
 
-        var asmSrc = elAsmEditor ? elAsmEditor.value.trim() : '';
+        var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
         var payload = JSON.stringify({ basic: src, asm: asmSrc || null });
         var rawBytes = new TextEncoder().encode(payload);
 
@@ -340,9 +377,9 @@ window.__X1PEN_MODE = true;
                     } else {
                         shared = await shareResp.json();
                     }
-                    elEditor.value = shared.basic;
-                    if (elAsmEditor) {
-                        elAsmEditor.value = shared.asm || '';
+                    basicEditor.setValue(shared.basic, { silent: true });
+                    if (asmEditor) {
+                        asmEditor.setValue(shared.asm || '', { silent: true });
                     }
                     onRunClick();
                 } else if (shareResp.status === 400) {
@@ -750,46 +787,7 @@ window.__X1PEN_MODE = true;
         }
     });
 
-    // エディタ内の Tab キーでスペース挿入 (両エディタ共通)
-    function onEditorTab(e) {
-        if (e.key === 'Tab') {
-            e.preventDefault();
-            var start = this.selectionStart;
-            var end = this.selectionEnd;
-            this.value = this.value.substring(0, start) + '  ' + this.value.substring(end);
-            this.selectionStart = this.selectionEnd = start + 2;
-        }
-    }
-    elEditor.addEventListener('keydown', onEditorTab);
-    if (elAsmEditor) elAsmEditor.addEventListener('keydown', onEditorTab);
-
-    // エディタにフォーカス中はエミュレータを一時停止 (スクロール負荷軽減)
-    function onEditorFocus() { if (module && module._js_xmil_stop) module._js_xmil_stop(); }
-    function onEditorBlur()  { if (module && module._js_xmil_start) module._js_xmil_start(); }
-    elEditor.addEventListener('focus', onEditorFocus);
-    elEditor.addEventListener('blur', onEditorBlur);
-    if (elAsmEditor) {
-        elAsmEditor.addEventListener('focus', onEditorFocus);
-        elAsmEditor.addEventListener('blur', onEditorBlur);
-    }
-
-    // エディタ内容を localStorage に自動保存/復元
-    var LS_EDITOR_BASIC = 'x1pen_editor';
-    var LS_EDITOR_ASM   = 'x1pen_editor_asm';
-    try {
-        var savedBasic = localStorage.getItem(LS_EDITOR_BASIC);
-        if (savedBasic) elEditor.value = savedBasic;
-        if (elAsmEditor) {
-            var savedAsm = localStorage.getItem(LS_EDITOR_ASM);
-            if (savedAsm) elAsmEditor.value = savedAsm;
-        }
-    } catch(e) {}
-    elEditor.addEventListener('input', function() {
-        try { localStorage.setItem(LS_EDITOR_BASIC, elEditor.value); } catch(e) {}
-    });
-    if (elAsmEditor) elAsmEditor.addEventListener('input', function() {
-        try { localStorage.setItem(LS_EDITOR_ASM, elAsmEditor.value); } catch(e) {}
-    });
+    // Tab, focus/blur, localStorage は CodeMirror 初期化時に設定済み
 
     // タブ切り替え
     var editorTabs = document.getElementById('editor-tabs');
@@ -804,13 +802,15 @@ window.__X1PEN_MODE = true;
                 t.classList.toggle('active', t.dataset.tab === target);
             });
             var importBtn = document.getElementById('btn-asm-import');
+            var basicContainer = document.getElementById('basic-editor-container');
+            var asmContainer = document.getElementById('asm-editor-container');
             if (target === 'basic') {
-                elEditor.classList.remove('hidden');
-                if (elAsmEditor) elAsmEditor.classList.add('hidden');
+                if (basicContainer) basicContainer.classList.remove('hidden');
+                if (asmContainer) asmContainer.classList.add('hidden');
                 if (importBtn) importBtn.classList.add('hidden');
             } else {
-                elEditor.classList.add('hidden');
-                if (elAsmEditor) elAsmEditor.classList.remove('hidden');
+                if (basicContainer) basicContainer.classList.add('hidden');
+                if (asmContainer) asmContainer.classList.remove('hidden');
                 if (importBtn) importBtn.classList.remove('hidden');
             }
         });
@@ -836,7 +836,7 @@ window.__X1PEN_MODE = true;
         asmImportFile.addEventListener('change', function(e) {
             var file = e.target.files[0];
             e.target.value = '';
-            if (!file || !elAsmEditor) return;
+            if (!file || !asmEditor) return;
 
             if (file.size > 128 * 1024) {
                 elStatus.textContent = 'File too large (max 128KB)';
@@ -852,19 +852,16 @@ window.__X1PEN_MODE = true;
                 }
 
                 var dbText = binaryToDbLines(data, file.name);
-                var pos = elAsmEditor.selectionStart;
-                var val = elAsmEditor.value;
+                var pos = asmEditor.getCursor();
 
                 // 行の途中なら前に改行
-                var prefix = (pos > 0 && val[pos - 1] !== '\n') ? '\n' : '';
+                var prefix = (pos > 0 && asmEditor.getCharAt(pos - 1) !== '\n') ? '\n' : '';
                 // 末尾に改行
                 var suffix = '\n';
 
-                elAsmEditor.value = val.substring(0, pos) + prefix + dbText + suffix + val.substring(pos);
-                elAsmEditor.selectionStart = elAsmEditor.selectionEnd = pos + prefix.length + dbText.length + suffix.length;
-
-                // localStorage 保存をトリガー
-                elAsmEditor.dispatchEvent(new Event('input'));
+                var insertText = prefix + dbText + suffix;
+                asmEditor.insertAt(pos, insertText);
+                asmEditor.setCursor(pos + insertText.length);
                 elStatus.textContent = 'Imported: ' + file.name + ' (' + data.length + ' bytes)';
             };
             reader.readAsArrayBuffer(file);

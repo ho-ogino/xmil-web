@@ -214,6 +214,7 @@ set_property(TARGET xmillennium PROPERTY LINK_DEPENDS
     ${CMAKE_SOURCE_DIR}/html/x1pen.html
     ${CMAKE_SOURCE_DIR}/html/ui_fragments.js
     ${CMAKE_SOURCE_DIR}/html/x1pen_z80asm.js
+    ${CMAKE_SOURCE_DIR}/html/x1pen_editor.bundle.js
 )
 
 # ビルド後にファイルをコピー
@@ -249,6 +250,8 @@ add_custom_command(TARGET xmillennium POST_BUILD
     ${CMAKE_SOURCE_DIR}/html/x1pen_tokenizer.js ${CMAKE_BINARY_DIR}/x1pen_tokenizer.js
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/x1pen_z80asm.js ${CMAKE_BINARY_DIR}/x1pen_z80asm.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/html/x1pen_editor.bundle.js ${CMAKE_BINARY_DIR}/x1pen_editor.bundle.js
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/ui_fragments.js ${CMAKE_BINARY_DIR}/ui_fragments.js
     # config.js: html/config.js があればそれを使用（認証情報入り・gitignore済み）

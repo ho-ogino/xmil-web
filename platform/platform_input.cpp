@@ -150,13 +150,15 @@ static int browser_code_to_vk(const char* code) {
 
 // キーボードイベントコールバック
 static EM_BOOL keyboard_callback(int eventType, const EmscriptenKeyboardEvent* e, void* userData) {
-    // input / textarea / select にフォーカスがある場合はエミュレータに送らない
-    // （Drive ブラウザの検索欄など、UI入力欄でのキー入力を許可するため）
+    // input / textarea / select / contentEditable にフォーカスがある場合はエミュレータに送らない
+    // （UI入力欄や CodeMirror エディタでのキー入力を許可するため）
     int inFormField = EM_ASM_INT({
         var el = document.activeElement;
         if (!el) return 0;
         var tag = el.tagName;
-        return (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') ? 1 : 0;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return 1;
+        if (el.isContentEditable) return 1;
+        return 0;
     });
     if (inFormField) return FALSE;  // ブラウザのデフォルト動作を通す
 
