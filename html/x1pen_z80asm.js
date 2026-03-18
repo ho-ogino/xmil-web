@@ -51,6 +51,8 @@
             if (c === ' ' || c === '\t') { i++; continue; }
             if (c === '+') { tokens.push({ type: 'OP', val: '+' }); i++; continue; }
             if (c === '-') { tokens.push({ type: 'OP', val: '-' }); i++; continue; }
+            if (c === '*') { tokens.push({ type: 'OP', val: '*' }); i++; continue; }
+            if (c === '/') { tokens.push({ type: 'OP', val: '/' }); i++; continue; }
             if (c === '(') { tokens.push({ type: 'LPAREN' }); i++; continue; }
             if (c === ')') { tokens.push({ type: 'RPAREN' }); i++; continue; }
             if (c === '$' && (i + 1 >= s.length || !/[0-9a-f]/i.test(s[i + 1]))) {
@@ -122,13 +124,28 @@
             return null;
         }
 
-        function parseAddSub() {
+        function parseMulDiv() {
             var left = parseAtom();
             while (true) {
                 var t = peek();
-                if (!t || t.type !== 'OP') break;
+                if (!t || t.type !== 'OP' || (t.val !== '*' && t.val !== '/')) break;
                 var op = next().val;
                 var right = parseAtom();
+                if (left === null || left === undefined || right === null || right === undefined)
+                    return undefined;
+                if (op === '*') left = (left * right) & 0xFFFF;
+                else left = (right !== 0) ? (Math.floor(left / right)) & 0xFFFF : 0;
+            }
+            return left;
+        }
+
+        function parseAddSub() {
+            var left = parseMulDiv();
+            while (true) {
+                var t = peek();
+                if (!t || t.type !== 'OP' || (t.val !== '+' && t.val !== '-')) break;
+                var op = next().val;
+                var right = parseMulDiv();
                 if (left === null || left === undefined || right === null || right === undefined)
                     return undefined;
                 if (op === '+') left = (left + right) & 0xFFFF;
