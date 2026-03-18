@@ -133,6 +133,19 @@
             color: #e94560;
             border-bottom-color: #e94560;
         }
+        .editor-tab-action {
+            font-family: 'Courier New', monospace;
+            font-size: 0.7em;
+            padding: 3px 10px;
+            margin-left: auto;
+            background: #0d1e36;
+            border: 1px solid #1a4a88;
+            border-radius: 3px;
+            color: #5599ee;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .editor-tab-action:hover { background: #0d2244; color: #88bbff; }
 
         #basic-editor, #asm-editor {
             flex: 1;
@@ -305,6 +318,8 @@
             <div id="editor-tabs">
                 <button class="editor-tab active" data-tab="basic">BASIC</button>
                 <button class="editor-tab" data-tab="asm">ASM</button>
+                <button class="editor-tab-action hidden" id="btn-asm-import" title="Import binary as DB lines">Import</button>
+                <input type="file" id="asm-import-file" style="display:none">
             </div>
             <textarea id="basic-editor" spellcheck="false" wrap="off"
                 placeholder="10 PRINT &quot;HELLO WORLD&quot;&#10;20 GOTO 10"></textarea>

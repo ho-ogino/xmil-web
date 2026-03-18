@@ -793,13 +793,71 @@ window.__X1PEN_MODE = true;
             editorTabs.querySelectorAll('.editor-tab').forEach(function(t) {
                 t.classList.toggle('active', t.dataset.tab === target);
             });
+            var importBtn = document.getElementById('btn-asm-import');
             if (target === 'basic') {
                 elEditor.classList.remove('hidden');
                 if (elAsmEditor) elAsmEditor.classList.add('hidden');
+                if (importBtn) importBtn.classList.add('hidden');
             } else {
                 elEditor.classList.add('hidden');
                 if (elAsmEditor) elAsmEditor.classList.remove('hidden');
+                if (importBtn) importBtn.classList.remove('hidden');
             }
+        });
+    }
+
+    // ASM Import: バイナリ → DB 行変換
+    function binaryToDbLines(uint8array, filename) {
+        var lines = ['; imported: ' + filename + ' (' + uint8array.length + ' bytes)'];
+        for (var i = 0; i < uint8array.length; i += 16) {
+            var chunk = uint8array.slice(i, Math.min(i + 16, uint8array.length));
+            var hex = Array.from(chunk).map(function(b) {
+                return '$' + ('0' + b.toString(16).toUpperCase()).slice(-2);
+            });
+            lines.push('DB ' + hex.join(','));
+        }
+        return lines.join('\n');
+    }
+
+    var asmImportBtn = document.getElementById('btn-asm-import');
+    var asmImportFile = document.getElementById('asm-import-file');
+    if (asmImportBtn && asmImportFile) {
+        asmImportBtn.addEventListener('click', function() { asmImportFile.click(); });
+        asmImportFile.addEventListener('change', function(e) {
+            var file = e.target.files[0];
+            e.target.value = '';
+            if (!file || !elAsmEditor) return;
+
+            if (file.size > 128 * 1024) {
+                elStatus.textContent = 'File too large (max 128KB)';
+                return;
+            }
+
+            var reader = new FileReader();
+            reader.onload = function() {
+                var data = new Uint8Array(reader.result);
+
+                if (data.length > 64 * 1024) {
+                    elStatus.textContent = 'Warning: large file, may affect share';
+                }
+
+                var dbText = binaryToDbLines(data, file.name);
+                var pos = elAsmEditor.selectionStart;
+                var val = elAsmEditor.value;
+
+                // 行の途中なら前に改行
+                var prefix = (pos > 0 && val[pos - 1] !== '\n') ? '\n' : '';
+                // 末尾に改行
+                var suffix = '\n';
+
+                elAsmEditor.value = val.substring(0, pos) + prefix + dbText + suffix + val.substring(pos);
+                elAsmEditor.selectionStart = elAsmEditor.selectionEnd = pos + prefix.length + dbText.length + suffix.length;
+
+                // localStorage 保存をトリガー
+                elAsmEditor.dispatchEvent(new Event('input'));
+                elStatus.textContent = 'Imported: ' + file.name + ' (' + data.length + ' bytes)';
+            };
+            reader.readAsArrayBuffer(file);
         });
     }
 })();
