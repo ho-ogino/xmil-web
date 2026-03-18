@@ -105,10 +105,12 @@ var fuzzyBasicParser = {
             return 'labelName';
         }
 
-        // Hex number &Hxx
-        if (stream.match(/^&H[0-9A-Fa-f]+/i)) {
-            return 'number';
-        }
+        // Hex number &Hxx or $xx
+        if (stream.match(/^&H[0-9A-Fa-f]+/i)) return 'number';
+        if (stream.match(/^\$[0-9A-Fa-f]+/)) return 'number';
+
+        // Binary %nnnn
+        if (stream.match(/^%[01]+/)) return 'number';
 
         // Word (keyword, function, variable)
         if (stream.match(/^[A-Za-z_][A-Za-z0-9_$@^]*/)) {
