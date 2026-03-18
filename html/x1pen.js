@@ -763,6 +763,16 @@ window.__X1PEN_MODE = true;
     elEditor.addEventListener('keydown', onEditorTab);
     if (elAsmEditor) elAsmEditor.addEventListener('keydown', onEditorTab);
 
+    // エディタにフォーカス中はエミュレータを一時停止 (スクロール負荷軽減)
+    function onEditorFocus() { if (module && module._js_xmil_stop) module._js_xmil_stop(); }
+    function onEditorBlur()  { if (module && module._js_xmil_start) module._js_xmil_start(); }
+    elEditor.addEventListener('focus', onEditorFocus);
+    elEditor.addEventListener('blur', onEditorBlur);
+    if (elAsmEditor) {
+        elAsmEditor.addEventListener('focus', onEditorFocus);
+        elAsmEditor.addEventListener('blur', onEditorBlur);
+    }
+
     // エディタ内容を localStorage に自動保存/復元
     var LS_EDITOR_BASIC = 'x1pen_editor';
     var LS_EDITOR_ASM   = 'x1pen_editor_asm';
