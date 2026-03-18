@@ -40,6 +40,17 @@ echo "Emscripten version:"
 emcc --version
 echo ""
 
+# CodeMirror バンドルビルド
+if [ -f "${SCRIPT_DIR}/package.json" ]; then
+    echo "Building CodeMirror bundle..."
+    cd "${SCRIPT_DIR}"
+    if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ]; then
+        npm ci
+    fi
+    npx esbuild src/x1pen_editor.js --bundle --outfile=html/x1pen_editor.bundle.js --format=iife --minify
+    cd "${SCRIPT_DIR}"
+fi
+
 # ビルドディレクトリの作成
 echo "Creating build directory..."
 mkdir -p build
@@ -80,6 +91,8 @@ cp "${SCRIPT_DIR}/html/x1pen.html"           ./x1pen.html
 cp "${SCRIPT_DIR}/html/x1pen.js"             ./x1pen.js
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
+[ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
+    cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ./x1pen_editor.bundle.js
 [ -f "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" ] && \
     cp "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" "./${COLD_STATE_FILE}"
 [ -f "${SCRIPT_DIR}/assets/${BOOT_DISK_FILE}" ] && \
@@ -132,6 +145,8 @@ cp "${SCRIPT_DIR}/html/x1pen.html"           "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen.js"             "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
+[ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
+    cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" ] && \
     cp "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/assets/${BOOT_DISK_FILE}" ] && \

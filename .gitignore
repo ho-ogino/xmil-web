@@ -32,6 +32,10 @@ wrangler.toml
 # Google Search Console 認証ファイル（個人用、公開リポジトリに含めない）
 html/google*.html
 
+# Node.js
+node_modules/
+html/x1pen_editor.bundle.js
+
 # エディタ
 .vscode/
 .idea/

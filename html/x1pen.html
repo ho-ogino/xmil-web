@@ -147,23 +147,14 @@
         }
         .editor-tab-action:hover { background: #0d2244; color: #88bbff; }
 
-        #basic-editor, #asm-editor {
+        #basic-editor-container, #asm-editor-container {
             flex: 1;
-            width: 100%;
+            overflow: hidden;
             background: #0d1117;
-            color: #c9d1d9;
-            border: none;
-            padding: 12px;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            line-height: 1.5;
-            resize: none;
-            outline: none;
-            tab-size: 4;
         }
-
-        #basic-editor::placeholder, #asm-editor::placeholder {
-            color: #484f58;
+        #basic-editor-container .cm-editor,
+        #asm-editor-container .cm-editor {
+            height: 100%;
         }
 
         /* ── エミュレータパネル ── */
@@ -321,10 +312,8 @@
                 <button class="editor-tab-action hidden" id="btn-asm-import" title="Import binary as DB lines">Import</button>
                 <input type="file" id="asm-import-file" style="display:none">
             </div>
-            <textarea id="basic-editor" spellcheck="false" wrap="off"
-                placeholder="10 PRINT &quot;HELLO WORLD&quot;&#10;20 GOTO 10"></textarea>
-            <textarea id="asm-editor" class="hidden" spellcheck="false" wrap="off"
-                placeholder="; Z80 Assembly&#10;ORG &amp;HE000&#10;    LD A,&amp;H41&#10;    RET"></textarea>
+            <div id="basic-editor-container"></div>
+            <div id="asm-editor-container" class="hidden"></div>
         </div>
         <div id="emu-panel">
             <canvas id="canvas" width="640" height="400"></canvas>
@@ -439,6 +428,7 @@
 
     <script src="storage.js"></script>
     <script src="ui_fragments.js"></script>
+    <script src="x1pen_editor.bundle.js"></script>
     <script src="x1pen_tokenizer.js"></script>
     <script src="x1pen_z80asm.js"></script>
     <script src="x1pen.js"></script>
