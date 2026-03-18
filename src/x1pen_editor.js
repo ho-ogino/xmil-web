@@ -5,7 +5,10 @@ import { EditorView, keymap, placeholder as cmPlaceholder, lineNumbers } from '@
 import { EditorState, Annotation } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
-import { bracketMatching } from '@codemirror/language';
+import { bracketMatching, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
+import { fuzzyBasicLanguage } from './x1pen_basic_lang.js';
+import { z80AsmLanguage } from './x1pen_asm_lang.js';
 
 // Annotation to suppress onChange callback (e.g. share load)
 const silentAnnotation = Annotation.define();
@@ -59,6 +62,24 @@ const x1penTheme = EditorView.theme({
     },
 }, { dark: true });
 
+// Syntax highlight colors
+const x1penHighlight = HighlightStyle.define([
+    { tag: tags.keyword,      color: '#c678dd' },  // purple (mnemonics/BASIC keywords)
+    { tag: tags.typeName,     color: '#61afef' },  // blue (ASM pseudo-instructions)
+    { tag: tags.variableName, color: '#e5c07b' },  // yellow (registers)
+    { tag: tags.labelName,    color: '#e5c07b' },  // yellow (labels)
+    { tag: tags.string,       color: '#98c379' },  // green
+    { tag: tags.comment,      color: '#5c6370', fontStyle: 'italic' },
+    { tag: tags.number,       color: '#d19a66' },  // orange
+    { tag: tags.operator,     color: '#56b6c2' },  // cyan
+]);
+
+// Language map
+const LANGUAGES = {
+    'basic': fuzzyBasicLanguage,
+    'asm': z80AsmLanguage,
+};
+
 /**
  * Create a CodeMirror editor instance
  * @param {HTMLElement} container - mount target
@@ -72,16 +93,28 @@ const x1penTheme = EditorView.theme({
 function createEditor(container, opts) {
     opts = opts || {};
 
-    var extensions = [
-        lineNumbers(),
+    var extensions = [];
+
+    // Line numbers (opt-out for BASIC tab)
+    if (opts.showLineNumbers !== false) {
+        extensions.push(lineNumbers());
+    }
+
+    extensions.push(
         history(),
         bracketMatching(),
         highlightSelectionMatches(),
         tabToSpaces,
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
         x1penTheme,
+        syntaxHighlighting(x1penHighlight),
         EditorView.lineWrapping,
-    ];
+    );
+
+    // Language support
+    if (opts.language && LANGUAGES[opts.language]) {
+        extensions.push(LANGUAGES[opts.language]);
+    }
 
     if (opts.placeholder) {
         extensions.push(cmPlaceholder(opts.placeholder));

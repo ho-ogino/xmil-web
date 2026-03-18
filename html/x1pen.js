@@ -29,7 +29,9 @@ window.__X1PEN_MODE = true;
 
     var basicEditor = window.X1PenEditor.create(
         document.getElementById('basic-editor-container'),
-        { placeholder: '10 PRINT "HELLO WORLD"\n20 GOTO 10',
+        { language: 'basic',
+          showLineNumbers: false,
+          placeholder: '10 PRINT "HELLO WORLD"\n20 GOTO 10',
           onChange: function(text) { try { localStorage.setItem(LS_EDITOR_BASIC, text); } catch(e) {} },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
@@ -37,7 +39,9 @@ window.__X1PEN_MODE = true;
 
     var asmEditor = window.X1PenEditor.create(
         document.getElementById('asm-editor-container'),
-        { placeholder: '; Z80 Assembly\nORG 0E000h\n    LD A,042h\n    RET',
+        { language: 'asm',
+          showLineNumbers: true,
+          placeholder: '; Z80 Assembly\nORG 0E000h\n    LD A,042h\n    RET',
           onChange: function(text) { try { localStorage.setItem(LS_EDITOR_ASM, text); } catch(e) {} },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
