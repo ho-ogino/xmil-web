@@ -98,8 +98,15 @@ var z80AsmParser = {
             return null;
         }
 
-        // Operators
+        // Operators (but not $ which starts hex numbers)
         if (stream.match(/^[+\-*\/,()]/)) {
+            return null;
+        }
+
+        // $ followed by hex digits — retry as number
+        if (stream.peek() === '$') {
+            stream.next();
+            if (stream.match(/^[0-9A-Fa-f]+/)) return 'number';
             return null;
         }
 
