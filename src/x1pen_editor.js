@@ -13,11 +13,15 @@ import { z80AsmLanguage } from './x1pen_asm_lang.js';
 // Annotation to suppress onChange callback (e.g. share load)
 const silentAnnotation = Annotation.define();
 
-// Tab → 4 spaces
+// Tab → align to next 4-space tab stop
 const tabToSpaces = keymap.of([{
     key: 'Tab',
     run: (view) => {
-        view.dispatch(view.state.replaceSelection('    '));
+        var cursor = view.state.selection.main.head;
+        var line = view.state.doc.lineAt(cursor);
+        var col = cursor - line.from;
+        var spaces = 4 - (col % 4) || 4;
+        view.dispatch(view.state.replaceSelection(' '.repeat(spaces)));
         return true;
     }
 }]);
