@@ -146,6 +146,18 @@
     // Line parser
     // ================================================================
 
+    // Known mnemonics/pseudo-instructions (for label-without-colon detection)
+    var KNOWN_MNEMONICS = {};
+    ('NOP HALT DI EI RLCA RRCA RLA RRA DAA CPL SCF CCF EXX RET ' +
+     'LD PUSH POP EX ADD ADC SUB SBC AND OR XOR CP INC DEC ' +
+     'JP JR DJNZ CALL RST IN OUT NEG ' +
+     'RLC RRC RL RR SLA SRA SRL BIT RES SET ' +
+     'RETI RETN IM RRD RLD LDI LDIR LDD LDDR CPI CPIR CPD CPDR ' +
+     'INI INIR IND INDR OUTI OTIR OUTD OTDR ' +
+     'ORG DB DW DS DEFB DEFW DEFS EQU').split(' ').forEach(function(m) {
+        KNOWN_MNEMONICS[m] = true;
+    });
+
     function parseLine(line) {
         // Returns { label, mnemonic, operands, comment, raw }
         var result = { label: null, mnemonic: null, operands: '', comment: null, raw: line };
@@ -163,7 +175,7 @@
         code = code.trimEnd();
         if (code.trim() === '') return result;
 
-        // Check for label: at start of line
+        // Check for label: at start of line (with colon)
         var m = code.match(/^(\.[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*)\s*:/);
         if (m) {
             result.label = m[1];
@@ -180,6 +192,16 @@
             result.mnemonic = 'EQU';
             result.operands = equMatch[2].trim();
             return result;
+        }
+
+        // Check for label without colon at start of line (not indented, not a known mnemonic)
+        if (!result.label && code === code.trimStart()) {
+            var wordMatch = code.match(/^([a-zA-Z_][a-zA-Z0-9_]*)([\s].*)?$/);
+            if (wordMatch && !(wordMatch[1].toUpperCase() in KNOWN_MNEMONICS)) {
+                result.label = wordMatch[1];
+                code = (wordMatch[2] || '').trim();
+                if (code === '') return result;
+            }
         }
 
         // Mnemonic + operands
