@@ -105,42 +105,43 @@ window.__X1PEN_MODE = true;
             }
         }
 
-        // 2. コールドステート復元 (マシンを FuzzyBASIC Ok プロンプト状態に)
+        // 2. BASIC ソースをトークナイズ (ディスク書き込みと RAM 注入の両方に使う)
+        var src = elEditor.value.trim();
+        var tokenized = null;
+        if (src) {
+            try {
+                tokenized = window.X1PenTokenizer.tokenizeProgram(src);
+            } catch(e) {
+                elStatus.textContent = 'Tokenize error: ' + e.message;
+                return;
+            }
+        }
+
+        // 3. コールドステート復元 (マシンを FuzzyBASIC Ok プロンプト状態に)
         if (!restoreColdState()) {
             elStatus.textContent = 'State restore failed';
             return;
         }
 
-        // 3. ASM バイナリをディスクに配置して FDD0 にマウント
+        // 4. ASM バイナリをディスクに配置して FDD0 にマウント (BASIC も同梱)
         if (asmResult && asmResult.bytes.length > 0) {
-            if (!(await mountProgramDisk(asmResult.bytes))) {
+            if (!(await mountProgramDisk(asmResult.bytes, tokenized))) {
                 elStatus.textContent = 'Disk write failed';
                 return;
             }
             hasProgramDisk = true;
         }
 
-        // 4. FDD 等のマウント状態を再適用 (PROGRAM ディスク使用時は drive0 を除外)
+        // 5. FDD 等のマウント状態を再適用 (PROGRAM ディスク使用時は drive0 を除外)
         if (window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
             await window.XmilLibrary.autoRestoreMounts(hasProgramDisk ? ['drive0'] : []);
         }
 
-        // 5. BASIC ソースをトークナイズ
-        var src = elEditor.value.trim();
-        if (!src) {
+        // 6. エミュレータメモリに BASIC 注入
+        if (!tokenized) {
             elStatus.textContent = 'No program to run';
             return;
         }
-
-        var tokenized;
-        try {
-            tokenized = window.X1PenTokenizer.tokenizeProgram(src);
-        } catch(e) {
-            elStatus.textContent = 'Tokenize error: ' + e.message;
-            return;
-        }
-
-        // 6. エミュレータメモリに注入
         injectProgram(tokenized);
 
         // 7. エミュレータ開始 + "RUN"+Enter キー注入
@@ -154,7 +155,7 @@ window.__X1PEN_MODE = true;
 
     // ── PROGRAM ディスク マウント ──
 
-    async function mountProgramDisk(programBytes) {
+    async function mountProgramDisk(programBytes, basicTokenized) {
         if (!bootDiskData) {
             console.error('[x1pen] Boot disk not loaded');
             return false;
@@ -171,6 +172,9 @@ window.__X1PEN_MODE = true;
         try {
             var fs = new window.XmilDiskFS.LsxDodgersFS(container);
             fs.addFile('PROGRAM', 'BIN', new Uint8Array(programBytes));
+            if (basicTokenized) {
+                fs.addFile('AUTORUN', 'BAS', basicTokenized);
+            }
         } catch(e) {
             console.error('[x1pen] Disk write failed:', e);
             return false;
