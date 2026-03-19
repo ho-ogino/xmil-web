@@ -343,6 +343,22 @@ window.__X1PEN_MODE = true;
         elStatus.textContent = 'Stopped';
     }
 
+    // ── Audio unmute overlay (for autoplay policy) ──
+
+    function showAudioUnmuteIfNeeded() {
+        var ctx = window.audioContext;
+        if (ctx && ctx.state === 'running') return;  // already unlocked
+        var overlay = document.getElementById('audio-unmute-overlay');
+        if (!overlay) return;
+        overlay.classList.remove('hidden');
+        overlay.addEventListener('click', function onClick() {
+            overlay.removeEventListener('click', onClick);
+            overlay.classList.add('hidden');
+            // AudioContext をアンロック
+            if (window.XmilInit) window.XmilInit.setupAudioStream();
+        });
+    }
+
     // ── Share ──
 
     async function onShareClick() {
@@ -506,6 +522,8 @@ window.__X1PEN_MODE = true;
                         };
                     }
                     await onRunClick();
+                    // 自動実行後: AudioContext がまだ suspended ならオーバーレイ表示
+                    showAudioUnmuteIfNeeded();
                 } else if (shareResp.status === 400) {
                     elStatus.textContent = 'Invalid share ID';
                 } else if (shareResp.status === 404) {
