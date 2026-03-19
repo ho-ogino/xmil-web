@@ -347,16 +347,19 @@ window.__X1PEN_MODE = true;
 
     function showAudioUnmuteIfNeeded() {
         var ctx = window.audioContext;
-        if (ctx && ctx.state === 'running') return;  // already unlocked
+        if (ctx && ctx.state === 'running') return;
         var overlay = document.getElementById('audio-unmute-overlay');
+        var canvas = document.getElementById('canvas');
         if (!overlay) return;
         overlay.classList.remove('hidden');
-        overlay.addEventListener('click', function onClick() {
-            overlay.removeEventListener('click', onClick);
+        function unlock() {
             overlay.classList.add('hidden');
-            // AudioContext をアンロック
+            overlay.removeEventListener('click', unlock);
+            if (canvas) canvas.removeEventListener('click', unlock);
             if (window.XmilInit) window.XmilInit.setupAudioStream();
-        });
+        }
+        overlay.addEventListener('click', unlock);
+        if (canvas) canvas.addEventListener('click', unlock);
     }
 
     // ── Share ──
