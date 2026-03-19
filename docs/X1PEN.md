@@ -51,20 +51,22 @@ ORG 0E000h
 
 **BASIC タブ**:
 ```
-10 BLOAD "PROGRAM.BIN",&HE000
-20 A=USR(0)
-30 PRINT "A=";A
+10 LIMIT &HBFFF
+20 BLOAD "PROGRAM.BIN",&HC000
+30 A=USR(&HC000)
+40 PRINT "A=";A
 ```
 
 **ASM タブ**:
 ```
-ORG 0E000h
-    LD A,42h
+ORG 0C000h
+    LD HL,42h
     RET
 ```
 
-この例では、ASM で書いたルーチンが `&HE000` に配置され、
-BASIC の `USR(0)` で呼び出されます。
+- `LIMIT &HBFFF` で BASIC のメモリ上限を設定し、`&HC000` 以降をマシン語用に確保します
+- ASM のルーチンが `&HC000` に配置され、BASIC の `USR(&HC000)` で呼び出されます
+- FuzzyBASIC では `USR` の戻り値は HL レジスタに入れます
 
 ## PROGRAM ディスクと AUTORUN.BAS
 
@@ -81,8 +83,8 @@ ASM タブに内容がある状態で RUN すると、FDD0 に「(PROGRAM)」デ
 エミュレータ下部のコントロールバーで **FDD** → FDD0 の **Save** ボタンをクリックすると、
 `PROGRAM.d88` としてディスクイメージをダウンロードできます。
 
-このディスクは LSX-Dodgers + FuzzyBASIC 環境で起動可能です。
-X millennium Web 本体のエミュレータでも、そのまま FDD にマウントして使えます。
+このディスクには LSX-Dodgers と FuzzyBASIC が含まれており、そのままブートできる起動ディスクです。
+X millennium Web 本体のエミュレータで FDD にマウントして起動すれば、AUTORUN.BAS が自動実行されます。
 
 ## Share（共有）
 
@@ -126,4 +128,4 @@ BASIC タブと ASM タブはそれぞれ独立して保存されます。
 
 - エディタにフォーカスがある間、エミュレータは一時停止します（スクロール時の負荷軽減のため）
 - エミュレータ画面をクリックすると再開します
-- 共有 URL のプログラムは Cloudflare D1 に保存されます（1年で自動削除）
+- 共有 URL のプログラムは Cloudflare D1 に保存されます
