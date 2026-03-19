@@ -14,11 +14,13 @@ window.__X1PEN_MODE = true;
     // ── Runtime asset cache + selection ──
     var assetCache = {};  // filename → ArrayBuffer
 
-    async function loadRuntimeAsset(filename) {
+    async function loadRuntimeAsset(filename, forceReload) {
         if (!filename) return null;
-        if (assetCache[filename]) return assetCache[filename];
+        if (!forceReload && assetCache[filename]) return assetCache[filename];
         try {
-            var resp = await fetch(filename);
+            var url = forceReload ? filename + '?dev-bust=' + Date.now() : filename;
+            var opts = forceReload ? { cache: 'reload' } : undefined;
+            var resp = await fetch(url, opts);
             if (!resp.ok) return null;
             var data = await resp.arrayBuffer();
             assetCache[filename] = data;
@@ -76,13 +78,12 @@ window.__X1PEN_MODE = true;
     }
 
     async function reloadAssetsBypassCache() {
-        // Clear cache and re-fetch
         assetCache = {};
         if (elBtnDevReload) elBtnDevReload.disabled = true;
         elStatus.textContent = 'Reloading assets...';
         try {
-            await loadRuntimeAsset(COLD_STATE_FILE);
-            await loadRuntimeAsset(BOOT_DISK_FILE);
+            await loadRuntimeAsset(COLD_STATE_FILE, true);
+            await loadRuntimeAsset(BOOT_DISK_FILE, true);
             elStatus.textContent = 'Assets reloaded';
         } catch (e) {
             elStatus.textContent = 'Asset reload failed: ' + e.message;
@@ -477,6 +478,9 @@ window.__X1PEN_MODE = true;
         var urlId = new URLSearchParams(location.search).get('id');
         if (urlId) {
             elStatus.textContent = 'Loading shared code...';
+            // 読み込み中は Share ボタンを無効化 (race 防止)
+            var elBtnShare = document.getElementById('btn-share');
+            if (elBtnShare) elBtnShare.disabled = true;
             try {
                 var shareResp = await fetch('/api/share/' + encodeURIComponent(urlId));
                 if (shareResp.ok) {
@@ -501,7 +505,7 @@ window.__X1PEN_MODE = true;
                             bootDisk: validateAssetName(shared.meta.bootDisk, BOOT_DISK_FILE)
                         };
                     }
-                    onRunClick();
+                    await onRunClick();
                 } else if (shareResp.status === 400) {
                     elStatus.textContent = 'Invalid share ID';
                 } else if (shareResp.status === 404) {
@@ -512,6 +516,8 @@ window.__X1PEN_MODE = true;
             } catch(e) {
                 console.warn('[x1pen] Failed to load shared code:', e);
                 elStatus.textContent = 'Shared code load failed';
+            } finally {
+                if (elBtnShare) elBtnShare.disabled = false;
             }
         }
     };
