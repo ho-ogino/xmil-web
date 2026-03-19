@@ -93,10 +93,13 @@ cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
 [ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ./x1pen_editor.bundle.js
-[ -f "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" ] && \
-    cp "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" "./${COLD_STATE_FILE}"
-[ -f "${SCRIPT_DIR}/assets/${BOOT_DISK_FILE}" ] && \
-    cp "${SCRIPT_DIR}/assets/${BOOT_DISK_FILE}" "./${BOOT_DISK_FILE}"
+# Cold state / boot disk: 全バージョンをコピー (Share 再生互換のため)
+for f in "${SCRIPT_DIR}"/assets/fuzzybasic_cold.*.xmst; do
+    [ -f "$f" ] && cp "$f" "./"
+done
+for f in "${SCRIPT_DIR}"/assets/fuzzybasic_boot.*.d88; do
+    [ -f "$f" ] && cp "$f" "./"
+done
 
 echo ""
 echo "======================================"
@@ -147,10 +150,12 @@ cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" "${DIST_DIR}/"
-[ -f "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" ] && \
-    cp "${SCRIPT_DIR}/assets/${COLD_STATE_FILE}" "${DIST_DIR}/"
-[ -f "${SCRIPT_DIR}/assets/${BOOT_DISK_FILE}" ] && \
-    cp "${SCRIPT_DIR}/assets/${BOOT_DISK_FILE}" "${DIST_DIR}/"
+for f in "${SCRIPT_DIR}"/assets/fuzzybasic_cold.*.xmst; do
+    [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
+done
+for f in "${SCRIPT_DIR}"/assets/fuzzybasic_boot.*.d88; do
+    [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
+done
 
 # Pages Functions (Cloudflare Workers)
 if [ -d "${SCRIPT_DIR}/functions" ]; then

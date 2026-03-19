@@ -10,16 +10,86 @@ window.__X1PEN_MODE = true;
     var COLD_STATE_FILE = 'fuzzybasic_cold.v1.xmst';
     var BOOT_DISK_FILE  = 'fuzzybasic_boot.v1.d88';
     var module = null;
-    var coldStateData = null;
-    var bootDiskData  = null;
+
+    // ── Runtime asset cache + selection ──
+    var assetCache = {};  // filename → ArrayBuffer
+
+    async function loadRuntimeAsset(filename) {
+        if (!filename) return null;
+        if (assetCache[filename]) return assetCache[filename];
+        try {
+            var resp = await fetch(filename);
+            if (!resp.ok) return null;
+            var data = await resp.arrayBuffer();
+            assetCache[filename] = data;
+            return data;
+        } catch(e) { return null; }
+    }
+
+    // model → asset resolution (currently all models use same assets)
+    function resolveRuntimeAssets(model) {
+        return { coldState: COLD_STATE_FILE, bootDisk: BOOT_DISK_FILE };
+    }
+
+    function validateModel(value, fallback) {
+        var n = parseInt(value, 10);
+        return (n >= 1 && n <= 3) ? n : fallback;
+    }
+
+    var COLD_STATE_PATTERN = /^fuzzybasic_cold\.[A-Za-z0-9._-]+\.xmst$/;
+    var BOOT_DISK_PATTERN  = /^fuzzybasic_boot\.[A-Za-z0-9._-]+\.d88$/;
+    function validateAssetName(name, fallback) {
+        if (!name || typeof name !== 'string') return fallback;
+        var pattern = name.endsWith('.xmst') ? COLD_STATE_PATTERN : BOOT_DISK_PATTERN;
+        return pattern.test(name) ? name : fallback;
+    }
+
+    function getUserDefaultRuntime() {
+        var settings = window.XmilControls ? window.XmilControls.getSettings() : {};
+        var model = validateModel(settings.romType, 1);
+        var assets = resolveRuntimeAssets(model);
+        return { model: model, coldState: assets.coldState, bootDisk: assets.bootDisk };
+    }
+
+    var pendingShareRuntime = null;
+    var lastUsedRuntime = null;
+    var lastRunWasShared = false;
+
+    function setModelAndClearShareState(model) {
+        if (window.XmilControls) window.XmilControls.setRomType(model);
+        lastRunWasShared = false;
+    }
 
     var LS_EDITOR_BASIC = 'x1pen_editor';
     var LS_EDITOR_ASM   = 'x1pen_editor_asm';
 
     var elBtnRun    = document.getElementById('btn-run');
     var elBtnStop   = document.getElementById('btn-stop');
+    var elBtnDevReload = document.getElementById('btn-dev-reload');
     var elStatus    = document.getElementById('x1pen-status');
     var activeTab   = 'basic';
+
+    function isDevAssetMode() {
+        var host = location.hostname;
+        return host === 'localhost' || host === '127.0.0.1' || host === '::1' ||
+               new URLSearchParams(location.search).get('dev') === '1';
+    }
+
+    async function reloadAssetsBypassCache() {
+        // Clear cache and re-fetch
+        assetCache = {};
+        if (elBtnDevReload) elBtnDevReload.disabled = true;
+        elStatus.textContent = 'Reloading assets...';
+        try {
+            await loadRuntimeAsset(COLD_STATE_FILE);
+            await loadRuntimeAsset(BOOT_DISK_FILE);
+            elStatus.textContent = 'Assets reloaded';
+        } catch (e) {
+            elStatus.textContent = 'Asset reload failed: ' + e.message;
+        } finally {
+            if (elBtnDevReload) elBtnDevReload.disabled = false;
+        }
+    }
 
     // CodeMirror editors
     var pauseCallbacks = {
@@ -57,13 +127,13 @@ window.__X1PEN_MODE = true;
 
     // ── ステート復元 (専用経路 — マウント復元なし) ──
 
-    function restoreColdState() {
-        if (!coldStateData || !module) {
+    function restoreColdState(stateData) {
+        if (!stateData || !module) {
             console.error('[x1pen] restoreColdState: missing data or module',
-                          !!coldStateData, !!module);
+                          !!stateData, !!module);
             return false;
         }
-        var arr = new Uint8Array(coldStateData);
+        var arr = new Uint8Array(stateData);
         console.log('[x1pen] restoreColdState: size=' + arr.length +
                     ' header=' + Array.from(arr.slice(0, 8)).map(
                         function(b){return b.toString(16).padStart(2,'0')}).join(' '));
@@ -122,14 +192,46 @@ window.__X1PEN_MODE = true;
     // ── RUN ──
 
     async function onRunClick() {
-        console.log('[x1pen] onRunClick: module=' + !!module +
-                    ' coldStateData=' + !!coldStateData);
-        if (!module || !coldStateData) return;
+        if (!module) return;
+
+        // 1. effective runtime を決定
+        var isSharedRun = !!pendingShareRuntime;
+        var runtime = pendingShareRuntime || getUserDefaultRuntime();
+        pendingShareRuntime = null;
+
+        // 2. MODEL を適用
+        if (module._js_set_rom_type) module._js_set_rom_type(runtime.model);
+
+        // 3. runtime asset をロード (キャッシュヒットすれば高速)
+        var actualColdState = runtime.coldState;
+        var actualBootDisk = runtime.bootDisk;
+
+        var stateData = await loadRuntimeAsset(runtime.coldState);
+        if (!stateData && runtime.coldState !== COLD_STATE_FILE) {
+            console.warn('[x1pen] Fallback to current cold state');
+            stateData = await loadRuntimeAsset(COLD_STATE_FILE);
+            if (stateData) actualColdState = COLD_STATE_FILE;
+        }
+        var bootData = await loadRuntimeAsset(runtime.bootDisk);
+        if (!bootData && runtime.bootDisk !== BOOT_DISK_FILE) {
+            console.warn('[x1pen] Fallback to current boot disk');
+            bootData = await loadRuntimeAsset(BOOT_DISK_FILE);
+            if (bootData) actualBootDisk = BOOT_DISK_FILE;
+        }
+
+        if (!stateData) {
+            elStatus.textContent = 'Failed to load cold state';
+            return;
+        }
+
+        // lastUsedRuntime を記録 (再 Share 用、state restore 後に model 更新)
+        lastUsedRuntime = { model: runtime.model, coldState: actualColdState, bootDisk: actualBootDisk };
+        lastRunWasShared = isSharedRun;
 
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
         var hasProgramDisk = false;
 
-        // 1. ASM アセンブル (タブに内容がある場合)
+        // 4. ASM アセンブル (タブに内容がある場合)
         var asmResult = null;
         if (asmSrc) {
             asmResult = window.X1PenZ80Asm.assemble(asmSrc);
@@ -140,7 +242,7 @@ window.__X1PEN_MODE = true;
             }
         }
 
-        // 2. BASIC ソースをトークナイズ (ディスク書き込みと RAM 注入の両方に使う)
+        // 5. BASIC ソースをトークナイズ
         var src = basicEditor.getValue().trim();
         var tokenized = null;
         if (src) {
@@ -152,27 +254,32 @@ window.__X1PEN_MODE = true;
             }
         }
 
-        // 3. コールドステート復元 (マシンを FuzzyBASIC Ok プロンプト状態に)
-        if (!restoreColdState()) {
+        // 6. コールドステート復元 (runtime 指定のステートを使用)
+        if (!restoreColdState(stateData)) {
             elStatus.textContent = 'State restore failed';
             return;
         }
 
-        // 4. ASM バイナリをディスクに配置して FDD0 にマウント (BASIC も同梱)
+        // state restore で x1flg.ROM_TYPE が確定 → lastUsedRuntime を更新
+        if (module._js_get_rom_type) {
+            lastUsedRuntime.model = module._js_get_rom_type();
+        }
+
+        // 7. ASM バイナリをディスクに配置して FDD0 にマウント (BASIC も同梱)
         if (asmResult && asmResult.bytes.length > 0) {
-            if (!(await mountProgramDisk(asmResult.bytes, tokenized))) {
+            if (!(await mountProgramDisk(asmResult.bytes, tokenized, bootData))) {
                 elStatus.textContent = 'Disk write failed';
                 return;
             }
             hasProgramDisk = true;
         }
 
-        // 5. FDD 等のマウント状態を再適用 (PROGRAM ディスク使用時は drive0 を除外)
+        // 8. FDD 等のマウント状態を再適用 (PROGRAM ディスク使用時は drive0 を除外)
         if (window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
             await window.XmilLibrary.autoRestoreMounts(hasProgramDisk ? ['drive0'] : []);
         }
 
-        // 6. エミュレータメモリに BASIC 注入
+        // 9. エミュレータメモリに BASIC 注入
         if (!tokenized) {
             elStatus.textContent = 'No program to run';
             return;
@@ -192,14 +299,14 @@ window.__X1PEN_MODE = true;
 
     // ── PROGRAM ディスク マウント ──
 
-    async function mountProgramDisk(programBytes, basicTokenized) {
-        if (!bootDiskData) {
+    async function mountProgramDisk(programBytes, basicTokenized, diskData) {
+        if (!diskData) {
             console.error('[x1pen] Boot disk not loaded');
             return false;
         }
 
         // 1. ベースディスクを ArrayBuffer としてコピー
-        var diskCopy = bootDiskData.slice(0);
+        var diskCopy = diskData.slice(0);
 
         // 2. D88 コンテナとして開く
         var container = window.XmilDiskContainer.openContainer(diskCopy, 'boot.d88', 'fdd');
@@ -242,7 +349,26 @@ window.__X1PEN_MODE = true;
         if (!src) { elStatus.textContent = 'Nothing to share'; return; }
 
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
-        var payload = JSON.stringify({ basic: src, asm: asmSrc || null });
+
+        // Share 用 runtime を決定
+        var shareRuntime;
+        if (pendingShareRuntime) {
+            shareRuntime = pendingShareRuntime;
+        } else if (lastRunWasShared && lastUsedRuntime) {
+            shareRuntime = lastUsedRuntime;
+        } else {
+            shareRuntime = getUserDefaultRuntime();
+        }
+
+        var payload = JSON.stringify({
+            basic: src,
+            asm: asmSrc || null,
+            meta: {
+                model: shareRuntime.model,
+                coldState: shareRuntime.coldState,
+                bootDisk: shareRuntime.bootDisk
+            }
+        });
         var rawBytes = new TextEncoder().encode(payload);
 
         // サイズ警告 (目安)
@@ -303,27 +429,13 @@ window.__X1PEN_MODE = true;
             }
         }
 
-        // 事前焼き込みステートを fetch で取得
-        try {
-            var resp = await fetch(COLD_STATE_FILE);
-            if (!resp.ok) throw new Error('HTTP ' + resp.status);
-            coldStateData = await resp.arrayBuffer();
-            console.log('[x1pen] cold state loaded: ' + coldStateData.byteLength + ' bytes');
-        } catch(e) {
-            elStatus.textContent = 'Failed to load FuzzyBASIC state: ' + e.message;
+        // runtime asset をプリロード (assetCache に格納)
+        var coldState = await loadRuntimeAsset(COLD_STATE_FILE);
+        if (!coldState) {
+            elStatus.textContent = 'Failed to load FuzzyBASIC state';
             return;
         }
-
-        // ベースディスクイメージを fetch (ASM 用、失敗しても起動は継続)
-        try {
-            var bootResp = await fetch(BOOT_DISK_FILE);
-            if (bootResp.ok) {
-                bootDiskData = await bootResp.arrayBuffer();
-                console.log('[x1pen] boot disk loaded: ' + bootDiskData.byteLength + ' bytes');
-            }
-        } catch(e) {
-            console.warn('[x1pen] Boot disk not available:', e.message);
-        }
+        await loadRuntimeAsset(BOOT_DISK_FILE); // 失敗しても起動は継続
 
         // 共通初期化: 設定反映 (DOM 不要で localStorage から直接適用) + オーディオアンロック
         if (window.XmilInit) {
@@ -345,7 +457,7 @@ window.__X1PEN_MODE = true;
         // 2. フォントを VFS に配置 (reload なし)
         if (window.XmilControls) window.XmilControls.loadFontsToVfs();
         // 3. コールドステート復元
-        if (!restoreColdState()) {
+        if (!restoreColdState(assetCache[COLD_STATE_FILE])) {
             elStatus.textContent = 'State restore failed';
             return;
         }
@@ -380,6 +492,14 @@ window.__X1PEN_MODE = true;
                     basicEditor.setValue(shared.basic, { silent: true });
                     if (asmEditor) {
                         asmEditor.setValue(shared.asm || '', { silent: true });
+                    }
+                    // Share meta → pendingShareRuntime
+                    if (shared.meta) {
+                        pendingShareRuntime = {
+                            model: validateModel(shared.meta.model, 1),
+                            coldState: validateAssetName(shared.meta.coldState, COLD_STATE_FILE),
+                            bootDisk: validateAssetName(shared.meta.bootDisk, BOOT_DISK_FILE)
+                        };
                     }
                     onRunClick();
                 } else if (shareResp.status === 400) {
@@ -710,7 +830,7 @@ window.__X1PEN_MODE = true;
 
         // MODEL
         document.querySelectorAll('input[name="ec-model"]').forEach(function(r) {
-            r.addEventListener('change', function() { ctrl.setRomType(parseInt(this.value, 10)); });
+            r.addEventListener('change', function() { setModelAndClearShareState(parseInt(this.value, 10)); });
         });
 
         // DISP - Resolution toggle
@@ -778,6 +898,12 @@ window.__X1PEN_MODE = true;
     elBtnStop.addEventListener('click', onStopClick);
     var elBtnShare = document.getElementById('btn-share');
     if (elBtnShare) elBtnShare.addEventListener('click', onShareClick);
+    if (elBtnDevReload && isDevAssetMode()) {
+        elBtnDevReload.classList.remove('hidden');
+        elBtnDevReload.addEventListener('click', function() {
+            reloadAssetsBypassCache();
+        });
+    }
 
     // Ctrl+Enter で RUN
     document.addEventListener('keydown', function(e) {
