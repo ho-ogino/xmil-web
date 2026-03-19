@@ -193,7 +193,7 @@ window.__X1PEN_MODE = true;
     // ── RUN ──
 
     async function onRunClick() {
-        if (!module) return;
+        if (!module) return false;
 
         // 1. effective runtime を決定
         var isSharedRun = !!pendingShareRuntime;
@@ -222,7 +222,7 @@ window.__X1PEN_MODE = true;
 
         if (!stateData) {
             elStatus.textContent = 'Failed to load cold state';
-            return;
+            return false;
         }
 
         // lastUsedRuntime を記録 (再 Share 用、state restore 後に model 更新)
@@ -239,7 +239,7 @@ window.__X1PEN_MODE = true;
             if (asmResult.errors.length > 0) {
                 elStatus.textContent = 'ASM error (L' + asmResult.errors[0].line + '): ' +
                                        asmResult.errors[0].msg;
-                return;
+                return false;
             }
         }
 
@@ -251,14 +251,14 @@ window.__X1PEN_MODE = true;
                 tokenized = window.X1PenTokenizer.tokenizeProgram(src);
             } catch(e) {
                 elStatus.textContent = 'Tokenize error: ' + e.message;
-                return;
+                return false;
             }
         }
 
         // 6. コールドステート復元 (runtime 指定のステートを使用)
         if (!restoreColdState(stateData)) {
             elStatus.textContent = 'State restore failed';
-            return;
+            return false;
         }
 
         // state restore で x1flg.ROM_TYPE が確定 → lastUsedRuntime を更新
@@ -270,7 +270,7 @@ window.__X1PEN_MODE = true;
         if (asmResult && asmResult.bytes.length > 0) {
             if (!(await mountProgramDisk(asmResult.bytes, tokenized, bootData))) {
                 elStatus.textContent = 'Disk write failed';
-                return;
+                return false;
             }
             hasProgramDisk = true;
         }
@@ -283,7 +283,7 @@ window.__X1PEN_MODE = true;
         // 9. エミュレータメモリに BASIC 注入
         if (!tokenized) {
             elStatus.textContent = 'No program to run';
-            return;
+            return false;
         }
         injectProgram(tokenized);
 
@@ -296,6 +296,7 @@ window.__X1PEN_MODE = true;
         // キャンバスにフォーカス移動 (エミュ再開のため blur が必要)
         var canvas = document.getElementById('canvas');
         if (canvas) canvas.focus();
+        return true;
     }
 
     // ── PROGRAM ディスク マウント ──
@@ -353,10 +354,26 @@ window.__X1PEN_MODE = true;
         if (!overlay) return;
         overlay.classList.remove('hidden');
         function unlock() {
-            overlay.classList.add('hidden');
-            overlay.removeEventListener('click', unlock);
-            if (canvas) canvas.removeEventListener('click', unlock);
             if (window.XmilInit) window.XmilInit.setupAudioStream();
+            // AudioContext が実際に running になったらバーを消す
+            var ctx = window.audioContext;
+            if (ctx && ctx.state === 'running') {
+                overlay.classList.add('hidden');
+                overlay.removeEventListener('click', unlock);
+                if (canvas) canvas.removeEventListener('click', unlock);
+            } else if (ctx && ctx.state === 'suspended') {
+                // resume は非同期なので state change を待つ
+                ctx.resume().then(function() {
+                    overlay.classList.add('hidden');
+                    overlay.removeEventListener('click', unlock);
+                    if (canvas) canvas.removeEventListener('click', unlock);
+                }).catch(function() {});
+            } else {
+                // fallback: とにかく消す
+                overlay.classList.add('hidden');
+                overlay.removeEventListener('click', unlock);
+                if (canvas) canvas.removeEventListener('click', unlock);
+            }
         }
         overlay.addEventListener('click', unlock);
         if (canvas) canvas.addEventListener('click', unlock);
@@ -524,9 +541,9 @@ window.__X1PEN_MODE = true;
                             bootDisk: validateAssetName(shared.meta.bootDisk, BOOT_DISK_FILE)
                         };
                     }
-                    await onRunClick();
-                    // 自動実行後: AudioContext がまだ suspended ならオーバーレイ表示
-                    showAudioUnmuteIfNeeded();
+                    var runOk = await onRunClick();
+                    // 実行成功時のみ: AudioContext がまだ suspended ならオーバーレイ表示
+                    if (runOk) showAudioUnmuteIfNeeded();
                 } else if (shareResp.status === 400) {
                     elStatus.textContent = 'Invalid share ID';
                 } else if (shareResp.status === 404) {
