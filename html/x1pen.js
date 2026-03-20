@@ -381,6 +381,16 @@ window.__X1PEN_MODE = true;
 
     // ── Share ──
 
+    var lastShareHash = null;
+    var lastShareId = null;
+
+    async function computePayloadHash(payloadStr) {
+        var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payloadStr));
+        return Array.from(new Uint8Array(buf)).map(function(b) {
+            return b.toString(16).padStart(2, '0');
+        }).join('');
+    }
+
     async function onShareClick() {
         var src = basicEditor.getValue().trim();
         if (!src) { elStatus.textContent = 'Nothing to share'; return; }
@@ -406,6 +416,18 @@ window.__X1PEN_MODE = true;
                 bootDisk: shareRuntime.bootDisk
             }
         });
+
+        // ハッシュ計算 (payload 全体 = BASIC + ASM + meta)
+        var hashHex = await computePayloadHash(payload);
+
+        // 前回と同じなら POST せず URL を再利用
+        if (hashHex === lastShareHash && lastShareId) {
+            var url = location.origin + '/x1pen?id=' + lastShareId;
+            await navigator.clipboard.writeText(url);
+            elStatus.textContent = 'URL copied! (same content)';
+            return;
+        }
+
         var rawBytes = new TextEncoder().encode(payload);
 
         // サイズ警告 (目安)
@@ -432,6 +454,11 @@ window.__X1PEN_MODE = true;
                 throw new Error(errBody.error || 'HTTP ' + resp.status);
             }
             var result = await resp.json();
+
+            // 成功 → ハッシュと ID を記録
+            lastShareHash = hashHex;
+            lastShareId = result.id;
+
             var url = location.origin + '/x1pen?id=' + result.id;
             await navigator.clipboard.writeText(url);
             elStatus.textContent = 'URL copied!';
@@ -541,6 +568,15 @@ window.__X1PEN_MODE = true;
                             bootDisk: validateAssetName(shared.meta.bootDisk, BOOT_DISK_FILE)
                         };
                     }
+                    // 読み込んだ内容のハッシュを記録 (再 Share 時の URL 再利用用)
+                    var replayPayload = JSON.stringify({
+                        basic: shared.basic,
+                        asm: shared.asm || null,
+                        meta: shared.meta || getUserDefaultRuntime()
+                    });
+                    lastShareHash = await computePayloadHash(replayPayload);
+                    lastShareId = urlId;
+
                     var runOk = await onRunClick();
                     // 実行成功時のみ: AudioContext がまだ suspended ならオーバーレイ表示
                     if (runOk) showAudioUnmuteIfNeeded();
