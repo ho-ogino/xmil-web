@@ -13,8 +13,8 @@ export async function onRequestPost({ request, env }) {
     if (contentType.includes('multipart/form-data')) {
         var formData = await request.formData();
         var dataBlob = formData.get('data');
-        if (!dataBlob) {
-            return new Response(JSON.stringify({ error: 'Missing data part' }), { status: 400 });
+        if (!dataBlob || typeof dataBlob === 'string' || typeof dataBlob.arrayBuffer !== 'function') {
+            return new Response(JSON.stringify({ error: 'Missing or invalid data part' }), { status: 400 });
         }
         compressed = await dataBlob.arrayBuffer();
         screenshotBlob = formData.get('screenshot');

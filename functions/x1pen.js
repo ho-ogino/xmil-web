@@ -13,6 +13,10 @@ export async function onRequest({ request, env, next }) {
     var response = await next();
     if (!response.ok) return response;
 
+    // Only inject into HTML responses
+    var ct = response.headers.get('Content-Type') || '';
+    if (!ct.includes('text/html')) return response;
+
     var html = await response.text();
 
     // Look up screenshot info from D1
