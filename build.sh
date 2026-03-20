@@ -91,6 +91,7 @@ cp "${SCRIPT_DIR}/html/x1pen.html"           ./x1pen.html
 cp "${SCRIPT_DIR}/html/x1pen.js"             ./x1pen.js
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
+cp "${SCRIPT_DIR}/html/x1pen_charmap.html" ./x1pen_charmap.html
 [ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ./x1pen_editor.bundle.js
 # Cold state / boot disk: 全バージョンをコピー (Share 再生互換のため)
@@ -148,6 +149,7 @@ cp "${SCRIPT_DIR}/html/x1pen.html"           "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen.js"             "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_charmap.html" "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" "${DIST_DIR}/"
 for f in "${SCRIPT_DIR}"/assets/fuzzybasic_cold.*.xmst; do

@@ -670,6 +670,8 @@
     // ---- 公開 ----
     window.X1PenTokenizer = {
         tokenizeProgram: tokenizeProgram,
-        tokenizeLine: tokenizeLine
+        tokenizeLine: tokenizeLine,
+        UNICODE_TO_X1: UNICODE_TO_X1,
+        NAMED_ESCAPES: NAMED_ESCAPES
     };
 })();
