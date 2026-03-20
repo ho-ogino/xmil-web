@@ -6,5 +6,6 @@ CREATE TABLE IF NOT EXISTS shares (
     data BLOB NOT NULL,
     codec TEXT NOT NULL,
     raw_size INTEGER NOT NULL,
+    screenshot_key TEXT,
     created_at INTEGER NOT NULL
 );

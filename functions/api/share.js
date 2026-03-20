@@ -1,12 +1,28 @@
-// POST /api/share — Save gzip-compressed share data to D1
+// POST /api/share — Save gzip-compressed share data to D1, screenshot to R2
 
 export async function onRequestPost({ request, env }) {
     if (!env.X1PEN_DB) {
         return new Response(JSON.stringify({ error: 'DB not configured' }), { status: 500 });
     }
 
-    // Read compressed body
-    const compressed = await request.arrayBuffer();
+    // Parse multipart or octet-stream
+    var compressed;
+    var screenshotBlob = null;
+    var contentType = request.headers.get('Content-Type') || '';
+
+    if (contentType.includes('multipart/form-data')) {
+        var formData = await request.formData();
+        var dataBlob = formData.get('data');
+        if (!dataBlob) {
+            return new Response(JSON.stringify({ error: 'Missing data part' }), { status: 400 });
+        }
+        compressed = await dataBlob.arrayBuffer();
+        screenshotBlob = formData.get('screenshot');
+    } else {
+        // Legacy: application/octet-stream
+        compressed = await request.arrayBuffer();
+    }
+
     if (!compressed || compressed.byteLength === 0) {
         return new Response(JSON.stringify({ error: 'Empty body' }), { status: 400 });
     }
@@ -42,13 +58,36 @@ export async function onRequestPost({ request, env }) {
     for (let attempt = 0; attempt < 3; attempt++) {
         id = Array.from(crypto.getRandomValues(new Uint8Array(8)))
             .map(b => chars[b % 62]).join('');
+
+        // Save screenshot to R2 first (only if successful do we record the key)
+        let screenshotKey = null;
+        if (screenshotBlob && screenshotBlob.type === 'image/png' && env.X1PEN_R2) {
+            const pngData = await screenshotBlob.arrayBuffer();
+            if (pngData.byteLength > 0 && pngData.byteLength <= 512 * 1024) {
+                const key = 'screenshots/' + id + '.png';
+                try {
+                    await env.X1PEN_R2.put(key, pngData, {
+                        httpMetadata: { contentType: 'image/png' }
+                    });
+                    screenshotKey = key;
+                } catch (e) {
+                    console.error('R2 put failed:', e);
+                }
+            }
+        }
+
+        // Save to D1
         try {
             await env.X1PEN_DB
-                .prepare('INSERT INTO shares (id, data, codec, raw_size, created_at) VALUES (?, ?, ?, ?, ?)')
-                .bind(id, compressed, 'gzip', rawSize, Date.now())
+                .prepare('INSERT INTO shares (id, data, codec, raw_size, screenshot_key, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+                .bind(id, compressed, 'gzip', rawSize, screenshotKey, Date.now())
                 .run();
             break;
         } catch (e) {
+            // D1 failed → clean up R2 orphan
+            if (screenshotKey && env.X1PEN_R2) {
+                try { await env.X1PEN_R2.delete(screenshotKey); } catch (_) {}
+            }
             const msg = (e.message || '').toLowerCase();
             if (msg.includes('unique') || msg.includes('constraint')) {
                 if (attempt === 2) {

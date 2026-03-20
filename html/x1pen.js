@@ -384,6 +384,14 @@ window.__X1PEN_MODE = true;
     var lastShareHash = null;
     var lastShareId = null;
 
+    async function captureScreenshot() {
+        var canvas = document.getElementById('canvas');
+        if (!canvas) return null;
+        return new Promise(function(resolve) {
+            canvas.toBlob(function(blob) { resolve(blob); }, 'image/png');
+        });
+    }
+
     async function computePayloadHash(payloadStr) {
         var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payloadStr));
         return Array.from(new Uint8Array(buf)).map(function(b) {
@@ -444,10 +452,17 @@ window.__X1PEN_MODE = true;
             writer.close();
             var compressed = await new Response(cs.readable).arrayBuffer();
 
+            // スクリーンショット撮影
+            var screenshot = await captureScreenshot();
+
+            // multipart 送信 (data + screenshot)
+            var formData = new FormData();
+            formData.append('data', new Blob([compressed], { type: 'application/octet-stream' }));
+            if (screenshot) formData.append('screenshot', screenshot, 'screenshot.png');
+
             var resp = await fetch('/api/share', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/octet-stream' },
-                body: compressed
+                body: formData
             });
             if (!resp.ok) {
                 var errBody = await resp.json().catch(function() { return {}; });
