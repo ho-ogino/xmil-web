@@ -115,6 +115,10 @@
                 if (peek() && peek().type === 'RPAREN') next();
                 return v;
             }
+            if (t.type === 'OP' && t.val === '+') {
+                next();
+                return parseAtom();  // unary plus: no-op
+            }
             if (t.type === 'OP' && t.val === '-') {
                 next();
                 var v2 = parseAtom();
@@ -271,6 +275,10 @@
         if (su === 'AF') return { type: 'pp', reg: PP.AF, name: 'AF' };
         if (su === "AF'") return { type: 'af_prime' };
 
+        // I, R registers
+        if (su === 'I') return { type: 'reg_i' };
+        if (su === 'R') return { type: 'reg_r' };
+
         // IX, IY
         if (su === 'IX') return { type: 'ix' };
         if (su === 'IY') return { type: 'iy' };
@@ -319,6 +327,13 @@
     // Instruction encoders (family-based)
     // ================================================================
 
+    // Helper: treat r8 'C' as condition code in JP/JR/CALL/RET context
+    function asCC(op) {
+        if (op.type === 'cc') return op;
+        if (op.type === 'r8' && op.name === 'C') return { type: 'cc', code: CC.C, name: 'C' };
+        return null;
+    }
+
     function encodeBasic(mnemonic, ops, symbols, pc, pass) {
         // ops: array of classified operands
         var mn = mnemonic;
@@ -341,11 +356,13 @@
         // --- PUSH / POP ---
         if (mn === 'PUSH' && o.length === 1) {
             if (o[0].type === 'pp') return [0xC5 + o[0].reg * 16];
+            if (o[0].type === 'qq' && o[0].reg < 3) return [0xC5 + o[0].reg * 16];
             if (o[0].type === 'ix') return [0xDD, 0xE5];
             if (o[0].type === 'iy') return [0xFD, 0xE5];
         }
         if (mn === 'POP' && o.length === 1) {
             if (o[0].type === 'pp') return [0xC1 + o[0].reg * 16];
+            if (o[0].type === 'qq' && o[0].reg < 3) return [0xC1 + o[0].reg * 16];
             if (o[0].type === 'ix') return [0xDD, 0xE1];
             if (o[0].type === 'iy') return [0xFD, 0xE1];
         }
@@ -405,15 +422,14 @@
                 if (o[0].type === 'r8' && o[0].name === '(HL)') return [0xE9];
                 if (o[0].type === 'ix') return [0xDD, 0xE9]; // JP (IX)
                 if (o[0].type === 'iy') return [0xFD, 0xE9]; // JP (IY)
-                if (o[0].type === 'imm' || o[0].type === 'ind_nn') {
-                    var addr = o[0].type === 'ind_nn' ? null : o[0].val;
-                    if (o[0].type === 'imm') return [0xC3, o[0].val & 0xFF, (o[0].val >> 8) & 0xFF];
+                if (o[0].type === 'ind_idx' && o[0].disp === 0) {
+                    return [o[0].idx === 'IX' ? 0xDD : 0xFD, 0xE9];
                 }
-                // might be a cc that looks like label
-                if (o[0].type === 'cc') return null; // error: JP cc needs address
+                if (o[0].type === 'imm') return [0xC3, o[0].val & 0xFF, (o[0].val >> 8) & 0xFF];
             }
-            if (o.length === 2 && o[0].type === 'cc') {
-                if (o[1].type === 'imm') return [0xC2 + o[0].code * 8, o[1].val & 0xFF, (o[1].val >> 8) & 0xFF];
+            if (o.length === 2) {
+                var jpcc = asCC(o[0]);
+                if (jpcc && o[1].type === 'imm') return [0xC2 + jpcc.code * 8, o[1].val & 0xFF, (o[1].val >> 8) & 0xFF];
             }
         }
 
@@ -427,15 +443,18 @@
                 }
                 return [0x18, rel];
             }
-            if (o.length === 2 && o[0].type === 'cc') {
-                var jrCC = { NZ: 0, Z: 1, NC: 2, C: 3 };
-                if (!(o[0].name in jrCC)) return null;
-                var rel2 = (o[1].val - (pc + 2)) & 0xFF;
-                if (pass === 2) {
-                    var diff2 = o[1].val - (pc + 2);
-                    if (diff2 < -128 || diff2 > 127) return null;
+            if (o.length === 2) {
+                var jrcc = asCC(o[0]) || o[0];
+                if (jrcc.type === 'cc') {
+                    var jrCCmap = { NZ: 0, Z: 1, NC: 2, C: 3 };
+                    if (!(jrcc.name in jrCCmap)) return null;
+                    var rel2 = (o[1].val - (pc + 2)) & 0xFF;
+                    if (pass === 2) {
+                        var diff2 = o[1].val - (pc + 2);
+                        if (diff2 < -128 || diff2 > 127) return null;
+                    }
+                    return [0x20 + jrCCmap[jrcc.name] * 8, rel2];
                 }
-                return [0x20 + jrCC[o[0].name] * 8, rel2];
             }
         }
 
@@ -453,13 +472,18 @@
         if (mn === 'CALL') {
             if (o.length === 1 && o[0].type === 'imm')
                 return [0xCD, o[0].val & 0xFF, (o[0].val >> 8) & 0xFF];
-            if (o.length === 2 && o[0].type === 'cc' && o[1].type === 'imm')
-                return [0xC4 + o[0].code * 8, o[1].val & 0xFF, (o[1].val >> 8) & 0xFF];
+            if (o.length === 2) {
+                var callcc = asCC(o[0]) || o[0];
+                if (callcc.type === 'cc' && o[1].type === 'imm')
+                    return [0xC4 + callcc.code * 8, o[1].val & 0xFF, (o[1].val >> 8) & 0xFF];
+            }
         }
 
         // --- RET cc ---
-        if (mn === 'RET' && o.length === 1 && o[0].type === 'cc')
-            return [0xC0 + o[0].code * 8];
+        if (mn === 'RET' && o.length === 1) {
+            var retcc = asCC(o[0]) || o[0];
+            if (retcc.type === 'cc') return [0xC0 + retcc.code * 8];
+        }
 
         // --- RST ---
         if (mn === 'RST' && o.length === 1 && o[0].type === 'imm') {
@@ -554,11 +578,10 @@
             return [0xFD, 0x2A, src.val & 0xFF, (src.val >> 8) & 0xFF];
 
         // LD I,A / LD R,A / LD A,I / LD A,R
-        if (dst.name === 'I' || dst.name === 'R' || src.name === 'I' || src.name === 'R') {
-            // These use special symbols
-            var dsu = (dst.raw || dst.name || '').toUpperCase();
-            var ssu = (src.raw || src.name || '').toUpperCase();
-        }
+        if (dst.type === 'reg_i' && src.type === 'r8' && src.name === 'A') return [0xED, 0x47];
+        if (dst.type === 'reg_r' && src.type === 'r8' && src.name === 'A') return [0xED, 0x4F];
+        if (dst.type === 'r8' && dst.name === 'A' && src.type === 'reg_i') return [0xED, 0x57];
+        if (dst.type === 'r8' && dst.name === 'A' && src.type === 'reg_r') return [0xED, 0x5F];
 
         return null;
     }
