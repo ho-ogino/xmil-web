@@ -7,9 +7,19 @@ window.__X1PEN_MODE = true;
 (function() {
     'use strict';
 
-    var COLD_STATE_FILE = 'fuzzybasic_cold.v1.xmst';
-    var BOOT_DISK_FILE  = 'fuzzybasic_boot.v1.d88';
+    var COLD_STATE_FILE = 'fuzzybasic_cold.v2.xmst';
+    var BOOT_DISK_FILE  = 'fuzzybasic_boot.v2.d88';
     var module = null;
+
+    // ── FuzzyBASIC addrmap (version-specific) ──
+    var ADDRMAP = {
+        'fuzzybasic_cold.v1.xmst': { TEXTAREA: 0x4A3C, TEXTST: 0x39DC, TEXTED: 0x39DE },
+        'fuzzybasic_cold.v2.xmst': { TEXTAREA: 0x4A39, TEXTST: 0x39D9, TEXTED: 0x39DB },
+    };
+
+    function getAddrMapForColdState(coldStateFile) {
+        return ADDRMAP[coldStateFile] || null;
+    }
 
     // ── Runtime asset cache + selection ──
     var assetCache = {};  // filename → ArrayBuffer
@@ -155,17 +165,16 @@ window.__X1PEN_MODE = true;
 
     // ── メモリ注入 ──
 
-    function injectProgram(tokenizedBytes) {
+    function injectProgram(tokenizedBytes, coldStateFile) {
+        var addrs = getAddrMapForColdState(coldStateFile);
+        if (!addrs) return false;  // 未知バージョン
+
         var ramPtr = module._js_get_main_ram();
         var ram = new Uint8Array(module.wasmMemory.buffer, ramPtr, 0x10000);
 
-        var TEXTAREA    = 0x4A3C;  // addrmap.json
-        var TEXTST_ADDR = 0x39DC;  // 2-byte LE pointer
-        var TEXTED_ADDR = 0x39DE;  // 2-byte LE pointer
-
         // TEXTST 読取 (cold state では TEXTAREA を指す)
-        var textStart = ram[TEXTST_ADDR] | (ram[TEXTST_ADDR + 1] << 8);
-        if (textStart === 0) textStart = TEXTAREA;
+        var textStart = ram[addrs.TEXTST] | (ram[addrs.TEXTST + 1] << 8);
+        if (textStart === 0) textStart = addrs.TEXTAREA;
 
         // トークン化バイト列を書き込み
         for (var i = 0; i < tokenizedBytes.length; i++) {
@@ -174,8 +183,9 @@ window.__X1PEN_MODE = true;
 
         // TEXTED 更新 (0x0000 ターミネータの先頭を指す)
         var textEnd = textStart + tokenizedBytes.length - 2;
-        ram[TEXTED_ADDR]     = textEnd & 0xFF;
-        ram[TEXTED_ADDR + 1] = (textEnd >> 8) & 0xFF;
+        ram[addrs.TEXTED]     = textEnd & 0xFF;
+        ram[addrs.TEXTED + 1] = (textEnd >> 8) & 0xFF;
+        return true;
     }
 
     // ── キー注入 ──
@@ -285,7 +295,10 @@ window.__X1PEN_MODE = true;
             elStatus.textContent = 'No program to run';
             return false;
         }
-        injectProgram(tokenized);
+        if (!injectProgram(tokenized, actualColdState)) {
+            elStatus.textContent = 'State version not supported';
+            return false;
+        }
 
         // 7. エミュレータ開始 + "RUN"+Enter キー注入
         console.log('[x1pen] starting emulator + injecting RUN command');
