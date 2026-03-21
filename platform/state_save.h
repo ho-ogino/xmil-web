@@ -6,12 +6,18 @@
 /* ---- binary format ----
  * [Header 8B]  magic "XMST" + version(u16) + flags(u16)
  *   flags: bit0-1 = ROM_TYPE
- * [Section]*N  tag(4B) + len(4B) + data(lenB)
- * [End]        "END!" + 0(4B)
+ *
+ * v1-v2 (uncompressed):
+ *   [Section]*N  tag(4B) + len(4B) + data(lenB)
+ *   [End]        "END!" + 0(4B)
+ *
+ * v3+ (zlib compressed):
+ *   [uncompressed_size 4B LE]
+ *   [zlib compressed body containing sections + END marker]
  */
 
 #define STATE_MAGIC     "XMST"
-#define STATE_VERSION   2
+#define STATE_VERSION   3
 
 /* flags bit assignments */
 /* bit0-1: ROM_TYPE (0-3)  — existing, do not change */

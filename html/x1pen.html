@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' blob:; worker-src blob:; object-src 'none'; base-uri 'none';">
+    <title>X1Pen - FuzzyBASIC IDE</title>
+    <link rel="icon" type="image/svg+xml" href="x1pen_favicon.svg">
+    <link rel="stylesheet" href="library.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ── ツールバー ── */
+        #x1pen-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: #16213e;
+            border-bottom: 1px solid #0f3460;
+            flex-shrink: 0;
+        }
+
+        #x1pen-toolbar .brand {
+            font-weight: bold;
+            font-size: 1.1em;
+            color: #e94560;
+            margin-right: 8px;
+            white-space: nowrap;
+        }
+
+        #x1pen-toolbar button {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            padding: 4px 14px;
+            border: 1px solid #0f3460;
+            border-radius: 4px;
+            cursor: pointer;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            transition: background 0.15s;
+        }
+
+        #x1pen-toolbar button:hover:not(:disabled) {
+            background: #0f3460;
+        }
+
+        #x1pen-toolbar button:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+
+        #btn-run {
+            background: #0a4d2e !important;
+            border-color: #0d7a47 !important;
+            color: #7dffb3 !important;
+        }
+        #btn-run:hover:not(:disabled) {
+            background: #0d7a47 !important;
+        }
+
+        #btn-stop {
+            background: #4d0a0a !important;
+            border-color: #7a0d0d !important;
+            color: #ff7d7d !important;
+        }
+        #btn-stop:hover:not(:disabled) {
+            background: #7a0d0d !important;
+        }
+
+        #btn-share {
+            border-color: #1a4a88 !important;
+            color: #5599ee !important;
+            background: #0d1e36 !important;
+            margin-left: auto;
+        }
+        #btn-share:hover:not(:disabled) {
+            background: #0d2244 !important;
+            color: #88bbff !important;
+        }
+
+        #btn-dev-reload {
+            border-color: #666 !important;
+            color: #ddd !important;
+            background: #2a2a2a !important;
+        }
+        #btn-dev-reload:hover:not(:disabled) {
+            background: #3a3a3a !important;
+            color: #fff !important;
+        }
+
+        #x1pen-status {
+            font-size: 0.85em;
+            color: #888;
+            white-space: nowrap;
+        }
+
+        /* ── メインレイアウト ── */
+        #x1pen-main {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+        }
+
+        /* ── エディタパネル ── */
+        #editor-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #0f3460;
+            min-width: 0;
+        }
+
+        #editor-tabs {
+            display: flex;
+            background: #16213e;
+            border-bottom: 1px solid #0f3460;
+            flex-shrink: 0;
+        }
+        .editor-tab {
+            font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+            padding: 5px 16px;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: #556;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .editor-tab:hover { color: #aaa; }
+        .editor-tab.active {
+            color: #e94560;
+            border-bottom-color: #e94560;
+        }
+        .editor-tab-action {
+            font-family: 'Courier New', monospace;
+            font-size: 0.7em;
+            padding: 3px 10px;
+            margin-left: auto;
+            background: #0d1e36;
+            border: 1px solid #1a4a88;
+            border-radius: 3px;
+            color: #5599ee;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .editor-tab-action:hover { background: #0d2244; color: #88bbff; }
+
+        #basic-editor-container, #asm-editor-container {
+            flex: 1;
+            overflow: hidden;
+            background: #0d1117;
+        }
+        #basic-editor-container .cm-editor,
+        #asm-editor-container .cm-editor {
+            height: 100%;
+        }
+
+        /* ── エミュレータパネル ── */
+        #emu-panel {
+            flex: 0 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #b8b8b0;
+            padding: 12px;
+            min-width: 0;
+        }
+        #canvas {
+            display: block;
+            background: #000;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            border: 2px solid #888;
+            box-shadow: inset 0 0 8px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.4);
+        }
+
+        /* ── エミュレータ コントロールバー ── */
+        #emu-controls {
+            display: flex;
+            gap: 2px;
+            padding: 4px;
+            background: #a0a098;
+            border-top: 1px solid #888;
+            flex-wrap: wrap;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .emu-ctrl-group { position: relative; }
+        .emu-ctrl-btn {
+            font-family: 'Courier New', monospace;
+            font-size: 0.7em;
+            padding: 3px 8px;
+            border: 1px solid #0f3460;
+            border-radius: 3px;
+            background: #1a1a2e;
+            color: #888;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s;
+        }
+        .emu-ctrl-btn:hover, .emu-ctrl-btn.active {
+            background: #0f3460;
+            color: #e0e0e0;
+        }
+        .emu-ctrl-menu {
+            display: none;
+            position: absolute;
+            bottom: calc(100% + 4px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 4px;
+            padding: 8px 10px;
+            min-width: 200px;
+            z-index: 100;
+            box-shadow: 0 -4px 16px rgba(0,0,0,0.5);
+            font-size: 0.8em;
+        }
+        .emu-ctrl-menu.open { display: block; }
+        .emu-menu-title {
+            font-size: 0.7em; color: #556; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 4px; padding-bottom: 3px;
+            border-bottom: 1px solid #0f3460;
+        }
+        .emu-menu-row {
+            display: flex; align-items: center; gap: 6px;
+            padding: 4px 0; color: #bbb; font-size: 0.85em;
+        }
+        .emu-menu-row label { cursor: pointer; display: flex; align-items: center; gap: 4px; }
+        .emu-menu-sep { border-top: 1px solid #0f3460; margin: 4px 0; }
+        .emu-menu-btn {
+            font-family: 'Courier New', monospace;
+            font-size: 0.8em; padding: 2px 8px;
+            border: 1px solid #0f3460; border-radius: 3px;
+            background: #1a1a2e; color: #aaa; cursor: pointer;
+            transition: all 0.15s;
+        }
+        .emu-menu-btn:hover { background: #0f3460; color: #fff; }
+        .emu-menu-btn.mount-btn { border-color: #1a4a88; color: #5599ee; }
+        .emu-menu-btn.mount-btn:hover { background: #0d2244; color: #88bbff; }
+        .emu-menu-btn.eject-btn { border-color: #663333; color: #bb5555; }
+        .emu-menu-btn.eject-btn:hover { background: #201616; color: #ff7777; }
+        .emu-menu-btn.transport-btn { padding: 2px 6px; min-width: 28px; text-align: center; }
+        .emu-menu-filename {
+            font-size: 0.78em; color: #5599ee; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; max-width: 180px;
+        }
+        .emu-menu-filename.empty { color: #444; font-style: italic; }
+        .emu-menu-toggle {
+            display: inline-flex; border: 1px solid #0f3460; border-radius: 3px; overflow: hidden;
+        }
+        .emu-menu-toggle-opt {
+            padding: 2px 10px; font-size: 0.8em; cursor: pointer;
+            background: #1a1a2e; color: #666; border: none;
+            font-family: 'Courier New', monospace; transition: all 0.15s;
+        }
+        .emu-menu-toggle-opt.active { background: #0f3460; color: #e0e0e0; }
+        .emu-menu-toggle-opt:not(:last-child) { border-right: 1px solid #0f3460; }
+        .emu-menu-range {
+            width: 100px; accent-color: #0f3460;
+        }
+        .emu-menu-range-val { font-size: 0.78em; color: #666; min-width: 24px; text-align: right; }
+        .emu-menu-file-row {
+            display: flex; align-items: center; gap: 4px; padding: 2px 0;
+        }
+        .emu-menu-file-label { font-size: 0.78em; color: #888; min-width: 60px; }
+        .emu-menu-file-name { font-size: 0.75em; color: #5599ee; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .emu-menu-file-name.empty { color: #444; }
+        .emu-menu-file-btn {
+            font-size: 0.75em; padding: 1px 5px; border: 1px solid #333;
+            border-radius: 2px; background: #1a1a2e; color: #888; cursor: pointer;
+        }
+        .emu-menu-file-btn:hover { background: #0f3460; color: #fff; }
+        .emu-menu-file-btn.clear-btn { color: #663333; }
+        .emu-menu-file-btn.clear-btn:hover { background: #201616; color: #ff7777; }
+
+        .hidden { display: none !important; }
+
+        /* ── レスポンシブ ── */
+        @media (max-width: 900px) {
+            #x1pen-main {
+                flex-direction: column;
+            }
+            #editor-panel {
+                border-right: none;
+                border-bottom: 1px solid #0f3460;
+                flex: 1;
+            }
+            #emu-panel {
+                flex: 0 0 auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="x1pen-toolbar">
+        <span class="brand">X1Pen</span>
+        <button id="btn-run" disabled title="Ctrl+Enter">&#x25B6; RUN</button>
+        <button id="btn-stop" title="Escape">&#x25A0; STOP</button>
+        <button id="btn-dev-reload" class="hidden" title="Reload cached X1Pen assets">Reload Assets</button>
+        <button id="btn-share" title="Share code">Share</button>
+        <span id="x1pen-status">Loading...</span>
+    </div>
+    <div id="x1pen-main">
+        <div id="editor-panel">
+            <div id="editor-tabs">
+                <button class="editor-tab active" data-tab="basic">BASIC</button>
+                <button class="editor-tab" data-tab="asm">ASM</button>
+                <button class="editor-tab-action hidden" id="btn-asm-import" title="Import binary as DB lines">Import</button>
+                <input type="file" id="asm-import-file" style="display:none">
+                <a href="x1pen_charmap.html" class="editor-tab-action" style="text-decoration:none; margin-left:4px;" title="Character code reference" target="_blank">Charmap</a>
+            </div>
+            <div id="basic-editor-container"></div>
+            <div id="asm-editor-container" class="hidden"></div>
+        </div>
+        <div id="emu-panel">
+            <div style="position:relative; display:inline-block;">
+                <canvas id="canvas" width="640" height="400" tabindex="0"></canvas>
+                <div id="audio-unmute-overlay" class="hidden"
+                     style="position:absolute; bottom:0; left:0; right:0;
+                            background:rgba(0,0,0,0.7); cursor:pointer; z-index:50;
+                            padding:6px 0; text-align:center;">
+                    <span style="color:#ccc; font-family:'Courier New',monospace; font-size:12px;">
+                        &#x1F50A; Click to enable sound
+                    </span>
+                </div>
+            </div>
+            <div id="emu-controls">
+                <!-- MACHINE -->
+                <div class="emu-ctrl-group">
+                    <button class="emu-ctrl-btn" data-menu="machine">MACHINE</button>
+                    <div class="emu-ctrl-menu" id="menu-machine">
+                        <button class="emu-menu-btn" id="ec-ipl-reset">IPL Reset</button>
+                        <button class="emu-menu-btn" id="ec-nmi-reset" style="margin-top:4px">NMI Reset</button>
+                        <div class="emu-menu-sep"></div>
+                        <div class="emu-menu-row"><span>Resolution:</span>
+                            <div class="emu-menu-toggle">
+                                <button class="emu-menu-toggle-opt" data-val="std" id="ec-res-std">Std</button>
+                                <button class="emu-menu-toggle-opt" data-val="high" id="ec-res-high">High</button>
+                            </div>
+                        </div>
+                        <div class="emu-menu-row"><span>Start Disk:</span>
+                            <div class="emu-menu-toggle">
+                                <button class="emu-menu-toggle-opt" data-val="2d" id="ec-disk-2d">2D</button>
+                                <button class="emu-menu-toggle-opt" data-val="2hd" id="ec-disk-2hd">2HD</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- FDD -->
+                <div class="emu-ctrl-group">
+                    <button class="emu-ctrl-btn" data-menu="fdd">FDD</button>
+                    <div class="emu-ctrl-menu" id="menu-fdd">
+                        <div class="emu-menu-row"><span>FDD0:</span> <span class="emu-menu-filename empty" id="ec-fdd0-name">empty</span></div>
+                        <div class="emu-menu-row"><button class="emu-menu-btn mount-btn" id="ec-fdd0-mount">Mount</button><button class="emu-menu-btn eject-btn" id="ec-fdd0-eject">Eject</button><button class="emu-menu-btn hidden" id="ec-fdd0-save" title="Download disk image">Save</button></div>
+                        <div class="emu-menu-sep"></div>
+                        <div class="emu-menu-row"><span>FDD1:</span> <span class="emu-menu-filename empty" id="ec-fdd1-name">empty</span></div>
+                        <div class="emu-menu-row"><button class="emu-menu-btn mount-btn" id="ec-fdd1-mount">Mount</button><button class="emu-menu-btn eject-btn" id="ec-fdd1-eject">Eject</button></div>
+                    </div>
+                </div>
+                <!-- HDD -->
+                <div class="emu-ctrl-group">
+                    <button class="emu-ctrl-btn" data-menu="hdd">HDD</button>
+                    <div class="emu-ctrl-menu" id="menu-hdd">
+                        <div class="emu-menu-row"><span>HDD0:</span> <span class="emu-menu-filename empty" id="ec-hdd0-name">empty</span></div>
+                        <div class="emu-menu-row"><button class="emu-menu-btn mount-btn" id="ec-hdd0-mount">Mount</button><button class="emu-menu-btn eject-btn" id="ec-hdd0-eject">Eject</button></div>
+                        <div class="emu-menu-sep"></div>
+                        <div class="emu-menu-row"><span>HDD1:</span> <span class="emu-menu-filename empty" id="ec-hdd1-name">empty</span></div>
+                        <div class="emu-menu-row"><button class="emu-menu-btn mount-btn" id="ec-hdd1-mount">Mount</button><button class="emu-menu-btn eject-btn" id="ec-hdd1-eject">Eject</button></div>
+                    </div>
+                </div>
+                <!-- CMT -->
+                <div class="emu-ctrl-group">
+                    <button class="emu-ctrl-btn" data-menu="cmt">CMT</button>
+                    <div class="emu-ctrl-menu" id="menu-cmt">
+                        <div class="emu-menu-row"><span>CMT:</span> <span class="emu-menu-filename empty" id="ec-cmt-name">empty</span></div>
+                        <div class="emu-menu-row"><button class="emu-menu-btn mount-btn" id="ec-cmt-insert">Insert</button><button class="emu-menu-btn eject-btn" id="ec-cmt-eject">Eject</button></div>
+                        <div class="emu-menu-sep"></div>
+                        <div class="emu-menu-row">
+                            <button class="emu-menu-btn transport-btn" id="ec-cmt-rew">&#x25C0;&#x25C0;</button>
+                            <button class="emu-menu-btn transport-btn" id="ec-cmt-stop">&#x25A0;</button>
+                            <button class="emu-menu-btn transport-btn" id="ec-cmt-play">&#x25B6;</button>
+                            <button class="emu-menu-btn transport-btn" id="ec-cmt-ff">&#x25B6;&#x25B6;</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- EMM (直接開く) -->
+                <div class="emu-ctrl-group">
+                    <button class="emu-ctrl-btn" id="ec-emm-open">EMM</button>
+                </div>
+                <!-- MODEL -->
+                <div class="emu-ctrl-group">
+                    <button class="emu-ctrl-btn" data-menu="model">MODEL</button>
+                    <div class="emu-ctrl-menu" id="menu-model">
+                        <div class="emu-menu-row"><label><input type="radio" name="ec-model" value="1"> X1</label></div>
+                        <div class="emu-menu-row"><label><input type="radio" name="ec-model" value="2"> X1turbo</label></div>
+                        <div class="emu-menu-row"><label><input type="radio" name="ec-model" value="3"> X1turboZ</label></div>
+                    </div>
+                </div>
+                <!-- OPT -->
+                <div class="emu-ctrl-group">
+                    <button class="emu-ctrl-btn" data-menu="opt">OPT</button>
+                    <div class="emu-ctrl-menu" id="menu-opt" style="min-width:240px">
+                        <div class="emu-menu-row"><label><input type="checkbox" id="ec-scanline"> Scanline</label></div>
+                        <div class="emu-menu-row"><label><input type="checkbox" id="ec-fm"> FM Sound</label></div>
+                        <div class="emu-menu-row"><label><input type="checkbox" id="ec-motor"> Motor Sound</label></div>
+                        <div class="emu-menu-row"><span>Vol:</span><input type="range" class="emu-menu-range" id="ec-volume" min="0" max="100"><span class="emu-menu-range-val" id="ec-volume-val">80</span></div>
+                        <div class="emu-menu-row"><label><input type="checkbox" id="ec-joystick"> Joystick</label></div>
+                        <div class="emu-menu-row"><label><input type="checkbox" id="ec-mouse"> Mouse</label></div>
+                        <div class="emu-menu-sep"></div>
+                        <div class="emu-menu-row">
+                            <span>Key:</span>
+                            <label><input type="radio" name="ec-keymode" value="0"> KB</label>
+                            <label><input type="radio" name="ec-keymode" value="1"> Joy1</label>
+                            <label><input type="radio" name="ec-keymode" value="2"> Joy2</label>
+                        </div>
+                        <div class="emu-menu-sep"></div>
+                        <div class="emu-menu-title">ROM / Font</div>
+                        <div class="emu-menu-file-row"><span class="emu-menu-file-label">X1 ROM</span><span class="emu-menu-file-name empty" id="ec-rom-x1-name">none</span><button class="emu-menu-file-btn" id="ec-rom-x1-load">&#x1F4C1;</button><button class="emu-menu-file-btn clear-btn" id="ec-rom-x1-clear">&#x2715;</button></div>
+                        <div class="emu-menu-file-row"><span class="emu-menu-file-label">Turbo ROM</span><span class="emu-menu-file-name empty" id="ec-rom-x1t-name">none</span><button class="emu-menu-file-btn" id="ec-rom-x1t-load">&#x1F4C1;</button><button class="emu-menu-file-btn clear-btn" id="ec-rom-x1t-clear">&#x2715;</button></div>
+                        <div class="emu-menu-file-row"><span class="emu-menu-file-label">ANK 8x8</span><span class="emu-menu-file-name empty" id="ec-fnt-ank8-name">none</span><button class="emu-menu-file-btn" id="ec-fnt-ank8-load">&#x1F4C1;</button><button class="emu-menu-file-btn clear-btn" id="ec-fnt-ank8-clear">&#x2715;</button></div>
+                        <div class="emu-menu-file-row"><span class="emu-menu-file-label">ANK 8x16</span><span class="emu-menu-file-name empty" id="ec-fnt-ank16-name">none</span><button class="emu-menu-file-btn" id="ec-fnt-ank16-load">&#x1F4C1;</button><button class="emu-menu-file-btn clear-btn" id="ec-fnt-ank16-clear">&#x2715;</button></div>
+                        <div class="emu-menu-file-row"><span class="emu-menu-file-label">KNJ 16x16</span><span class="emu-menu-file-name empty" id="ec-fnt-knj-name">none</span><button class="emu-menu-file-btn" id="ec-fnt-knj-load">&#x1F4C1;</button><button class="emu-menu-file-btn clear-btn" id="ec-fnt-knj-clear">&#x2715;</button></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<!-- Hidden file inputs for ROM/Font -->
+<input type="file" id="ec-file-rom-x1" accept=".x1,.X1,.bin,.BIN,.rom,.ROM" style="display:none">
+<input type="file" id="ec-file-rom-x1t" accept=".x1t,.X1T,.bin,.BIN,.rom,.ROM" style="display:none">
+<input type="file" id="ec-file-fnt-ank8" accept=".x1,.X1,.bin,.BIN,.fnt,.FNT" style="display:none">
+<input type="file" id="ec-file-fnt-ank16" accept=".x1,.X1,.bin,.BIN,.fnt,.FNT" style="display:none">
+<input type="file" id="ec-file-fnt-knj" accept=".x1,.X1,.bin,.BIN,.fnt,.FNT" style="display:none">
+
+    <script src="storage.js"></script>
+    <script src="ui_fragments.js"></script>
+    <script src="x1pen_editor.bundle.js"></script>
+    <script src="x1pen_tokenizer.js"></script>
+    <script src="x1pen_z80asm.js"></script>
+    <script src="x1pen.js"></script>
+    <script src="disk_container.js"></script>
+    <script src="disk_fs.js"></script>
+    <script src="disk_editor.js"></script>
+    <!-- Emscripten バンドル (pre.js 内蔵) -->
+    <script src="xmillennium.js"></script>
+</body>
+</html>

@@ -20,7 +20,7 @@ if(EMSCRIPTEN)
     set(EM_LINK_FLAGS "${EM_LINK_FLAGS} -s ALLOW_MEMORY_GROWTH=1")
     set(EM_LINK_FLAGS "${EM_LINK_FLAGS} -s INITIAL_MEMORY=67108864") # 64MB
     set(EM_LINK_FLAGS "${EM_LINK_FLAGS} -s GLOBAL_BASE=131072") # 128KB: stack-first layout 対策
-    set(EM_LINK_FLAGS "${EM_LINK_FLAGS} -s EXPORTED_FUNCTIONS='[\"_main\",\"_malloc\",\"_free\",\"_js_xmil_start\",\"_js_xmil_stop\",\"_js_xmil_reset\",\"_js_xmil_nmi\",\"_js_xmil_power_off\",\"_js_xmil_power_on\",\"_js_insert_disk\",\"_js_set_rom_type\",\"_js_set_dip_sw\",\"_js_set_skip_line\",\"_js_set_motor\",\"_js_set_motor_volume\",\"_js_eject_disk\",\"_js_insert_cmt\",\"_js_cmt_eject\",\"_js_cmt_play\",\"_js_cmt_stop\",\"_js_cmt_ff\",\"_js_cmt_rew\",\"_js_get_cmt_cmd\",\"_js_get_cmt_pos\",\"_js_get_cmt_end\",\"_js_get_cmt_freq\",\"_js_set_sasi_path\",\"_js_set_joystick\",\"_js_set_key_mode\",\"_js_set_mouse\",\"_js_reload_fonts\",\"_js_key_down\",\"_js_key_up\",\"_js_save_state\",\"_js_load_state\",\"_js_get_load_warnings\",\"_js_get_dip_sw\",\"_js_get_rom_type\",\"_js_fdd_flush\",\"_js_emm_flush\",\"_js_emm_reset_slot\",\"_js_emm_take_dirty_slots\",\"_js_set_sound_sw\",\"_js_get_sound_sw\"]'")
+    set(EM_LINK_FLAGS "${EM_LINK_FLAGS} -s EXPORTED_FUNCTIONS='[\"_main\",\"_malloc\",\"_free\",\"_js_xmil_start\",\"_js_xmil_stop\",\"_js_xmil_reset\",\"_js_xmil_nmi\",\"_js_xmil_power_off\",\"_js_xmil_power_on\",\"_js_insert_disk\",\"_js_set_rom_type\",\"_js_set_dip_sw\",\"_js_set_skip_line\",\"_js_set_motor\",\"_js_set_motor_volume\",\"_js_eject_disk\",\"_js_insert_cmt\",\"_js_cmt_eject\",\"_js_cmt_play\",\"_js_cmt_stop\",\"_js_cmt_ff\",\"_js_cmt_rew\",\"_js_get_cmt_cmd\",\"_js_get_cmt_pos\",\"_js_get_cmt_end\",\"_js_get_cmt_freq\",\"_js_set_sasi_path\",\"_js_set_joystick\",\"_js_set_key_mode\",\"_js_set_mouse\",\"_js_reload_fonts\",\"_js_key_down\",\"_js_key_up\",\"_js_save_state\",\"_js_load_state\",\"_js_get_load_warnings\",\"_js_get_dip_sw\",\"_js_get_rom_type\",\"_js_fdd_flush\",\"_js_emm_flush\",\"_js_emm_reset_slot\",\"_js_emm_take_dirty_slots\",\"_js_set_sound_sw\",\"_js_get_sound_sw\",\"_js_get_main_ram\"]'")
     set(EM_LINK_FLAGS "${EM_LINK_FLAGS} -s EXPORTED_RUNTIME_METHODS='[\"ccall\",\"cwrap\",\"FS\",\"wasmMemory\"]'")
     set(EM_LINK_FLAGS "${EM_LINK_FLAGS} -sUSE_ZLIB=1")
     set(EM_LINK_FLAGS "${EM_LINK_FLAGS} --pre-js ${CMAKE_SOURCE_DIR}/html/pre.js")
@@ -211,6 +211,10 @@ set_property(TARGET xmillennium PROPERTY LINK_DEPENDS
     ${CMAKE_SOURCE_DIR}/html/disk_fs.js
     ${CMAKE_SOURCE_DIR}/html/disk_editor.js
     ${CMAKE_SOURCE_DIR}/html/config.example.js
+    ${CMAKE_SOURCE_DIR}/html/x1pen.html
+    ${CMAKE_SOURCE_DIR}/html/ui_fragments.js
+    ${CMAKE_SOURCE_DIR}/html/x1pen_z80asm.js
+    ${CMAKE_SOURCE_DIR}/html/x1pen_editor.bundle.js
 )
 
 # ビルド後にファイルをコピー
@@ -237,6 +241,19 @@ add_custom_command(TARGET xmillennium POST_BUILD
     ${CMAKE_SOURCE_DIR}/html/privacy.html ${CMAKE_BINARY_DIR}/privacy.html
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/terms.html ${CMAKE_BINARY_DIR}/terms.html
+    # X1Pen IDE ファイル
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/html/x1pen.html ${CMAKE_BINARY_DIR}/x1pen.html
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/html/x1pen.js ${CMAKE_BINARY_DIR}/x1pen.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/html/x1pen_tokenizer.js ${CMAKE_BINARY_DIR}/x1pen_tokenizer.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/html/x1pen_z80asm.js ${CMAKE_BINARY_DIR}/x1pen_z80asm.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/html/x1pen_editor.bundle.js ${CMAKE_BINARY_DIR}/x1pen_editor.bundle.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/html/ui_fragments.js ${CMAKE_BINARY_DIR}/ui_fragments.js
     # config.js: html/config.js があればそれを使用（認証情報入り・gitignore済み）
     #            なければ config.example.js を config.js としてコピー（認証情報未設定）
     COMMAND ${CMAKE_COMMAND}

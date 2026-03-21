@@ -1,0 +1,22 @@
+# Cloudflare Pages + Functions 設定
+# このファイルが Pages Functions の D1 バインディング等の source of truth です。
+# コピーして wrangler.toml を作成し、database_id を自分の値に置き換えてください。
+#
+# 使い方:
+#   cp wrangler.toml.example wrangler.toml
+#   # database_id を Cloudflare ダッシュボードの D1 database ID に置き換え
+#   ./build.sh
+#   wrangler pages deploy dist/ --project-name <your-project>
+
+name = "xmillennium-web"
+pages_build_output_dir = "./dist"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "X1PEN_DB"
+database_name = "x1pen-shares"
+database_id = "<YOUR_D1_DATABASE_ID>"
+
+[[r2_buckets]]
+binding = "X1PEN_R2"
+bucket_name = "x1pen-assets"

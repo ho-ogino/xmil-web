@@ -40,6 +40,17 @@ echo "Emscripten version:"
 emcc --version
 echo ""
 
+# CodeMirror バンドルビルド
+if [ -f "${SCRIPT_DIR}/package.json" ]; then
+    echo "Building CodeMirror bundle..."
+    cd "${SCRIPT_DIR}"
+    if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ]; then
+        npm ci
+    fi
+    npx esbuild src/x1pen_editor.js --bundle --outfile=html/x1pen_editor.bundle.js --format=iife --minify
+    cd "${SCRIPT_DIR}"
+fi
+
 # ビルドディレクトリの作成
 echo "Creating build directory..."
 mkdir -p build
@@ -55,6 +66,8 @@ emmake make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 # CMakeLists.txt からバージョン文字列を取得
 XMIL_VERSION=$(grep 'set(XMIL_VERSION' "${SCRIPT_DIR}/CMakeLists.txt" | sed 's/.*"\(.*\)".*/\1/')
+COLD_STATE_FILE="fuzzybasic_cold.v1.xmst"
+BOOT_DISK_FILE="fuzzybasic_boot.v1.d88"
 
 # HTML/JS ファイルを build/ に同期（WASM 再コンパイルなしで更新できるよう明示コピー）
 echo "Copying HTML/JS files..."
@@ -65,11 +78,30 @@ cp "${SCRIPT_DIR}/html/drive_integration.js" ./drive_integration.js
 cp "${SCRIPT_DIR}/html/disk_container.js"   ./disk_container.js
 cp "${SCRIPT_DIR}/html/disk_fs.js"          ./disk_fs.js
 cp "${SCRIPT_DIR}/html/disk_editor.js"      ./disk_editor.js
+cp "${SCRIPT_DIR}/html/library.css"        ./library.css
+cp "${SCRIPT_DIR}/html/ui_fragments.js"   ./ui_fragments.js
 cp "${SCRIPT_DIR}/html/favicon.svg"          ./favicon.svg
+cp "${SCRIPT_DIR}/html/x1pen_favicon.svg"  ./x1pen_favicon.svg
 cp "${SCRIPT_DIR}/html/manifest.json"       ./manifest.json
 cp "${SCRIPT_DIR}/html/icon-192.png"        ./icon-192.png
 cp "${SCRIPT_DIR}/html/icon-512.png"        ./icon-512.png
 cp "${SCRIPT_DIR}/html/apple-touch-icon.png" ./apple-touch-icon.png
+
+# X1Pen IDE ファイル
+cp "${SCRIPT_DIR}/html/x1pen.html"           ./x1pen.html
+cp "${SCRIPT_DIR}/html/x1pen.js"             ./x1pen.js
+cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
+cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
+cp "${SCRIPT_DIR}/html/x1pen_charmap.html" ./x1pen_charmap.html
+[ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
+    cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ./x1pen_editor.bundle.js
+# Cold state / boot disk: 全バージョンをコピー (Share 再生互換のため)
+for f in "${SCRIPT_DIR}"/assets/fuzzybasic_cold.*.xmst; do
+    [ -f "$f" ] && cp "$f" "./"
+done
+for f in "${SCRIPT_DIR}"/assets/fuzzybasic_boot.*.d88; do
+    [ -f "$f" ] && cp "$f" "./"
+done
 
 echo ""
 echo "======================================"
@@ -100,15 +132,39 @@ cp ./drive_integration.js "${DIST_DIR}/"
 cp ./disk_container.js   "${DIST_DIR}/"
 cp ./disk_fs.js          "${DIST_DIR}/"
 cp ./disk_editor.js      "${DIST_DIR}/"
+cp ./library.css          "${DIST_DIR}/"
+cp ./ui_fragments.js      "${DIST_DIR}/"
 cp ./favicon.svg          "${DIST_DIR}/"
+cp ./x1pen_favicon.svg    "${DIST_DIR}/"
 [ -f ./favicon.ico ] && cp ./favicon.ico "${DIST_DIR}/"
 cp ./manifest.json        "${DIST_DIR}/"
 cp ./icon-192.png         "${DIST_DIR}/"
 cp ./icon-512.png         "${DIST_DIR}/"
 cp ./apple-touch-icon.png "${DIST_DIR}/"
 
-# Cloudflare Pages ヘッダー（frame-ancestors 等）
+# Cloudflare Pages ヘッダー / リダイレクト
 [ -f "${SCRIPT_DIR}/html/_headers" ] && cp "${SCRIPT_DIR}/html/_headers" "${DIST_DIR}/_headers"
+[ -f "${SCRIPT_DIR}/html/_redirects" ] && cp "${SCRIPT_DIR}/html/_redirects" "${DIST_DIR}/_redirects"
+
+# X1Pen IDE
+cp "${SCRIPT_DIR}/html/x1pen.html"           "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen.js"             "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_charmap.html" "${DIST_DIR}/"
+[ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
+    cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" "${DIST_DIR}/"
+for f in "${SCRIPT_DIR}"/assets/fuzzybasic_cold.*.xmst; do
+    [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
+done
+for f in "${SCRIPT_DIR}"/assets/fuzzybasic_boot.*.d88; do
+    [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
+done
+
+# Pages Functions (Cloudflare Workers)
+if [ -d "${SCRIPT_DIR}/functions" ]; then
+    cp -r "${SCRIPT_DIR}/functions" "${DIST_DIR}/functions"
+fi
 
 # Google Search Console 所有権確認ファイル（あれば）
 for f in "${SCRIPT_DIR}"/html/google*.html; do
@@ -118,8 +174,9 @@ done
 # バージョン文字列を注入（@@XMIL_VERSION@@ → 実際のバージョン）
 sed -i.bak "s/@@XMIL_VERSION@@/${XMIL_VERSION}/g" \
     "${DIST_DIR}/xmillennium.html" \
-    "${DIST_DIR}/index.html"
-rm -f "${DIST_DIR}/xmillennium.html.bak" "${DIST_DIR}/index.html.bak"
+    "${DIST_DIR}/index.html" \
+    "${DIST_DIR}/x1pen.html"
+rm -f "${DIST_DIR}/xmillennium.html.bak" "${DIST_DIR}/index.html.bak" "${DIST_DIR}/x1pen.html.bak"
 
 # config.js: html/config.js があればそれを使用、なければ空の example を使用
 if [ -f "${SCRIPT_DIR}/html/config.js" ]; then
@@ -136,8 +193,9 @@ echo "  - xmillennium.js"
 echo "  - xmillennium.wasm"
 echo "  - licenses.html"
 echo ""
-echo "To run the emulator:"
-echo "  1. cd dist"
-echo "  2. python3 -m http.server 8000"
-echo "  3. Open http://localhost:8000/ in your browser"
+echo "To run locally (static only):"
+echo "  cd dist && python3 -m http.server 8000"
+echo ""
+echo "To run with Pages Functions + D1 (Share 機能含む):"
+echo "  wrangler pages dev dist/"
 echo ""

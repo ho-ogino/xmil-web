@@ -279,10 +279,46 @@ BYTE* save_full_state(int *out_size, int save_flags)
 
     free(scratch);
 
-    // Shrink to actual size
-    BYTE *result = (BYTE*)realloc(buf, pos);
-    if (!result) result = buf;
-    *out_size = pos;
+    // v3: zlib compress the body (everything after 8-byte header)
+    int body_size = pos - 8;
+    uLongf comp_bound = compressBound((uLong)body_size);
+    BYTE *comp_buf = (BYTE*)malloc(8 + 4 + comp_bound);
+    if (!comp_buf) {
+        // Compression alloc failed — fall back to uncompressed v2
+        WORD fallback_ver = 2;
+        memcpy(buf + 4, &fallback_ver, 2);
+        BYTE *result = (BYTE*)realloc(buf, pos);
+        if (!result) result = buf;
+        *out_size = pos;
+        return result;
+    }
+
+    // Copy header (8B)
+    memcpy(comp_buf, buf, 8);
+
+    // Write uncompressed body size (4B LE)
+    DWORD unc_size = (DWORD)body_size;
+    memcpy(comp_buf + 8, &unc_size, 4);
+
+    // Compress body
+    uLongf comp_size = comp_bound;
+    if (compress2(comp_buf + 12, &comp_size, buf + 8, (uLong)body_size, Z_DEFAULT_COMPRESSION) != Z_OK) {
+        // Compression failed — fall back to uncompressed v2
+        free(comp_buf);
+        WORD fallback_ver = 2;
+        memcpy(buf + 4, &fallback_ver, 2);
+        BYTE *result = (BYTE*)realloc(buf, pos);
+        if (!result) result = buf;
+        *out_size = pos;
+        return result;
+    }
+
+    free(buf);
+
+    int total = 12 + (int)comp_size;
+    BYTE *result = (BYTE*)realloc(comp_buf, total);
+    if (!result) result = comp_buf;
+    *out_size = total;
     return result;
 }
 
@@ -346,6 +382,35 @@ int load_full_state(const BYTE *data, int size)
 
     state_load_version = ver;
 
+    // v3+: body is zlib compressed — decompress first
+    const BYTE *parse_data = data;
+    int parse_size = size;
+    BYTE *decompressed = NULL;
+
+    if (ver >= 3) {
+        if (size < 12) return -1;  // need uncompressed_size field
+        DWORD unc_size;
+        memcpy(&unc_size, data + 8, 4);
+        // 256MB: base ~1MB + up to 10 EMM slots × 16MB each
+        if (unc_size == 0 || unc_size > 256 * 1024 * 1024) return -1;
+
+        decompressed = (BYTE*)malloc(8 + unc_size);
+        if (!decompressed) return -1;
+
+        // Copy header
+        memcpy(decompressed, data, 8);
+
+        // Decompress body
+        uLongf dest_len = (uLongf)unc_size;
+        if (uncompress(decompressed + 8, &dest_len, data + 12, (uLong)(size - 12)) != Z_OK) {
+            free(decompressed);
+            return -1;
+        }
+
+        parse_data = decompressed;
+        parse_size = 8 + (int)dest_len;
+    }
+
     int body = 8;
     char *warn = s_load_warnings;
     int wmax = (int)sizeof(s_load_warnings);
@@ -378,40 +443,40 @@ int load_full_state(const BYTE *data, int size)
     // ====================================================================
 
     // 1. Memory
-    load_memory(data, size, body, "MRAM", mMAIN, 0x10000);
-    load_memory(data, size, body, "BANK", mBANK, sizeof(mBANK));
-    load_memory(data, size, body, "GVRA", GRP_RAM, 0x20000);
-    load_memory(data, size, body, "TVRA", TXT_RAM, 0x01800);
+    load_memory(parse_data, parse_size, body, "MRAM", mMAIN, 0x10000);
+    load_memory(parse_data, parse_size, body, "BANK", mBANK, sizeof(mBANK));
+    load_memory(parse_data, parse_size, body, "GVRA", GRP_RAM, 0x20000);
+    load_memory(parse_data, parse_size, body, "TVRA", TXT_RAM, 0x01800);
 
     // 2. Event base
-    load_section_warn(data, size, body, "EVNT", event_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "EVNT", event_load_state, warn, wmax);
 
     // 3. Z80 CPU — MUST be before any event_set() calls (FLAG, CTC, FDC, etc.)
     //    because event_set() uses absolutetime() which reads Z80_ICount.
     //    If Z80_ICount is stale, all event expire times will be wrong.
-    load_section_warn(data, size, body, "Z80C", z80w_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "Z80C", z80w_load_state, warn, wmax);
 
     // 4. FLAG + X1 core events (called AFTER event base + Z80 so event_set works)
-    load_section_warn(data, size, body, "FLAG", x1_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "FLAG", x1_load_state, warn, wmax);
 
     // 5. Devices with events
-    load_section_warn(data, size, body, "CTC0", ctc_load_state, warn, wmax);
-    load_section_warn(data, size, body, "FDC0", fdc_load_state, warn, wmax);
-    load_section_warn(data, size, body, "CMT0", cmt_load_state, warn, wmax);
-    load_section_warn(data, size, body, "DMA0", dma_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "CTC0", ctc_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "FDC0", fdc_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "CMT0", cmt_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "DMA0", dma_load_state, warn, wmax);
 
     // 6. Simple struct devices
-    load_section_warn(data, size, body, "FD2D", fdd2d_load_state, warn, wmax);
-    load_section_warn(data, size, body, "FD88", fddd88_load_state, warn, wmax);
-    load_section_warn(data, size, body, "SIO0", sio_load_state, warn, wmax);
-    load_section_warn(data, size, body, "8255", ppi_load_state, warn, wmax);
-    load_memory(data, size, body, "SCPU", &scpu, sizeof(scpu));
+    load_section_warn(parse_data, parse_size, body, "FD2D", fdd2d_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "FD88", fddd88_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "SIO0", sio_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "8255", ppi_load_state, warn, wmax);
+    load_memory(parse_data, parse_size, body, "SCPU", &scpu, sizeof(scpu));
 
     // EMM0: safe load with zero-init for backward compat (dirty_slots field)
     emm_close_handle();
     {
         int emm0_len = 0;
-        const BYTE* emm0_sec = find_section(data, size, body, "EMM0", emm0_len);
+        const BYTE* emm0_sec = find_section(parse_data, parse_size, body, "EMM0", emm0_len);
         if (emm0_sec && emm0_len > 0) {
             EMM_TABLE tmp;
             ZeroMemory(&tmp, sizeof(tmp));
@@ -427,15 +492,15 @@ int load_full_state(const BYTE *data, int size)
     emm.cached_filename[0] = '\0';
 
     sasi_close_handle();
-    load_memory(data, size, body, "SASI", &sasi, sizeof(sasi));
+    load_memory(parse_data, parse_size, body, "SASI", &sasi, sizeof(sasi));
     sasi.cached_hdr = INVALID_HANDLE_VALUE;
     sasi.cached_filename[0] = '\0';
-    load_memory(data, size, body, "PCG0", &pcg, sizeof(pcg));
+    load_memory(parse_data, parse_size, body, "PCG0", &pcg, sizeof(pcg));
 
     // 7. CRTC
     {
         int len = 0;
-        const BYTE *sec = find_section(data, size, body, "CRTC", len);
+        const BYTE *sec = find_section(parse_data, parse_size, body, "CRTC", len);
         if (sec) {
             int cp = 0;
             int expected = (int)(sizeof(crtc) + sizeof(crtc_TEXTPAL) +
@@ -450,28 +515,28 @@ int load_full_state(const BYTE *data, int size)
     }
 
     // 8. IRQ
-    load_section_warn(data, size, body, "IRQ0", irq_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "IRQ0", irq_load_state, warn, wmax);
 
     // 9. OPM (REGS mirror replay via OPMWriteReg)
-    load_section_warn(data, size, body, "OPM0", opm_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "OPM0", opm_load_state, warn, wmax);
 
     // 10. OPM timers
-    load_section_warn(data, size, body, "OPMC", opmcore_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "OPMC", opmcore_load_state, warn, wmax);
 
     // 11. PSG
-    load_section_warn(data, size, body, "PSG0", psg_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "PSG0", psg_load_state, warn, wmax);
 
     // 12. Sound I/O latches
-    load_section_warn(data, size, body, "SND0", snd_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "SND0", snd_load_state, warn, wmax);
 
     // 13. FDD motor (delta-based GetTickCount)
-    load_section_warn(data, size, body, "FMTR", fddmtr_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "FMTR", fddmtr_load_state, warn, wmax);
 
     // 14. Timer (delta-based GetTickCount)
-    load_section_warn(data, size, body, "TIMR", timer_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "TIMR", timer_load_state, warn, wmax);
 
     // 15. VRAM control
-    load_section_warn(data, size, body, "VRAM", vram_load_state, warn, wmax);
+    load_section_warn(parse_data, parse_size, body, "VRAM", vram_load_state, warn, wmax);
 
     // 15.5. Portable EMM: decompress EMDn sections → VFS files
     //       Only for v2+ states with PORTABLE_EMM flag
@@ -480,7 +545,7 @@ int load_full_state(const BYTE *data, int size)
             char tag[5];
             sprintf(tag, "EMD%d", i);
             int sec_len = 0;
-            const BYTE *sec = find_section(data, size, body, tag, sec_len);
+            const BYTE *sec = find_section(parse_data, parse_size, body, tag, sec_len);
             if (!sec || sec_len < 4) continue;
 
             DWORD raw_size;
@@ -531,6 +596,9 @@ int load_full_state(const BYTE *data, int size)
     // 19. Force full screen redraw + palette recalculation
     scrnallflash = 1;
     palandply = 1;  // crtc.PLY 復元値をパレットテーブルに反映
+
+    // Free decompressed buffer if allocated
+    if (decompressed) free(decompressed);
 
     // 0 = success, 1 = success but ROM_TYPE mismatch (warning)
     return rom_type_mismatch;

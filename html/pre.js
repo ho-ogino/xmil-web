@@ -39,7 +39,8 @@
     var _multiTabPromise = null;
     var _tabChannel = null;
     if (typeof BroadcastChannel !== 'undefined') {
-        _tabChannel = new BroadcastChannel('xmil_tab');
+        var _channelName = window.__X1PEN_MODE ? 'x1pen_tab' : 'xmil_tab';
+        _tabChannel = new BroadcastChannel(_channelName);
         var _myTabId = Math.random().toString(36).slice(2);
         _multiTabPromise = new Promise(function(resolve) {
             var detected = false;
@@ -58,6 +59,9 @@
             if (_tabChannel) { _tabChannel.close(); _tabChannel = null; }
         });
     }
+    // X1Pen モード用: マルチタブ promise をグローバル公開
+    window.__multiTabPromise = _multiTabPromise;
+    window.__tabChannel = _tabChannel;
 
     // スロット→対応タイプ
     const SLOT_TYPES = { drive0: 'fdd', drive1: 'fdd', hdd0: 'hdd', hdd1: 'hdd', cmt: 'cmt', emm0: 'emm', emm1: 'emm', emm2: 'emm', emm3: 'emm', emm4: 'emm', emm5: 'emm', emm6: 'emm', emm7: 'emm', emm8: 'emm', emm9: 'emm' };
@@ -83,7 +87,7 @@
     const LS_FNT_ANK16   = 'xmil_fnt_ank16';
     const LS_FNT_KNJ     = 'xmil_fnt_knj';
     const LS_LIBRARY     = 'xmil_library';     // LibraryEntry[] JSON
-    const LS_MOUNT_STATE = 'xmil_mount_state'; // スロット→OPFSキー JSON
+    const LS_MOUNT_STATE = window.__X1PEN_MODE ? 'x1pen_mount_state' : 'xmil_mount_state';
     const LS_STATES      = 'xmil_savestates';  // SaveStateEntry[] JSON
     const QUICK_STATE_KEY = 'xmil_quick_state'; // 最新クイックセーブキー
 
@@ -683,10 +687,12 @@
     }
 
     // 起動時: マウント状態を復元
-    async function autoRestoreMounts() {
+    async function autoRestoreMounts(excludeSlots) {
         var state = getMountState();
         var lib = getLibrary();
+        var exclude = excludeSlots || [];
         for (var slotName in state) {
+            if (exclude.indexOf(slotName) >= 0) continue;
             var key = state[slotName];
             if (!key) continue;
             var exists = lib.find(function(e) { return e.key === key; });
@@ -729,6 +735,12 @@
     function flushSlot(slotName) {
         if (slotFlushInFlight[slotName]) return slotFlushInFlight[slotName];
         if (!slotDirty[slotName] || !slotState[slotName]) return Promise.resolve();
+        // 一時ディスク (__x1pen_temp__) は保存対象外
+        if (slotState[slotName] === '__x1pen_temp__') {
+            slotDirty[slotName] = false;
+            slotDirtyPages[slotName] = null;
+            return Promise.resolve();
+        }
 
         var pages = slotDirtyPages[slotName];
         slotDirtyPages[slotName] = null;
@@ -3280,6 +3292,278 @@
     window.openLibraryPanel  = openLibraryPanel;
     window.closeLibraryPanel = closeLibraryPanel;
 
+    // X1Pen 用: DOM 不要で localStorage から設定を読み C 側に直接適用
+    // デフォルト値は platform_main.cpp の xmilcfg 初期値と一致させること
+    function applySettingsFromStorage() {
+        if (!module) return;
+        try {
+            var raw = localStorage.getItem(LS_SETTINGS);
+            var s = raw ? JSON.parse(raw) : {};
+            // ROM_TYPE: default 1 (X1)
+            if (module._js_set_rom_type)    module._js_set_rom_type(s.romType !== undefined ? s.romType : 1);
+            // DIP_SW: default 1 (bit0=高解像度OFF)
+            if (module._js_set_dip_sw) {
+                var dip = 0;
+                if (!s.dipHighres) dip |= 0x01;  // NOT: unchecked = bit set
+                if (s.dip2hd)      dip |= 0x04;
+                module._js_set_dip_sw(dip);
+            }
+            if (module._js_set_skip_line)   module._js_set_skip_line(s.skipLine ? 1 : 0);
+            // MOTOR: default 1 (有効)
+            if (module._js_set_motor)       module._js_set_motor((s.motorSound !== undefined ? s.motorSound : true) ? 1 : 0);
+            // MOTORVOL: default 80
+            if (module._js_set_motor_volume) module._js_set_motor_volume(s.seekVolume !== undefined ? s.seekVolume : 80);
+            // JOYSTICK: default true (有効)
+            if (module._js_set_joystick)    module._js_set_joystick((s.joystickEnable !== undefined ? s.joystickEnable : true) ? 1 : 0);
+            // MOUSE: default false (無効)
+            if (module._js_set_mouse)       module._js_set_mouse(s.mouseEnable ? 1 : 0);
+            // SOUND_SW (FM): default true (有効)
+            if (module._js_set_sound_sw)    module._js_set_sound_sw((s.fmEnable !== undefined ? s.fmEnable : true) ? 1 : 0);
+            // KEY_MODE: default 0
+            if (module._js_set_key_mode)    module._js_set_key_mode(s.keyMode !== undefined ? s.keyMode : 0);
+        } catch(e) {
+            console.warn('[x1pen] applySettingsFromStorage failed:', e);
+        }
+    }
+
+    // X1Pen 用: 共通初期化関数を公開
+    window.XmilInit = {
+        setupAudioStream: setupAudioStream,
+        applySettingsFromStorage: applySettingsFromStorage
+    };
+
+    // X1Pen 用: DOM 不要の設定保存 (部分更新: read-modify-write)
+    function saveSettingsDirect(overrides) {
+        try {
+            var raw = localStorage.getItem(LS_SETTINGS);
+            var settings = raw ? JSON.parse(raw) : {};
+            Object.assign(settings, overrides);
+            localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
+        } catch(e) { console.warn('saveSettingsDirect failed:', e); }
+    }
+
+    // X1Pen 用: ROM を VFS に配置するだけ (reset なし, 旧キー互換あり)
+    function loadRomToVfs() {
+        var old = loadFile(LS_ROM);
+        if (old) {
+            var fn = old.name.toUpperCase();
+            if (fn === 'IPLROM.X1' && !loadFile(LS_ROM_X1))
+                saveFile(LS_ROM_X1, old.name, old.data.buffer);
+            else if (fn === 'IPLROM.X1T' && !loadFile(LS_ROM_X1T))
+                saveFile(LS_ROM_X1T, old.name, old.data.buffer);
+        }
+        var savedX1 = loadFile(LS_ROM_X1);
+        if (savedX1) writeFileToVFS('/IPLROM.X1', savedX1.data);
+        var savedX1t = loadFile(LS_ROM_X1T);
+        if (savedX1t) writeFileToVFS('/IPLROM.X1T', savedX1t.data);
+    }
+
+    // X1Pen 用: フォントを VFS に配置するだけ (js_reload_fonts なし)
+    function loadFontsToVfs() {
+        Object.keys(FONT_CFG).forEach(function(type) {
+            var cfg = FONT_CFG[type];
+            var saved = loadFile(cfg.lsKey);
+            if (saved) writeFileToVFS(cfg.vfsPath, saved.data);
+        });
+    }
+
+    // X1Pen 用: コントロール API
+    window.XmilControls = {
+        // Reset
+        iplReset: onIplResetClick,
+        nmiReset: onNmiResetClick,
+
+        // 設定変更 (C export + localStorage 永続化)
+        setRomType: function(v) {
+            if (module && module._js_set_rom_type) module._js_set_rom_type(v);
+            saveSettingsDirect({ romType: v });
+        },
+        setDipHighres: function(on) {
+            if (module && module._js_get_dip_sw && module._js_set_dip_sw) {
+                var dip = module._js_get_dip_sw();
+                if (on) dip &= ~0x01; else dip |= 0x01;
+                module._js_set_dip_sw(dip);
+            }
+            saveSettingsDirect({ dipHighres: on });
+        },
+        setDip2hd: function(on) {
+            if (module && module._js_get_dip_sw && module._js_set_dip_sw) {
+                var dip = module._js_get_dip_sw();
+                if (on) dip |= 0x04; else dip &= ~0x04;
+                module._js_set_dip_sw(dip);
+            }
+            saveSettingsDirect({ dip2hd: on });
+        },
+        setSkipLine: function(on) {
+            if (module && module._js_set_skip_line) module._js_set_skip_line(on ? 1 : 0);
+            saveSettingsDirect({ skipLine: on });
+        },
+        setMotorSound: function(on) {
+            if (module && module._js_set_motor) module._js_set_motor(on ? 1 : 0);
+            saveSettingsDirect({ motorSound: on });
+        },
+        setMotorVolume: function(v) {
+            if (module && module._js_set_motor_volume) module._js_set_motor_volume(v);
+            saveSettingsDirect({ seekVolume: v });
+        },
+        setJoystick: function(on) {
+            if (module && module._js_set_joystick) module._js_set_joystick(on ? 1 : 0);
+            saveSettingsDirect({ joystickEnable: on });
+        },
+        setMouse: function(on) {
+            if (module && module._js_set_mouse) module._js_set_mouse(on ? 1 : 0);
+            saveSettingsDirect({ mouseEnable: on });
+        },
+        setFmSound: function(on) {
+            if (module && module._js_set_sound_sw) module._js_set_sound_sw(on ? 1 : 0);
+            saveSettingsDirect({ fmEnable: on });
+        },
+        setKeyMode: function(v) {
+            if (module && module._js_set_key_mode) module._js_set_key_mode(v);
+            saveSettingsDirect({ keyMode: v });
+        },
+
+        // 設定読み取り
+        getSettings: function() {
+            try {
+                var raw = localStorage.getItem(LS_SETTINGS);
+                return raw ? JSON.parse(raw) : {};
+            } catch(e) { return {}; }
+        },
+
+        // ROM/Font 管理
+        onRomFileChange: onRomFileChange,
+        onFontFileChange: onFontFileChange,
+        clearRom: clearRom,
+        clearFont: clearFont,
+        loadRomToVfs: loadRomToVfs,
+        loadFontsToVfs: loadFontsToVfs,
+
+        // ROM/Font 状態取得
+        getRomStatus: function() {
+            var status = {};
+            var x1  = loadFile(LS_ROM_X1);
+            var x1t = loadFile(LS_ROM_X1T);
+            status.x1  = x1  ? x1.name  : null;
+            status.x1t = x1t ? x1t.name : null;
+            Object.keys(FONT_CFG).forEach(function(type) {
+                var saved = loadFile(FONT_CFG[type].lsKey);
+                status[type] = saved ? saved.name : null;
+            });
+            return status;
+        },
+
+        // CMT transport
+        cmtPlay: function() { if (module && module._js_cmt_play) module._js_cmt_play(); },
+        cmtStop: function() { if (module && module._js_cmt_stop) module._js_cmt_stop(); },
+        cmtFf:   function() { if (module && module._js_cmt_ff) module._js_cmt_ff(); },
+        cmtRew:  function() { if (module && module._js_cmt_rew) module._js_cmt_rew(); },
+
+        // 一時ディスクマウント (X1Pen PROGRAM ディスク用)
+        mountTempDisk: async function(arrayBuffer, slotName) {
+            // 既存ディスクが通常マウントなら flush/eject して変更を保存
+            if (slotState[slotName] && slotState[slotName] !== '__x1pen_temp__') {
+                try { await ejectSlot(slotName); } catch(e) {}
+            }
+            var vfsPath = slotToVfsPath(slotName, 'd88');
+            writeFileToVFS(vfsPath, new Uint8Array(arrayBuffer));
+            if (module) {
+                var driveIndex = slotName === 'drive0' ? 0 : 1;
+                module.ccall('js_insert_disk', null, ['string', 'number'], [vfsPath, driveIndex]);
+            }
+            slotState[slotName] = '__x1pen_temp__';
+            slotVfsPath[slotName] = vfsPath;
+            slotDirty[slotName] = false;
+            slotDirtyPages[slotName] = null;
+            // saveMountState() は呼ばない (一時マウント)
+        },
+
+        // EMM スロット操作
+        onEmmSlotCreate: onEmmSlotCreate,
+        onEmmSlotExport: onEmmSlotExport,
+        onEmmSlotImport: onEmmSlotImport,
+        onEmmSlotDelete: onEmmSlotDelete,
+        onEmmSlotInsert: onEmmSlotInsert,
+        onEmmSlotEject:  onEmmSlotEject,
+        openEmmCreateDialog: openEmmCreateDialog,
+        closeEmmCreateDialog: closeEmmCreateDialog,
+        onEmmCreateConfirm: onEmmCreateConfirm,
+        initEmmSizeRadios: initEmmSizeRadios,
+
+        // EMM import input 生成 (init() 外で呼べるように)
+        createEmmImportInput: function() {
+            if (emmImportInput) return;
+            emmImportInput = document.createElement('input');
+            emmImportInput.type = 'file';
+            emmImportInput.accept = '.mem,.MEM';
+            emmImportInput.style.display = 'none';
+            document.body.appendChild(emmImportInput);
+            emmImportInput.addEventListener('change', async function(e) {
+                var file = e.target.files[0];
+                e.target.value = '';
+                var slotNum = emmImportSlot;
+                emmImportSlot = -1;
+                if (!file || slotNum < 0) return;
+                if (!emmGuardStart(slotNum)) return;
+                var slotName = 'emm' + slotNum;
+                var fileName = 'EMM' + slotNum + '.MEM';
+                var wasExistingKey = null;
+                try {
+                    if (file.size > 16 * 1024 * 1024) { alert('最大 16MB です'); return; }
+                    var existingEntry = getLibrary().find(function(ent) {
+                        return ent.type === 'emm' && ent.name === fileName;
+                    });
+                    wasExistingKey = existingEntry ? existingEntry.key : null;
+                    if (slotState[slotName]) await ejectSlot(slotName);
+                    var data = await file.arrayBuffer();
+                    var key = fileName;
+                    await window.XmilStorage.write(key, data);
+                    var oldLib = getLibrary();
+                    for (var oi = 0; oi < oldLib.length; oi++) {
+                        var oe = oldLib[oi];
+                        if (oe.type === 'emm' && oe.name === fileName && oe.key !== key) {
+                            try { await window.XmilStorage.remove(oe.key); } catch(_) {}
+                        }
+                    }
+                    var lib = getLibrary().filter(function(ent) {
+                        return !(ent.type === 'emm' && ent.name === fileName);
+                    });
+                    var existingFav = (existingEntry && existingEntry.favorite) || false;
+                    lib.push({ key: key, name: fileName, type: 'emm', size: file.size,
+                               addedAt: new Date().toISOString(), ext: 'mem',
+                               favorite: existingFav });
+                    saveLibrary(lib);
+                    await mountFromLibrary(key, slotName);
+                    renderLibraryList();
+                    updateCapacityDisplay();
+                } catch(err) {
+                    alert('インポートに失敗しました: ' + (err.message || err));
+                    if (wasExistingKey && !slotState[slotName]) {
+                        try { await mountFromLibrary(wasExistingKey, slotName); } catch(_) {}
+                    }
+                    renderLibraryList();
+                } finally {
+                    emmGuardEnd(slotNum);
+                }
+            });
+        }
+    };
+
+    // X1Pen 用: ライブラリ内部関数を公開
+    window.XmilLibrary = {
+        addToLibrary: addToLibrary,
+        mountFromLibrary: mountFromLibrary,
+        downloadFromLibrary: downloadFromLibrary,
+        deleteFromLibrary: deleteFromLibrary,
+        toggleFavorite: toggleFavorite,
+        renderLibraryList: renderLibraryList,
+        autoRestoreMounts: autoRestoreMounts,
+        setSearch: function(v) { currentLibrarySearch = v; },
+        setSort:   function(v) { currentLibrarySort = v; },
+        setFavoritesOnly: function(v) { currentFavoritesOnly = v; },
+        getFavoritesOnly: function()  { return currentFavoritesOnly; }
+    };
+
     // FDD ベイの「ライブラリを開く」ボタン用 (shell.htmlから呼ばれる)
     window.openFddLibrary = function(drive) { openLibraryPanel('fdd', drive); };
     window.openHddLibrary = function(id)    { openLibraryPanel('hdd', id);    };
@@ -3719,7 +4003,14 @@
     // ----------------------------------------------------------------
     window.Module = {
         preRun: [function() {}],
-        postRun: [function() { onModuleReady(); }],
+        postRun: [function() {
+            if (window.__X1PEN_MODE) {
+                module = window.Module;  // pre.js 内部の module 参照を設定
+                if (window.__x1pen_onModuleReady) window.__x1pen_onModuleReady();
+            } else {
+                onModuleReady();
+            }
+        }],
         print:    function(text) { /* リリース: stdout 抑制 */ },
         printErr: function(text) { console.warn('[xmil]', text); },
         canvas: (function() {
@@ -3737,11 +4028,13 @@
         onRuntimeInitialized: function() {}
     };
 
-    // ページ読み込み完了時に初期化
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
+    // ページ読み込み完了時に初期化 (X1Pen モードでは呼ばない)
+    if (!window.__X1PEN_MODE) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
     }
 
     // グローバル公開
