@@ -281,6 +281,8 @@ testOK('DJNZ forward', 'ORG 0\nDJNZ 5', [0x10, 0x03]);
 testOK('CALL 0x1234',    'ORG 0\nCALL 0x1234',    [0xCD, 0x34, 0x12]);
 testOK('CALL NZ,0x1234', 'ORG 0\nCALL NZ,0x1234', [0xC4, 0x34, 0x12]);
 testOK('CALL Z,0x1234',  'ORG 0\nCALL Z,0x1234',  [0xCC, 0x34, 0x12]);
+testOK('CALL C,0x1234',  'ORG 0\nCALL C,0x1234',  [0xDC, 0x34, 0x12]);
+testOK('CALL NC,0x1234', 'ORG 0\nCALL NC,0x1234', [0xD4, 0x34, 0x12]);
 
 // ================================================================
 // 23. RET cc
@@ -382,7 +384,17 @@ testOK('OUTD', 'OUTD', [0xED, 0xAB]);
 testOK('OTDR', 'OTDR', [0xED, 0xBB]);
 
 // ================================================================
-// 30. Pseudo-instructions
+// 30. Unary plus / expressions
+// ================================================================
+testOK('DB +5',         'DB +5',         [5]);
+testOK('LD A,+1',       'LD A,+1',       [0x3E, 0x01]);
+testOK('DB 3+2',        'DB 3+2',        [5]);
+testOK('DB 10-3',       'DB 10-3',       [7]);
+testOK('DB 2*3',        'DB 2*3',        [6]);
+testOK('LD (IX+5),A displacement', 'LD (IX+5),A', [0xDD, 0x77, 0x05]);
+
+// ================================================================
+// 31. Pseudo-instructions
 // ================================================================
 testOK('DB',  'DB 1,2,3',     [1, 2, 3]);
 testOK('DW',  'DW 0x1234',    [0x34, 0x12]);
