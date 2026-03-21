@@ -7,8 +7,8 @@ window.__X1PEN_MODE = true;
 (function() {
     'use strict';
 
-    var COLD_STATE_FILE = 'fuzzybasic_cold.v1.xmst';
-    var BOOT_DISK_FILE  = 'fuzzybasic_boot.v1.d88';
+    var COLD_STATE_FILE = 'fuzzybasic_cold.v2.xmst';
+    var BOOT_DISK_FILE  = 'fuzzybasic_boot.v2.d88';
     var module = null;
 
     // ── Runtime asset cache + selection ──
