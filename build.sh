@@ -81,6 +81,7 @@ cp "${SCRIPT_DIR}/html/disk_editor.js"      ./disk_editor.js
 cp "${SCRIPT_DIR}/html/library.css"        ./library.css
 cp "${SCRIPT_DIR}/html/ui_fragments.js"   ./ui_fragments.js
 cp "${SCRIPT_DIR}/html/favicon.svg"          ./favicon.svg
+cp "${SCRIPT_DIR}/html/x1pen_favicon.svg"  ./x1pen_favicon.svg
 cp "${SCRIPT_DIR}/html/manifest.json"       ./manifest.json
 cp "${SCRIPT_DIR}/html/icon-192.png"        ./icon-192.png
 cp "${SCRIPT_DIR}/html/icon-512.png"        ./icon-512.png
@@ -134,6 +135,7 @@ cp ./disk_editor.js      "${DIST_DIR}/"
 cp ./library.css          "${DIST_DIR}/"
 cp ./ui_fragments.js      "${DIST_DIR}/"
 cp ./favicon.svg          "${DIST_DIR}/"
+cp ./x1pen_favicon.svg    "${DIST_DIR}/"
 [ -f ./favicon.ico ] && cp ./favicon.ico "${DIST_DIR}/"
 cp ./manifest.json        "${DIST_DIR}/"
 cp ./icon-192.png         "${DIST_DIR}/"
