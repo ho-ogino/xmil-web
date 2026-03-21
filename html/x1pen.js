@@ -276,13 +276,16 @@ window.__X1PEN_MODE = true;
             lastUsedRuntime.model = module._js_get_rom_type();
         }
 
-        // 7. ASM バイナリをディスクに配置して FDD0 にマウント (BASIC も同梱)
-        if (asmResult && asmResult.bytes.length > 0) {
-            if (!(await mountProgramDisk(asmResult.bytes, tokenized, bootData))) {
-                elStatus.textContent = 'Disk write failed';
-                return false;
+        // 7. ディスクイメージ作成 (ASM バイナリ and/or AUTORUN.BAS)
+        var asmBytes = (asmResult && asmResult.bytes.length > 0) ? asmResult.bytes : null;
+        if (asmBytes || tokenized) {
+            if (bootData) {
+                if (!(await mountProgramDisk(asmBytes, tokenized, bootData))) {
+                    elStatus.textContent = 'Disk write failed';
+                    return false;
+                }
+                hasProgramDisk = true;
             }
-            hasProgramDisk = true;
         }
 
         // 8. FDD 等のマウント状態を再適用 (PROGRAM ディスク使用時は drive0 を除外)
@@ -327,10 +330,12 @@ window.__X1PEN_MODE = true;
         var container = window.XmilDiskContainer.openContainer(diskCopy, 'boot.d88', 'fdd');
         if (!container) return false;
 
-        // 3. LSX-Dodgers FS で PROGRAM.BIN を書き込み
+        // 3. LSX-Dodgers FS でファイルを書き込み
         try {
             var fs = new window.XmilDiskFS.LsxDodgersFS(container);
-            fs.addFile('PROGRAM', 'BIN', new Uint8Array(programBytes));
+            if (programBytes && programBytes.length > 0) {
+                fs.addFile('PROGRAM', 'BIN', new Uint8Array(programBytes));
+            }
             if (basicTokenized) {
                 fs.addFile('AUTORUN', 'BAS', basicTokenized);
             }
