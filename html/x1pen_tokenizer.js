@@ -495,7 +495,8 @@
         [0xFF, 0xE7, 'COLOR '],
         [0xFF, 0xE8, 'PCGDEF '],
         [0xFF, 0xE9, 'TCOLOR '],
-        [0xFF, 0xEA, 'SOUND ']
+        [0xFF, 0xEA, 'SOUND '],
+        [0xFD, 0xC5, 'JOY(']
     ];
 
     // ---- ヘルパー ----

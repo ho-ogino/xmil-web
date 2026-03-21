@@ -36,7 +36,7 @@ var BASIC_KEYWORDS = new Set([
     'SIZE','SQR','SQU','SUM',
     'TABLE','TXBEGIN','TXEND','TOP',
     'USR','VAL','VEADR','VSADR','VERSION','WINP','WPEEK','ZERO',
-    'COS','SIN','PAI',
+    'COS','SIN','PAI','JOY',
     // Print functions (0xFB)
     'BIN','BINL','CHR$','DECI','HEX2','HEX4','LEFT$','RIGHT$',
     'MSG','PN','SPC','STRING','STR',

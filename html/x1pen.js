@@ -159,9 +159,9 @@ window.__X1PEN_MODE = true;
         var ramPtr = module._js_get_main_ram();
         var ram = new Uint8Array(module.wasmMemory.buffer, ramPtr, 0x10000);
 
-        var TEXTAREA    = 0x4A37;  // addrmap.json
-        var TEXTST_ADDR = 0x39DE;  // 2-byte LE pointer
-        var TEXTED_ADDR = 0x39E0;  // 2-byte LE pointer
+        var TEXTAREA    = 0x4A3C;  // addrmap.json
+        var TEXTST_ADDR = 0x39DC;  // 2-byte LE pointer
+        var TEXTED_ADDR = 0x39DE;  // 2-byte LE pointer
 
         // TEXTST 読取 (cold state では TEXTAREA を指す)
         var textStart = ram[TEXTST_ADDR] | (ram[TEXTST_ADDR + 1] << 8);
