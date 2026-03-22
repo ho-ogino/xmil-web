@@ -1064,7 +1064,10 @@ window.__X1PEN_MODE = true;
 
     // モバイルタブ切り替え
     var mobileActivePanel = 'emulator';
-    function isMobile() { return window.innerWidth <= 768; }
+    function isMobile() {
+        return window.innerWidth <= 768 ||
+            (window.innerHeight <= 500 && window.innerWidth > window.innerHeight);
+    }
 
     function switchMobilePanel(panel) {
         mobileActivePanel = panel;

@@ -294,7 +294,8 @@
         #mobile-tabs { display: none; }
 
         /* ── レスポンシブ ── */
-        @media (max-width: 768px) {
+        /* 縦向きスマホ OR 横向きで高さが低いデバイス */
+        @media (max-width: 768px), (max-height: 500px) and (orientation: landscape) {
             #mobile-tabs {
                 display: flex;
                 background: #16213e;
