@@ -292,6 +292,76 @@
         .emu-menu-file-btn.clear-btn { color: #663333; }
         .emu-menu-file-btn.clear-btn:hover { background: #201616; color: #ff7777; }
 
+        /* ── Share ダイアログ ── */
+        #share-dialog-backdrop {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 999;
+        }
+        #share-dialog-box {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            width: 90%; max-width: 480px;
+            z-index: 1000;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+        }
+        #share-dialog-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 16px;
+            border-bottom: 1px solid #0f3460;
+            font-size: 1.1em; font-weight: bold; color: #e0e0e0;
+        }
+        #share-dialog-header button {
+            background: none; border: none; color: #888;
+            font-size: 1.2em; cursor: pointer; padding: 0 4px;
+        }
+        #share-dialog-header button:hover { color: #e0e0e0; }
+        #share-dialog-body {
+            padding: 16px;
+        }
+        #share-dialog-body p {
+            color: #aaa; margin-bottom: 10px; font-size: 0.9em;
+        }
+        #share-dialog-url-row {
+            display: flex; gap: 8px;
+        }
+        #share-dialog-url {
+            flex: 1; min-width: 0;
+            font-family: 'Courier New', monospace; font-size: 0.85em;
+            padding: 8px 10px;
+            background: #0d1117; color: #e0e0e0;
+            border: 1px solid #0f3460; border-radius: 4px;
+            outline: none;
+        }
+        #share-dialog-url:focus { border-color: #1a4a88; }
+        #share-dialog-copy {
+            font-family: 'Courier New', monospace; font-size: 0.85em;
+            padding: 8px 16px;
+            background: #16213e; color: #e0e0e0;
+            border: 1px solid #0f3460; border-radius: 4px;
+            cursor: pointer; white-space: nowrap;
+            -webkit-appearance: none; appearance: none;
+        }
+        #share-dialog-copy:hover { background: #0f3460; }
+        #share-dialog-footer {
+            display: flex; justify-content: flex-end;
+            padding: 12px 16px;
+            border-top: 1px solid #0f3460;
+        }
+        #share-dialog-ok {
+            font-family: 'Courier New', monospace; font-size: 0.85em;
+            padding: 6px 20px;
+            background: #16213e; color: #e0e0e0;
+            border: 1px solid #0f3460; border-radius: 4px;
+            cursor: pointer;
+            -webkit-appearance: none; appearance: none;
+        }
+        #share-dialog-ok:hover { background: #0f3460; }
+
         .hidden { display: none !important; }
 
         /* ── モバイルタブ — デスクトップでは非表示 ── */
@@ -509,6 +579,27 @@
             </div>
         </div>
     </div>
+
+<!-- Share ダイアログ -->
+<div id="share-dialog" class="hidden">
+    <div id="share-dialog-backdrop"></div>
+    <div id="share-dialog-box">
+        <div id="share-dialog-header">
+            <span>Share Code</span>
+            <button id="share-dialog-close" title="Close">&#x2715;</button>
+        </div>
+        <div id="share-dialog-body">
+            <p>Copy and share the URL below:</p>
+            <div id="share-dialog-url-row">
+                <input type="text" id="share-dialog-url" readonly>
+                <button id="share-dialog-copy">Copy</button>
+            </div>
+        </div>
+        <div id="share-dialog-footer">
+            <button id="share-dialog-ok">OK</button>
+        </div>
+    </div>
+</div>
 
 <!-- Hidden file inputs for ROM/Font -->
 <input type="file" id="ec-file-rom-x1" accept=".x1,.X1,.bin,.BIN,.rom,.ROM" style="display:none">
