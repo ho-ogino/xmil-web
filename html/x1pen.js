@@ -195,8 +195,8 @@ window.__X1PEN_MODE = true;
         keys.forEach(function(vk, i) {
             setTimeout(function() {
                 module._js_key_down(vk);
-                setTimeout(function() { module._js_key_up(vk); }, 30);
-            }, i * 50);
+                setTimeout(function() { module._js_key_up(vk); }, 80);
+            }, i * 100);
         });
     }
 
@@ -304,14 +304,19 @@ window.__X1PEN_MODE = true;
         }
 
         // 7. エミュレータ開始 + "RUN"+Enter キー注入
+        //    _js_xmil_start() 後、エミュレータが実際にフレームを処理し
+        //    BASIC プロンプトが出るまで待ってからキー注入する
         console.log('[x1pen] starting emulator + injecting RUN command');
         module._js_xmil_start();
-        simulateRunCommand();
 
-        elStatus.textContent = 'Running';
-        // キャンバスにフォーカス移動 (エミュ再開のため blur が必要)
+        // キャンバスにフォーカス移動 (キー注入より先にフォーカスを確定)
         var canvas = document.getElementById('canvas');
         if (canvas) canvas.focus();
+
+        // エミュレータが実際にフレームを処理し BASIC プロンプトが
+        // 出るまで待ってからキー注入する
+        await new Promise(function(r) { setTimeout(r, 500); });
+        simulateRunCommand();
         return true;
     }
 
@@ -417,6 +422,56 @@ window.__X1PEN_MODE = true;
         }).join('');
     }
 
+    function showShareDialog(url) {
+        var dialog = document.getElementById('share-dialog');
+        var urlInput = document.getElementById('share-dialog-url');
+        var copyBtn = document.getElementById('share-dialog-copy');
+        urlInput.value = url;
+        copyBtn.textContent = 'Copy';
+        dialog.classList.remove('hidden');
+        urlInput.select();
+    }
+
+    function closeShareDialog() {
+        document.getElementById('share-dialog').classList.add('hidden');
+    }
+
+    (function() {
+        var close = document.getElementById('share-dialog-close');
+        var ok = document.getElementById('share-dialog-ok');
+        var backdrop = document.getElementById('share-dialog-backdrop');
+        var copyBtn = document.getElementById('share-dialog-copy');
+        if (close) close.addEventListener('click', closeShareDialog);
+        if (ok) ok.addEventListener('click', closeShareDialog);
+        if (backdrop) backdrop.addEventListener('click', closeShareDialog);
+        if (copyBtn) copyBtn.addEventListener('click', function() {
+            var urlInput = document.getElementById('share-dialog-url');
+            urlInput.select();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(urlInput.value).then(function() {
+                    copyBtn.textContent = 'Copied!';
+                    elStatus.textContent = 'URL copied!';
+                }).catch(function() {
+                    execCopyFallback(urlInput, copyBtn);
+                });
+            } else {
+                execCopyFallback(urlInput, copyBtn);
+            }
+        });
+
+        function execCopyFallback(urlInput, copyBtn) {
+            urlInput.select();
+            var ok = document.execCommand('copy');
+            if (ok) {
+                copyBtn.textContent = 'Copied!';
+                elStatus.textContent = 'URL copied!';
+            } else {
+                copyBtn.textContent = 'Copy';
+                elStatus.textContent = 'Copy failed - please copy manually';
+            }
+        }
+    })();
+
     async function onShareClick() {
         var src = basicEditor.getValue().trim();
         if (!src) { elStatus.textContent = 'Nothing to share'; return; }
@@ -449,8 +504,8 @@ window.__X1PEN_MODE = true;
         // 前回と同じなら POST せず URL を再利用
         if (hashHex === lastShareHash && lastShareId) {
             var url = location.origin + '/x1pen?id=' + lastShareId;
-            await navigator.clipboard.writeText(url);
-            elStatus.textContent = 'URL copied! (same content)';
+            showShareDialog(url);
+            elStatus.textContent = 'Same content - URL reused';
             return;
         }
 
@@ -493,8 +548,8 @@ window.__X1PEN_MODE = true;
             lastShareId = result.id;
 
             var url = location.origin + '/x1pen?id=' + result.id;
-            await navigator.clipboard.writeText(url);
-            elStatus.textContent = 'URL copied!';
+            showShareDialog(url);
+            elStatus.textContent = 'Shared!';
         } catch(e) {
             elStatus.textContent = 'Share failed: ' + e.message;
         }
