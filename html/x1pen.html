@@ -49,6 +49,10 @@
             background: #1a1a2e;
             color: #e0e0e0;
             transition: background 0.15s;
+            -webkit-appearance: none;
+            appearance: none;
+            line-height: 1.2;
+            white-space: nowrap;
         }
 
         #x1pen-toolbar button:hover:not(:disabled) {
@@ -290,18 +294,77 @@
 
         .hidden { display: none !important; }
 
+        /* ── モバイルタブ — デスクトップでは非表示 ── */
+        #mobile-tabs { display: none; }
+
         /* ── レスポンシブ ── */
-        @media (max-width: 900px) {
+        /* 縦向きスマホ OR 横向きで高さが低いデバイス */
+        @media (max-width: 768px), (max-height: 500px) and (orientation: landscape) {
+            #mobile-tabs {
+                display: flex;
+                background: #16213e;
+                border-bottom: 1px solid #0f3460;
+                flex-shrink: 0;
+            }
+            .mobile-tab {
+                flex: 1;
+                padding: 8px;
+                border: none;
+                border-bottom: 2px solid transparent;
+                background: transparent;
+                color: #556;
+                font-family: 'Courier New', monospace;
+                font-size: 0.85em;
+                cursor: pointer;
+            }
+            .mobile-tab.active {
+                color: #e94560;
+                border-bottom-color: #e94560;
+            }
+
             #x1pen-main {
                 flex-direction: column;
             }
+
+            #editor-panel.mobile-hidden,
+            #emu-panel.mobile-hidden {
+                display: none !important;
+            }
+
             #editor-panel {
                 border-right: none;
                 border-bottom: 1px solid #0f3460;
                 flex: 1;
             }
+
+            #editor-tabs .editor-tab { display: none; }
+
+            #canvas {
+                width: 100% !important;
+                height: auto !important;
+                max-width: 640px;
+            }
+
             #emu-panel {
-                flex: 0 0 auto;
+                width: 100%;
+                padding: 4px;
+            }
+
+            #emu-controls {
+                font-size: 0.65em;
+            }
+
+            #x1pen-toolbar {
+                padding: 4px 8px;
+                gap: 4px;
+            }
+            #x1pen-toolbar button {
+                padding: 4px 10px;
+                font-size: 0.8em;
+            }
+            #x1pen-toolbar .brand {
+                font-size: 0.95em;
+                margin-right: 4px;
             }
         }
     </style>
@@ -315,6 +378,11 @@
         <button id="btn-share" title="Share code">Share</button>
         <span id="x1pen-status">Loading...</span>
     </div>
+    <div id="mobile-tabs">
+        <button class="mobile-tab active" data-panel="emulator">Emulator</button>
+        <button class="mobile-tab" data-panel="basic">BASIC</button>
+        <button class="mobile-tab" data-panel="asm">ASM</button>
+    </div>
     <div id="x1pen-main">
         <div id="editor-panel">
             <div id="editor-tabs">
@@ -322,6 +390,7 @@
                 <button class="editor-tab" data-tab="asm">ASM</button>
                 <button class="editor-tab-action hidden" id="btn-asm-import" title="Import binary as DB lines">Import</button>
                 <input type="file" id="asm-import-file" style="display:none">
+                <a href="http://retropc.net/ohishi/s-os/fubasic.htm" class="editor-tab-action" id="btn-basic-manual" style="text-decoration:none; margin-left:auto;" title="FuzzyBASIC Manual" target="_blank" rel="noopener">Manual</a>
                 <a href="x1pen_charmap.html" class="editor-tab-action" style="text-decoration:none; margin-left:4px;" title="Character code reference" target="_blank">Charmap</a>
             </div>
             <div id="basic-editor-container"></div>

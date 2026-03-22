@@ -1028,32 +1028,94 @@ window.__X1PEN_MODE = true;
 
     // Tab, focus/blur, localStorage は CodeMirror 初期化時に設定済み
 
-    // タブ切り替え
+    // タブ切り替え（共通関数）
     var editorTabs = document.getElementById('editor-tabs');
+    function setActiveEditorTab(target) {
+        if (target === activeTab) return;
+        activeTab = target;
+        if (editorTabs) {
+            editorTabs.querySelectorAll('.editor-tab').forEach(function(t) {
+                t.classList.toggle('active', t.dataset.tab === target);
+            });
+        }
+        var basicContainer = document.getElementById('basic-editor-container');
+        var asmContainer = document.getElementById('asm-editor-container');
+        var importBtn = document.getElementById('btn-asm-import');
+        var manualBtn = document.getElementById('btn-basic-manual');
+        if (target === 'basic') {
+            if (basicContainer) basicContainer.classList.remove('hidden');
+            if (asmContainer) asmContainer.classList.add('hidden');
+            if (importBtn) importBtn.classList.add('hidden');
+            if (manualBtn) manualBtn.classList.remove('hidden');
+        } else {
+            if (basicContainer) basicContainer.classList.add('hidden');
+            if (asmContainer) asmContainer.classList.remove('hidden');
+            if (importBtn) importBtn.classList.remove('hidden');
+            if (manualBtn) manualBtn.classList.add('hidden');
+        }
+    }
     if (editorTabs) {
         editorTabs.addEventListener('click', function(e) {
             var tab = e.target.closest('.editor-tab');
             if (!tab) return;
-            var target = tab.dataset.tab;
-            if (target === activeTab) return;
-            activeTab = target;
-            editorTabs.querySelectorAll('.editor-tab').forEach(function(t) {
-                t.classList.toggle('active', t.dataset.tab === target);
-            });
-            var importBtn = document.getElementById('btn-asm-import');
-            var basicContainer = document.getElementById('basic-editor-container');
-            var asmContainer = document.getElementById('asm-editor-container');
-            if (target === 'basic') {
-                if (basicContainer) basicContainer.classList.remove('hidden');
-                if (asmContainer) asmContainer.classList.add('hidden');
-                if (importBtn) importBtn.classList.add('hidden');
-            } else {
-                if (basicContainer) basicContainer.classList.add('hidden');
-                if (asmContainer) asmContainer.classList.remove('hidden');
-                if (importBtn) importBtn.classList.remove('hidden');
-            }
+            setActiveEditorTab(tab.dataset.tab);
         });
     }
+
+    // モバイルタブ切り替え
+    var mobileActivePanel = 'emulator';
+    function isMobile() {
+        return window.innerWidth <= 768 ||
+            (window.innerHeight <= 500 && window.innerWidth > window.innerHeight);
+    }
+
+    function switchMobilePanel(panel) {
+        mobileActivePanel = panel;
+        var editorPanel = document.getElementById('editor-panel');
+        var emuPanel = document.getElementById('emu-panel');
+        if (panel === 'emulator') {
+            editorPanel.classList.add('mobile-hidden');
+            emuPanel.classList.remove('mobile-hidden');
+        } else {
+            editorPanel.classList.remove('mobile-hidden');
+            emuPanel.classList.add('mobile-hidden');
+            setActiveEditorTab(panel);
+            setTimeout(function() {
+                var editor = (panel === 'basic') ? basicEditor : asmEditor;
+                if (editor && editor.view) editor.view.requestMeasure();
+            }, 0);
+        }
+        document.querySelectorAll('.mobile-tab').forEach(function(t) {
+            t.classList.toggle('active', t.dataset.panel === panel);
+        });
+    }
+
+    document.getElementById('mobile-tabs').addEventListener('click', function(e) {
+        var tab = e.target.closest('.mobile-tab');
+        if (!tab) return;
+        switchMobilePanel(tab.dataset.panel);
+    });
+
+    if (isMobile()) {
+        switchMobilePanel('emulator');
+    }
+
+    var wasMobile = isMobile();
+    window.addEventListener('resize', function() {
+        var mobile = isMobile();
+        if (mobile === wasMobile) return;
+        wasMobile = mobile;
+        if (!mobile) {
+            document.getElementById('editor-panel').classList.remove('mobile-hidden');
+            document.getElementById('emu-panel').classList.remove('mobile-hidden');
+            setTimeout(function() {
+                var editor = (activeTab === 'basic') ? basicEditor : asmEditor;
+                if (editor && editor.view) editor.view.requestMeasure();
+            }, 0);
+        } else {
+            switchMobilePanel(mobileActivePanel);
+        }
+    });
 
     // ASM Import: バイナリ → DB 行変換
     function binaryToDbLines(uint8array, filename) {
