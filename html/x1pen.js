@@ -304,8 +304,11 @@ window.__X1PEN_MODE = true;
         }
 
         // 7. エミュレータ開始 + "RUN"+Enter キー注入
+        //    _js_xmil_start() 後、エミュレータが実際にフレームを処理し
+        //    BASIC プロンプトが出るまで待ってからキー注入する
         console.log('[x1pen] starting emulator + injecting RUN command');
         module._js_xmil_start();
+        await new Promise(function(r) { setTimeout(r, 300); });
         simulateRunCommand();
 
         elStatus.textContent = 'Running';
