@@ -49,6 +49,9 @@
             background: #1a1a2e;
             color: #e0e0e0;
             transition: background 0.15s;
+            -webkit-appearance: none;
+            appearance: none;
+            line-height: 1.2;
         }
 
         #x1pen-toolbar button:hover:not(:disabled) {
@@ -348,6 +351,19 @@
 
             #emu-controls {
                 font-size: 0.65em;
+            }
+
+            #x1pen-toolbar {
+                padding: 4px 8px;
+                gap: 4px;
+            }
+            #x1pen-toolbar button {
+                padding: 4px 10px;
+                font-size: 0.8em;
+            }
+            #x1pen-toolbar .brand {
+                font-size: 0.95em;
+                margin-right: 4px;
             }
         }
     </style>
