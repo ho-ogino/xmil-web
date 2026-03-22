@@ -195,8 +195,8 @@ window.__X1PEN_MODE = true;
         keys.forEach(function(vk, i) {
             setTimeout(function() {
                 module._js_key_down(vk);
-                setTimeout(function() { module._js_key_up(vk); }, 30);
-            }, i * 50);
+                setTimeout(function() { module._js_key_up(vk); }, 80);
+            }, i * 100);
         });
     }
 
@@ -308,13 +308,15 @@ window.__X1PEN_MODE = true;
         //    BASIC プロンプトが出るまで待ってからキー注入する
         console.log('[x1pen] starting emulator + injecting RUN command');
         module._js_xmil_start();
-        await new Promise(function(r) { setTimeout(r, 300); });
-        simulateRunCommand();
 
-        elStatus.textContent = 'Running';
-        // キャンバスにフォーカス移動 (エミュ再開のため blur が必要)
+        // キャンバスにフォーカス移動 (キー注入より先にフォーカスを確定)
         var canvas = document.getElementById('canvas');
         if (canvas) canvas.focus();
+
+        // エミュレータが実際にフレームを処理し BASIC プロンプトが
+        // 出るまで待ってからキー注入する
+        await new Promise(function(r) { setTimeout(r, 500); });
+        simulateRunCommand();
         return true;
     }
 
