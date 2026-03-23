@@ -579,6 +579,10 @@
                     output.push(matched.prefix);
                     output.push(matched.token);
                     ix = matched.endPos;
+                } else if (ch === 0x40) {
+                    // @ 単体 (キーワード不一致): そのまま出力
+                    output.push(ch);
+                    ix++;
                 } else {
                     // 変数名等: 英数字をそのまま出力
                     while (ix < input.length && isAlphaNum(input[ix])) {
