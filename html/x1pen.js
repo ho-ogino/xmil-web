@@ -1161,6 +1161,7 @@ window.__X1PEN_MODE = true;
         if (mobile === wasMobile) return;
         wasMobile = mobile;
         if (!mobile) {
+            document.body.style.height = '';
             document.getElementById('editor-panel').classList.remove('mobile-hidden');
             document.getElementById('emu-panel').classList.remove('mobile-hidden');
             setTimeout(function() {
@@ -1171,6 +1172,17 @@ window.__X1PEN_MODE = true;
             switchMobilePanel(mobileActivePanel);
         }
     });
+
+    // モバイル仮想キーボード対応: visualViewport で body 高さを動的更新
+    if (window.visualViewport) {
+        var onViewportChange = function() {
+            if (!isMobile()) return;
+            document.body.style.height = visualViewport.height + 'px';
+        };
+        visualViewport.addEventListener('resize', onViewportChange);
+        visualViewport.addEventListener('scroll', onViewportChange);
+        onViewportChange();
+    }
 
     // ASM Import: バイナリ → DB 行変換
     function binaryToDbLines(uint8array, filename) {
