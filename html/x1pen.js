@@ -251,6 +251,13 @@ window.__X1PEN_MODE = true;
                                        asmResult.errors[0].msg;
                 return false;
             }
+            if (asmResult.bytes.length > 0) {
+                var orgAddr = asmResult.org;
+                var endAddr = orgAddr + asmResult.bytes.length - 1;
+                elStatus.textContent = 'ASM: ' + asmResult.bytes.length + ' bytes (' +
+                    orgAddr.toString(16).toUpperCase().padStart(4, '0') + 'h-' +
+                    endAddr.toString(16).toUpperCase().padStart(4, '0') + 'h)';
+            }
         }
 
         // 5. BASIC ソースをトークナイズ

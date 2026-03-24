@@ -167,6 +167,15 @@
             overflow: hidden;
             background: #0d1117;
         }
+        /* display:none だと CodeMirror の DOM 初期化が壊れるため、
+           エディタコンテナは visibility で非表示にする */
+        #basic-editor-container.hidden, #asm-editor-container.hidden {
+            display: flex !important;
+            visibility: hidden;
+            height: 0 !important;
+            flex: 0 !important;
+            overflow: hidden;
+        }
         #basic-editor-container .cm-editor,
         #asm-editor-container .cm-editor {
             height: 100%;

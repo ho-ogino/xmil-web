@@ -215,6 +215,16 @@
             return result;
         }
 
+        // Check for local label without colon (.foo)
+        if (!result.label && code === code.trimStart()) {
+            var localMatch = code.match(/^(\.[a-zA-Z_][a-zA-Z0-9_]*)([\s].*)?$/);
+            if (localMatch) {
+                result.label = localMatch[1];
+                code = (localMatch[2] || '').trim();
+                if (code === '') return result;
+            }
+        }
+
         // Check for label without colon at start of line (not indented, not a known mnemonic)
         if (!result.label && code === code.trimStart()) {
             var wordMatch = code.match(/^([a-zA-Z_][a-zA-Z0-9_]*)([\s].*)?$/);
