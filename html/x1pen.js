@@ -1168,6 +1168,104 @@ window.__X1PEN_MODE = true;
         }
     }
 
+    // ── ADDR メニュー (reloc address settings) ──
+
+    function initAddrMenu() {
+        var fieldsEl = document.getElementById('ec-addr-fields');
+        var errorEl = document.getElementById('ec-addr-error');
+        var resetBtn = document.getElementById('ec-addr-reset');
+        var applyBtn = document.getElementById('ec-addr-apply');
+        var addrBtn = document.getElementById('ec-addr-btn');
+        if (!fieldsEl) return;
+
+        loadRelocConfig().then(function(config) {
+            if (!config) {
+                if (addrBtn) addrBtn.disabled = true;
+                console.warn('[x1pen] Reloc config not available, ADDR button disabled');
+                return;
+            }
+
+            // フォームを動的生成
+            var inputs = {};
+            var addrs = getUserRelocAddresses(config);
+            for (var key in config.symbols) {
+                var sym = config.symbols[key];
+                var row = document.createElement('div');
+                row.className = 'addr-field-row';
+                var label = document.createElement('span');
+                label.className = 'addr-field-label';
+                label.textContent = sym.label.ja || sym.label.en || key;
+                var input = document.createElement('input');
+                input.className = 'addr-field-input';
+                input.type = 'text';
+                input.maxLength = 4;
+                input.value = addrs[key].toString(16).toUpperCase().padStart(4, '0');
+                input.dataset.symbol = key;
+                var suffix = document.createElement('span');
+                suffix.className = 'addr-field-suffix';
+                suffix.textContent = 'h';
+                row.appendChild(label);
+                row.appendChild(input);
+                row.appendChild(suffix);
+                fieldsEl.appendChild(row);
+                inputs[key] = input;
+            }
+
+            function readInputs() {
+                var result = {};
+                for (var k in inputs) {
+                    var val = parseInt(inputs[k].value, 16);
+                    result[k] = isNaN(val) ? -1 : val;
+                }
+                return result;
+            }
+
+            function validateAndShowError() {
+                var addrs = readInputs();
+                errorEl.textContent = '';
+                var hasError = false;
+                for (var k in inputs) {
+                    var val = addrs[k];
+                    var bad = val < 0 || val > 0xFFFF || (val & 0xFF) !== 0;
+                    inputs[k].classList.toggle('error', bad);
+                    if (bad) { hasError = true; errorEl.textContent = k + ': xx00h boundary required'; }
+                }
+                if (hasError) return null;
+
+                var validated = validateRelocAddresses(addrs, config);
+                var overlap = checkRelocOverlap(validated, config);
+                if (overlap.overlap) {
+                    errorEl.textContent = 'Conflict: ' + overlap.a.name + ' / ' + overlap.b.name;
+                    return null;
+                }
+                return validated;
+            }
+
+            // 入力時にリアルタイムバリデーション
+            for (var k in inputs) {
+                inputs[k].addEventListener('input', validateAndShowError);
+            }
+
+            if (applyBtn) applyBtn.addEventListener('click', function() {
+                var validated = validateAndShowError();
+                if (!validated) return;
+                saveUserRelocAddresses(validated);
+                errorEl.textContent = '';
+                elStatus.textContent = 'Address settings saved';
+                closeAllMenus();
+            });
+
+            if (resetBtn) resetBtn.addEventListener('click', function() {
+                var defaults = getDefaultRelocAddresses(config);
+                for (var k in inputs) {
+                    inputs[k].value = defaults[k].toString(16).toUpperCase().padStart(4, '0');
+                    inputs[k].classList.remove('error');
+                }
+                errorEl.textContent = '';
+            });
+        });
+    }
+
     // ── コントロールバー イベントハンドラ ──
 
     function setupControlBarListeners() {
@@ -1237,6 +1335,9 @@ window.__X1PEN_MODE = true;
         document.querySelectorAll('input[name="ec-model"]').forEach(function(r) {
             r.addEventListener('change', function() { setModelAndClearShareState(parseInt(this.value, 10)); });
         });
+
+        // ADDR (relocatable binary addresses)
+        initAddrMenu();
 
         // DISP - Resolution toggle
         var resStd  = document.getElementById('ec-res-std');
