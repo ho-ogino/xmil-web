@@ -879,8 +879,21 @@ window.__X1PEN_MODE = true;
                         };
                     }
                     // 読み込んだ内容のハッシュを記録 (再 Share 時の URL 再利用用)
-                    // pendingShareRuntime には正規化済み relocAddrs が入っている
-                    var replayMeta = pendingShareRuntime || shared.meta || getUserDefaultRuntime();
+                    // effective runtime に揃えて、旧 Share でも default reloc が反映される
+                    var replayRuntime;
+                    try {
+                        replayRuntime = await getEffectiveRuntime(
+                            pendingShareRuntime || getUserDefaultRuntime()
+                        );
+                    } catch(e) {
+                        replayRuntime = pendingShareRuntime || getUserDefaultRuntime();
+                    }
+                    var replayMeta = {
+                        model: replayRuntime.model,
+                        coldState: replayRuntime.coldState,
+                        bootDisk: replayRuntime.bootDisk
+                    };
+                    if (replayRuntime.relocAddrs) replayMeta.relocAddrs = replayRuntime.relocAddrs;
                     var replayPayload = JSON.stringify({
                         basic: shared.basic,
                         asm: shared.asm || null,
