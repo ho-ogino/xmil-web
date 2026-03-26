@@ -680,14 +680,20 @@ window.__X1PEN_MODE = true;
 
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
 
-        // Share 用 runtime を決定
-        var shareRuntime;
+        // Share 用 runtime を決定 (relocAddrs を正規化済みで取得)
+        var baseShareRuntime;
         if (pendingShareRuntime) {
-            shareRuntime = pendingShareRuntime;
+            baseShareRuntime = pendingShareRuntime;
         } else if (lastRunWasShared && lastUsedRuntime) {
-            shareRuntime = lastUsedRuntime;
+            baseShareRuntime = lastUsedRuntime;
         } else {
-            shareRuntime = getUserDefaultRuntime();
+            baseShareRuntime = getUserDefaultRuntime();
+        }
+        var shareRuntime;
+        try {
+            shareRuntime = await getEffectiveRuntime(baseShareRuntime);
+        } catch(e) {
+            shareRuntime = baseShareRuntime;
         }
 
         var meta = {
@@ -873,7 +879,8 @@ window.__X1PEN_MODE = true;
                         };
                     }
                     // 読み込んだ内容のハッシュを記録 (再 Share 時の URL 再利用用)
-                    var replayMeta = shared.meta || getUserDefaultRuntime();
+                    // pendingShareRuntime には正規化済み relocAddrs が入っている
+                    var replayMeta = pendingShareRuntime || shared.meta || getUserDefaultRuntime();
                     var replayPayload = JSON.stringify({
                         basic: shared.basic,
                         asm: shared.asm || null,
