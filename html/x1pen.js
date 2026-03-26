@@ -118,6 +118,9 @@ window.__X1PEN_MODE = true;
                 });
             }
         }
+        // 同じ SELF シンボルを持つバイナリは択一（例: PSGAKG/PSGAKM）
+        // シンボルごとに最大サイズのバイナリだけを代表として登録
+        var selfBySymbol = {};
         for (var key in config.binaries) {
             var info = config.binaries[key];
             var selfGroup = null;
@@ -125,9 +128,16 @@ window.__X1PEN_MODE = true;
                 if (info.groups[i].name === 'SELF') { selfGroup = info.groups[i]; break; }
             }
             if (selfGroup) {
-                var addr = addrs[selfGroup.symbol];
-                regions.push({ name: info.output_file, start: addr, end: addr + info.binary_size - 1 });
+                var sym = selfGroup.symbol;
+                if (!selfBySymbol[sym] || info.binary_size > selfBySymbol[sym].binary_size) {
+                    selfBySymbol[sym] = info;
+                }
             }
+        }
+        for (var sym in selfBySymbol) {
+            var info = selfBySymbol[sym];
+            var addr = addrs[sym];
+            regions.push({ name: info.output_file, start: addr, end: addr + info.binary_size - 1 });
         }
         for (var i = 0; i < regions.length; i++) {
             for (var j = i + 1; j < regions.length; j++) {
