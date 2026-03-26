@@ -382,8 +382,9 @@ window.__X1PEN_MODE = true;
             return false;
         }
 
-        // 衝突チェック
-        if (runtime.relocAddrs) {
+        // 衝突チェック (Conflict check オプション ON 時のみ)
+        var overlapChk = document.getElementById('ec-addr-overlap-check');
+        if (runtime.relocAddrs && overlapChk && overlapChk.checked) {
             var config = await loadRelocConfig();
             if (config) {
                 var overlap = checkRelocOverlap(runtime.relocAddrs, config);
@@ -1243,10 +1244,13 @@ window.__X1PEN_MODE = true;
                 if (hasError) return null;
 
                 var validated = validateRelocAddresses(addrs, config);
-                var overlap = checkRelocOverlap(validated, config);
-                if (overlap.overlap) {
-                    errorEl.textContent = 'Conflict: ' + overlap.a.name + ' / ' + overlap.b.name;
-                    return null;
+                var overlapChk = document.getElementById('ec-addr-overlap-check');
+                if (overlapChk && overlapChk.checked) {
+                    var overlap = checkRelocOverlap(validated, config);
+                    if (overlap.overlap) {
+                        errorEl.textContent = 'Conflict: ' + overlap.a.name + ' / ' + overlap.b.name;
+                        return null;
+                    }
                 }
                 return validated;
             }
@@ -1255,6 +1259,8 @@ window.__X1PEN_MODE = true;
             for (var k in inputs) {
                 inputs[k].addEventListener('input', validateAndShowError);
             }
+            var overlapChk = document.getElementById('ec-addr-overlap-check');
+            if (overlapChk) overlapChk.addEventListener('change', validateAndShowError);
 
             if (applyBtn) applyBtn.addEventListener('click', function() {
                 var validated = validateAndShowError();
