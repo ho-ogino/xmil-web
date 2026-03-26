@@ -1,0 +1,116 @@
+{
+  "fixed_regions": [
+    {"name": "FZBASIC.COM", "start": "0x0100", "end": "0x4A3B"},
+    {"name": "LSX-Dodgers", "start": "0xD706", "end": "0xFFFF"}
+  ],
+  "symbols": {
+    "MAGICTOP": {
+      "default": "0xB000",
+      "constraint": "xx00h",
+      "label": {
+        "ja": "MAGIC",
+        "en": "MAGIC"
+      }
+    },
+    "SOUNDTOP": {
+      "default": "0xC300",
+      "constraint": "xx00h",
+      "label": {
+        "ja": "サウンドドライバ",
+        "en": "Sound Driver"
+      }
+    },
+    "GPAINTTOP": {
+      "default": "0xD000",
+      "constraint": "xx00h",
+      "label": {
+        "ja": "ペイントライブラリ",
+        "en": "Paint Library"
+      }
+    }
+  },
+  "binaries": {
+    "MAGIC.REL": {
+      "rel_file": "MAGIC.REL",
+      "output_file": "MAGIC.BIN",
+      "binary_size": 4748,
+      "rel_size": 6063,
+      "groups": [
+        {
+          "name": "SELF",
+          "symbol": "MAGICTOP",
+          "default": "0xB000",
+          "fixup_count": 645
+        }
+      ]
+    },
+    "PSGAKG.REL": {
+      "rel_file": "PSGAKG.REL",
+      "output_file": "PSGAKG.BIN",
+      "binary_size": 3603,
+      "rel_size": 4402,
+      "groups": [
+        {
+          "name": "SELF",
+          "symbol": "SOUNDTOP",
+          "default": "0xC300",
+          "fixup_count": 387
+        }
+      ]
+    },
+    "PSGAKM.REL": {
+      "rel_file": "PSGAKM.REL",
+      "output_file": "PSGAKM.BIN",
+      "binary_size": 2201,
+      "rel_size": 2656,
+      "groups": [
+        {
+          "name": "SELF",
+          "symbol": "SOUNDTOP",
+          "default": "0xC300",
+          "fixup_count": 215
+        }
+      ]
+    },
+    "GPAINT.REL": {
+      "rel_file": "GPAINT.REL",
+      "output_file": "GPAINT.BIN",
+      "binary_size": 1126,
+      "rel_size": 1393,
+      "groups": [
+        {
+          "name": "SELF",
+          "symbol": "GPAINTTOP",
+          "default": "0xD000",
+          "fixup_count": 110
+        },
+        {
+          "name": "MAGICTOP",
+          "symbol": "MAGICTOP",
+          "default": "0xB000",
+          "fixup_count": 1
+        }
+      ]
+    },
+    "FZBASIC.REL": {
+      "rel_file": "FZBASIC.REL",
+      "output_file": "FZBASIC.COM",
+      "binary_size": 18670,
+      "rel_size": 18753,
+      "groups": [
+        {
+          "name": "MAGICTOP",
+          "symbol": "MAGICTOP",
+          "default": "0xB000",
+          "fixup_count": 3
+        },
+        {
+          "name": "SOUNDTOP",
+          "symbol": "SOUNDTOP",
+          "default": "0xC300",
+          "fixup_count": 16
+        }
+      ]
+    }
+  }
+}

@@ -60,7 +60,162 @@ window.__X1PEN_MODE = true;
         var settings = window.XmilControls ? window.XmilControls.getSettings() : {};
         var model = validateModel(settings.romType, 1);
         var assets = resolveRuntimeAssets(model);
-        return { model: model, coldState: assets.coldState, bootDisk: assets.bootDisk };
+        return { model: model, coldState: assets.coldState, bootDisk: assets.bootDisk, relocAddrs: null };
+    }
+
+    // ── Relocatable binary support ──
+
+    var relocConfig = null;
+
+    async function loadRelocConfig() {
+        if (relocConfig) return relocConfig;
+        try {
+            var data = await loadRuntimeAsset('reloc/reloc_webapp.json');
+            if (!data) return null;
+            relocConfig = JSON.parse(new TextDecoder().decode(data));
+            return relocConfig;
+        } catch(e) {
+            console.warn('[x1pen] Failed to load reloc config:', e);
+            return null;
+        }
+    }
+
+    async function loadREL(filename) {
+        return await loadRuntimeAsset('reloc/' + filename);
+    }
+
+    function getDefaultRelocAddresses(config) {
+        var addrs = {};
+        for (var key in config.symbols) {
+            addrs[key] = parseInt(config.symbols[key].default, 16);
+        }
+        return addrs;
+    }
+
+    function validateRelocAddresses(addrs, config) {
+        var defaults = getDefaultRelocAddresses(config);
+        var result = {};
+        for (var key in defaults) {
+            var val = addrs ? addrs[key] : undefined;
+            if (typeof val === 'number' && val >= 0 && val <= 0xFFFF && (val & 0xFF) === 0) {
+                result[key] = val;
+            } else {
+                result[key] = defaults[key];
+            }
+        }
+        return result;
+    }
+
+    function checkRelocOverlap(addrs, config) {
+        var regions = [];
+        if (config.fixed_regions) {
+            for (var i = 0; i < config.fixed_regions.length; i++) {
+                var fr = config.fixed_regions[i];
+                regions.push({
+                    name: fr.name,
+                    start: parseInt(fr.start, 16),
+                    end: parseInt(fr.end, 16)
+                });
+            }
+        }
+        for (var key in config.binaries) {
+            var info = config.binaries[key];
+            var selfGroup = null;
+            for (var i = 0; i < info.groups.length; i++) {
+                if (info.groups[i].name === 'SELF') { selfGroup = info.groups[i]; break; }
+            }
+            if (selfGroup) {
+                var addr = addrs[selfGroup.symbol];
+                regions.push({ name: info.output_file, start: addr, end: addr + info.binary_size - 1 });
+            }
+        }
+        for (var i = 0; i < regions.length; i++) {
+            for (var j = i + 1; j < regions.length; j++) {
+                if (regions[i].start <= regions[j].end && regions[j].start <= regions[i].end) {
+                    return { overlap: true, a: regions[i], b: regions[j] };
+                }
+            }
+        }
+        return { overlap: false };
+    }
+
+    var LS_RELOC_ADDRS = 'x1pen_reloc_addrs';
+
+    function getUserRelocAddresses(config) {
+        var defaults = getDefaultRelocAddresses(config);
+        try {
+            var saved = JSON.parse(localStorage.getItem(LS_RELOC_ADDRS));
+            if (saved) return validateRelocAddresses(saved, config);
+        } catch(e) {}
+        return defaults;
+    }
+
+    function saveUserRelocAddresses(addrs) {
+        try { localStorage.setItem(LS_RELOC_ADDRS, JSON.stringify(addrs)); } catch(e) {}
+    }
+
+    function patchREL(relArrayBuffer, groups, symbolAddresses) {
+        var view = new DataView(relArrayBuffer);
+        var totalLen = relArrayBuffer.byteLength;
+
+        if (totalLen < 5) throw new Error('REL too short');
+        var tableSize = view.getUint16(0, true);
+        var binarySize = view.getUint16(2, true);
+        var groupCount = view.getUint8(4);
+        if (tableSize + binarySize > totalLen) throw new Error('REL size mismatch');
+
+        var binary = new Uint8Array(relArrayBuffer.slice(tableSize, tableSize + binarySize));
+
+        var pos = 5;
+        for (var g = 0; g < groupCount; g++) {
+            if (pos + 20 > tableSize) throw new Error('REL group header overflow');
+
+            var nameBytes = new Uint8Array(relArrayBuffer, pos, 16);
+            var name = '';
+            for (var k = 0; k < 16 && nameBytes[k]; k++) name += String.fromCharCode(nameBytes[k]);
+            pos += 16;
+
+            var defaultAddr = view.getUint16(pos, true); pos += 2;
+            var fixupCount = view.getUint16(pos, true); pos += 2;
+
+            if (pos + fixupCount * 2 > tableSize) throw new Error('REL fixup table overflow');
+
+            var groupInfo = null;
+            for (var gi = 0; gi < groups.length; gi++) {
+                if (groups[gi].name === name) { groupInfo = groups[gi]; break; }
+            }
+            var newAddr = groupInfo ? symbolAddresses[groupInfo.symbol] : null;
+
+            if (newAddr !== null && newAddr !== undefined) {
+                var diff = (newAddr >> 8) - (defaultAddr >> 8);
+                for (var i = 0; i < fixupCount; i++) {
+                    var offset = view.getUint16(pos + i * 2, true);
+                    if (offset >= binary.length) throw new Error('REL fixup offset out of range: ' + offset);
+                    binary[offset] = (binary[offset] + diff) & 0xFF;
+                }
+            }
+            pos += fixupCount * 2;
+        }
+        return binary;
+    }
+
+    // getEffectiveRuntime: getUserDefaultRuntime の async 版。relocAddrs を含む。
+    async function getEffectiveRuntime(baseRuntime) {
+        var runtime = baseRuntime || getUserDefaultRuntime();
+        var config = await loadRelocConfig();
+        if (!config) {
+            if (runtime.relocAddrs) {
+                throw new Error('Relocation assets not available');
+            }
+            runtime.relocAddrs = null;
+        } else {
+            if (runtime.relocAddrs) {
+                runtime.relocAddrs = validateRelocAddresses(runtime.relocAddrs, config);
+            } else {
+                runtime.relocAddrs = getUserRelocAddresses(config);
+            }
+        }
+        return runtime;
     }
 
     var pendingShareRuntime = null;
@@ -205,10 +360,29 @@ window.__X1PEN_MODE = true;
     async function onRunClick() {
         if (!module) return false;
 
-        // 1. effective runtime を決定
+        // 1. effective runtime を決定 (async: relocAddrs を含む)
         var isSharedRun = !!pendingShareRuntime;
-        var runtime = pendingShareRuntime || getUserDefaultRuntime();
+        var baseRuntime = pendingShareRuntime || getUserDefaultRuntime();
         pendingShareRuntime = null;
+        var runtime;
+        try {
+            runtime = await getEffectiveRuntime(baseRuntime);
+        } catch(e) {
+            elStatus.textContent = e.message;
+            return false;
+        }
+
+        // 衝突チェック
+        if (runtime.relocAddrs) {
+            var config = await loadRelocConfig();
+            if (config) {
+                var overlap = checkRelocOverlap(runtime.relocAddrs, config);
+                if (overlap.overlap) {
+                    elStatus.textContent = 'Address conflict: ' + overlap.a.name + ' / ' + overlap.b.name;
+                    return false;
+                }
+            }
+        }
 
         // 2. MODEL を適用
         if (module._js_set_rom_type) module._js_set_rom_type(runtime.model);
@@ -236,7 +410,7 @@ window.__X1PEN_MODE = true;
         }
 
         // lastUsedRuntime を記録 (再 Share 用、state restore 後に model 更新)
-        lastUsedRuntime = { model: runtime.model, coldState: actualColdState, bootDisk: actualBootDisk };
+        lastUsedRuntime = { model: runtime.model, coldState: actualColdState, bootDisk: actualBootDisk, relocAddrs: runtime.relocAddrs };
         lastRunWasShared = isSharedRun;
 
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
@@ -287,7 +461,7 @@ window.__X1PEN_MODE = true;
         var asmBytes = (asmResult && asmResult.bytes.length > 0) ? asmResult.bytes : null;
         if (asmBytes || tokenized) {
             if (bootData) {
-                if (!(await mountProgramDisk(asmBytes, tokenized, bootData))) {
+                if (!(await mountProgramDisk(asmBytes, tokenized, bootData, runtime.relocAddrs))) {
                     elStatus.textContent = 'Disk write failed';
                     return false;
                 }
@@ -329,7 +503,7 @@ window.__X1PEN_MODE = true;
 
     // ── PROGRAM ディスク マウント ──
 
-    async function mountProgramDisk(programBytes, basicTokenized, diskData) {
+    async function mountProgramDisk(programBytes, basicTokenized, diskData, relocAddresses) {
         if (!diskData) {
             console.error('[x1pen] Boot disk not loaded');
             return false;
@@ -344,12 +518,33 @@ window.__X1PEN_MODE = true;
 
         // 3. LSX-Dodgers FS でファイルを書き込み
         try {
-            var fs = new window.XmilDiskFS.LsxDodgersFS(container);
+            var lsx = new window.XmilDiskFS.LsxDodgersFS(container);
+
+            // 3a. リロケート済みバイナリで既存ファイルを上書き
+            if (relocAddresses) {
+                var config = await loadRelocConfig();
+                if (config) {
+                    for (var key in config.binaries) {
+                        var binInfo = config.binaries[key];
+                        var relData = await loadREL(binInfo.rel_file);
+                        if (!relData) throw new Error('Failed to load ' + binInfo.rel_file);
+
+                        var patched = patchREL(relData, binInfo.groups, relocAddresses);
+
+                        var nameParts = binInfo.output_file.split('.');
+                        var existing = lsx.findByName(nameParts[0], nameParts[1]);
+                        if (existing) lsx.deleteFile(existing);
+                        lsx.addFile(nameParts[0], nameParts[1], patched);
+                    }
+                }
+            }
+
+            // 3b. ユーザープログラム
             if (programBytes && programBytes.length > 0) {
-                fs.addFile('PROGRAM', 'BIN', new Uint8Array(programBytes));
+                lsx.addFile('PROGRAM', 'BIN', new Uint8Array(programBytes));
             }
             if (basicTokenized) {
-                fs.addFile('AUTORUN', 'BAS', basicTokenized);
+                lsx.addFile('AUTORUN', 'BAS', basicTokenized);
             }
         } catch(e) {
             console.error('[x1pen] Disk write failed:', e);
@@ -495,14 +690,17 @@ window.__X1PEN_MODE = true;
             shareRuntime = getUserDefaultRuntime();
         }
 
+        var meta = {
+            model: shareRuntime.model,
+            coldState: shareRuntime.coldState,
+            bootDisk: shareRuntime.bootDisk
+        };
+        if (shareRuntime.relocAddrs) meta.relocAddrs = shareRuntime.relocAddrs;
+
         var payload = JSON.stringify({
             basic: src,
             asm: asmSrc || null,
-            meta: {
-                model: shareRuntime.model,
-                coldState: shareRuntime.coldState,
-                bootDisk: shareRuntime.bootDisk
-            }
+            meta: meta
         });
 
         // ハッシュ計算 (payload 全体 = BASIC + ASM + meta)
@@ -657,17 +855,29 @@ window.__X1PEN_MODE = true;
                     }
                     // Share meta → pendingShareRuntime
                     if (shared.meta) {
+                        var shareRelocAddrs = null;
+                        if (shared.meta.relocAddrs) {
+                            var rc = await loadRelocConfig();
+                            if (rc) {
+                                shareRelocAddrs = validateRelocAddresses(shared.meta.relocAddrs, rc);
+                            } else {
+                                // 新 Share なのに config が読めない → relocAddrs をそのまま保持（getEffectiveRuntime でエラーになる）
+                                shareRelocAddrs = shared.meta.relocAddrs;
+                            }
+                        }
                         pendingShareRuntime = {
                             model: validateModel(shared.meta.model, 1),
                             coldState: validateAssetName(shared.meta.coldState, COLD_STATE_FILE),
-                            bootDisk: validateAssetName(shared.meta.bootDisk, BOOT_DISK_FILE)
+                            bootDisk: validateAssetName(shared.meta.bootDisk, BOOT_DISK_FILE),
+                            relocAddrs: shareRelocAddrs
                         };
                     }
                     // 読み込んだ内容のハッシュを記録 (再 Share 時の URL 再利用用)
+                    var replayMeta = shared.meta || getUserDefaultRuntime();
                     var replayPayload = JSON.stringify({
                         basic: shared.basic,
                         asm: shared.asm || null,
-                        meta: shared.meta || getUserDefaultRuntime()
+                        meta: replayMeta
                     });
                     lastShareHash = await computePayloadHash(replayPayload);
                     lastShareId = urlId;
