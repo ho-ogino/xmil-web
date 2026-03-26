@@ -330,6 +330,27 @@ window.__X1PEN_MODE = true;
 
     // ── メモリ注入 ──
 
+    // FZBASIC.COM を RAM に直接パッチ書き込み (cold state 復元後に呼ぶ)
+    async function patchFzbasicInRam(relocAddresses) {
+        var config = await loadRelocConfig();
+        if (!config || !config.binaries['FZBASIC.REL']) return;
+
+        var binInfo = config.binaries['FZBASIC.REL'];
+        var relData = await loadREL(binInfo.rel_file);
+        if (!relData) { console.warn('[x1pen] FZBASIC.REL not available'); return; }
+
+        var patched = patchREL(relData, binInfo.groups, relocAddresses);
+
+        var ramPtr = module._js_get_main_ram();
+        var ram = new Uint8Array(module.wasmMemory.buffer, ramPtr, 0x10000);
+
+        // FZBASIC.COM は 0x0100 に固定配置
+        for (var i = 0; i < patched.length; i++) {
+            ram[0x0100 + i] = patched[i];
+        }
+        console.log('[x1pen] FZBASIC.COM patched in RAM (' + patched.length + ' bytes at 0x0100)');
+    }
+
     function injectProgram(tokenizedBytes, coldStateFile) {
         var addrs = getAddrMapForColdState(coldStateFile);
         if (!addrs) return false;  // 未知バージョン
@@ -468,6 +489,17 @@ window.__X1PEN_MODE = true;
             lastUsedRuntime.model = module._js_get_rom_type();
         }
 
+        // 6b. FZBASIC.COM を RAM に直接パッチ (cold state のメモリ上の FZBASIC を更新)
+        if (runtime.relocAddrs) {
+            try {
+                await patchFzbasicInRam(runtime.relocAddrs);
+            } catch(e) {
+                console.error('[x1pen] FZBASIC patch failed:', e);
+                elStatus.textContent = 'FZBASIC patch failed: ' + e.message;
+                return false;
+            }
+        }
+
         // 7. ディスクイメージ作成 (ASM バイナリ and/or AUTORUN.BAS)
         var asmBytes = (asmResult && asmResult.bytes.length > 0) ? asmResult.bytes : null;
         if (asmBytes || tokenized) {
@@ -537,6 +569,13 @@ window.__X1PEN_MODE = true;
                 if (config) {
                     for (var key in config.binaries) {
                         var binInfo = config.binaries[key];
+                        // SELF グループなし = RAM 常駐 (FZBASIC.COM) → patchFzbasicInRam で処理済み
+                        var hasSelf = false;
+                        for (var gi = 0; gi < binInfo.groups.length; gi++) {
+                            if (binInfo.groups[gi].name === 'SELF') { hasSelf = true; break; }
+                        }
+                        if (!hasSelf) continue;
+
                         var relData = await loadREL(binInfo.rel_file);
                         if (!relData) throw new Error('Failed to load ' + binInfo.rel_file);
 
