@@ -143,8 +143,8 @@
                 if (!t || t.type !== 'OP' || (t.val !== '*' && t.val !== '/')) break;
                 var op = next().val;
                 var right = parseAtom();
-                if (left === null || left === undefined || right === null || right === undefined)
-                    return undefined;
+                if (right === null || left === null) return null;
+                if (left === undefined || right === undefined) return undefined;
                 if (op === '*') left = (left * right) & 0xFFFF;
                 else left = (right !== 0) ? (Math.floor(left / right)) & 0xFFFF : 0;
             }
@@ -158,8 +158,8 @@
                 if (!t || t.type !== 'OP' || (t.val !== '+' && t.val !== '-')) break;
                 var op = next().val;
                 var right = parseMulDiv();
-                if (left === null || left === undefined || right === null || right === undefined)
-                    return undefined;
+                if (right === null || left === null) return null;
+                if (left === undefined || right === undefined) return undefined;
                 if (op === '+') left = (left + right) & 0xFFFF;
                 else left = (left - right) & 0xFFFF;
             }
@@ -175,8 +175,8 @@
                 if (op !== '==' && op !== '!=' && op !== '>=' && op !== '<=' && op !== '>' && op !== '<') break;
                 next();
                 var right = parseAddSub();
-                if (left === null || left === undefined || right === null || right === undefined)
-                    return undefined;
+                if (right === null || left === null) return null;
+                if (left === undefined || right === undefined) return undefined;
                 if (op === '==') left = (left === right) ? 1 : 0;
                 else if (op === '!=') left = (left !== right) ? 1 : 0;
                 else if (op === '>=') left = (left >= right) ? 1 : 0;

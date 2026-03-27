@@ -450,12 +450,23 @@ testOK('#IF nested true-false-else',
     'A EQU 1\nB EQU 0\n#IF A\n#IF B\nNOP\n#ELSE\nHALT\n#ENDIF\nRET\n#ENDIF',
     [0x76, 0xC9]);
 
+// predefinedSymbols in #IF
+(function() {
+    var r = asm.assemble('#IF MY_FLAG\nNOP\n#ENDIF', { MY_FLAG: 1 });
+    if (r.errors.length > 0 || r.bytes.length !== 1 || r.bytes[0] !== 0x00) {
+        console.error('FAIL: #IF predefined true'); failures++;
+    } else { passes++; }
+    var r2 = asm.assemble('#IF MY_FLAG\nNOP\n#ENDIF', { MY_FLAG: 0 });
+    if (r2.errors.length > 0 || r2.bytes.length !== 0) {
+        console.error('FAIL: #IF predefined false'); failures++;
+    } else { passes++; }
+})();
+
 testFail('#ELSE without #IF', '#ELSE\nNOP\n#ENDIF');
 testFail('#ENDIF without #IF', '#ENDIF');
 testFail('Unterminated #IF', '#IF 1\nNOP');
 testFail('Duplicate #ELSE', '#IF 1\nNOP\n#ELSE\nHALT\n#ELSE\nNOP\n#ENDIF');
-// '#IF 1 +' は evalExpr が undefined (未解決) を返すため、0=false 扱いになる
-testOK('#IF incomplete expr', '#IF 1 +\nNOP\n#ENDIF', []);
+testFail('#IF syntax error', '#IF 1 +\nNOP\n#ENDIF');
 
 console.log('\n' + '='.repeat(40));
 console.log('Results: ' + passes + ' passed, ' + failures + ' failed');
