@@ -676,12 +676,6 @@ window.__X1PEN_MODE = true;
                     if (config) {
                         for (var key in config.binaries) {
                             var binInfo = config.binaries[key];
-                            // SELF グループなし = RAM 常駐 (FZBASIC.COM) → patchFzbasicInRam で処理済み
-                            var hasSelf = false;
-                            for (var gi = 0; gi < binInfo.groups.length; gi++) {
-                                if (binInfo.groups[gi].name === 'SELF') { hasSelf = true; break; }
-                            }
-                            if (!hasSelf) continue;
 
                             var relData = await loadREL(binInfo.rel_file);
                             if (!relData) {
