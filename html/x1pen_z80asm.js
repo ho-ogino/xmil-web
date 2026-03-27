@@ -668,6 +668,8 @@
     function assemble(source, predefinedSymbols) {
         var lines = source.split('\n');
         var symbols = {};
+        // predefined symbols (addrmap 由来) を初期値として注入
+        // ユーザーの EQU/ラベル定義で後勝ちで上書き可能
         if (predefinedSymbols) {
             for (var k in predefinedSymbols) {
                 symbols[k.toUpperCase()] = predefinedSymbols[k];

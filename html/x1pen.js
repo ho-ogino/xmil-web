@@ -1340,7 +1340,10 @@ window.__X1PEN_MODE = true;
         refEl.innerHTML = '';
         loadAddrmapVersions().then(function(versions) {
             var verName = COLD_STATE_VERSION[coldStateFile || COLD_STATE_FILE];
-            if (!versions || !verName || !versions[verName]) return;
+            if (!versions || !verName || !versions[verName]) {
+                console.warn('[x1pen] ADDR Reference unavailable (addrmap not loaded or version mismatch)');
+                return;
+            }
             var hooks = versions[verName].user_hooks;
             if (!hooks) return;
             ['USR_A', 'FN_A', 'PR_A'].forEach(function(key) {
