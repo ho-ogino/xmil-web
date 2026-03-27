@@ -417,6 +417,57 @@ testOK('local label', 'ORG 0\nmain:\n.loop:\nNOP\nJR .loop', [0x00, 0x18, 0xFD])
 // ================================================================
 // Summary
 // ================================================================
+// ================================================================
+// #IF / #ELSE / #ENDIF preprocessor tests
+// ================================================================
+console.log('\n--- #IF / #ELSE / #ENDIF ---');
+
+testOK('#IF true', 'VAL EQU 5\n#IF VAL == 5\nNOP\n#ENDIF', [0x00]);
+testOK('#IF false', 'VAL EQU 3\n#IF VAL == 5\nNOP\n#ENDIF', []);
+testOK('#IF true with ELSE',
+    'VAL EQU 5\n#IF VAL == 5\nNOP\n#ELSE\nHALT\n#ENDIF', [0x00]);
+testOK('#IF false with ELSE',
+    'VAL EQU 3\n#IF VAL == 5\nNOP\n#ELSE\nHALT\n#ENDIF', [0x76]);
+testOK('#IF nested',
+    'A EQU 1\nB EQU 0\n#IF A\n#IF B\nNOP\n#ELSE\nHALT\n#ENDIF\n#ENDIF',
+    [0x76]);
+testOK('#IF !=', 'VAL EQU 3\n#IF VAL != 5\nNOP\n#ENDIF', [0x00]);
+testOK('#IF >', 'VAL EQU 10\n#IF VAL > 5\nNOP\n#ENDIF', [0x00]);
+testOK('#IF >=', 'VAL EQU 5\n#IF VAL >= 5\nNOP\n#ENDIF', [0x00]);
+testOK('#IF <', 'VAL EQU 3\n#IF VAL < 5\nNOP\n#ENDIF', [0x00]);
+testOK('#IF <=', 'VAL EQU 5\n#IF VAL <= 5\nNOP\n#ENDIF', [0x00]);
+testOK('#IF nonzero', '#IF 1\nNOP\n#ENDIF', [0x00]);
+testOK('#IF zero', '#IF 0\nNOP\n#ENDIF', []);
+testOK('#IF false EQU hidden',
+    '#IF 0\nFOO EQU 1\n#ENDIF\n#IF FOO\nNOP\n#ENDIF', []);
+testOK('#IF false ORG hidden',
+    'ORG 0\n#IF 0\nORG 0x8000\n#ENDIF\nNOP', [0x00]);
+testOK('#IF UNDEF is false', '#IF UNDEF\nNOP\n#ENDIF', []);
+testOK('#IF UNDEF == 0 is true', '#IF UNDEF == 0\nNOP\n#ENDIF', []);
+testOK('#IF nested false-true',
+    '#IF 0\n#IF 1\nNOP\n#ENDIF\n#ENDIF', []);
+testOK('#IF nested true-false-else',
+    'A EQU 1\nB EQU 0\n#IF A\n#IF B\nNOP\n#ELSE\nHALT\n#ENDIF\nRET\n#ENDIF',
+    [0x76, 0xC9]);
+
+// predefinedSymbols in #IF
+(function() {
+    var r = asm.assemble('#IF MY_FLAG\nNOP\n#ENDIF', { MY_FLAG: 1 });
+    if (r.errors.length > 0 || r.bytes.length !== 1 || r.bytes[0] !== 0x00) {
+        console.error('FAIL: #IF predefined true'); failures++;
+    } else { passes++; }
+    var r2 = asm.assemble('#IF MY_FLAG\nNOP\n#ENDIF', { MY_FLAG: 0 });
+    if (r2.errors.length > 0 || r2.bytes.length !== 0) {
+        console.error('FAIL: #IF predefined false'); failures++;
+    } else { passes++; }
+})();
+
+testFail('#ELSE without #IF', '#ELSE\nNOP\n#ENDIF');
+testFail('#ENDIF without #IF', '#ENDIF');
+testFail('Unterminated #IF', '#IF 1\nNOP');
+testFail('Duplicate #ELSE', '#IF 1\nNOP\n#ELSE\nHALT\n#ELSE\nNOP\n#ENDIF');
+testFail('#IF syntax error', '#IF 1 +\nNOP\n#ENDIF');
+
 console.log('\n' + '='.repeat(40));
 console.log('Results: ' + passes + ' passed, ' + failures + ' failed');
 console.log('='.repeat(40));
