@@ -49,6 +49,14 @@
         while (i < s.length) {
             var c = s[i];
             if (c === ' ' || c === '\t') { i++; continue; }
+            // 2文字比較演算子を先にチェック
+            if (i + 1 < s.length) {
+                var c2 = s[i] + s[i + 1];
+                if (c2 === '==' || c2 === '!=' || c2 === '>=' || c2 === '<=') {
+                    tokens.push({ type: 'OP', val: c2 }); i += 2; continue;
+                }
+            }
+            if (c === '>' || c === '<') { tokens.push({ type: 'OP', val: c }); i++; continue; }
             if (c === '+') { tokens.push({ type: 'OP', val: '+' }); i++; continue; }
             if (c === '-') { tokens.push({ type: 'OP', val: '-' }); i++; continue; }
             if (c === '*') { tokens.push({ type: 'OP', val: '*' }); i++; continue; }
@@ -158,7 +166,28 @@
             return left;
         }
 
-        var result = parseAddSub();
+        function parseCompare() {
+            var left = parseAddSub();
+            while (true) {
+                var t = peek();
+                if (!t || t.type !== 'OP') break;
+                var op = t.val;
+                if (op !== '==' && op !== '!=' && op !== '>=' && op !== '<=' && op !== '>' && op !== '<') break;
+                next();
+                var right = parseAddSub();
+                if (left === null || left === undefined || right === null || right === undefined)
+                    return undefined;
+                if (op === '==') left = (left === right) ? 1 : 0;
+                else if (op === '!=') left = (left !== right) ? 1 : 0;
+                else if (op === '>=') left = (left >= right) ? 1 : 0;
+                else if (op === '<=') left = (left <= right) ? 1 : 0;
+                else if (op === '>') left = (left > right) ? 1 : 0;
+                else if (op === '<') left = (left < right) ? 1 : 0;
+            }
+            return left;
+        }
+
+        var result = parseCompare();
         if (pos < tokens.length) return null; // leftover tokens
         return result;
     }
@@ -676,6 +705,78 @@
             }
         }
         var errors = [];
+
+        // ── Preprocess: #IF / #ELSE / #ENDIF ──
+        // 1回の走査で active 状態を見ながら EQU 収集と条件評価を同時処理
+        var ppSymbols = {};
+        if (predefinedSymbols) {
+            for (var k in predefinedSymbols) ppSymbols[k.toUpperCase()] = predefinedSymbols[k];
+        }
+        var ifStack = [];
+        function ppIsActive() {
+            if (ifStack.length === 0) return true;
+            var top = ifStack[ifStack.length - 1];
+            return top.parentActive && (top.inElse ? !top.condTrue : top.condTrue);
+        }
+        for (var pi = 0; pi < lines.length; pi++) {
+            var trimmed = lines[pi].trim();
+            var directive = trimmed.match(/^#(IF|ELSE|ENDIF)\b\s*(.*)?$/i);
+            if (directive) {
+                var cmd = directive[1].toUpperCase();
+                if (cmd === 'IF') {
+                    var parentActive = ppIsActive();
+                    var condActive = false;
+                    if (parentActive) {
+                        var exprStr = (directive[2] || '').replace(/;.*$/, '').trim();
+                        var condVal = evalExpr(exprStr, ppSymbols, 0, '');
+                        if (condVal === null) {
+                            errors.push({ line: pi + 1, msg: 'Invalid #IF expression' });
+                        } else if (condVal === undefined) {
+                            condVal = 0;
+                        }
+                        condActive = (condVal !== 0);
+                    }
+                    ifStack.push({ parentActive: parentActive, condTrue: condActive, inElse: false });
+                } else if (cmd === 'ELSE') {
+                    if (ifStack.length === 0) {
+                        errors.push({ line: pi + 1, msg: '#ELSE without #IF' });
+                    } else {
+                        var top = ifStack[ifStack.length - 1];
+                        if (top.inElse) {
+                            errors.push({ line: pi + 1, msg: 'Duplicate #ELSE' });
+                        } else {
+                            top.inElse = true;
+                        }
+                    }
+                } else if (cmd === 'ENDIF') {
+                    if (ifStack.length === 0) {
+                        errors.push({ line: pi + 1, msg: '#ENDIF without #IF' });
+                    } else {
+                        ifStack.pop();
+                    }
+                }
+                lines[pi] = '';
+                continue;
+            }
+            var active = ppIsActive();
+            if (!active) {
+                lines[pi] = '';
+                continue;
+            }
+            // active な行の EQU を ppSymbols に収集（後続の #IF で参照可能）
+            // 注: 前処理段階の EQU は定数式のみ保証（$ やローカルラベルは不正確）
+            var ppParsed = parseLine(lines[pi]);
+            if (ppParsed.label && ppParsed.mnemonic === 'EQU') {
+                var ppVal = evalExpr(ppParsed.operands, ppSymbols, 0, '');
+                if (ppVal !== null && ppVal !== undefined) {
+                    ppSymbols[ppParsed.label.toUpperCase()] = ppVal;
+                }
+            }
+        }
+        if (ifStack.length > 0) {
+            errors.push({ line: lines.length, msg: 'Unterminated #IF' });
+        }
+
         var baseOrg = -1;  // first ORG (returned as .org)
         var curAddr = 0;   // current absolute address
         var output = [];
