@@ -1,0 +1,85 @@
+{
+  "1.1L": {
+    "version": "1.1L",
+    "memory": {
+      "TEXTAREA": "0x4A3C",
+      "TEXTST": "0x39DC",
+      "TEXTED": "0x39DE"
+    }
+  },
+  "1.2L": {
+    "version": "1.2L",
+    "build": {
+      "git_commit": "ef57b88",
+      "timestamp": "2026-03-27T07:35:37Z",
+      "sym_sha256": "f3689c5e12d7",
+      "target": "lsx"
+    },
+    "memory": {
+      "TEXTAREA": "0x4A39",
+      "TEXTST": "0x39D9",
+      "TEXTED": "0x39DB",
+      "VARVAL": "0x3539",
+      "VARSP": "0x3575",
+      "MEMAX": "0x39D7"
+    },
+    "system": {
+      "BRK": "0x39D3",
+      "NOWADR": "0x39D5",
+      "STOPF": "0x39D1",
+      "SYSSTK": "0x39BF",
+      "STKTP": "0x39C1",
+      "VSTKST": "0x39C3",
+      "VSTKED": "0x39C5",
+      "PROCVAR": "0x39C7"
+    },
+    "sound": {
+      "SOUNDTOP": "0xC300",
+      "SND_Init": "0xC300",
+      "SND_BGMPlay": "0xC303",
+      "SND_BGMStop": "0xC306",
+      "SND_BGMPause": "0xC309",
+      "SND_BGMResume": "0xC30C",
+      "SND_SFXInit": "0xC30F",
+      "SND_SFXPlay": "0xC312",
+      "SND_SFXStop": "0xC315",
+      "SND_PSG_PROC": "0xC318",
+      "SND_PSG_END": "0xC31B",
+      "SND_CTC_PORT": "0xC31E",
+      "SND_CTCVEC": "0xC320",
+      "SNDFLG": "0x39B1",
+      "VSYNC_PREV": "0x39B2",
+      "SNDCTC": "0x39B3"
+    },
+    "graphics": {
+      "MAGICTOP": "0xB000"
+    },
+    "interpreter": {
+      "SOUND_": "0x28F9",
+      "SNDPOLL": "0x29E9",
+      "LINED": "0x1292",
+      "NXLIN": "0x12AC",
+      "JIKKOU": "0x1267"
+    },
+    "user_hooks": {
+      "USR_A": "0x21E6",
+      "USR_B": "0x21E8",
+      "USR_C": "0x21EA",
+      "USR_D": "0x21EC",
+      "USR_E": "0x21EE",
+      "USR_F": "0x21F0",
+      "USR_G": "0x21F2",
+      "USR_H": "0x21F4",
+      "FN_A": "0x227A",
+      "FN_B": "0x227C",
+      "FN_C": "0x227E",
+      "FN_D": "0x2280",
+      "FN_E": "0x2282",
+      "FN_F": "0x2284",
+      "FN_G": "0x2286",
+      "FN_H": "0x2288",
+      "PR_A": "0x22B0",
+      "PR_B": "0x22B2"
+    }
+  }
+}

@@ -11,14 +11,44 @@ window.__X1PEN_MODE = true;
     var BOOT_DISK_FILE  = 'fuzzybasic_boot.v2.d88';
     var module = null;
 
-    // ── FuzzyBASIC addrmap (version-specific) ──
-    var ADDRMAP = {
-        'fuzzybasic_cold.v1.xmst': { TEXTAREA: 0x4A3C, TEXTST: 0x39DC, TEXTED: 0x39DE },
-        'fuzzybasic_cold.v2.xmst': { TEXTAREA: 0x4A39, TEXTST: 0x39D9, TEXTED: 0x39DB },
+    // ── FuzzyBASIC addrmap ──
+
+    var COLD_STATE_VERSION = {
+        'fuzzybasic_cold.v1.xmst': '1.1L',
+        'fuzzybasic_cold.v2.xmst': '1.2L',
     };
 
-    function getAddrMapForColdState(coldStateFile) {
-        return ADDRMAP[coldStateFile] || null;
+    // JSON 読み込み失敗時のフォールバック
+    var ADDRMAP_FALLBACK = {
+        '1.1L': { TEXTAREA: 0x4A3C, TEXTST: 0x39DC, TEXTED: 0x39DE },
+        '1.2L': { TEXTAREA: 0x4A39, TEXTST: 0x39D9, TEXTED: 0x39DB },
+    };
+
+    var addrmapVersions = null;
+
+    async function loadAddrmapVersions() {
+        if (addrmapVersions) return addrmapVersions;
+        try {
+            var data = await loadRuntimeAsset('addrmap_versions.json');
+            if (!data) return null;
+            addrmapVersions = JSON.parse(new TextDecoder().decode(data));
+            return addrmapVersions;
+        } catch(e) { return null; }
+    }
+
+    async function getAddrMapForColdState(coldStateFile) {
+        var verName = COLD_STATE_VERSION[coldStateFile];
+        if (!verName) return null;
+        var versions = await loadAddrmapVersions();
+        if (versions && versions[verName] && versions[verName].memory) {
+            var mem = versions[verName].memory;
+            return {
+                TEXTAREA: parseInt(mem.TEXTAREA, 16),
+                TEXTST:   parseInt(mem.TEXTST, 16),
+                TEXTED:   parseInt(mem.TEXTED, 16),
+            };
+        }
+        return ADDRMAP_FALLBACK[verName] || null;
     }
 
     // ── Runtime asset cache + selection ──
@@ -408,8 +438,8 @@ window.__X1PEN_MODE = true;
         }
     }
 
-    function injectProgram(tokenizedBytes, coldStateFile) {
-        var addrs = getAddrMapForColdState(coldStateFile);
+    async function injectProgram(tokenizedBytes, coldStateFile) {
+        var addrs = await getAddrMapForColdState(coldStateFile);
         if (!addrs) return false;  // 未知バージョン
 
         var ramPtr = module._js_get_main_ram();
@@ -506,9 +536,26 @@ window.__X1PEN_MODE = true;
         var hasProgramDisk = false;
 
         // 4. ASM アセンブル (タブに内容がある場合)
+        //    addrmap から predefined symbols を構築
+        var predefined = {};
+        var versions = await loadAddrmapVersions();
+        var verName = COLD_STATE_VERSION[actualColdState];
+        if (versions && verName && versions[verName]) {
+            var ver = versions[verName];
+            if (ver.user_hooks) {
+                for (var k in ver.user_hooks) predefined[k] = parseInt(ver.user_hooks[k], 16);
+            }
+            if (ver.sound) {
+                for (var k in ver.sound) predefined[k] = parseInt(ver.sound[k], 16);
+            }
+            if (ver.graphics) {
+                for (var k in ver.graphics) predefined[k] = parseInt(ver.graphics[k], 16);
+            }
+        }
+
         var asmResult = null;
         if (asmSrc) {
-            asmResult = window.X1PenZ80Asm.assemble(asmSrc);
+            asmResult = window.X1PenZ80Asm.assemble(asmSrc, predefined);
             if (asmResult.errors.length > 0) {
                 elStatus.textContent = 'ASM error (L' + asmResult.errors[0].line + '): ' +
                                        asmResult.errors[0].msg;
@@ -546,6 +593,9 @@ window.__X1PEN_MODE = true;
             lastUsedRuntime.model = module._js_get_rom_type();
         }
 
+        // ADDR Reference を actual cold state に合わせて更新
+        updateAddrReference(actualColdState);
+
         // 6b. FZBASIC.COM を RAM に直接パッチ (cold state のメモリ上の FZBASIC を更新)
         if (runtime.relocAddrs) {
             try {
@@ -578,7 +628,7 @@ window.__X1PEN_MODE = true;
             elStatus.textContent = 'No program to run';
             return false;
         }
-        if (!injectProgram(tokenized, actualColdState)) {
+        if (!(await injectProgram(tokenized, actualColdState))) {
             elStatus.textContent = 'State version not supported';
             return false;
         }
@@ -626,12 +676,6 @@ window.__X1PEN_MODE = true;
                     if (config) {
                         for (var key in config.binaries) {
                             var binInfo = config.binaries[key];
-                            // SELF グループなし = RAM 常駐 (FZBASIC.COM) → patchFzbasicInRam で処理済み
-                            var hasSelf = false;
-                            for (var gi = 0; gi < binInfo.groups.length; gi++) {
-                                if (binInfo.groups[gi].name === 'SELF') { hasSelf = true; break; }
-                            }
-                            if (!hasSelf) continue;
 
                             var relData = await loadREL(binInfo.rel_file);
                             if (!relData) {
@@ -1284,6 +1328,30 @@ window.__X1PEN_MODE = true;
 
     // ── ADDR メニュー (reloc address settings) ──
 
+    function updateAddrReference(coldStateFile) {
+        var refEl = document.getElementById('ec-addr-ref');
+        if (!refEl) return;
+        refEl.innerHTML = '';
+        loadAddrmapVersions().then(function(versions) {
+            var verName = COLD_STATE_VERSION[coldStateFile || COLD_STATE_FILE];
+            if (!versions || !verName || !versions[verName]) {
+                console.warn('[x1pen] ADDR Reference unavailable (addrmap not loaded or version mismatch)');
+                return;
+            }
+            var hooks = versions[verName].user_hooks;
+            if (!hooks) return;
+            ['USR_A', 'FN_A', 'PR_A'].forEach(function(key) {
+                if (!hooks[key]) return;
+                var row = document.createElement('div');
+                row.className = 'addr-field-row';
+                row.innerHTML = '<span class="addr-field-label">' + key + '</span>' +
+                    '<span style="color:#5599ee; font-family:monospace;">$' +
+                    hooks[key].replace('0x', '') + '</span>';
+                refEl.appendChild(row);
+            });
+        });
+    }
+
     function initAddrMenu() {
         var fieldsEl = document.getElementById('ec-addr-fields');
         var errorEl = document.getElementById('ec-addr-error');
@@ -1291,6 +1359,9 @@ window.__X1PEN_MODE = true;
         var applyBtn = document.getElementById('ec-addr-apply');
         var addrBtn = document.getElementById('ec-addr-btn');
         if (!fieldsEl) return;
+
+        // Reference 初期表示
+        updateAddrReference(COLD_STATE_FILE);
 
         loadRelocConfig().then(function(config) {
             if (!config) {
