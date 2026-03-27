@@ -209,6 +209,16 @@ window.__X1PEN_MODE = true;
         return binary;
     }
 
+    // デフォルトアドレスと同一か判定 (同一ならリロケート不要)
+    function isDefaultRelocAddresses(addrs, config) {
+        if (!addrs || !config) return true;
+        var defaults = getDefaultRelocAddresses(config);
+        for (var key in defaults) {
+            if (addrs[key] !== defaults[key]) return false;
+        }
+        return true;
+    }
+
     // getEffectiveRuntime: getUserDefaultRuntime の async 版。relocAddrs を含む。
     async function getEffectiveRuntime(baseRuntime) {
         var runtime = baseRuntime || getUserDefaultRuntime();
@@ -224,6 +234,8 @@ window.__X1PEN_MODE = true;
             } else {
                 runtime.relocAddrs = getUserRelocAddresses(config);
             }
+            // 注: デフォルトアドレスでも relocAddrs は保持する
+            // (ブートディスクに存在しないバイナリ (GPAINT.BIN 等) の追加が必要なため)
         }
         return runtime;
     }
@@ -330,7 +342,9 @@ window.__X1PEN_MODE = true;
 
     // ── メモリ注入 ──
 
-    // FZBASIC.COM を RAM に直接パッチ書き込み (cold state 復元後に呼ぶ)
+    // FZBASIC.COM の参照アドレスを RAM 上で直接パッチ (cold state 復元後に呼ぶ)
+    // REL バイナリ全体で上書きせず、fixup offset の該当バイトだけを変更する
+    // (コールドステートの FZBASIC と REL のビルドが異なる可能性があるため)
     async function patchFzbasicInRam(relocAddresses) {
         var config = await loadRelocConfig();
         if (!config || !config.binaries['FZBASIC.REL']) return;
@@ -339,16 +353,54 @@ window.__X1PEN_MODE = true;
         var relData = await loadREL(binInfo.rel_file);
         if (!relData) { console.warn('[x1pen] FZBASIC.REL not available'); return; }
 
-        var patched = patchREL(relData, binInfo.groups, relocAddresses);
+        // REL ヘッダからグループ情報と fixup offset を読み取り、RAM を直接パッチ
+        var view = new DataView(relData);
+        var tableSize = view.getUint16(0, true);
+        var groupCount = view.getUint8(4);
 
         var ramPtr = module._js_get_main_ram();
         var ram = new Uint8Array(module.wasmMemory.buffer, ramPtr, 0x10000);
+        var baseAddr = 0x0100; // FZBASIC.COM のロードアドレス
+        var patchCount = 0;
 
-        // FZBASIC.COM は 0x0100 に固定配置
-        for (var i = 0; i < patched.length; i++) {
-            ram[0x0100 + i] = patched[i];
+        var pos = 5;
+        for (var g = 0; g < groupCount; g++) {
+            if (pos + 20 > tableSize) break;
+            var nameBytes = new Uint8Array(relData, pos, 16);
+            var name = '';
+            for (var k = 0; k < 16 && nameBytes[k]; k++) name += String.fromCharCode(nameBytes[k]);
+            pos += 16;
+
+            var defaultAddr = view.getUint16(pos, true); pos += 2;
+            var fixupCount = view.getUint16(pos, true); pos += 2;
+
+            if (pos + fixupCount * 2 > tableSize) break;
+
+            // JSON の groups からシンボル名を引く
+            var groupInfo = null;
+            for (var gi = 0; gi < binInfo.groups.length; gi++) {
+                if (binInfo.groups[gi].name === name) { groupInfo = binInfo.groups[gi]; break; }
+            }
+            var newAddr = groupInfo ? relocAddresses[groupInfo.symbol] : null;
+
+            if (newAddr !== null && newAddr !== undefined && newAddr !== defaultAddr) {
+                var diff = (newAddr >> 8) - (defaultAddr >> 8);
+                for (var i = 0; i < fixupCount; i++) {
+                    var offset = view.getUint16(pos + i * 2, true);
+                    var ramOffset = baseAddr + offset;
+                    if (ramOffset < 0x10000) {
+                        ram[ramOffset] = (ram[ramOffset] + diff) & 0xFF;
+                        patchCount++;
+                    }
+                }
+            }
+            pos += fixupCount * 2;
         }
-        console.log('[x1pen] FZBASIC.COM patched in RAM (' + patched.length + ' bytes at 0x0100)');
+        if (patchCount > 0) {
+            console.log('[x1pen] FZBASIC.COM: patched ' + patchCount + ' bytes in RAM');
+        } else {
+            console.log('[x1pen] FZBASIC.COM: no address changes needed');
+        }
     }
 
     function injectProgram(tokenizedBytes, coldStateFile) {
@@ -494,9 +546,8 @@ window.__X1PEN_MODE = true;
             try {
                 await patchFzbasicInRam(runtime.relocAddrs);
             } catch(e) {
-                console.error('[x1pen] FZBASIC patch failed:', e);
-                elStatus.textContent = 'FZBASIC patch failed: ' + e.message;
-                return false;
+                console.warn('[x1pen] FZBASIC patch failed (continuing):', e);
+                elStatus.textContent = 'Warning: FZBASIC reloc failed';
             }
         }
 
@@ -565,27 +616,35 @@ window.__X1PEN_MODE = true;
 
             // 3a. リロケート済みバイナリで既存ファイルを上書き
             if (relocAddresses) {
-                var config = await loadRelocConfig();
-                if (config) {
-                    for (var key in config.binaries) {
-                        var binInfo = config.binaries[key];
-                        // SELF グループなし = RAM 常駐 (FZBASIC.COM) → patchFzbasicInRam で処理済み
-                        var hasSelf = false;
-                        for (var gi = 0; gi < binInfo.groups.length; gi++) {
-                            if (binInfo.groups[gi].name === 'SELF') { hasSelf = true; break; }
+                try {
+                    var config = await loadRelocConfig();
+                    if (config) {
+                        for (var key in config.binaries) {
+                            var binInfo = config.binaries[key];
+                            // SELF グループなし = RAM 常駐 (FZBASIC.COM) → patchFzbasicInRam で処理済み
+                            var hasSelf = false;
+                            for (var gi = 0; gi < binInfo.groups.length; gi++) {
+                                if (binInfo.groups[gi].name === 'SELF') { hasSelf = true; break; }
+                            }
+                            if (!hasSelf) continue;
+
+                            var relData = await loadREL(binInfo.rel_file);
+                            if (!relData) {
+                                console.warn('[x1pen] REL not available: ' + binInfo.rel_file);
+                                continue;
+                            }
+
+                            var patched = patchREL(relData, binInfo.groups, relocAddresses);
+
+                            // 既存ファイルがあれば削除して再追加（なければ新規追加）
+                            var nameParts = binInfo.output_file.split('.');
+                            var existing = lsx.findByName(nameParts[0], nameParts[1]);
+                            if (existing) lsx.deleteFile(existing);
+                            lsx.addFile(nameParts[0], nameParts[1], patched);
                         }
-                        if (!hasSelf) continue;
-
-                        var relData = await loadREL(binInfo.rel_file);
-                        if (!relData) throw new Error('Failed to load ' + binInfo.rel_file);
-
-                        var patched = patchREL(relData, binInfo.groups, relocAddresses);
-
-                        var nameParts = binInfo.output_file.split('.');
-                        var existing = lsx.findByName(nameParts[0], nameParts[1]);
-                        if (existing) lsx.deleteFile(existing);
-                        lsx.addFile(nameParts[0], nameParts[1], patched);
                     }
+                } catch(e) {
+                    console.warn('[x1pen] Reloc disk patching failed (continuing):', e);
                 }
             }
 
