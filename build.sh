@@ -102,6 +102,9 @@ done
 for f in "${SCRIPT_DIR}"/assets/fuzzybasic_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "./"
 done
+# addrmap
+[ -f "${SCRIPT_DIR}/assets/addrmap_versions.json" ] && \
+    cp "${SCRIPT_DIR}/assets/addrmap_versions.json" ./addrmap_versions.json
 # Reloc files
 if [ -d "${SCRIPT_DIR}/assets/reloc" ]; then
     mkdir -p ./reloc
@@ -167,6 +170,9 @@ done
 for f in "${SCRIPT_DIR}"/assets/fuzzybasic_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
 done
+# addrmap
+[ -f "${SCRIPT_DIR}/assets/addrmap_versions.json" ] && \
+    cp "${SCRIPT_DIR}/assets/addrmap_versions.json" "${DIST_DIR}/addrmap_versions.json"
 # Reloc files
 if [ -d "${SCRIPT_DIR}/assets/reloc" ]; then
     mkdir -p "${DIST_DIR}/reloc"
