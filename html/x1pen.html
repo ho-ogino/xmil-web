@@ -302,6 +302,23 @@
         .emu-menu-file-btn.clear-btn { color: #663333; }
         .emu-menu-file-btn.clear-btn:hover { background: #201616; color: #ff7777; }
 
+        /* ── ADDR メニュー ── */
+        .addr-field-row {
+            display: flex; align-items: center; gap: 6px;
+            padding: 3px 0; font-size: 0.85em;
+        }
+        .addr-field-label { color: #aaa; min-width: 100px; }
+        .addr-field-input {
+            width: 60px; padding: 2px 4px;
+            font-family: 'Courier New', monospace; font-size: 0.9em;
+            background: #0d1117; color: #e0e0e0;
+            border: 1px solid #0f3460; border-radius: 3px;
+            text-align: right;
+        }
+        .addr-field-input:focus { border-color: #1a4a88; outline: none; }
+        .addr-field-input.error { border-color: #7a0d0d; }
+        .addr-field-suffix { color: #666; font-size: 0.8em; }
+
         /* ── Share ダイアログ ── */
         #share-dialog-backdrop {
             position: fixed; inset: 0;
@@ -559,6 +576,21 @@
                         <div class="emu-menu-row"><label><input type="radio" name="ec-model" value="1"> X1</label></div>
                         <div class="emu-menu-row"><label><input type="radio" name="ec-model" value="2"> X1turbo</label></div>
                         <div class="emu-menu-row"><label><input type="radio" name="ec-model" value="3"> X1turboZ</label></div>
+                    </div>
+                </div>
+                <!-- ADDR (relocatable binary addresses) -->
+                <div class="emu-ctrl-group">
+                    <button class="emu-ctrl-btn" data-menu="addr" id="ec-addr-btn">ADDR</button>
+                    <div class="emu-ctrl-menu" id="menu-addr" style="min-width:260px">
+                        <div class="emu-menu-title">Address Settings</div>
+                        <div id="ec-addr-fields"></div>
+                        <div id="ec-addr-error" style="color:#ff7777; font-size:0.78em; min-height:1.2em; margin-top:4px;"></div>
+                        <div class="emu-menu-sep"></div>
+                        <div class="emu-menu-row"><label style="font-size:0.78em;"><input type="checkbox" id="ec-addr-overlap-check"> Conflict check</label></div>
+                        <div class="emu-menu-row" style="justify-content:flex-end; gap:6px;">
+                            <button class="emu-menu-btn" id="ec-addr-reset">Reset</button>
+                            <button class="emu-menu-btn mount-btn" id="ec-addr-apply">Apply</button>
+                        </div>
                     </div>
                 </div>
                 <!-- OPT -->

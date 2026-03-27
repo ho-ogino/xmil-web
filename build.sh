@@ -102,6 +102,13 @@ done
 for f in "${SCRIPT_DIR}"/assets/fuzzybasic_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "./"
 done
+# Reloc files
+if [ -d "${SCRIPT_DIR}/assets/reloc" ]; then
+    mkdir -p ./reloc
+    for f in "${SCRIPT_DIR}"/assets/reloc/*.REL "${SCRIPT_DIR}"/assets/reloc/reloc_webapp.json; do
+        [ -f "$f" ] && cp "$f" ./reloc/
+    done
+fi
 
 echo ""
 echo "======================================"
@@ -160,6 +167,13 @@ done
 for f in "${SCRIPT_DIR}"/assets/fuzzybasic_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
 done
+# Reloc files
+if [ -d "${SCRIPT_DIR}/assets/reloc" ]; then
+    mkdir -p "${DIST_DIR}/reloc"
+    for f in "${SCRIPT_DIR}"/assets/reloc/*.REL "${SCRIPT_DIR}"/assets/reloc/reloc_webapp.json; do
+        [ -f "$f" ] && cp "$f" "${DIST_DIR}/reloc/"
+    done
+fi
 
 # Pages Functions (Cloudflare Workers)
 if [ -d "${SCRIPT_DIR}/functions" ]; then
