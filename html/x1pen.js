@@ -70,7 +70,10 @@ window.__X1PEN_MODE = true;
     async function loadRelocConfig() {
         if (relocConfig) return relocConfig;
         try {
-            var data = await loadRuntimeAsset('reloc/reloc_webapp.json');
+            // 小さいファイルなので毎回サーバーに検証させる (ETag/304)
+            var resp = await fetch('reloc/reloc_webapp.json', { cache: 'no-cache' });
+            if (!resp.ok) return null;
+            var data = await resp.arrayBuffer();
             if (!data) return null;
             relocConfig = JSON.parse(new TextDecoder().decode(data));
             return relocConfig;
@@ -81,7 +84,9 @@ window.__X1PEN_MODE = true;
     }
 
     async function loadREL(filename) {
-        return await loadRuntimeAsset('reloc/' + filename);
+        var ver = relocConfig ? relocConfig.version : '';
+        var suffix = ver ? '?v=' + encodeURIComponent(ver) : '';
+        return await loadRuntimeAsset('reloc/' + filename + suffix);
     }
 
     function getDefaultRelocAddresses(config) {
