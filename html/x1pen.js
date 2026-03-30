@@ -107,10 +107,10 @@ window.__X1PEN_MODE = true;
         if (runMode === 'lsx') {
             runtime.coldState = LSX_COLD_STATE;
             runtime.bootDisk  = LSX_BOOT_DISK;
-            // relocAddrs はそのまま維持（LSX でもリロケート済みバイナリを使う）
         } else {
-            if (!runtime.coldState) runtime.coldState = COLD_STATE_FILE;
-            if (!runtime.bootDisk)  runtime.bootDisk  = BOOT_DISK_FILE;
+            // fuzzybasic: 常に FuzzyBASIC asset に正規化（LSX asset 混入防止）
+            if (!runtime.coldState || runtime.coldState === LSX_COLD_STATE) runtime.coldState = COLD_STATE_FILE;
+            if (!runtime.bootDisk || runtime.bootDisk === LSX_BOOT_DISK)   runtime.bootDisk  = BOOT_DISK_FILE;
         }
         return runtime;
     }
@@ -559,13 +559,14 @@ window.__X1PEN_MODE = true;
         var actualBootDisk = runtime.bootDisk;
 
         var stateData = await loadRuntimeAsset(runtime.coldState);
-        if (!stateData && runtime.coldState !== COLD_STATE_FILE) {
+        if (!stateData && !isLsxMode && runtime.coldState !== COLD_STATE_FILE) {
+            // FuzzyBASIC モードのみ fallback（LSX モードでは fallback しない）
             console.warn('[x1pen] Fallback to current cold state');
             stateData = await loadRuntimeAsset(COLD_STATE_FILE);
             if (stateData) actualColdState = COLD_STATE_FILE;
         }
         var bootData = await loadRuntimeAsset(runtime.bootDisk);
-        if (!bootData && runtime.bootDisk !== BOOT_DISK_FILE) {
+        if (!bootData && !isLsxMode && runtime.bootDisk !== BOOT_DISK_FILE) {
             console.warn('[x1pen] Fallback to current boot disk');
             bootData = await loadRuntimeAsset(BOOT_DISK_FILE);
             if (bootData) actualBootDisk = BOOT_DISK_FILE;
@@ -654,6 +655,13 @@ window.__X1PEN_MODE = true;
 
         // 7. ディスクイメージ作成 (ASM バイナリ and/or AUTORUN.BAS)
         var asmBytes = (asmResult && asmResult.bytes.length > 0) ? asmResult.bytes : null;
+
+        // LSX モードで ASM バイナリが 0 byte なら実行不可
+        if (isLsxMode && !asmBytes) {
+            elStatus.textContent = 'Nothing to run (ASM produced no bytes)';
+            return false;
+        }
+
         if (asmBytes || tokenized) {
             if (bootData) {
                 if (!(await mountProgramDisk(asmBytes, tokenized, bootData, runtime.relocAddrs, { mode: runMode }))) {
