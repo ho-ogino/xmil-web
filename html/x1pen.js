@@ -485,14 +485,22 @@ window.__X1PEN_MODE = true;
 
     // ── キー注入 ──
 
-    function simulateRunCommand() {
-        var keys = [0x52, 0x55, 0x4E, 0x0D];  // R, U, N, Enter
+    function simulateKeys(keys, interval) {
+        var ms = interval || 100;
         keys.forEach(function(vk, i) {
             setTimeout(function() {
                 module._js_key_down(vk);
                 setTimeout(function() { module._js_key_up(vk); }, 80);
-            }, i * 100);
+            }, i * ms);
         });
+    }
+
+    function simulateRunCommand() {
+        simulateKeys([0x52, 0x55, 0x4E, 0x0D], 100);  // R, U, N, Enter
+    }
+
+    function simulateProgCommand() {
+        simulateKeys([0x50, 0x52, 0x4F, 0x47, 0x0D], 50);  // P, R, O, G, Enter
     }
 
     // ── RUN ──
@@ -663,11 +671,13 @@ window.__X1PEN_MODE = true;
 
         // 9. モード別のエミュレータ開始
         if (isLsxMode) {
-            // LSX-Dodgers モード: AUTOEXEC.BAT が PROG.COM を自動起動
+            // LSX-Dodgers モード: コマンドプロンプトから PROG を実行
             console.log('[x1pen] starting emulator (LSX-Dodgers mode)');
             module._js_xmil_start();
             var canvas = document.getElementById('canvas');
             if (canvas) canvas.focus();
+            await new Promise(function(r) { setTimeout(r, 500); });
+            simulateProgCommand();
             elStatus.textContent = 'LSX-Dodgers mode';
         } else {
             // FuzzyBASIC モード: BASIC 注入 + RUN キー注入
