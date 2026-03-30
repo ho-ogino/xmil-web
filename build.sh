@@ -102,6 +102,12 @@ done
 for f in "${SCRIPT_DIR}"/assets/fuzzybasic_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "./"
 done
+for f in "${SCRIPT_DIR}"/assets/lsxdodgers_cold.*.xmst; do
+    [ -f "$f" ] && cp "$f" "./"
+done
+for f in "${SCRIPT_DIR}"/assets/lsxdodgers_boot.*.d88; do
+    [ -f "$f" ] && cp "$f" "./"
+done
 # addrmap
 [ -f "${SCRIPT_DIR}/assets/addrmap_versions.json" ] && \
     cp "${SCRIPT_DIR}/assets/addrmap_versions.json" ./addrmap_versions.json
@@ -168,6 +174,12 @@ for f in "${SCRIPT_DIR}"/assets/fuzzybasic_cold.*.xmst; do
     [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
 done
 for f in "${SCRIPT_DIR}"/assets/fuzzybasic_boot.*.d88; do
+    [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
+done
+for f in "${SCRIPT_DIR}"/assets/lsxdodgers_cold.*.xmst; do
+    [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
+done
+for f in "${SCRIPT_DIR}"/assets/lsxdodgers_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
 done
 # addrmap
