@@ -9,6 +9,8 @@ window.__X1PEN_MODE = true;
 
     var COLD_STATE_FILE = 'fuzzybasic_cold.v2.xmst';
     var BOOT_DISK_FILE  = 'fuzzybasic_boot.v2.d88';
+    var LSX_COLD_STATE  = 'lsxdodgers_cold.v1.xmst';
+    var LSX_BOOT_DISK   = 'lsxdodgers_boot.v1.d88';
     var module = null;
 
     // ── FuzzyBASIC addrmap ──
@@ -78,8 +80,8 @@ window.__X1PEN_MODE = true;
         return (n >= 1 && n <= 3) ? n : fallback;
     }
 
-    var COLD_STATE_PATTERN = /^fuzzybasic_cold\.[A-Za-z0-9._-]+\.xmst$/;
-    var BOOT_DISK_PATTERN  = /^fuzzybasic_boot\.[A-Za-z0-9._-]+\.d88$/;
+    var COLD_STATE_PATTERN = /^(fuzzybasic|lsxdodgers)_cold\.[A-Za-z0-9._-]+\.xmst$/;
+    var BOOT_DISK_PATTERN  = /^(fuzzybasic|lsxdodgers)_boot\.[A-Za-z0-9._-]+\.d88$/;
     function validateAssetName(name, fallback) {
         if (!name || typeof name !== 'string') return fallback;
         var pattern = name.endsWith('.xmst') ? COLD_STATE_PATTERN : BOOT_DISK_PATTERN;
@@ -90,7 +92,27 @@ window.__X1PEN_MODE = true;
         var settings = window.XmilControls ? window.XmilControls.getSettings() : {};
         var model = validateModel(settings.romType, 1);
         var assets = resolveRuntimeAssets(model);
-        return { model: model, coldState: assets.coldState, bootDisk: assets.bootDisk, relocAddrs: null };
+        return { model: model, coldState: assets.coldState, bootDisk: assets.bootDisk, relocAddrs: null, runMode: 'fuzzybasic' };
+    }
+
+    // ── Run mode detection ──
+
+    function detectRunMode(basicSrc, asmSrc) {
+        if (!basicSrc && asmSrc) return 'lsx';
+        return 'fuzzybasic';
+    }
+
+    function normalizeRuntimeForRunMode(runtime, runMode) {
+        runtime.runMode = runMode;
+        if (runMode === 'lsx') {
+            runtime.coldState = LSX_COLD_STATE;
+            runtime.bootDisk  = LSX_BOOT_DISK;
+        } else {
+            // fuzzybasic: 常に FuzzyBASIC asset に正規化（LSX asset 混入防止）
+            if (!runtime.coldState || runtime.coldState === LSX_COLD_STATE) runtime.coldState = COLD_STATE_FILE;
+            if (!runtime.bootDisk || runtime.bootDisk === LSX_BOOT_DISK)   runtime.bootDisk  = BOOT_DISK_FILE;
+        }
+        return runtime;
     }
 
     // ── Relocatable binary support ──
@@ -463,14 +485,22 @@ window.__X1PEN_MODE = true;
 
     // ── キー注入 ──
 
-    function simulateRunCommand() {
-        var keys = [0x52, 0x55, 0x4E, 0x0D];  // R, U, N, Enter
+    function simulateKeys(keys, interval) {
+        var ms = interval || 100;
         keys.forEach(function(vk, i) {
             setTimeout(function() {
                 module._js_key_down(vk);
                 setTimeout(function() { module._js_key_up(vk); }, 80);
-            }, i * 100);
+            }, i * ms);
         });
+    }
+
+    function simulateRunCommand() {
+        simulateKeys([0x52, 0x55, 0x4E, 0x0D], 100);  // R, U, N, Enter
+    }
+
+    function simulateProgCommand() {
+        simulateKeys([0x50, 0x52, 0x4F, 0x47, 0x0D], 50);  // P, R, O, G, Enter
     }
 
     // ── RUN ──
@@ -478,10 +508,28 @@ window.__X1PEN_MODE = true;
     async function onRunClick() {
         if (!module) return false;
 
-        // 1. effective runtime を決定 (async: relocAddrs を含む)
+        // 0. runMode 判定
+        var basicSrc = basicEditor.getValue().trim();
+        var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
+
+        if (!basicSrc && !asmSrc) {
+            elStatus.textContent = 'Nothing to run';
+            return false;
+        }
+
         var isSharedRun = !!pendingShareRuntime;
+        var runMode;
+        if (pendingShareRuntime && pendingShareRuntime.runMode) {
+            runMode = pendingShareRuntime.runMode;
+        } else {
+            runMode = detectRunMode(basicSrc, asmSrc);
+        }
+        var isLsxMode = (runMode === 'lsx');
+
+        // 1. effective runtime を決定 (async: relocAddrs を含む)
         var baseRuntime = pendingShareRuntime || getUserDefaultRuntime();
         pendingShareRuntime = null;
+        normalizeRuntimeForRunMode(baseRuntime, runMode);
         var runtime;
         try {
             runtime = await getEffectiveRuntime(baseRuntime);
@@ -511,13 +559,14 @@ window.__X1PEN_MODE = true;
         var actualBootDisk = runtime.bootDisk;
 
         var stateData = await loadRuntimeAsset(runtime.coldState);
-        if (!stateData && runtime.coldState !== COLD_STATE_FILE) {
+        if (!stateData && !isLsxMode && runtime.coldState !== COLD_STATE_FILE) {
+            // FuzzyBASIC モードのみ fallback（LSX モードでは fallback しない）
             console.warn('[x1pen] Fallback to current cold state');
             stateData = await loadRuntimeAsset(COLD_STATE_FILE);
             if (stateData) actualColdState = COLD_STATE_FILE;
         }
         var bootData = await loadRuntimeAsset(runtime.bootDisk);
-        if (!bootData && runtime.bootDisk !== BOOT_DISK_FILE) {
+        if (!bootData && !isLsxMode && runtime.bootDisk !== BOOT_DISK_FILE) {
             console.warn('[x1pen] Fallback to current boot disk');
             bootData = await loadRuntimeAsset(BOOT_DISK_FILE);
             if (bootData) actualBootDisk = BOOT_DISK_FILE;
@@ -529,10 +578,9 @@ window.__X1PEN_MODE = true;
         }
 
         // lastUsedRuntime を記録 (再 Share 用、state restore 後に model 更新)
-        lastUsedRuntime = { model: runtime.model, coldState: actualColdState, bootDisk: actualBootDisk, relocAddrs: runtime.relocAddrs };
+        lastUsedRuntime = { model: runtime.model, coldState: actualColdState, bootDisk: actualBootDisk, relocAddrs: runtime.relocAddrs, runMode: runMode };
         lastRunWasShared = isSharedRun;
 
-        var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
         var hasProgramDisk = false;
 
         // 4. ASM アセンブル (タブに内容がある場合)
@@ -570,12 +618,11 @@ window.__X1PEN_MODE = true;
             }
         }
 
-        // 5. BASIC ソースをトークナイズ
-        var src = basicEditor.getValue().trim();
+        // 5. BASIC ソースをトークナイズ (FuzzyBASIC モードのみ)
         var tokenized = null;
-        if (src) {
+        if (!isLsxMode && basicSrc) {
             try {
-                tokenized = window.X1PenTokenizer.tokenizeProgram(src);
+                tokenized = window.X1PenTokenizer.tokenizeProgram(basicSrc);
             } catch(e) {
                 elStatus.textContent = 'Tokenize error: ' + e.message;
                 return false;
@@ -596,8 +643,8 @@ window.__X1PEN_MODE = true;
         // ADDR Reference を actual cold state に合わせて更新
         updateAddrReference(actualColdState);
 
-        // 6b. FZBASIC.COM を RAM に直接パッチ (cold state のメモリ上の FZBASIC を更新)
-        if (runtime.relocAddrs) {
+        // 6b. FZBASIC.COM を RAM に直接パッチ (FuzzyBASIC モードのみ)
+        if (!isLsxMode && runtime.relocAddrs) {
             try {
                 await patchFzbasicInRam(runtime.relocAddrs);
             } catch(e) {
@@ -608,9 +655,16 @@ window.__X1PEN_MODE = true;
 
         // 7. ディスクイメージ作成 (ASM バイナリ and/or AUTORUN.BAS)
         var asmBytes = (asmResult && asmResult.bytes.length > 0) ? asmResult.bytes : null;
+
+        // LSX モードで ASM バイナリが 0 byte なら実行不可
+        if (isLsxMode && !asmBytes) {
+            elStatus.textContent = 'Nothing to run (ASM produced no bytes)';
+            return false;
+        }
+
         if (asmBytes || tokenized) {
             if (bootData) {
-                if (!(await mountProgramDisk(asmBytes, tokenized, bootData, runtime.relocAddrs))) {
+                if (!(await mountProgramDisk(asmBytes, tokenized, bootData, runtime.relocAddrs, { mode: runMode }))) {
                     elStatus.textContent = 'Disk write failed';
                     return false;
                 }
@@ -623,36 +677,40 @@ window.__X1PEN_MODE = true;
             await window.XmilLibrary.autoRestoreMounts(hasProgramDisk ? ['drive0'] : []);
         }
 
-        // 9. エミュレータメモリに BASIC 注入
-        if (!tokenized) {
-            elStatus.textContent = 'No program to run';
-            return false;
+        // 9. モード別のエミュレータ開始
+        if (isLsxMode) {
+            // LSX-Dodgers モード: コマンドプロンプトから PROG を実行
+            console.log('[x1pen] starting emulator (LSX-Dodgers mode)');
+            module._js_xmil_start();
+            var canvas = document.getElementById('canvas');
+            if (canvas) canvas.focus();
+            await new Promise(function(r) { setTimeout(r, 500); });
+            simulateProgCommand();
+            elStatus.textContent = 'LSX-Dodgers mode';
+        } else {
+            // FuzzyBASIC モード: BASIC 注入 + RUN キー注入
+            if (!tokenized) {
+                elStatus.textContent = 'No program to run';
+                return false;
+            }
+            if (!(await injectProgram(tokenized, actualColdState))) {
+                elStatus.textContent = 'State version not supported';
+                return false;
+            }
+            console.log('[x1pen] starting emulator + injecting RUN command');
+            module._js_xmil_start();
+            var canvas = document.getElementById('canvas');
+            if (canvas) canvas.focus();
+            await new Promise(function(r) { setTimeout(r, 500); });
+            simulateRunCommand();
         }
-        if (!(await injectProgram(tokenized, actualColdState))) {
-            elStatus.textContent = 'State version not supported';
-            return false;
-        }
-
-        // 7. エミュレータ開始 + "RUN"+Enter キー注入
-        //    _js_xmil_start() 後、エミュレータが実際にフレームを処理し
-        //    BASIC プロンプトが出るまで待ってからキー注入する
-        console.log('[x1pen] starting emulator + injecting RUN command');
-        module._js_xmil_start();
-
-        // キャンバスにフォーカス移動 (キー注入より先にフォーカスを確定)
-        var canvas = document.getElementById('canvas');
-        if (canvas) canvas.focus();
-
-        // エミュレータが実際にフレームを処理し BASIC プロンプトが
-        // 出るまで待ってからキー注入する
-        await new Promise(function(r) { setTimeout(r, 500); });
-        simulateRunCommand();
         return true;
     }
 
     // ── PROGRAM ディスク マウント ──
 
-    async function mountProgramDisk(programBytes, basicTokenized, diskData, relocAddresses) {
+    async function mountProgramDisk(programBytes, basicTokenized, diskData, relocAddresses, options) {
+        var mode = (options && options.mode) || 'fuzzybasic';
         if (!diskData) {
             console.error('[x1pen] Boot disk not loaded');
             return false;
@@ -685,11 +743,21 @@ window.__X1PEN_MODE = true;
 
                             var patched = patchREL(relData, binInfo.groups, relocAddresses);
 
-                            // 既存ファイルがあれば削除して再追加（なければ新規追加）
+                            // 既存ファイルがあれば削除して再追加
+                            // 既存がない場合: SELF グループ持ちなら新規追加、なければスキップ
+                            // (FZBASIC.COM は RAM パッチで対応するため、ディスクに不在なら追加不要)
                             var nameParts = binInfo.output_file.split('.');
                             var existing = lsx.findByName(nameParts[0], nameParts[1]);
-                            if (existing) lsx.deleteFile(existing);
-                            lsx.addFile(nameParts[0], nameParts[1], patched);
+                            if (existing) {
+                                lsx.deleteFile(existing);
+                                lsx.addFile(nameParts[0], nameParts[1], patched);
+                            } else {
+                                var hasSelf = false;
+                                for (var gi = 0; gi < binInfo.groups.length; gi++) {
+                                    if (binInfo.groups[gi].name === 'SELF') { hasSelf = true; break; }
+                                }
+                                if (hasSelf) lsx.addFile(nameParts[0], nameParts[1], patched);
+                            }
                         }
                     }
                 } catch(e) {
@@ -699,7 +767,9 @@ window.__X1PEN_MODE = true;
 
             // 3b. ユーザープログラム
             if (programBytes && programBytes.length > 0) {
-                lsx.addFile('PROGRAM', 'BIN', new Uint8Array(programBytes));
+                var fileName = (mode === 'lsx') ? 'PROG' : 'PROGRAM';
+                var fileExt  = (mode === 'lsx') ? 'COM' : 'BIN';
+                lsx.addFile(fileName, fileExt, new Uint8Array(programBytes));
             }
             if (basicTokenized) {
                 lsx.addFile('AUTORUN', 'BAS', basicTokenized);
@@ -834,9 +904,10 @@ window.__X1PEN_MODE = true;
 
     async function onShareClick() {
         var src = basicEditor.getValue().trim();
-        if (!src) { elStatus.textContent = 'Nothing to share'; return; }
-
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
+        if (!src && !asmSrc) { elStatus.textContent = 'Nothing to share'; return; }
+
+        var shareRunMode = detectRunMode(src, asmSrc);
 
         // Share 用 runtime を決定 (relocAddrs を正規化済みで取得)
         var baseShareRuntime;
@@ -849,6 +920,7 @@ window.__X1PEN_MODE = true;
         }
         var shareRuntime;
         try {
+            normalizeRuntimeForRunMode(baseShareRuntime, shareRunMode);
             shareRuntime = await getEffectiveRuntime(baseShareRuntime);
         } catch(e) {
             shareRuntime = baseShareRuntime;
@@ -857,7 +929,8 @@ window.__X1PEN_MODE = true;
         var meta = {
             model: shareRuntime.model,
             coldState: shareRuntime.coldState,
-            bootDisk: shareRuntime.bootDisk
+            bootDisk: shareRuntime.bootDisk,
+            runMode: shareRunMode
         };
         if (shareRuntime.relocAddrs) meta.relocAddrs = shareRuntime.relocAddrs;
 
@@ -1029,12 +1102,14 @@ window.__X1PEN_MODE = true;
                                 shareRelocAddrs = shared.meta.relocAddrs;
                             }
                         }
+                        var sharedRunMode = shared.meta.runMode || detectRunMode(shared.basic || '', shared.asm || '');
                         pendingShareRuntime = {
                             model: validateModel(shared.meta.model, 1),
                             coldState: validateAssetName(shared.meta.coldState, COLD_STATE_FILE),
                             bootDisk: validateAssetName(shared.meta.bootDisk, BOOT_DISK_FILE),
                             relocAddrs: shareRelocAddrs
                         };
+                        normalizeRuntimeForRunMode(pendingShareRuntime, sharedRunMode);
                     }
                     // 読み込んだ内容のハッシュを記録 (再 Share 時の URL 再利用用)
                     // effective runtime に揃えて、旧 Share でも default reloc が反映される
@@ -1049,7 +1124,8 @@ window.__X1PEN_MODE = true;
                     var replayMeta = {
                         model: replayRuntime.model,
                         coldState: replayRuntime.coldState,
-                        bootDisk: replayRuntime.bootDisk
+                        bootDisk: replayRuntime.bootDisk,
+                        runMode: replayRuntime.runMode || 'fuzzybasic'
                     };
                     if (replayRuntime.relocAddrs) replayMeta.relocAddrs = replayRuntime.relocAddrs;
                     var replayPayload = JSON.stringify({
