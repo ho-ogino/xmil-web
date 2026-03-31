@@ -10,6 +10,9 @@ dist/
 # ただし X1Pen のブートディスクは追跡する
 !assets/fuzzybasic_boot.*.d88
 
+# リファレンス資料 (未適用のソース等)
+ref/
+
 # macOS
 .DS_Store
 **/.DS_Store

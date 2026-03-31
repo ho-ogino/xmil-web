@@ -48,8 +48,10 @@ export async function onRequestPost({ request, env }) {
         return new Response(JSON.stringify({ error: 'Invalid gzip or JSON' }), { status: 400 });
     }
 
-    if (!parsed.basic || typeof parsed.basic !== 'string') {
-        return new Response(JSON.stringify({ error: 'No basic code' }), { status: 400 });
+    var hasBasic = parsed.basic && typeof parsed.basic === 'string';
+    var hasAsm = parsed.asm && typeof parsed.asm === 'string';
+    if (!hasBasic && !hasAsm) {
+        return new Response(JSON.stringify({ error: 'No code' }), { status: 400 });
     }
 
     // Generate 8-char ID with collision retry
