@@ -1855,6 +1855,113 @@
     }
 
     // ================================================================
+    // IR (Intermediate Representation)
+    // ================================================================
+
+    var IrOp = {
+        // Data movement
+        LoadConst: 'LoadConst', LoadVar: 'LoadVar', StoreVar: 'StoreVar',
+        LoadLocal: 'LoadLocal', StoreLocal: 'StoreLocal',
+        LoadAddr: 'LoadAddr', LoadIndirect: 'LoadIndirect', StoreIndirect: 'StoreIndirect',
+        // Arithmetic
+        Add: 'Add', Sub: 'Sub', Mul: 'Mul', Div: 'Div', Mod: 'Mod',
+        SMul: 'SMul', SDiv: 'SDiv', SMod: 'SMod', Neg: 'Neg',
+        // Bitwise
+        And: 'And', Or: 'Or', Xor: 'Xor', Not: 'Not',
+        Shl: 'Shl', Shr: 'Shr', SShl: 'SShl', SShr: 'SShr',
+        // Comparison
+        CmpEq: 'CmpEq', CmpNeq: 'CmpNeq',
+        CmpLt: 'CmpLt', CmpGt: 'CmpGt', CmpLe: 'CmpLe', CmpGe: 'CmpGe',
+        CmpSLt: 'CmpSLt', CmpSGt: 'CmpSGt', CmpSLe: 'CmpSLe', CmpSGe: 'CmpSGe',
+        // Logical
+        LogAnd: 'LogAnd', LogOr: 'LogOr', LogNot: 'LogNot',
+        // High/Low
+        High: 'High', Low: 'Low',
+        // Array
+        ArrayLoad: 'ArrayLoad', ArrayStore: 'ArrayStore',
+        // Memory
+        MemLoad: 'MemLoad', MemStore: 'MemStore',
+        // Indirect
+        IndirLoad: 'IndirLoad', IndirStore: 'IndirStore',
+        // Port I/O
+        PortIn: 'PortIn', PortOut: 'PortOut',
+        // Control flow
+        Label: 'Label', Jump: 'Jump', JumpIfZero: 'JumpIfZero', JumpIfNonZero: 'JumpIfNonZero',
+        Call: 'Call', Return: 'Return',
+        // Function
+        FuncBegin: 'FuncBegin', FuncEnd: 'FuncEnd',
+        PushArg: 'PushArg', PopResult: 'PopResult',
+        // Stack
+        Push: 'Push', Pop: 'Pop',
+        // Inline assembly
+        InlineAsm: 'InlineAsm',
+        // Special
+        Nop: 'Nop', Comment: 'Comment',
+        // Data definition
+        DefByte: 'DefByte', DefWord: 'DefWord', DefString: 'DefString',
+    };
+
+    var IrOperandKind = {
+        None: 'None', Immediate: 'Immediate', Symbol: 'Symbol',
+        Temp: 'Temp', Label: 'Label', AsmString: 'AsmString',
+    };
+
+    var IrOperand = {
+        None: { kind: IrOperandKind.None, immediateValue: 0, name: null, tempIndex: -1 },
+        Imm: function(v) { return { kind: IrOperandKind.Immediate, immediateValue: v, name: null, tempIndex: -1 }; },
+        Sym: function(n) { return { kind: IrOperandKind.Symbol, immediateValue: 0, name: n, tempIndex: -1 }; },
+        Temp: function(i) { return { kind: IrOperandKind.Temp, immediateValue: 0, name: null, tempIndex: i }; },
+        Lbl: function(n) { return { kind: IrOperandKind.Label, immediateValue: 0, name: n, tempIndex: -1 }; },
+        Asm: function(t) { return { kind: IrOperandKind.AsmString, immediateValue: 0, name: t, tempIndex: -1 }; },
+    };
+
+    function IrInstruction(op, dest, src1, src2, dataSize) {
+        return { op: op, dest: dest || IrOperand.None, src1: src1 || IrOperand.None, src2: src2 || IrOperand.None, dataSize: dataSize || 2 };
+    }
+
+    function IrFunction(name) {
+        var tempCount = 0;
+        var insts = [];
+        return {
+            name: name || '',
+            get instructions() { return insts; },
+            get tempCount() { return tempCount; },
+            set tempCount(v) { tempCount = v; },
+            localSize: 0,
+            allocTemp: function() { return tempCount++; },
+            emit: function(op, dest, src1, src2, ds) {
+                insts.push(IrInstruction(op, dest, src1, src2, ds));
+            },
+        };
+    }
+
+    var VarStorageKind = { Bss: 'Bss', InitArray: 'InitArray', CodeConst: 'CodeConst' };
+
+    function InitItem(byteValue, asmExpr) {
+        return { byteValue: byteValue, asmExpr: asmExpr || null, byteSize: asmExpr ? 2 : 1 };
+    }
+
+    function GlobalVarInfo(name, asmLabel, byteSize) {
+        return {
+            name: name, asmLabel: asmLabel, byteSize: byteSize || 2,
+            fixedAddress: null, fixedAddressLabel: null,
+            initialItems: null, isArray: false,
+            storageKind: VarStorageKind.Bss,
+            get hasInitializer() { return this.initialItems && this.initialItems.length > 0; },
+        };
+    }
+
+    function IrModule() {
+        return {
+            functions: [], globalData: [], stringTable: {},
+            globalVars: [], orgAddress: null, workAddress: null, offsetAddress: null,
+            overlays: [], addressSymbolDeps: {},
+        };
+    }
+
+    // IrGenerator will be added in the next commit (2255 lines of C# to port)
+
+    // ================================================================
     // Public API (Phase 1 foundation)
     // ================================================================
     window.X1PenSlangCompiler = {
@@ -1878,6 +1985,10 @@
         _ConstEvaluator: ConstEvaluator,
         _SemanticAnalyzer: SemanticAnalyzer,
         _SlangType: SlangType,
+        _IrOp: IrOp,
+        _IrOperand: IrOperand,
+        _IrFunction: IrFunction,
+        _IrModule: IrModule,
         _AST: AST,
         _DataSize: DataSize,
         _BinaryOp: BinaryOp,
