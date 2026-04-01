@@ -1959,7 +1959,1764 @@
         };
     }
 
-    // IrGenerator will be added in the next commit (2255 lines of C# to port)
+    // ================================================================
+    // ExprToAsmString: AST Expression → assembler expression string
+    // (LabelUtils.ExprToAsmString equivalent)
+    // ================================================================
+    function exprToAsmString(expr, symbols, diagnostics) {
+        var deps = [];
+        function convert(e) {
+            if (!e) return null;
+            if (e.type === 'IntegerLiteral') {
+                var hex = (e.value & 0xFFFF).toString(16).toUpperCase();
+                while (hex.length < 4) hex = '0' + hex;
+                return '$' + hex;
+            }
+            if (e.type === 'IdentifierExpr') {
+                var sym = symbols ? symbols.resolve(e.name) : null;
+                if (sym) {
+                    if (typeof sym.constValue === 'number') {
+                        var hex2 = (sym.constValue & 0xFFFF).toString(16).toUpperCase();
+                        while (hex2.length < 4) hex2 = '0' + hex2;
+                        return '$' + hex2;
+                    }
+                    if (sym.constAst && !sym.constAsmResolved) {
+                        sym.constAsmResolved = true;
+                        var inner = exprToAsmString(sym.constAst, symbols, diagnostics);
+                        if (inner) { sym.constAsmExpr = inner.expr; sym.constAsmDeps = inner.deps; }
+                    }
+                    if (sym.constAsmExpr) {
+                        if (sym.constAsmDeps) for (var d = 0; d < sym.constAsmDeps.length; d++) deps.push(sym.constAsmDeps[d]);
+                        return sym.constAsmExpr;
+                    }
+                    if (sym.isCodeBlock || sym.isGlobal || sym.kind === SymbolKind.Function || sym.kind === SymbolKind.MachineFunction) {
+                        var label = sym.asmLabel || sanitizeLabel(e.name);
+                        deps.push(label);
+                        return label;
+                    }
+                    if (diagnostics) diagnostics.error("'" + e.name + "' cannot be used in MACHINE/CONST address expression", e.span);
+                    return null;
+                }
+                var extLabel = sanitizeLabel(e.name);
+                deps.push(extLabel);
+                return extLabel;
+            }
+            if (e.type === 'BinaryExpr' && (e.op === BinaryOp.Add || e.op === BinaryOp.Sub)) {
+                var left = convert(e.left);
+                var right = convert(e.right);
+                if (left === null || right === null) return null;
+                return left + (e.op === BinaryOp.Add ? '+' : '-') + right;
+            }
+            if (e.type === 'BinaryExpr') {
+                var ce = symbols ? ConstEvaluator(symbols) : null;
+                var cv = ce ? ce.evaluate(e) : null;
+                if (cv !== null) {
+                    var hex3 = (cv & 0xFFFF).toString(16).toUpperCase();
+                    while (hex3.length < 4) hex3 = '0' + hex3;
+                    return '$' + hex3;
+                }
+                if (diagnostics) diagnostics.error('Unsupported expression in MACHINE/CONST address: ' + e.type, e.span);
+                return null;
+            }
+            if (diagnostics) diagnostics.error('Unsupported expression in MACHINE/CONST address: ' + e.type, e.span);
+            return null;
+        }
+        var result = convert(expr);
+        return result !== null ? { expr: result, deps: deps } : null;
+    }
+
+    // ================================================================
+    // IrGenerator: AST → IR conversion
+    // ================================================================
+    function IrGenerator(diagnostics, globalSymbols) {
+        var _module = IrModule();
+        var _currentFunction = null;
+        var _labelCount = 0;
+        var _inStaticDecl = false;
+        var _currentFuncName = null;
+        var _emitToGlobalData = false;
+        var _localVars = null;
+        var _staticVarLabels = null;
+        var _staticVarSizes = null;
+        var _staticElemSizes = null;
+        var _staticVarKinds = null;
+        var _localOffset = 0;
+        var _tempDataSize = {};
+        var _floatConstCount = 0;
+        var _loopStack = [];
+
+        var VarKind = { Scalar: 'Scalar', Array: 'Array', Pointer: 'Pointer' };
+
+        function allocTemp() { return _currentFunction ? _currentFunction.allocTemp() : 0; }
+        function newLabel() { return '_L' + (_labelCount++); }
+
+        function emit(op, dest, src1, src2, dataSize) {
+            var inst = IrInstruction(op, dest || IrOperand.None, src1 || IrOperand.None, src2 || IrOperand.None, dataSize || 2);
+            if (_emitToGlobalData || !_currentFunction)
+                _module.globalData.push(inst);
+            else
+                _currentFunction.instructions.push(inst);
+        }
+
+        function emitInlinePrint(text) {
+            var dbArgs = toAsmDbArgs(text);
+            emit(IrOp.InlineAsm, IrOperand.Asm('\tCALL\tMPRNT\n\tDB\t' + dbArgs + ',0'));
+        }
+
+        // --- Short-circuit helpers ---
+        function canShortCircuit(expr) {
+            if (!expr || !expr.type) return false;
+            if (expr.type === 'BinaryExpr') {
+                if (expr.op === BinaryOp.And || expr.op === BinaryOp.LogAnd || expr.op === BinaryOp.LogOr)
+                    return isComparisonOrChain(expr.left) && isComparisonOrChain(expr.right);
+            }
+            return false;
+        }
+        function isComparisonOrChain(expr) {
+            if (!expr || !expr.type) return false;
+            if (expr.type === 'BinaryExpr') {
+                var op = expr.op;
+                if (op === BinaryOp.Eq || op === BinaryOp.Neq ||
+                    op === BinaryOp.Lt || op === BinaryOp.Gt || op === BinaryOp.Le || op === BinaryOp.Ge ||
+                    op === BinaryOp.SLt || op === BinaryOp.SGt || op === BinaryOp.SLe || op === BinaryOp.SGe)
+                    return true;
+                if (op === BinaryOp.And || op === BinaryOp.LogAnd || op === BinaryOp.LogOr)
+                    return isComparisonOrChain(expr.left) && isComparisonOrChain(expr.right);
+            }
+            return false;
+        }
+        function emitShortCircuitJump(expr, falseLabel) {
+            if (expr.type === 'BinaryExpr' && (expr.op === BinaryOp.And || expr.op === BinaryOp.LogAnd)) {
+                emitShortCircuitJump(expr.left, falseLabel);
+                emitShortCircuitJump(expr.right, falseLabel);
+            } else if (expr.type === 'BinaryExpr' && expr.op === BinaryOp.LogOr) {
+                var trueLabel = newLabel();
+                emitShortCircuitJumpIfTrue(expr.left, trueLabel);
+                emitShortCircuitJump(expr.right, falseLabel);
+                emit(IrOp.Label, IrOperand.Lbl(trueLabel));
+            } else {
+                var val = visitNode(expr);
+                emit(IrOp.JumpIfZero, IrOperand.Lbl(falseLabel), val);
+            }
+        }
+        function emitShortCircuitJumpIfTrue(expr, trueLabel) {
+            if (expr.type === 'BinaryExpr' && expr.op === BinaryOp.LogOr) {
+                emitShortCircuitJumpIfTrue(expr.left, trueLabel);
+                emitShortCircuitJumpIfTrue(expr.right, trueLabel);
+            } else if (expr.type === 'BinaryExpr' && (expr.op === BinaryOp.And || expr.op === BinaryOp.LogAnd)) {
+                var skipLabel = newLabel();
+                emitShortCircuitJump(expr.left, skipLabel);
+                emitShortCircuitJumpIfTrue(expr.right, trueLabel);
+                emit(IrOp.Label, IrOperand.Lbl(skipLabel));
+            } else {
+                var val = visitNode(expr);
+                emit(IrOp.JumpIfNonZero, IrOperand.Lbl(trueLabel), val);
+            }
+        }
+
+        // --- VarInfo resolution ---
+        function resolveAsmLabel(name) {
+            if (_staticVarLabels) {
+                var key = name.toUpperCase();
+                if (_staticVarLabels[key] !== undefined) return _staticVarLabels[key];
+            }
+            var sym = globalSymbols ? globalSymbols.resolve(name) : null;
+            return (sym && sym.asmLabel) ? sym.asmLabel : userVarLabel(name);
+        }
+
+        function resolveVarInfo(name) {
+            // 1. Local variable
+            if (_localVars) {
+                var key = name.toUpperCase();
+                if (_localVars[key] !== undefined) {
+                    var li = _localVars[key];
+                    var varDs = li.byteSize;
+                    var elemSz = li.kind === VarKind.Scalar ? varDs : (li.isByte ? 1 : 2);
+                    return { kind: li.kind, elemSize: elemSz, varDataSize: varDs, local: li, globalSym: null };
+                }
+            }
+            // 2. Static variable
+            if (_staticVarSizes) {
+                var key2 = name.toUpperCase();
+                if (_staticVarSizes[key2] !== undefined) {
+                    var kind = (_staticVarKinds && _staticVarKinds[key2] !== undefined) ? _staticVarKinds[key2] : VarKind.Scalar;
+                    var varDs2 = _staticVarSizes[key2];
+                    var elemSz2 = kind === VarKind.Scalar ? varDs2 : ((_staticElemSizes && _staticElemSizes[key2] !== undefined) ? _staticElemSizes[key2] : 2);
+                    return { kind: kind, elemSize: elemSz2, varDataSize: varDs2, local: null, globalSym: null };
+                }
+            }
+            // 3. Global symbol
+            var sym = globalSymbols ? globalSymbols.resolve(name) : null;
+            if (sym) {
+                var isByte = false;
+                if (sym.type && sym.type.typeClass === 'Array') isByte = sym.type.elementType === SlangType.Byte;
+                else if (sym.type && sym.type.typeClass === 'Pointer') isByte = sym.type.elementType === SlangType.Byte;
+                var kind2;
+                if (sym.type && sym.type.typeClass === 'Pointer' && !sym.isArrayDecl) kind2 = VarKind.Pointer;
+                else if ((sym.type && sym.type.typeClass === 'Array') || sym.isArrayDecl) kind2 = VarKind.Array;
+                else kind2 = VarKind.Scalar;
+                var varDs3 = (sym.type && sym.type.byteSize) ? sym.type.byteSize : 2;
+                var elemSz3 = kind2 === VarKind.Scalar ? varDs3 : (isByte ? 1 : 2);
+                return { kind: kind2, elemSize: elemSz3, varDataSize: varDs3, local: null, globalSym: sym };
+            }
+            // 4. Unresolved
+            return { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null };
+        }
+
+        function allocLocalVar(name, byteSize) {
+            var allocSize = byteSize <= 2 ? 2 : byteSize;
+            _localOffset += allocSize;
+            var offset = 0x70 - _localOffset;
+            _localVars[name.toUpperCase()] = { offset: offset, byteSize: allocSize, kind: VarKind.Scalar, isByte: false, dims: null };
+            return offset;
+        }
+
+        // --- Loop stack ---
+        function pushLoop(cont, brk) { _loopStack.push({ continueLabel: cont, breakLabel: brk }); }
+        function popLoop() { _loopStack.pop(); }
+        function getBreakLabel() { return _loopStack.length > 0 ? _loopStack[_loopStack.length - 1].breakLabel : null; }
+        function getContinueLabel() { return _loopStack.length > 0 ? _loopStack[_loopStack.length - 1].continueLabel : null; }
+
+        // --- Stride computation helpers ---
+        function computeStrides(arraySym, indexCount, arrayName) {
+            var strides = [];
+            if (arraySym && arraySym.type && arraySym.type.typeClass === 'Array') {
+                for (var i = 0; i < indexCount; i++) strides.push(arraySym.type.getStride(i));
+            } else {
+                var elemSize = arrayName ? resolveVarInfo(arrayName).elemSize : 2;
+                for (var i = 0; i < indexCount; i++) strides.push(elemSize);
+            }
+            return strides;
+        }
+        function computeStridesFromDims(dims, elemSize, indexCount) {
+            var strides = [];
+            for (var i = 0; i < indexCount && i < dims.length; i++) {
+                var stride = elemSize;
+                for (var j = dims.length - 1; j > i; j--) stride *= dims[j];
+                strides.push(stride);
+            }
+            return strides;
+        }
+        function tryComputeLocalArrayOffset(localInfo, indices, strides, elemSize) {
+            var constEval = globalSymbols ? ConstEvaluator(globalSymbols) : null;
+            if (!constEval) return null;
+            var totalOffset = localInfo.offset;
+            for (var i = 0; i < indices.length && i < strides.length; i++) {
+                var constIdx = constEval.evaluate(indices[i]);
+                if (constIdx === null) return null;
+                totalOffset += constIdx * strides[i];
+            }
+            var maxOffset = 127 - (elemSize - 1);
+            if (totalOffset < 0 || totalOffset > maxOffset) return null;
+            return totalOffset;
+        }
+        function tryComputeConstArrayOffset(indices, strides) {
+            var constEval = globalSymbols ? ConstEvaluator(globalSymbols) : null;
+            if (!constEval) return null;
+            var totalOffset = 0;
+            for (var i = 0; i < indices.length && i < strides.length; i++) {
+                var constIdx = constEval.evaluate(indices[i]);
+                if (constIdx === null) return null;
+                totalOffset += constIdx * strides[i];
+            }
+            if (totalOffset < 0) return null;
+            return totalOffset;
+        }
+
+        // --- Type conversion helper ---
+        function emitTypeConversion(value, targetDs) {
+            var valueDs = (value.kind === IrOperandKind.Temp && _tempDataSize[value.tempIndex] !== undefined) ? _tempDataSize[value.tempIndex] : 2;
+            if (targetDs === 3 && valueDs !== 3) {
+                var conv = IrOperand.Temp(allocTemp());
+                emit(IrOp.Call, conv, IrOperand.Sym('i16tof24'), IrOperand.Imm(0), 3);
+                _tempDataSize[conv.tempIndex] = 3;
+                return conv;
+            } else if (targetDs !== 3 && valueDs === 3) {
+                var conv2 = IrOperand.Temp(allocTemp());
+                emit(IrOp.Call, conv2, IrOperand.Sym('FTOI'), IrOperand.Imm(0));
+                _tempDataSize[conv2.tempIndex] = 2;
+                return conv2;
+            }
+            return value;
+        }
+
+        // --- EmitStore ---
+        function emitStore(target, value) {
+            if (target.type === 'IdentifierExpr') {
+                var vi = resolveVarInfo(target.name);
+                var storeDs = vi.varDataSize;
+                value = emitTypeConversion(value, storeDs);
+                if (vi.local)
+                    emit(IrOp.StoreLocal, IrOperand.Imm(vi.local.offset), value, undefined, storeDs);
+                else
+                    emit(IrOp.StoreVar, IrOperand.Sym(resolveAsmLabel(target.name)), value, undefined, storeDs);
+            } else if (target.type === 'ArrayAccessExpr') {
+                var arrayName = (target.array && target.array.type === 'IdentifierExpr') ? target.array.name : null;
+                var stVi = arrayName ? resolveVarInfo(arrayName) : { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null };
+                var arraySym = stVi.globalSym;
+                var isMemArray = arraySym && arraySym.type && arraySym.type.typeClass === 'MemoryArray';
+                var isByteAccess = isMemArray && arraySym.type.elementType === SlangType.Byte;
+                var isIndirect = stVi.kind === VarKind.Pointer;
+                var isIndirectByte = isIndirect && stVi.elemSize === 1;
+
+                var isPortArray = arrayName && (arrayName.toUpperCase() === 'PORT' || arrayName.toUpperCase() === 'PORTW');
+                var isPortByte = arrayName && arrayName.toUpperCase() === 'PORT';
+
+                if (isPortArray) {
+                    var addr = visitNode(target.indices[0]);
+                    emit(IrOp.PortOut, addr, value, undefined, isPortByte ? 1 : 2);
+                } else if (isMemArray) {
+                    var addr2 = visitNode(target.indices[0]);
+                    emit(IrOp.MemStore, addr2, value, undefined, isByteAccess ? 1 : 2);
+                } else if (isIndirect) {
+                    var baseAddr = IrOperand.Temp(allocTemp());
+                    if (stVi.local)
+                        emit(IrOp.LoadLocal, baseAddr, IrOperand.Imm(stVi.local.offset));
+                    else
+                        emit(IrOp.LoadVar, baseAddr, IrOperand.Sym(resolveAsmLabel(arrayName)));
+                    var idx = visitNode(target.indices[0]);
+                    var elemSz = stVi.elemSize;
+                    var scaledIdx;
+                    if (elemSz === 1) scaledIdx = idx;
+                    else { scaledIdx = IrOperand.Temp(allocTemp()); emit(IrOp.Add, scaledIdx, idx, idx); }
+                    var addrI = IrOperand.Temp(allocTemp());
+                    emit(IrOp.Add, addrI, baseAddr, scaledIdx);
+                    emit(IrOp.IndirStore, addrI, value, undefined, elemSz);
+                } else {
+                    // Normal array store (multidimensional)
+                    var storeIsByte = stVi.kind === VarKind.Array && stVi.elemSize === 1;
+                    var strides;
+                    var stArrLi = stVi.local;
+                    var isLocalStoreArray = stArrLi && stArrLi.kind === VarKind.Array && stArrLi.dims;
+                    if (isLocalStoreArray) {
+                        strides = computeStridesFromDims(stArrLi.dims, stArrLi.isByte ? 1 : 2, target.indices.length);
+                        storeIsByte = stArrLi.isByte;
+                    } else {
+                        strides = computeStrides(arraySym, target.indices.length, arrayName);
+                    }
+
+                    var localStoreHandled = false;
+                    if (isLocalStoreArray) {
+                        var elemSz2 = stArrLi.isByte ? 1 : 2;
+                        var directOff = tryComputeLocalArrayOffset(stArrLi, target.indices, strides, elemSz2);
+                        if (directOff !== null) {
+                            emit(IrOp.StoreLocal, IrOperand.Imm(directOff), value, undefined, elemSz2);
+                            localStoreHandled = true;
+                        }
+                    }
+
+                    if (!localStoreHandled && !isLocalStoreArray && arrayName && stVi.kind === VarKind.Array) {
+                        var gElemSize = storeIsByte ? 1 : 2;
+                        var globalOff = tryComputeConstArrayOffset(target.indices, strides);
+                        if (globalOff !== null) {
+                            var label = resolveAsmLabel(arrayName);
+                            var sym2 = globalOff === 0 ? label : label + '+' + globalOff;
+                            emit(IrOp.StoreVar, IrOperand.Sym(sym2), value, undefined, gElemSize);
+                            localStoreHandled = true;
+                        }
+                    }
+
+                    if (!localStoreHandled) {
+                        var baseAddr2;
+                        if (arrayName) {
+                            baseAddr2 = IrOperand.Temp(allocTemp());
+                            if (isLocalStoreArray) {
+                                var hexOff = stArrLi.offset.toString(16).toUpperCase();
+                                while (hexOff.length < 4) hexOff = '0' + hexOff;
+                                emit(IrOp.InlineAsm, baseAddr2, IrOperand.Asm('\tPUSH\tIY\n\tPOP\tHL\n\tLD\tDE,$' + hexOff + '\n\tADD\tHL,DE'));
+                            } else if (stVi.local) {
+                                emit(IrOp.LoadLocal, baseAddr2, IrOperand.Imm(stVi.local.offset));
+                            } else if (stVi.kind === VarKind.Pointer) {
+                                emit(IrOp.LoadVar, baseAddr2, IrOperand.Sym(resolveAsmLabel(arrayName)));
+                            } else {
+                                emit(IrOp.LoadAddr, baseAddr2, IrOperand.Sym(resolveAsmLabel(arrayName)));
+                            }
+                        } else {
+                            baseAddr2 = visitNode(target.array);
+                        }
+
+                        var addrS = baseAddr2;
+                        for (var si = 0; si < target.indices.length; si++) {
+                            var idxS = visitNode(target.indices[si]);
+                            var strideS = strides[si];
+                            var scaledS = IrOperand.Temp(allocTemp());
+                            if (strideS === 1) scaledS = idxS;
+                            else if (strideS === 2) emit(IrOp.Add, scaledS, idxS, idxS);
+                            else {
+                                var strOp = IrOperand.Temp(allocTemp());
+                                emit(IrOp.LoadConst, strOp, IrOperand.Imm(strideS));
+                                emit(IrOp.Mul, scaledS, idxS, strOp);
+                            }
+                            var newAddrS = IrOperand.Temp(allocTemp());
+                            emit(IrOp.Add, newAddrS, addrS, scaledS);
+                            addrS = newAddrS;
+                        }
+                        emit(IrOp.IndirStore, addrS, value, undefined, storeIsByte ? 1 : 2);
+                    }
+                }
+            } else {
+                var addrT = visitNode(target);
+                emit(IrOp.StoreIndirect, addrT, value);
+            }
+        }
+
+        // --- BuildCodeBlockItems ---
+        function buildCodeBlockItems(codeExpr) {
+            var initItems = [];
+            var vals = codeExpr.values;
+            for (var vi = 0; vi < vals.length; vi++) {
+                var initExpr = vals[vi];
+                var itemSize = 1;
+                if (initExpr.type === 'CastExpr') {
+                    itemSize = initExpr.targetSize === DataSize.Byte ? 1 : (initExpr.targetSize === DataSize.Float ? 3 : 2);
+                    initExpr = initExpr.operand;
+                }
+                var constEval2 = globalSymbols ? ConstEvaluator(globalSymbols) : null;
+                var constVal2 = constEval2 ? constEval2.evaluate(initExpr) : null;
+                if (initExpr.type === 'IntegerLiteral') constVal2 = initExpr.value | 0;
+
+                if (constVal2 !== null) {
+                    var v = constVal2;
+                    if (itemSize === 1) initItems.push(InitItem(v & 0xFF));
+                    else { initItems.push(InitItem(v & 0xFF)); initItems.push(InitItem((v >> 8) & 0xFF)); }
+                } else if (initExpr.type === 'StringLiteral') {
+                    for (var ci = 0; ci < initExpr.value.length; ci++)
+                        initItems.push(InitItem(initExpr.value.charCodeAt(ci) & 0xFF));
+                } else {
+                    var asmResult = exprToAsmString(initExpr, globalSymbols, diagnostics);
+                    if (asmResult) {
+                        initItems.push(InitItem(0, asmResult.expr));
+                        for (var di = 0; di < asmResult.deps.length; di++)
+                            _module.addressSymbolDeps[asmResult.deps[di]] = true;
+                    } else if (itemSize === 1) {
+                        if (diagnostics) diagnostics.error('Non-constant BYTE expression in CODE block not supported', initExpr.span);
+                    }
+                }
+            }
+            return initItems;
+        }
+
+        // --- ComputeArrayAccess ---
+        function computeArrayAccess(node, loadValue) {
+            var arrayName = (node.array && node.array.type === 'IdentifierExpr') ? node.array.name : null;
+            var vi = arrayName ? resolveVarInfo(arrayName) : { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null };
+            var arraySym = vi.globalSym;
+            var arrInfo = vi.local;
+            var isArrayByte = vi.kind !== VarKind.Scalar && vi.elemSize === 1;
+
+            var strides;
+            var isLocalArray = arrInfo && arrInfo.kind === VarKind.Array && arrInfo.dims;
+            if (isLocalArray) {
+                strides = computeStridesFromDims(arrInfo.dims, arrInfo.isByte ? 1 : 2, node.indices.length);
+                isArrayByte = arrInfo.isByte;
+            } else {
+                strides = computeStrides(arraySym, node.indices.length, arrayName);
+            }
+
+            var elemSize = isArrayByte ? 1 : 2;
+
+            // Local array const index optimization
+            if (isLocalArray) {
+                var directOffset = tryComputeLocalArrayOffset(arrInfo, node.indices, strides, elemSize);
+                if (directOffset !== null) {
+                    var result = IrOperand.Temp(allocTemp());
+                    if (loadValue) {
+                        emit(IrOp.LoadLocal, result, IrOperand.Imm(directOffset), undefined, elemSize);
+                    } else {
+                        var hexOff2 = directOffset.toString(16).toUpperCase();
+                        while (hexOff2.length < 4) hexOff2 = '0' + hexOff2;
+                        emit(IrOp.InlineAsm, result, IrOperand.Asm('\tPUSH\tIY\n\tPOP\tHL\n\tLD\tDE,$' + hexOff2 + '\n\tADD\tHL,DE'));
+                    }
+                    return result;
+                }
+            }
+
+            // Global/static array const index optimization
+            if (!isLocalArray && arrayName && vi.kind === VarKind.Array) {
+                var globalOffset = tryComputeConstArrayOffset(node.indices, strides);
+                if (globalOffset !== null) {
+                    var result2 = IrOperand.Temp(allocTemp());
+                    var label = resolveAsmLabel(arrayName);
+                    var sym2 = globalOffset === 0 ? label : label + '+' + globalOffset;
+                    if (loadValue)
+                        emit(IrOp.LoadVar, result2, IrOperand.Sym(sym2), undefined, elemSize);
+                    else
+                        emit(IrOp.LoadAddr, result2, IrOperand.Sym(sym2));
+                    return result2;
+                }
+            }
+
+            // Load base address
+            var baseAddr;
+            if (arrayName) {
+                baseAddr = IrOperand.Temp(allocTemp());
+                if (isLocalArray) {
+                    emit(IrOp.Comment, IrOperand.Asm('local array ' + arrayName + ' addr'));
+                    var hexOff3 = arrInfo.offset.toString(16).toUpperCase();
+                    while (hexOff3.length < 4) hexOff3 = '0' + hexOff3;
+                    emit(IrOp.InlineAsm, baseAddr, IrOperand.Asm('\tPUSH\tIY\n\tPOP\tHL\n\tLD\tDE,$' + hexOff3 + '\n\tADD\tHL,DE'));
+                } else if (_localVars && _localVars[arrayName.toUpperCase()] !== undefined) {
+                    emit(IrOp.LoadLocal, baseAddr, IrOperand.Imm(_localVars[arrayName.toUpperCase()].offset));
+                } else {
+                    emit(IrOp.LoadAddr, baseAddr, IrOperand.Sym(resolveAsmLabel(arrayName)));
+                }
+            } else {
+                baseAddr = visitNode(node.array);
+            }
+
+            // Add scaled indices
+            var addr = baseAddr;
+            for (var i = 0; i < node.indices.length; i++) {
+                var idx = visitNode(node.indices[i]);
+                var stride = strides[i];
+                var scaledIdx = IrOperand.Temp(allocTemp());
+                if (stride === 1) scaledIdx = idx;
+                else if (stride === 2) emit(IrOp.Add, scaledIdx, idx, idx);
+                else {
+                    var strideOp = IrOperand.Temp(allocTemp());
+                    emit(IrOp.LoadConst, strideOp, IrOperand.Imm(stride));
+                    emit(IrOp.Mul, scaledIdx, idx, strideOp);
+                }
+                var newAddr = IrOperand.Temp(allocTemp());
+                emit(IrOp.Add, newAddr, addr, scaledIdx);
+                addr = newAddr;
+            }
+
+            if (loadValue) {
+                var result3 = IrOperand.Temp(allocTemp());
+                emit(IrOp.IndirLoad, result3, addr, undefined, elemSize);
+                return result3;
+            }
+            return addr;
+        }
+
+        // --- Hex format helper ---
+        function toHex4(v) {
+            var hex = (v & 0xFFFF).toString(16).toUpperCase();
+            while (hex.length < 4) hex = '0' + hex;
+            return hex;
+        }
+
+        // ============================================================
+        // Main visitor dispatch
+        // ============================================================
+        function visitNode(node) {
+            if (!node) return IrOperand.None;
+            switch (node.type) {
+                case 'CompilationUnit': return visitCompilationUnit(node);
+                case 'Block': return visitBlock(node);
+                case 'VarDecl': return visitVarDecl(node);
+                case 'ArrayDecl': return visitArrayDecl(node);
+                case 'ConstDecl': return visitConstDecl(node);
+                case 'MachineDecl': return visitMachineDecl(node);
+                case 'ParamDecl': return IrOperand.None;
+                case 'FuncDef': return visitFuncDef(node);
+                case 'ExpressionStmt': return visitExpressionStmt(node);
+                case 'IfStmt': return visitIfStmt(node);
+                case 'WhileStmt': return visitWhileStmt(node);
+                case 'RepeatStmt': return visitRepeatStmt(node);
+                case 'LoopStmt': return visitLoopStmt(node);
+                case 'ForStmt': return visitForStmt(node);
+                case 'CaseStmt': return visitCaseStmt(node);
+                case 'ExitStmt': return visitExitStmt(node);
+                case 'ContinueStmt': return visitContinueStmt(node);
+                case 'ReturnStmt': return visitReturnStmt(node);
+                case 'GotoStmt': return visitGotoStmt(node);
+                case 'LabelStmt': return visitLabelStmt(node);
+                case 'PrintStmt': return visitPrintStmt(node);
+                case 'IntegerLiteral': return visitIntegerLiteral(node);
+                case 'FloatLiteral': return visitFloatLiteral(node);
+                case 'StringLiteral': return visitStringLiteral(node);
+                case 'IdentifierExpr': return visitIdentifier(node);
+                case 'BinaryExpr': return visitBinaryExpr(node);
+                case 'UnaryExpr': return visitUnaryExpr(node);
+                case 'AssignExpr': return visitAssignExpr(node);
+                case 'CompoundAssignExpr': return visitCompoundAssignExpr(node);
+                case 'IncrementExpr': return visitIncrementExpr(node);
+                case 'CallExpr': return visitCallExpr(node);
+                case 'ArrayAccessExpr': return visitArrayAccessExpr(node);
+                case 'ConditionalExpr': return visitConditionalExpr(node);
+                case 'CommaExpr': return visitCommaExpr(node);
+                case 'AddressOfExpr': return visitAddressOfExpr(node);
+                case 'HighLowExpr': return visitHighLowExpr(node);
+                case 'CodeExpr': return visitCodeExpr(node);
+                case 'CastExpr': return visitCastExpr(node);
+                case 'StringFuncExpr': return visitStringFuncExpr(node);
+                case 'OrgDirective': return visitOrgDirective(node);
+                case 'WorkDirective': return visitWorkDirective(node);
+                case 'OffsetDirective': return visitOffsetDirective(node);
+                case 'ModuleBlock': return visitModuleBlock(node);
+                case 'PlainAsm': return visitPlainAsm(node);
+                default: return IrOperand.None;
+            }
+        }
+
+        // ==== Top-level ====
+        function visitCompilationUnit(node) {
+            for (var i = 0; i < node.definitions.length; i++) visitNode(node.definitions[i]);
+            return IrOperand.None;
+        }
+        function visitBlock(node) {
+            for (var i = 0; i < node.statements.length; i++) visitNode(node.statements[i]);
+            return IrOperand.None;
+        }
+
+        // ==== Declarations ====
+        function visitVarDecl(node) {
+            var ds = node.size === DataSize.Byte ? 1 : (node.size === DataSize.Float ? 3 : 2);
+
+            if (!_currentFunction || _inStaticDecl) {
+                var fixedAddr = null;
+                if (node.address && node.address.type === 'IntegerLiteral')
+                    fixedAddr = node.address.value | 0;
+
+                var label = (_inStaticDecl && _currentFuncName)
+                    ? staticVarLabel(_currentFuncName, node.name)
+                    : userVarLabel(node.name);
+
+                if (_inStaticDecl && _currentFuncName) {
+                    _staticVarLabels[node.name.toUpperCase()] = label;
+                    _staticVarSizes[node.name.toUpperCase()] = ds;
+                    _staticVarKinds[node.name.toUpperCase()] = VarKind.Scalar;
+                }
+
+                var gvi = GlobalVarInfo(node.name, label, ds);
+                gvi.fixedAddress = fixedAddr;
+                _module.globalVars.push(gvi);
+
+                if (node.initialValue) {
+                    _emitToGlobalData = true;
+                    try {
+                        var val = visitNode(node.initialValue);
+                        emit(IrOp.StoreVar, IrOperand.Sym(label), val, undefined, ds);
+                    } finally {
+                        _emitToGlobalData = false;
+                    }
+                }
+            } else {
+                allocLocalVar(node.name, ds);
+                if (node.initialValue) {
+                    var val2 = visitNode(node.initialValue);
+                    var info = _localVars[node.name.toUpperCase()];
+                    emit(IrOp.StoreLocal, IrOperand.Imm(info.offset), val2, undefined, ds);
+                }
+            }
+            return IrOperand.None;
+        }
+
+        function visitArrayDecl(node) {
+            var elemSize = node.size === DataSize.Byte ? 1 : 2;
+            var isByte = node.size === DataSize.Byte;
+
+            var dims = [];
+            var totalSize = elemSize;
+            for (var di = 0; di < node.dimensions.length; di++) {
+                var dim = node.dimensions[di];
+                var dimSize;
+                if (dim && dim.type === 'IntegerLiteral')
+                    dimSize = (dim.value | 0) + 1;
+                else if (!dim)
+                    dimSize = 0;
+                else {
+                    var constEval = globalSymbols ? ConstEvaluator(globalSymbols) : null;
+                    var val = constEval ? constEval.evaluate(dim) : null;
+                    dimSize = val !== null ? val + 1 : 1;
+                }
+                dims.push(dimSize);
+                if (dimSize > 0) totalSize *= dimSize;
+            }
+
+            if (!_currentFunction || _inStaticDecl) {
+                var fixedAddr = null;
+                var fixedAddrLabel = null;
+                if (node.address && node.address.type === 'IntegerLiteral')
+                    fixedAddr = node.address.value | 0;
+                else if (node.address) {
+                    var asmResult = exprToAsmString(node.address, globalSymbols, diagnostics);
+                    if (asmResult) {
+                        fixedAddrLabel = asmResult.expr;
+                        for (var dep = 0; dep < asmResult.deps.length; dep++)
+                            _module.addressSymbolDeps[asmResult.deps[dep]] = true;
+                    }
+                }
+
+                var initItems = null;
+                if (node.initialCode) {
+                    initItems = [];
+                    for (var ii = 0; ii < node.initialCode.length; ii++) {
+                        var initExpr = node.initialCode[ii];
+                        var itemSize = 1;
+                        if (initExpr.type === 'CastExpr') {
+                            itemSize = initExpr.targetSize === DataSize.Byte ? 1 : (initExpr.targetSize === DataSize.Float ? 3 : 2);
+                            initExpr = initExpr.operand;
+                        }
+                        var constEval2 = globalSymbols ? ConstEvaluator(globalSymbols) : null;
+                        var constVal = constEval2 ? constEval2.evaluate(initExpr) : null;
+                        if (initExpr.type === 'IntegerLiteral') constVal = initExpr.value | 0;
+
+                        if (constVal !== null) {
+                            var v = constVal;
+                            if (itemSize === 1) initItems.push(InitItem(v & 0xFF));
+                            else if (itemSize === 3) {
+                                initItems.push(InitItem(v & 0xFF));
+                                initItems.push(InitItem((v >> 8) & 0xFF));
+                                initItems.push(InitItem((v >> 16) & 0xFF));
+                            } else {
+                                initItems.push(InitItem(v & 0xFF));
+                                initItems.push(InitItem((v >> 8) & 0xFF));
+                            }
+                        } else if (initExpr.type === 'StringLiteral') {
+                            for (var si = 0; si < initExpr.value.length; si++)
+                                initItems.push(InitItem(initExpr.value.charCodeAt(si) & 0xFF));
+                        } else {
+                            var asmResult2 = exprToAsmString(initExpr, globalSymbols, diagnostics);
+                            if (asmResult2 && itemSize === 2) {
+                                initItems.push(InitItem(0, asmResult2.expr));
+                                for (var d2 = 0; d2 < asmResult2.deps.length; d2++)
+                                    _module.addressSymbolDeps[asmResult2.deps[d2]] = true;
+                            } else if (itemSize === 1) {
+                                if (diagnostics) diagnostics.error('Non-constant BYTE expression in CODE block not supported', initExpr.span);
+                            }
+                        }
+                    }
+                    // Pad to totalSize
+                    var currentSize = 0;
+                    for (var pi = 0; pi < initItems.length; pi++) currentSize += initItems[pi].byteSize;
+                    while (currentSize < totalSize) { initItems.push(InitItem(0)); currentSize++; }
+                }
+
+                var label = (_inStaticDecl && _currentFuncName)
+                    ? staticVarLabel(_currentFuncName, node.name)
+                    : userVarLabel(node.name);
+
+                if (_inStaticDecl && _currentFuncName) {
+                    _staticVarLabels[node.name.toUpperCase()] = label;
+                    var isPointerType = dims.every(function(d) { return d === 0; });
+                    _staticVarSizes[node.name.toUpperCase()] = 2;
+                    _staticElemSizes[node.name.toUpperCase()] = isByte ? 1 : 2;
+                    _staticVarKinds[node.name.toUpperCase()] = isPointerType ? VarKind.Pointer : VarKind.Array;
+                }
+
+                var isPointerGlobal = dims.every(function(d) { return d === 0; });
+                var globalByteSize = isPointerGlobal ? 2 : totalSize;
+
+                var gvi = GlobalVarInfo(node.name, label, globalByteSize);
+                gvi.fixedAddress = fixedAddr;
+                gvi.fixedAddressLabel = fixedAddrLabel;
+                gvi.isArray = true;
+                gvi.initialItems = initItems;
+                gvi.storageKind = initItems ? VarStorageKind.InitArray : VarStorageKind.Bss;
+                _module.globalVars.push(gvi);
+            } else {
+                // Local array/indirect
+                var isPointerVar = dims.every(function(d) { return d === 0; });
+                var allocSize = isPointerVar ? 2 : totalSize;
+                _localOffset += allocSize;
+                var offset = 0x70 - _localOffset;
+                var kind = isPointerVar ? VarKind.Pointer : VarKind.Array;
+                _localVars[node.name.toUpperCase()] = { offset: offset, byteSize: allocSize, kind: kind, isByte: isByte, dims: dims };
+            }
+            return IrOperand.None;
+        }
+
+        function visitConstDecl(node) {
+            if (node.value && node.value.type === 'CodeExpr') {
+                var label = (_inStaticDecl && _currentFuncName)
+                    ? staticVarLabel(_currentFuncName, node.name)
+                    : userVarLabel(node.name);
+
+                if (_inStaticDecl && _currentFuncName)
+                    _staticVarLabels[node.name.toUpperCase()] = label;
+
+                var initItems = buildCodeBlockItems(node.value);
+                var totalBytes = 0;
+                for (var i = 0; i < initItems.length; i++) totalBytes += initItems[i].byteSize;
+
+                var gvi = GlobalVarInfo(node.name, label, totalBytes);
+                gvi.initialItems = initItems;
+                gvi.storageKind = VarStorageKind.CodeConst;
+                _module.globalVars.push(gvi);
+            } else {
+                emit(IrOp.Comment, IrOperand.Asm('CONST ' + node.name));
+            }
+            return IrOperand.None;
+        }
+
+        function visitMachineDecl(node) {
+            emit(IrOp.Comment, IrOperand.Asm('MACHINE ' + node.name));
+
+            if (node.staticDeclarations && node.staticDeclarations.length > 0) {
+                var prevSL = _staticVarLabels;
+                var prevSS = _staticVarSizes;
+                var prevSE = _staticElemSizes;
+                var prevSK = _staticVarKinds;
+                _staticVarLabels = {};
+                _staticVarSizes = {};
+                _staticElemSizes = {};
+                _staticVarKinds = {};
+                _currentFuncName = sanitizeLabel(node.name);
+                _inStaticDecl = true;
+                for (var i = 0; i < node.staticDeclarations.length; i++) visitNode(node.staticDeclarations[i]);
+                _inStaticDecl = false;
+                _currentFuncName = null;
+                _staticVarLabels = prevSL;
+                _staticVarSizes = prevSS;
+                _staticElemSizes = prevSE;
+                _staticVarKinds = prevSK;
+            }
+
+            if (node.codeBody) {
+                var sym = globalSymbols ? globalSymbols.resolve(node.name) : null;
+                var label = (sym && sym.asmLabel) ? sym.asmLabel : '_' + sanitizeLabel(node.name);
+                var initItems = buildCodeBlockItems(node.codeBody);
+                initItems.push(InitItem(0xC9)); // RET
+                var totalBytes = 0;
+                for (var i = 0; i < initItems.length; i++) totalBytes += initItems[i].byteSize;
+
+                var gvi = GlobalVarInfo(node.name, label, totalBytes);
+                gvi.initialItems = initItems;
+                gvi.storageKind = VarStorageKind.CodeConst;
+                _module.globalVars.push(gvi);
+            }
+            return IrOperand.None;
+        }
+
+        // ==== Function ====
+        function visitFuncDef(node) {
+            _currentFunction = IrFunction(sanitizeLabel(node.name));
+            _tempDataSize = {};
+
+            var prevLocalVars = _localVars;
+            var prevOffset = _localOffset;
+            var prevSL = _staticVarLabels;
+            var prevSS = _staticVarSizes;
+            var prevSE = _staticElemSizes;
+            var prevSK = _staticVarKinds;
+            _localVars = {};
+            _staticVarLabels = {};
+            _staticVarSizes = {};
+            _staticElemSizes = {};
+            _staticVarKinds = {};
+            _localOffset = 0;
+
+            var paramNames = [];
+            for (var pi = 0; pi < node.parameters.length; pi++) {
+                _localVars[node.parameters[pi].name.toUpperCase()] = { offset: 0, byteSize: 2, kind: VarKind.Scalar, isByte: false, dims: null };
+                paramNames.push(node.parameters[pi].name);
+            }
+
+            emit(IrOp.FuncBegin, IrOperand.Sym(sanitizeLabel(node.name)));
+
+            _currentFuncName = sanitizeLabel(node.name);
+            _inStaticDecl = true;
+            for (var si = 0; si < node.staticDeclarations.length; si++) visitNode(node.staticDeclarations[si]);
+            _inStaticDecl = false;
+            for (var li = 0; li < node.localDeclarations.length; li++) visitNode(node.localDeclarations[li]);
+
+            // Fix param offsets after locals allocated
+            var totalFrameSize = _localOffset + paramNames.length * 2;
+            var argOff = 0x70 - totalFrameSize;
+            for (var ai = 0; ai < paramNames.length; ai++) {
+                _localVars[paramNames[ai].toUpperCase()] = { offset: argOff, byteSize: 2, kind: VarKind.Scalar, isByte: false, dims: null };
+                argOff += 2;
+            }
+            _localOffset = totalFrameSize;
+
+            visitNode(node.body);
+
+            if (node.returnValue) {
+                var retVal = visitNode(node.returnValue);
+                emit(IrOp.Return, retVal);
+            }
+
+            emit(IrOp.FuncEnd);
+            _currentFunction.localSize = _localOffset;
+            _module.functions.push(_currentFunction);
+            _currentFunction = null;
+            _localVars = prevLocalVars;
+            _staticVarLabels = prevSL;
+            _staticVarSizes = prevSS;
+            _staticElemSizes = prevSE;
+            _staticVarKinds = prevSK;
+            _localOffset = prevOffset;
+            return IrOperand.None;
+        }
+
+        // ==== Statements ====
+        function visitExpressionStmt(node) {
+            visitNode(node.expr);
+            return IrOperand.None;
+        }
+
+        function visitIfStmt(node) {
+            var endLabel = newLabel();
+            var constEval = globalSymbols ? ConstEvaluator(globalSymbols) : null;
+
+            for (var i = 0; i < node.branches.length; i++) {
+                var cond = node.branches[i][0];
+                var body = node.branches[i][1];
+                var nextLabel = (i < node.branches.length - 1 || node.elseBody) ? newLabel() : endLabel;
+
+                var constCond = constEval ? constEval.evaluate(cond) : null;
+                if (constCond !== null && constCond !== 0) {
+                    visitNode(body);
+                    emit(IrOp.Label, IrOperand.Lbl(endLabel));
+                    return IrOperand.None;
+                } else if (constCond !== null && constCond === 0) {
+                    if (nextLabel !== endLabel)
+                        emit(IrOp.Label, IrOperand.Lbl(nextLabel));
+                    continue;
+                }
+
+                if (canShortCircuit(cond))
+                    emitShortCircuitJump(cond, nextLabel);
+                else {
+                    var condVal = visitNode(cond);
+                    emit(IrOp.JumpIfZero, IrOperand.Lbl(nextLabel), condVal);
+                }
+
+                visitNode(body);
+                if (nextLabel !== endLabel)
+                    emit(IrOp.Jump, IrOperand.Lbl(endLabel));
+                if (nextLabel !== endLabel)
+                    emit(IrOp.Label, IrOperand.Lbl(nextLabel));
+            }
+
+            if (node.elseBody) visitNode(node.elseBody);
+            emit(IrOp.Label, IrOperand.Lbl(endLabel));
+            return IrOperand.None;
+        }
+
+        function visitWhileStmt(node) {
+            var startLabel = newLabel();
+            var endLabel = newLabel();
+            pushLoop(startLabel, endLabel);
+
+            var constEval = globalSymbols ? ConstEvaluator(globalSymbols) : null;
+            var constCond = constEval ? constEval.evaluate(node.condition) : null;
+
+            emit(IrOp.Label, IrOperand.Lbl(startLabel));
+
+            if (constCond !== null && constCond !== 0) {
+                // Always true: skip condition check
+            } else {
+                if (canShortCircuit(node.condition))
+                    emitShortCircuitJump(node.condition, endLabel);
+                else {
+                    var condVal = visitNode(node.condition);
+                    emit(IrOp.JumpIfZero, IrOperand.Lbl(endLabel), condVal);
+                }
+            }
+
+            visitNode(node.body);
+            emit(IrOp.Jump, IrOperand.Lbl(startLabel));
+            emit(IrOp.Label, IrOperand.Lbl(endLabel));
+            popLoop();
+            return IrOperand.None;
+        }
+
+        function visitRepeatStmt(node) {
+            var startLabel = newLabel();
+            var endLabel = newLabel();
+            pushLoop(startLabel, endLabel);
+            emit(IrOp.Label, IrOperand.Lbl(startLabel));
+            visitNode(node.body);
+            var condVal = visitNode(node.condition);
+            emit(IrOp.JumpIfZero, IrOperand.Lbl(startLabel), condVal);
+            emit(IrOp.Label, IrOperand.Lbl(endLabel));
+            popLoop();
+            return IrOperand.None;
+        }
+
+        function visitLoopStmt(node) {
+            var startLabel = newLabel();
+            var endLabel = newLabel();
+            pushLoop(startLabel, endLabel);
+            emit(IrOp.Label, IrOperand.Lbl(startLabel));
+            visitNode(node.body);
+            emit(IrOp.Jump, IrOperand.Lbl(startLabel));
+            emit(IrOp.Label, IrOperand.Lbl(endLabel));
+            popLoop();
+            return IrOperand.None;
+        }
+
+        function visitForStmt(node) {
+            var startLabel = newLabel();
+            var contLabel = newLabel();
+            var endLabel = newLabel();
+
+            var forVi = resolveVarInfo(node.variable);
+            var forVarInfo = forVi.local;
+            var forVarIsLocal = forVarInfo !== null;
+            var forVarDs = forVi.varDataSize;
+
+            var fromVal = visitNode(node.from);
+            if (forVarIsLocal)
+                emit(IrOp.StoreLocal, IrOperand.Imm(forVarInfo.offset), fromVal, undefined, forVarDs);
+            else
+                emit(IrOp.StoreVar, IrOperand.Sym(resolveAsmLabel(node.variable)), fromVal, undefined, forVarDs);
+
+            pushLoop(contLabel, endLabel);
+            emit(IrOp.Label, IrOperand.Lbl(startLabel));
+            visitNode(node.body);
+            emit(IrOp.Label, IrOperand.Lbl(contLabel));
+
+            var curVal = IrOperand.Temp(allocTemp());
+            if (forVarIsLocal)
+                emit(IrOp.LoadLocal, curVal, IrOperand.Imm(forVarInfo.offset), undefined, forVarDs);
+            else
+                emit(IrOp.LoadVar, curVal, IrOperand.Sym(resolveAsmLabel(node.variable)), undefined, forVarDs);
+            var one = IrOperand.Temp(allocTemp());
+            emit(IrOp.LoadConst, one, IrOperand.Imm(1));
+            var newVal = IrOperand.Temp(allocTemp());
+            emit(node.isDownTo ? IrOp.Sub : IrOp.Add, newVal, curVal, one);
+            if (forVarIsLocal)
+                emit(IrOp.StoreLocal, IrOperand.Imm(forVarInfo.offset), newVal, undefined, forVarDs);
+            else
+                emit(IrOp.StoreVar, IrOperand.Sym(resolveAsmLabel(node.variable)), newVal, undefined, forVarDs);
+
+            var limit = visitNode(node.to);
+            var cmp = IrOperand.Temp(allocTemp());
+            emit(node.isDownTo ? IrOp.CmpSGe : IrOp.CmpLe, cmp, newVal, limit);
+            emit(IrOp.JumpIfNonZero, IrOperand.Lbl(startLabel), cmp);
+
+            emit(IrOp.Label, IrOperand.Lbl(endLabel));
+            popLoop();
+            return IrOperand.None;
+        }
+
+        function visitCaseStmt(node) {
+            var endLabel = newLabel();
+            var exprVal = visitNode(node.expr);
+            pushLoop(endLabel, endLabel);
+
+            for (var i = 0; i < node.branches.length; i++) {
+                var branch = node.branches[i];
+                if (!branch.value) {
+                    visitNode(branch.body);
+                    emit(IrOp.Jump, IrOperand.Lbl(endLabel));
+                } else {
+                    var nextLabel = newLabel();
+                    var branchVal = visitNode(branch.value);
+
+                    if (branch.rangeEnd) {
+                        var rangeEnd = visitNode(branch.rangeEnd);
+                        var reloaded1 = visitNode(node.expr);
+                        var cmpLo = IrOperand.Temp(allocTemp());
+                        emit(IrOp.CmpGe, cmpLo, reloaded1, branchVal);
+                        emit(IrOp.JumpIfZero, IrOperand.Lbl(nextLabel), cmpLo);
+                        var reloaded2 = visitNode(node.expr);
+                        var cmpHi = IrOperand.Temp(allocTemp());
+                        emit(IrOp.CmpLe, cmpHi, reloaded2, rangeEnd);
+                        emit(IrOp.JumpIfZero, IrOperand.Lbl(nextLabel), cmpHi);
+                    } else {
+                        var reloaded = visitNode(node.expr);
+                        var cmp2 = IrOperand.Temp(allocTemp());
+                        emit(IrOp.CmpEq, cmp2, reloaded, branchVal);
+                        emit(IrOp.JumpIfZero, IrOperand.Lbl(nextLabel), cmp2);
+                    }
+
+                    visitNode(branch.body);
+                    emit(IrOp.Jump, IrOperand.Lbl(endLabel));
+                    emit(IrOp.Label, IrOperand.Lbl(nextLabel));
+                }
+            }
+
+            emit(IrOp.Label, IrOperand.Lbl(endLabel));
+            popLoop();
+            return IrOperand.None;
+        }
+
+        function visitExitStmt(node) {
+            if (node.targetLabel) {
+                emit(IrOp.Jump, IrOperand.Lbl(node.targetLabel));
+            } else {
+                var breakLabel = getBreakLabel();
+                if (breakLabel) emit(IrOp.Jump, IrOperand.Lbl(breakLabel));
+                else if (diagnostics) diagnostics.error('EXIT outside loop', node.span);
+            }
+            return IrOperand.None;
+        }
+
+        function visitContinueStmt(node) {
+            var contLabel = getContinueLabel();
+            if (contLabel) emit(IrOp.Jump, IrOperand.Lbl(contLabel));
+            else if (diagnostics) diagnostics.error('CONTINUE outside loop', node.span);
+            return IrOperand.None;
+        }
+
+        function visitReturnStmt(node) {
+            if (node.value) {
+                var val = visitNode(node.value);
+                emit(IrOp.Return, val);
+            } else {
+                emit(IrOp.Return);
+            }
+            return IrOperand.None;
+        }
+
+        function visitGotoStmt(node) {
+            emit(IrOp.Jump, IrOperand.Lbl(userLabel(node.label)));
+            return IrOperand.None;
+        }
+
+        function visitLabelStmt(node) {
+            emit(IrOp.Label, IrOperand.Lbl(userLabel(node.label)));
+            return IrOperand.None;
+        }
+
+        function visitPrintStmt(node) {
+            for (var i = 0; i < node.arguments.length; i++) {
+                var arg = node.arguments[i];
+                if (arg.type === 'StringFuncExpr') {
+                    var fn = arg.funcName.toUpperCase();
+                    switch (fn) {
+                        case '/':
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PCRONE'));
+                            break;
+                        case 'HEX2$':
+                            if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PHEX2'));
+                            break;
+                        case 'HEX4$':
+                            if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PHEX4'));
+                            break;
+                        case 'FORM$':
+                            if (arg.arguments.length >= 2) {
+                                visitNode(arg.arguments[0]);
+                                emit(IrOp.PushArg, IrOperand.None);
+                                visitNode(arg.arguments[1]);
+                                emit(IrOp.PushArg, IrOperand.None);
+                            }
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('P10toN'), IrOperand.Imm(2));
+                            break;
+                        case 'DECI$':
+                            if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('P10to5'));
+                            break;
+                        case '%': case 'PN$':
+                            if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PSIGN'));
+                            break;
+                        case 'MSG$':
+                            if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PMSG'));
+                            break;
+                        case '!': case 'MSX$':
+                            if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PMSX'));
+                            break;
+                        case 'STR$':
+                            if (arg.arguments.length >= 2) {
+                                visitNode(arg.arguments[0]);
+                                emit(IrOp.PushArg, IrOperand.None);
+                                visitNode(arg.arguments[1]);
+                                emit(IrOp.PushArg, IrOperand.None);
+                            }
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PSTR'), IrOperand.Imm(2));
+                            break;
+                        case 'CHR$':
+                            if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PCHR'));
+                            break;
+                        case 'SPC$':
+                            if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PSPC'));
+                            break;
+                        case 'CR$':
+                            if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PCR'));
+                            break;
+                        case 'TAB$':
+                            if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PTAB'));
+                            break;
+                        default:
+                            for (var ai = 0; ai < arg.arguments.length; ai++) visitNode(arg.arguments[ai]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PRINT_' + arg.funcName));
+                            break;
+                    }
+                } else if (arg.type === 'StringLiteral') {
+                    emitInlinePrint(arg.value);
+                } else {
+                    visitNode(arg);
+                    emit(IrOp.Call, IrOperand.None, IrOperand.Sym('P10'));
+                }
+            }
+            return IrOperand.None;
+        }
+
+        // ==== Expressions ====
+        function visitIntegerLiteral(node) {
+            var t = IrOperand.Temp(allocTemp());
+            emit(IrOp.LoadConst, t, IrOperand.Imm(node.value));
+            return t;
+        }
+
+        function visitFloatLiteral(node) {
+            var f24 = convertToF24(node.value);
+            var label = '_FC' + (_floatConstCount++);
+            var gvi = GlobalVarInfo(label, label, 3);
+            gvi.initialItems = [InitItem(f24[0]), InitItem(f24[1]), InitItem(f24[2])];
+            gvi.storageKind = VarStorageKind.CodeConst;
+            _module.globalVars.push(gvi);
+            var t = IrOperand.Temp(allocTemp());
+            emit(IrOp.LoadVar, t, IrOperand.Sym(label), undefined, 3);
+            _tempDataSize[t.tempIndex] = 3;
+            return t;
+        }
+
+        function visitStringLiteral(node) {
+            var label = null;
+            for (var k in _module.stringTable) {
+                if (_module.stringTable[k] === node.value) { label = k; break; }
+            }
+            if (!label) {
+                var count = 0;
+                for (var k2 in _module.stringTable) count++;
+                label = '_S' + count;
+                _module.stringTable[label] = node.value;
+            }
+            var t = IrOperand.Temp(allocTemp());
+            emit(IrOp.LoadAddr, t, IrOperand.Lbl(label));
+            return t;
+        }
+
+        function visitIdentifier(node) {
+            var t = IrOperand.Temp(allocTemp());
+
+            if (_localVars && _localVars[node.name.toUpperCase()] !== undefined) {
+                var localInfo = _localVars[node.name.toUpperCase()];
+                if (localInfo.kind === VarKind.Array) {
+                    var hexOff = localInfo.offset.toString(16).toUpperCase();
+                    while (hexOff.length < 4) hexOff = '0' + hexOff;
+                    emit(IrOp.InlineAsm, t, IrOperand.Asm('\tPUSH\tIY\n\tPOP\tHL\n\tLD\tDE,$' + hexOff + '\n\tADD\tHL,DE'));
+                    return t;
+                }
+                var localDs = localInfo.kind === VarKind.Pointer ? 2 : localInfo.byteSize;
+                emit(IrOp.LoadLocal, t, IrOperand.Imm(localInfo.offset), undefined, localDs);
+                _tempDataSize[t.tempIndex] = localDs;
+                return t;
+            }
+
+            var sym = globalSymbols ? globalSymbols.resolve(node.name) : null;
+            if (sym && sym.kind === SymbolKind.Constant && typeof sym.constValue === 'number') {
+                emit(IrOp.LoadConst, t, IrOperand.Imm(sym.constValue));
+            } else if (sym && sym.kind === SymbolKind.Constant && sym.constAst) {
+                if (!sym.constAsmResolved) {
+                    sym.constAsmResolved = true;
+                    var result = exprToAsmString(sym.constAst, globalSymbols, diagnostics);
+                    if (result) { sym.constAsmExpr = result.expr; sym.constAsmDeps = result.deps; }
+                }
+                if (sym.constAsmExpr) {
+                    emit(IrOp.LoadAddr, t, IrOperand.Sym(sym.constAsmExpr));
+                    if (sym.constAsmDeps) {
+                        for (var d = 0; d < sym.constAsmDeps.length; d++)
+                            _module.addressSymbolDeps[sym.constAsmDeps[d]] = true;
+                    }
+                }
+            } else if (sym && sym.isCodeBlock) {
+                emit(IrOp.LoadAddr, t, IrOperand.Sym(resolveAsmLabel(node.name)));
+            } else {
+                var vi = resolveVarInfo(node.name);
+                if (vi.kind === VarKind.Array) {
+                    emit(IrOp.LoadAddr, t, IrOperand.Sym(resolveAsmLabel(node.name)));
+                } else {
+                    emit(IrOp.LoadVar, t, IrOperand.Sym(resolveAsmLabel(node.name)), undefined, vi.varDataSize);
+                    _tempDataSize[t.tempIndex] = vi.varDataSize;
+                }
+            }
+            return t;
+        }
+
+        function visitBinaryExpr(node) {
+            // Constant folding
+            if (globalSymbols) {
+                var constEval = ConstEvaluator(globalSymbols);
+                var constResult = constEval.evaluate(node);
+                if (constResult !== null) {
+                    var t = IrOperand.Temp(allocTemp());
+                    emit(IrOp.LoadConst, t, IrOperand.Imm(constResult));
+                    return t;
+                }
+
+                // No-op normalization
+                if (node.op === BinaryOp.Add || node.op === BinaryOp.Sub) {
+                    var rc = constEval.evaluate(node.right);
+                    if (rc !== null && rc === 0) return visitNode(node.left);
+                    if (node.op === BinaryOp.Add) {
+                        var lc = constEval.evaluate(node.left);
+                        if (lc !== null && lc === 0) return visitNode(node.right);
+                    }
+                }
+                if (node.op === BinaryOp.Mul || node.op === BinaryOp.SMul || node.op === BinaryOp.Div || node.op === BinaryOp.SDiv) {
+                    var rc2 = constEval.evaluate(node.right);
+                    if (rc2 !== null && rc2 === 1) return visitNode(node.left);
+                    if (node.op === BinaryOp.Mul || node.op === BinaryOp.SMul) {
+                        var lc2 = constEval.evaluate(node.left);
+                        if (lc2 !== null && lc2 === 1) return visitNode(node.right);
+                    }
+                }
+            }
+
+            // Short-circuit LogAnd
+            if (node.op === BinaryOp.LogAnd) {
+                var falseL = newLabel();
+                var endL = newLabel();
+                var result = IrOperand.Temp(allocTemp());
+                var lhsAnd = visitNode(node.left);
+                emit(IrOp.JumpIfZero, IrOperand.Lbl(falseL), lhsAnd);
+                var rhsAnd = visitNode(node.right);
+                emit(IrOp.JumpIfZero, IrOperand.Lbl(falseL), rhsAnd);
+                emit(IrOp.LoadConst, result, IrOperand.Imm(1));
+                emit(IrOp.Jump, IrOperand.Lbl(endL));
+                emit(IrOp.Label, IrOperand.Lbl(falseL));
+                emit(IrOp.LoadConst, result, IrOperand.Imm(0));
+                emit(IrOp.Label, IrOperand.Lbl(endL));
+                return result;
+            }
+            // Short-circuit LogOr
+            if (node.op === BinaryOp.LogOr) {
+                var trueL = newLabel();
+                var endL2 = newLabel();
+                var result2 = IrOperand.Temp(allocTemp());
+                var lhsOr = visitNode(node.left);
+                emit(IrOp.JumpIfNonZero, IrOperand.Lbl(trueL), lhsOr);
+                var rhsOr = visitNode(node.right);
+                emit(IrOp.JumpIfNonZero, IrOperand.Lbl(trueL), rhsOr);
+                emit(IrOp.LoadConst, result2, IrOperand.Imm(0));
+                emit(IrOp.Jump, IrOperand.Lbl(endL2));
+                emit(IrOp.Label, IrOperand.Lbl(trueL));
+                emit(IrOp.LoadConst, result2, IrOperand.Imm(1));
+                emit(IrOp.Label, IrOperand.Lbl(endL2));
+                return result2;
+            }
+
+            // FLOAT special patterns: f24sqr, f24mul2
+            if (node.op === BinaryOp.Mul) {
+                var leftIsFloat = node.left.type === 'IdentifierExpr' && globalSymbols &&
+                    (function() { var s = globalSymbols.resolve(node.left.name); return s && s.type && s.type.byteSize === 3; })();
+                var rightIsFloat = node.right.type === 'IdentifierExpr' && globalSymbols &&
+                    (function() { var s = globalSymbols.resolve(node.right.name); return s && s.type && s.type.byteSize === 3; })();
+
+                // f24sqr: X*X
+                if (leftIsFloat && rightIsFloat &&
+                    node.left.type === 'IdentifierExpr' && node.right.type === 'IdentifierExpr' &&
+                    node.left.name === node.right.name) {
+                    visitNode(node.left);
+                    var sqrDest = IrOperand.Temp(allocTemp());
+                    emit(IrOp.Call, sqrDest, IrOperand.Sym('f24sqr'), IrOperand.Imm(0), 3);
+                    _tempDataSize[sqrDest.tempIndex] = 3;
+                    return sqrDest;
+                }
+
+                // f24mul2: 2*X or X*2
+                var floatSide = null;
+                if (node.left.type === 'IntegerLiteral' && node.left.value === 2 && rightIsFloat)
+                    floatSide = node.right;
+                else if (node.right.type === 'IntegerLiteral' && node.right.value === 2 && leftIsFloat)
+                    floatSide = node.left;
+                if (floatSide) {
+                    visitNode(floatSide);
+                    var mul2Dest = IrOperand.Temp(allocTemp());
+                    emit(IrOp.Call, mul2Dest, IrOperand.Sym('f24mul2'), IrOperand.Imm(0), 3);
+                    _tempDataSize[mul2Dest.tempIndex] = 3;
+                    return mul2Dest;
+                }
+            }
+
+            var left = visitNode(node.left);
+            var leftDs = (left.kind === IrOperandKind.Temp && _tempDataSize[left.tempIndex] !== undefined) ? _tempDataSize[left.tempIndex] : 2;
+
+            var rightMightBeFloat = node.right.type === 'FloatLiteral' ||
+                (node.right.type === 'IdentifierExpr' && globalSymbols &&
+                 (function() { var s = globalSymbols.resolve(node.right.name); return s && s.type && s.type.byteSize === 3; })());
+
+            if (leftDs !== 3 && rightMightBeFloat) {
+                var conv = IrOperand.Temp(allocTemp());
+                emit(IrOp.Call, conv, IrOperand.Sym('i16tof24'), IrOperand.Imm(0), 3);
+                _tempDataSize[conv.tempIndex] = 3;
+                left = conv;
+                leftDs = 3;
+            }
+
+            var right = visitNode(node.right);
+            var dest = IrOperand.Temp(allocTemp());
+
+            var opMap = {};
+            opMap[BinaryOp.Add] = IrOp.Add; opMap[BinaryOp.Sub] = IrOp.Sub;
+            opMap[BinaryOp.Mul] = IrOp.Mul; opMap[BinaryOp.Div] = IrOp.Div; opMap[BinaryOp.Mod] = IrOp.Mod;
+            opMap[BinaryOp.SMul] = IrOp.SMul; opMap[BinaryOp.SDiv] = IrOp.SDiv; opMap[BinaryOp.SMod] = IrOp.SMod;
+            opMap[BinaryOp.And] = IrOp.And; opMap[BinaryOp.Or] = IrOp.Or; opMap[BinaryOp.Xor] = IrOp.Xor;
+            opMap[BinaryOp.Shl] = IrOp.Shl; opMap[BinaryOp.Shr] = IrOp.Shr;
+            opMap[BinaryOp.SShl] = IrOp.SShl; opMap[BinaryOp.SShr] = IrOp.SShr;
+            opMap[BinaryOp.Eq] = IrOp.CmpEq; opMap[BinaryOp.Neq] = IrOp.CmpNeq;
+            opMap[BinaryOp.Lt] = IrOp.CmpLt; opMap[BinaryOp.Gt] = IrOp.CmpGt;
+            opMap[BinaryOp.Le] = IrOp.CmpLe; opMap[BinaryOp.Ge] = IrOp.CmpGe;
+            opMap[BinaryOp.SLt] = IrOp.CmpSLt; opMap[BinaryOp.SGt] = IrOp.CmpSGt;
+            opMap[BinaryOp.SLe] = IrOp.CmpSLe; opMap[BinaryOp.SGe] = IrOp.CmpSGe;
+            opMap[BinaryOp.LogAnd] = IrOp.LogAnd; opMap[BinaryOp.LogOr] = IrOp.LogOr;
+            var irOp = opMap[node.op] || IrOp.Nop;
+
+            var rightDs = (right.kind === IrOperandKind.Temp && _tempDataSize[right.tempIndex] !== undefined) ? _tempDataSize[right.tempIndex] : 2;
+            var resultDs = (leftDs === 3 || rightDs === 3) ? 3 : 2;
+
+            if (resultDs === 3) {
+                if (leftDs !== 3) {
+                    var conv2 = IrOperand.Temp(allocTemp());
+                    emit(IrOp.Call, conv2, IrOperand.Sym('i16tof24'), IrOperand.Imm(0), 3);
+                    _tempDataSize[conv2.tempIndex] = 3;
+                    left = conv2;
+                }
+                if (rightDs !== 3) {
+                    var conv3 = IrOperand.Temp(allocTemp());
+                    emit(IrOp.Call, conv3, IrOperand.Sym('i16tof24'), IrOperand.Imm(0), 3);
+                    _tempDataSize[conv3.tempIndex] = 3;
+                    right = conv3;
+                }
+            }
+
+            emit(irOp, dest, left, right, resultDs);
+            _tempDataSize[dest.tempIndex] = resultDs;
+            return dest;
+        }
+
+        function visitUnaryExpr(node) {
+            if (node.operand.type === 'IntegerLiteral') {
+                var v = node.operand.value | 0;
+                var folded = null;
+                if (node.op === UnaryOp.Plus) folded = v;
+                else if (node.op === UnaryOp.Negate) folded = (-v) & 0xFFFF;
+                else if (node.op === UnaryOp.Not) folded = (v !== 0) ? 0 : 1;
+                else if (node.op === UnaryOp.Cpl) folded = (~v) & 0xFFFF;
+                if (folded !== null) {
+                    var dest = IrOperand.Temp(allocTemp());
+                    emit(IrOp.LoadConst, dest, IrOperand.Imm(folded));
+                    return dest;
+                }
+            }
+
+            var operand = visitNode(node.operand);
+            if (node.op === UnaryOp.Plus) return operand;
+
+            var dest2 = IrOperand.Temp(allocTemp());
+            var op;
+            if (node.op === UnaryOp.Negate) op = IrOp.Neg;
+            else if (node.op === UnaryOp.Not) op = IrOp.LogNot;
+            else if (node.op === UnaryOp.Cpl) op = IrOp.Not;
+            else op = IrOp.Nop;
+            emit(op, dest2, operand);
+            return dest2;
+        }
+
+        function visitAssignExpr(node) {
+            var value = visitNode(node.value);
+            emitStore(node.target, value);
+            return value;
+        }
+
+        function visitCompoundAssignExpr(node) {
+            var target = visitNode(node.target);
+            var value = visitNode(node.value);
+            var dest = IrOperand.Temp(allocTemp());
+
+            var op;
+            if (node.op === CompoundAssignOp.AddAssign) op = IrOp.Add;
+            else if (node.op === CompoundAssignOp.SubAssign) op = IrOp.Sub;
+            else if (node.op === CompoundAssignOp.MulAssign) op = IrOp.Mul;
+            else if (node.op === CompoundAssignOp.DivAssign) op = IrOp.Div;
+            else op = IrOp.Nop;
+
+            emit(op, dest, target, value);
+            emitStore(node.target, dest);
+            return dest;
+        }
+
+        function visitIncrementExpr(node) {
+            var val = visitNode(node.operand);
+            var one = IrOperand.Temp(allocTemp());
+            emit(IrOp.LoadConst, one, IrOperand.Imm(1));
+            var result = IrOperand.Temp(allocTemp());
+            emit(node.isIncrement ? IrOp.Add : IrOp.Sub, result, val, one);
+            emitStore(node.operand, result);
+            return node.isPrefix ? result : val;
+        }
+
+        function visitCallExpr(node) {
+            var funcName = (node.func && node.func.type === 'IdentifierExpr') ? node.func.name : null;
+            var funcSym = (funcName && globalSymbols) ? globalSymbols.resolve(funcName) : null;
+
+            var isUserFunc = funcSym && funcSym.kind === SymbolKind.Function;
+            var isMachine = !isUserFunc;
+            var machineParamCount = null;
+            if (isMachine) {
+                if (funcSym && funcSym.type && funcSym.type.typeClass === 'Function')
+                    machineParamCount = funcSym.type.parameterTypes.length;
+                else
+                    machineParamCount = node.arguments.length;
+            }
+
+            if (isMachine && machineParamCount !== null) {
+                for (var i = 0; i < node.arguments.length; i++) {
+                    var argVal = visitNode(node.arguments[i]);
+                    emit(IrOp.PushArg, argVal, IrOperand.Imm(i));
+                }
+
+                var dest = IrOperand.Temp(allocTemp());
+                var asmName;
+                if (funcSym && funcSym.addressAst) {
+                    if (!funcSym.addressExprResolved) {
+                        funcSym.addressExprResolved = true;
+                        var result = exprToAsmString(funcSym.addressAst, globalSymbols, diagnostics);
+                        if (result) { funcSym.addressExpr = result.expr; funcSym.addressExprDeps = result.deps; }
+                    }
+                    asmName = funcSym.addressExpr || (funcSym.asmLabel || sanitizeLabel(funcName));
+                    if (funcSym.addressExprDeps) {
+                        for (var d = 0; d < funcSym.addressExprDeps.length; d++)
+                            _module.addressSymbolDeps[funcSym.addressExprDeps[d]] = true;
+                    }
+                } else {
+                    asmName = (funcSym && funcSym.asmLabel) ? funcSym.asmLabel : sanitizeLabel(funcName);
+                }
+                emit(IrOp.Call, dest, IrOperand.Sym(asmName), IrOperand.Imm(machineParamCount));
+                return dest;
+            } else {
+                for (var i2 = 0; i2 < node.arguments.length; i2++) {
+                    var argVal2 = visitNode(node.arguments[i2]);
+                    emit(IrOp.PushArg, argVal2, IrOperand.Imm(i2));
+                }
+                var dest2 = IrOperand.Temp(allocTemp());
+                var asmName2 = (funcSym && funcSym.asmLabel) ? funcSym.asmLabel : sanitizeLabel(funcName || '__indirect_call');
+                emit(IrOp.Call, dest2, IrOperand.Sym(asmName2),
+                    IrOperand.Imm(node.arguments.length > 0 ? -node.arguments.length : 0));
+                return dest2;
+            }
+        }
+
+        function visitArrayAccessExpr(node) {
+            var arrayName = (node.array && node.array.type === 'IdentifierExpr') ? node.array.name : null;
+            var arraySym = (arrayName && globalSymbols) ? globalSymbols.resolve(arrayName) : null;
+
+            var isMemArray = arraySym && arraySym.type && arraySym.type.typeClass === 'MemoryArray';
+            var isByteAccess = isMemArray && arraySym.type.elementType === SlangType.Byte;
+
+            var arrVi = arrayName ? resolveVarInfo(arrayName) : { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null };
+            var isIndirect = arrVi.kind === VarKind.Pointer;
+            var isIndirectByte = isIndirect && arrVi.elemSize === 1;
+            var isArrayByte = arrVi.kind === VarKind.Array && arrVi.elemSize === 1;
+
+            var isPortArray = arrayName && (arrayName.toUpperCase() === 'PORT' || arrayName.toUpperCase() === 'PORTW');
+            var isPortByte = arrayName && arrayName.toUpperCase() === 'PORT';
+
+            var isSosArray = arrayName && (arrayName.toUpperCase() === 'SOS' || arrayName.toUpperCase() === 'SOSW');
+
+            if (isPortArray) {
+                var addr = visitNode(node.indices[0]);
+                var dest = IrOperand.Temp(allocTemp());
+                emit(IrOp.PortIn, dest, addr, undefined, isPortByte ? 1 : 2);
+                return dest;
+            } else if (isMemArray || isSosArray) {
+                var addr2 = visitNode(node.indices[0]);
+                var dest2 = IrOperand.Temp(allocTemp());
+                emit(IrOp.MemLoad, dest2, addr2, undefined, isByteAccess ? 1 : 2);
+                return dest2;
+            } else if (isIndirect) {
+                var baseAddr = visitNode(node.array);
+                var idx = visitNode(node.indices[0]);
+                var elemSz = isIndirectByte ? 1 : 2;
+                var scaledIdx;
+                if (elemSz === 1) scaledIdx = idx;
+                else { scaledIdx = IrOperand.Temp(allocTemp()); emit(IrOp.Add, scaledIdx, idx, idx); }
+                var addrI = IrOperand.Temp(allocTemp());
+                emit(IrOp.Add, addrI, baseAddr, scaledIdx);
+                var dest3 = IrOperand.Temp(allocTemp());
+                emit(IrOp.IndirLoad, dest3, addrI, undefined, elemSz);
+                return dest3;
+            } else {
+                return computeArrayAccess(node, true);
+            }
+        }
+
+        function visitConditionalExpr(node) {
+            var falseL = newLabel();
+            var endL = newLabel();
+            var result = IrOperand.Temp(allocTemp());
+            var cond = visitNode(node.condition);
+            emit(IrOp.JumpIfZero, IrOperand.Lbl(falseL), cond);
+            var trueVal = visitNode(node.trueExpr);
+            emit(IrOp.Add, result, trueVal, IrOperand.Imm(0));
+            emit(IrOp.Jump, IrOperand.Lbl(endL));
+            emit(IrOp.Label, IrOperand.Lbl(falseL));
+            var falseVal = visitNode(node.falseExpr);
+            emit(IrOp.Add, result, falseVal, IrOperand.Imm(0));
+            emit(IrOp.Label, IrOperand.Lbl(endL));
+            return result;
+        }
+
+        function visitCommaExpr(node) {
+            visitNode(node.left);
+            return visitNode(node.right);
+        }
+
+        function visitAddressOfExpr(node) {
+            if (node.operand.type === 'IdentifierExpr') {
+                var t = IrOperand.Temp(allocTemp());
+                if (_localVars && _localVars[node.operand.name.toUpperCase()] !== undefined) {
+                    var localInfo = _localVars[node.operand.name.toUpperCase()];
+                    var hexOff = localInfo.offset.toString(16).toUpperCase();
+                    while (hexOff.length < 4) hexOff = '0' + hexOff;
+                    emit(IrOp.InlineAsm, t, IrOperand.Asm('\tPUSH\tIY\n\tPOP\tHL\n\tLD\tDE,$' + hexOff + '\n\tADD\tHL,DE'));
+                    return t;
+                }
+                emit(IrOp.LoadAddr, t, IrOperand.Sym(resolveAsmLabel(node.operand.name)));
+                return t;
+            }
+            if (node.operand.type === 'ArrayAccessExpr') {
+                var arr = node.operand;
+                var arrName = (arr.array && arr.array.type === 'IdentifierExpr') ? arr.array.name : null;
+                var arrSym = (arrName && globalSymbols) ? globalSymbols.resolve(arrName) : null;
+
+                if (arrSym && arrSym.type && arrSym.type.typeClass === 'MemoryArray')
+                    return visitNode(arr.indices[0]);
+
+                if (arrName && (arrName.toUpperCase() === 'PORT' || arrName.toUpperCase() === 'PORTW'))
+                    return visitNode(arr.indices[0]);
+
+                var addrVi = arrName ? resolveVarInfo(arrName) : { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null };
+                if (addrVi.kind === VarKind.Pointer) {
+                    var baseAddr = visitNode(arr.array);
+                    var idx = visitNode(arr.indices[0]);
+                    var eSize = addrVi.elemSize;
+                    var scaledIdx;
+                    if (eSize === 1) scaledIdx = idx;
+                    else { scaledIdx = IrOperand.Temp(allocTemp()); emit(IrOp.Add, scaledIdx, idx, idx); }
+                    var addr = IrOperand.Temp(allocTemp());
+                    emit(IrOp.Add, addr, baseAddr, scaledIdx);
+                    return addr;
+                }
+
+                return computeArrayAccess(arr, false);
+            }
+            return visitNode(node.operand);
+        }
+
+        function visitHighLowExpr(node) {
+            var val = visitNode(node.operand);
+            var dest = IrOperand.Temp(allocTemp());
+            emit(node.isHigh ? IrOp.High : IrOp.Low, dest, val);
+            return dest;
+        }
+
+        function visitCodeExpr(node) {
+            for (var i = 0; i < node.values.length; i++) {
+                var v = node.values[i];
+                if (v.type === 'StringLiteral') {
+                    emit(IrOp.DefString, IrOperand.Asm(v.value));
+                } else if (v.type === 'CodeEvalExpr') {
+                    visitNode(v.inner);
+                } else if (v.type === 'CodeLabelRef') {
+                    emit(IrOp.DefWord, IrOperand.Lbl(v.label));
+                } else if (v.type === 'CastExpr') {
+                    var constVal = globalSymbols ? ConstEvaluator(globalSymbols).evaluate(v.operand) : null;
+                    if (constVal !== null) {
+                        if (v.targetSize === DataSize.Byte)
+                            emit(IrOp.DefByte, IrOperand.Imm(constVal & 0xFF));
+                        else
+                            emit(IrOp.DefWord, IrOperand.Imm(constVal & 0xFFFF));
+                    } else if (v.targetSize === DataSize.Word) {
+                        var asmResult = exprToAsmString(v.operand, globalSymbols, diagnostics);
+                        if (asmResult) {
+                            emit(IrOp.DefWord, IrOperand.Lbl(asmResult.expr));
+                            for (var d = 0; d < asmResult.deps.length; d++)
+                                _module.addressSymbolDeps[asmResult.deps[d]] = true;
+                        } else {
+                            visitNode(v.operand);
+                        }
+                    } else {
+                        visitNode(v.operand);
+                    }
+                } else if (v.type === 'IntegerLiteral') {
+                    emit(IrOp.DefByte, IrOperand.Imm(v.value & 0xFF));
+                } else {
+                    visitNode(v);
+                }
+            }
+            var dest = IrOperand.Temp(allocTemp());
+            return dest;
+        }
+
+        function visitCastExpr(node) {
+            return visitNode(node.operand);
+        }
+
+        function visitStringFuncExpr(node) {
+            for (var i = 0; i < node.arguments.length; i++) visitNode(node.arguments[i]);
+            var t = IrOperand.Temp(allocTemp());
+            emit(IrOp.Call, t, IrOperand.Sym('_SF_' + sanitizeLabel(node.funcName)));
+            return t;
+        }
+
+        // ==== Directives ====
+        function visitOrgDirective(node) {
+            if (node.value && node.value.type === 'IntegerLiteral')
+                _module.orgAddress = node.value.value | 0;
+            return IrOperand.None;
+        }
+
+        function visitWorkDirective(node) {
+            if (node.value && node.value.type === 'IntegerLiteral')
+                _module.workAddress = node.value.value | 0;
+            return IrOperand.None;
+        }
+
+        function visitOffsetDirective(node) {
+            if (node.value && node.value.type === 'IntegerLiteral')
+                _module.offsetAddress = node.value.value | 0;
+            return IrOperand.None;
+        }
+
+        function visitModuleBlock(node) {
+            var orgAddr = 0;
+            if (node.name && node.name.type === 'IntegerLiteral')
+                orgAddr = node.name.value | 0;
+            else {
+                var constEval = globalSymbols ? ConstEvaluator(globalSymbols) : null;
+                var val = constEval ? constEval.evaluate(node.name) : null;
+                if (val !== null) orgAddr = val;
+            }
+
+            var overlay = { index: _module.overlays.length, orgAddress: orgAddr, functions: [], localVars: [], stringTable: {} };
+
+            for (var i = 0; i < node.definitions.length; i++) {
+                var prevCount = _module.functions.length;
+                visitNode(node.definitions[i]);
+                while (_module.functions.length > prevCount) {
+                    var func = _module.functions[_module.functions.length - 1];
+                    _module.functions.splice(_module.functions.length - 1, 1);
+                    overlay.functions.push(func);
+                }
+            }
+
+            _module.overlays.push(overlay);
+            return IrOperand.None;
+        }
+
+        function visitPlainAsm(node) {
+            emit(IrOp.InlineAsm, IrOperand.Asm(node.asmText));
+            return IrOperand.None;
+        }
+
+        // ============================================================
+        // Public interface
+        // ============================================================
+        return {
+            generate: function(compilationUnit) {
+                visitNode(compilationUnit);
+                return _module;
+            }
+        };
+    }
 
     // ================================================================
     // Public API (Phase 1 foundation)
@@ -1989,6 +3746,7 @@
         _IrOperand: IrOperand,
         _IrFunction: IrFunction,
         _IrModule: IrModule,
+        _IrGenerator: IrGenerator,
         _AST: AST,
         _DataSize: DataSize,
         _BinaryOp: BinaryOp,
