@@ -260,6 +260,103 @@
     }
 
     // ================================================================
+    // AST Node types
+    // ================================================================
+
+    var DataSize = { Word: 'Word', Byte: 'Byte', Float: 'Float' };
+
+    var BinaryOp = {
+        Add: 'Add', Sub: 'Sub', Mul: 'Mul', Div: 'Div', Mod: 'Mod',
+        SMul: 'SMul', SDiv: 'SDiv', SMod: 'SMod',
+        And: 'And', Or: 'Or', Xor: 'Xor',
+        Shl: 'Shl', Shr: 'Shr', SShl: 'SShl', SShr: 'SShr',
+        Eq: 'Eq', Neq: 'Neq', Lt: 'Lt', Gt: 'Gt', Le: 'Le', Ge: 'Ge',
+        SLt: 'SLt', SGt: 'SGt', SLe: 'SLe', SGe: 'SGe',
+        LogAnd: 'LogAnd', LogOr: 'LogOr',
+    };
+
+    var UnaryOp = { Negate: 'Negate', Plus: 'Plus', Not: 'Not', Cpl: 'Cpl' };
+
+    var CompoundAssignOp = {
+        AddAssign: 'AddAssign', SubAssign: 'SubAssign',
+        MulAssign: 'MulAssign', DivAssign: 'DivAssign',
+    };
+
+    // AST node factory: { type, span, ...fields }
+    function ast(type, span, fields) {
+        var node = { type: type, span: span };
+        if (fields) { for (var k in fields) node[k] = fields[k]; }
+        return node;
+    }
+
+    var AST = {
+        CompilationUnit: function(defs, span) { return ast('CompilationUnit', span, { definitions: defs }); },
+        OrgDirective: function(value, span) { return ast('OrgDirective', span, { value: value }); },
+        WorkDirective: function(value, span) { return ast('WorkDirective', span, { value: value }); },
+        OffsetDirective: function(value, span) { return ast('OffsetDirective', span, { value: value }); },
+        ModuleBlock: function(name, defs, span) { return ast('ModuleBlock', span, { name: name, definitions: defs }); },
+        PlainAsm: function(text, span) { return ast('PlainAsm', span, { asmText: text }); },
+
+        VarDecl: function(name, size, address, initVal, initCode, span) {
+            return ast('VarDecl', span, { name: name, size: size, address: address, initialValue: initVal, initialCode: initCode });
+        },
+        ArrayDecl: function(name, size, address, dims, initVal, initCode, span) {
+            return ast('ArrayDecl', span, { name: name, size: size, address: address, dimensions: dims, initialValue: initVal, initialCode: initCode, isArrayKeyword: false });
+        },
+        ConstDecl: function(name, value, isAsmEqu, span) {
+            return ast('ConstDecl', span, { name: name, value: value, isAsmEqu: isAsmEqu });
+        },
+        MachineDecl: function(name, address, paramCount, span, codeBody, staticDecls) {
+            return ast('MachineDecl', span, { name: name, address: address, paramCount: paramCount, codeBody: codeBody || null, staticDeclarations: staticDecls || [] });
+        },
+        FuncDef: function(name, address, params, staticDecls, localDecls, body, retVal, span) {
+            return ast('FuncDef', span, { name: name, address: address, parameters: params, staticDeclarations: staticDecls, localDeclarations: localDecls, body: body, returnValue: retVal });
+        },
+        ParamDecl: function(name, size, isArray, span) {
+            return ast('ParamDecl', span, { name: name, size: size, isArray: isArray });
+        },
+
+        Block: function(stmts, span) { return ast('Block', span, { statements: stmts }); },
+        ExpressionStmt: function(expr, span) { return ast('ExpressionStmt', span, { expr: expr }); },
+        IfStmt: function(branches, elseBody, span) { return ast('IfStmt', span, { branches: branches, elseBody: elseBody }); },
+        WhileStmt: function(cond, body, span) { return ast('WhileStmt', span, { condition: cond, body: body }); },
+        RepeatStmt: function(body, cond, span) { return ast('RepeatStmt', span, { body: body, condition: cond }); },
+        LoopStmt: function(body, span) { return ast('LoopStmt', span, { body: body }); },
+        ForStmt: function(variable, from, to, isDownTo, body, span) {
+            return ast('ForStmt', span, { variable: variable, from: from, to: to, isDownTo: isDownTo, body: body });
+        },
+        CaseBranch: function(value, rangeEnd, body) { return { value: value, rangeEnd: rangeEnd, body: body }; },
+        CaseStmt: function(expr, branches, span) { return ast('CaseStmt', span, { expr: expr, branches: branches }); },
+        ExitStmt: function(level, targetLabel, span) { return ast('ExitStmt', span, { level: level, targetLabel: targetLabel }); },
+        ContinueStmt: function(span) { return ast('ContinueStmt', span); },
+        ReturnStmt: function(value, span) { return ast('ReturnStmt', span, { value: value }); },
+        GotoStmt: function(label, span) { return ast('GotoStmt', span, { label: label }); },
+        LabelStmt: function(label, span) { return ast('LabelStmt', span, { label: label }); },
+        PrintStmt: function(args, span) { return ast('PrintStmt', span, { arguments: args }); },
+
+        IntegerLiteral: function(value, span) { return ast('IntegerLiteral', span, { value: value }); },
+        FloatLiteral: function(value, span) { return ast('FloatLiteral', span, { value: value }); },
+        StringLiteral: function(value, span) { return ast('StringLiteral', span, { value: value }); },
+        IdentifierExpr: function(name, span) { return ast('IdentifierExpr', span, { name: name }); },
+        BinaryExpr: function(op, left, right, span) { return ast('BinaryExpr', span, { op: op, left: left, right: right }); },
+        UnaryExpr: function(op, operand, span) { return ast('UnaryExpr', span, { op: op, operand: operand }); },
+        AssignExpr: function(target, value, span) { return ast('AssignExpr', span, { target: target, value: value }); },
+        CompoundAssignExpr: function(op, target, value, span) { return ast('CompoundAssignExpr', span, { op: op, target: target, value: value }); },
+        IncrementExpr: function(operand, isInc, isPrefix, span) { return ast('IncrementExpr', span, { operand: operand, isIncrement: isInc, isPrefix: isPrefix }); },
+        CallExpr: function(func, args, span) { return ast('CallExpr', span, { func: func, arguments: args }); },
+        ArrayAccessExpr: function(arr, indices, span) { return ast('ArrayAccessExpr', span, { array: arr, indices: indices }); },
+        ConditionalExpr: function(cond, trueE, falseE, span) { return ast('ConditionalExpr', span, { condition: cond, trueExpr: trueE, falseExpr: falseE }); },
+        CommaExpr: function(left, right, span) { return ast('CommaExpr', span, { left: left, right: right }); },
+        AddressOfExpr: function(operand, span) { return ast('AddressOfExpr', span, { operand: operand }); },
+        HighLowExpr: function(isHigh, operand, span) { return ast('HighLowExpr', span, { isHigh: isHigh, operand: operand }); },
+        CodeExpr: function(values, span) { return ast('CodeExpr', span, { values: values }); },
+        CodeEvalExpr: function(inner, span) { return ast('CodeEvalExpr', span, { inner: inner }); },
+        CodeLabelRef: function(label, span) { return ast('CodeLabelRef', span, { label: label }); },
+        CastExpr: function(targetSize, operand, span) { return ast('CastExpr', span, { targetSize: targetSize, operand: operand }); },
+        StringFuncExpr: function(funcName, args, span) { return ast('StringFuncExpr', span, { funcName: funcName, arguments: args }); },
+    };
+
+    // ================================================================
     // Lexer
     // ================================================================
 
@@ -698,6 +795,688 @@
     }
 
     // ================================================================
+    // Parser
+    // ================================================================
+
+    function Parser(tokens, diagnostics) {
+        var _tokens = tokens;
+        var _diag = diagnostics;
+        var _pos = 0;
+        var _argListDepth = 0;
+
+        function current() { return _pos < _tokens.length ? _tokens[_pos] : Token(TK.EOF, '', SourceSpan.Unknown); }
+        function peekAt(offset) { var i = _pos + (offset || 0); return i < _tokens.length ? _tokens[i] : Token(TK.EOF, '', SourceSpan.Unknown); }
+        function advance() { var t = current(); _pos++; return t; }
+        function check(k) { return current().kind === k; }
+        function checkAny() { var c = current().kind; for (var i = 0; i < arguments.length; i++) { if (c === arguments[i]) return true; } return false; }
+        function match(k) { if (check(k)) { advance(); return true; } return false; }
+        function expect(k, msg) { if (check(k)) return advance(); error(msg || ('Expected ' + k + ', got ' + current().kind)); return current(); }
+        function error(msg) { _diag.error(msg, current().span); }
+
+        function isBlockOpen() { return checkAny(TK.Begin, TK.LBracket, TK.LBrace, TK.LAngleBracket); }
+        function isBlockClose() { return checkAny(TK.End, TK.RBracket, TK.RBrace, TK.RAngleBracket); }
+        function expectBlockOpen(msg) { if (isBlockOpen()) { advance(); return; } error(msg || 'Expected block open'); }
+        function expectBlockClose(msg) { if (isBlockClose()) { advance(); return; } error(msg || 'Expected block close'); }
+        function isDeclStart() { return checkAny(TK.Var, TK.Array, TK.Const, TK.Machine, TK.Byte, TK.Word); }
+
+        function isFuncDefStart() {
+            var i = 1;
+            if (peekAt(i).kind === TK.Colon) i += 2;
+            return peekAt(i).kind === TK.LParen;
+        }
+
+        function parseOptionalDataSize() {
+            if (match(TK.Byte) || match(TK.Exclamation)) return DataSize.Byte;
+            if (match(TK.Word)) return DataSize.Word;
+            if (match(TK.Float)) return DataSize.Float;
+            return DataSize.Word;
+        }
+
+        // ---- Synchronization ----
+        function syncTopLevel() {
+            while (!check(TK.EOF)) {
+                if (match(TK.Semicolon)) return;
+                var k = current().kind;
+                if (k === TK.Org || k === TK.Work || k === TK.Offset || k === TK.Plain ||
+                    k === TK.PreprocIf || k === TK.PreprocElse || k === TK.PreprocEnd || k === TK.PreprocInclude ||
+                    k === TK.Const || k === TK.Var || k === TK.Array || k === TK.Machine ||
+                    k === TK.Byte || k === TK.Word || k === TK.Float || k === TK.Exclamation || k === TK.Module) return;
+                if (k === TK.Identifier && isFuncDefStart()) return;
+                advance();
+            }
+        }
+        function syncDecl() {
+            while (!check(TK.EOF)) { if (match(TK.Semicolon)) return; if (isDeclStart() || isBlockOpen()) return; advance(); }
+        }
+        function syncStmt() {
+            while (!check(TK.EOF)) {
+                if (match(TK.Semicolon)) return;
+                var k = current().kind;
+                if (k === TK.If || k === TK.While || k === TK.Repeat || k === TK.Loop || k === TK.For || k === TK.Case ||
+                    k === TK.Exit || k === TK.Continue || k === TK.Return || k === TK.Goto || k === TK.Print || k === TK.Plain ||
+                    k === TK.Var || k === TK.Array || k === TK.Byte || k === TK.Word || k === TK.Float ||
+                    k === TK.PreprocIf || k === TK.PreprocEnd || k === TK.Identifier ||
+                    k === TK.Until || k === TK.Wend || k === TK.Else || k === TK.Elif || k === TK.Ef || k === TK.EndIf) return;
+                if (isBlockOpen() || isBlockClose()) return;
+                advance();
+            }
+        }
+
+        // ---- Preprocessor (in-parser, simplified) ----
+        function parsePreprocIf() {
+            var t = advance();
+            var expr = t.stringValue;
+            if (expr.toUpperCase() === 'FALSE' || expr === '0') { skipPreprocBlock(); return null; }
+            return null;
+        }
+        function skipPreprocBlock() {
+            var depth = 1;
+            while (!check(TK.EOF) && depth > 0) {
+                if (check(TK.PreprocIf)) { depth++; advance(); continue; }
+                if (check(TK.PreprocEnd)) { depth--; advance(); continue; }
+                if (check(TK.PreprocElse) && depth === 1) { advance(); return; }
+                advance();
+            }
+        }
+
+        // ---- Directives ----
+        function parseOrg() { var s = advance().span; return AST.OrgDirective(parseNcExpr(), s); }
+        function parseWork() { var s = advance().span; return AST.WorkDirective(parseNcExpr(), s); }
+        function parseOffset() { var s = advance().span; return AST.OffsetDirective(parseNcExpr(), s); }
+
+        function parseModuleBlock() {
+            var start = advance().span;
+            var addr = parseNcExpr();
+            var defs = [];
+            while (!check(TK.EOF) && !_diag.hasReachedMaxErrors) {
+                if (check(TK.PreprocEnd)) { advance(); break; }
+                if (match(TK.Semicolon)) continue;
+                var eb = _diag.errorCount, bp = _pos;
+                var def = parseTopLevel();
+                if (def) defs.push(def);
+                if (_diag.errorCount > eb) syncTopLevel();
+                else if (_pos === bp) advance();
+            }
+            return AST.ModuleBlock(addr, defs, start);
+        }
+
+        // ---- CONST ----
+        function parseConstDecl() {
+            var start = advance().span;
+            var decls = [];
+            do {
+                var isAsm = match(TK.Asm);
+                var name = expect(TK.Identifier, 'Expected constant name').stringValue;
+                expect(TK.Eq, "Expected '='");
+                var value;
+                if (isBlockOpen()) { value = AST.CodeExpr(parseCodeBlock(), start); }
+                else { value = parseNcExpr(); }
+                decls.push(AST.ConstDecl(name, value, isAsm, start));
+            } while (match(TK.Comma));
+            match(TK.Semicolon);
+            return decls.length === 1 ? decls[0] : AST.Block(decls, start);
+        }
+
+        // ---- VAR ----
+        function parseVarDeclList() {
+            var start = current().span;
+            var hadVar = match(TK.Var);
+            var decls = [];
+            do { decls.push(parseSingleVarOrArray(hadVar)); } while (match(TK.Comma));
+            match(TK.Semicolon);
+            return decls.length === 1 ? decls[0] : AST.Block(decls, start);
+        }
+        function parseSingleVarOrArray() {
+            var start = current().span;
+            var size = parseOptionalDataSize();
+            var name = expect(TK.Identifier, 'Expected variable name').stringValue;
+            var address = null, dims = [], initValue = null, initCode = null;
+            while (check(TK.ArrayBracketOpen)) {
+                advance();
+                if (check(TK.RBracket)) dims.push(null);
+                else dims.push(parseNcExpr());
+                expect(TK.RBracket, "Expected ']'");
+            }
+            if (match(TK.Colon)) address = parseNcExpr();
+            if (match(TK.Eq)) {
+                if (isBlockOpen()) initCode = parseCodeBlock();
+                else initValue = parseNcExpr();
+            }
+            if (dims.length > 0) return AST.ArrayDecl(name, size, address, dims, initValue, initCode, start);
+            return AST.VarDecl(name, size, address, initValue, initCode, start);
+        }
+
+        // ---- ARRAY ----
+        function parseArrayDeclList() {
+            var start = advance().span;
+            var decls = [];
+            do {
+                var s = current().span;
+                var size = parseOptionalDataSize();
+                var name = expect(TK.Identifier, 'Expected array name').stringValue;
+                var dims = [];
+                while (check(TK.ArrayBracketOpen)) {
+                    advance();
+                    if (check(TK.RBracket)) dims.push(null); else dims.push(parseNcExpr());
+                    expect(TK.RBracket, "Expected ']'");
+                }
+                var address = null; if (match(TK.Colon)) address = parseNcExpr();
+                var initValue = null, initCode = null;
+                if (match(TK.Eq)) { if (isBlockOpen()) initCode = parseCodeBlock(); else initValue = parseNcExpr(); }
+                var node = AST.ArrayDecl(name, size, address, dims, initValue, initCode, s);
+                node.isArrayKeyword = true;
+                decls.push(node);
+            } while (match(TK.Comma));
+            match(TK.Semicolon);
+            return decls.length === 1 ? decls[0] : AST.Block(decls, start);
+        }
+
+        // ---- MACHINE ----
+        function parseMachineDeclList() {
+            var start = advance().span;
+            var decls = [];
+            do {
+                var name = expect(TK.Identifier, 'Expected function name').stringValue;
+                var address = null, paramCount = null;
+                if (match(TK.LParen)) {
+                    if (check(TK.IntegerLiteral)) { paramCount = current().intValue; advance(); }
+                    expect(TK.RParen, "Expected ')'");
+                }
+                if (match(TK.Colon)) address = parseNcExpr();
+                decls.push(AST.MachineDecl(name, address, paramCount, start));
+            } while (match(TK.Comma));
+            match(TK.Semicolon);
+            return decls.length === 1 ? decls[0] : AST.Block(decls, start);
+        }
+
+        // ---- Function definition ----
+        function parseFuncDef() {
+            var start = current().span;
+            var name = advance().stringValue;
+            var address = null;
+            if (match(TK.Colon)) address = parseNcExpr();
+            expect(TK.LParen, "Expected '('");
+
+            // MACHINE CODE def: FUNC(paramCount) ...
+            if (check(TK.IntegerLiteral)) {
+                var pc = advance().intValue;
+                expect(TK.RParen, "Expected ')'");
+                var msd = [];
+                while (isDeclStart() && !isBlockOpen() && !_diag.hasReachedMaxErrors) {
+                    var eb = _diag.errorCount, bp = _pos;
+                    msd.push(parseLocalDecl());
+                    if (_diag.errorCount > eb) syncDecl(); else if (_pos === bp) advance();
+                }
+                var cb = null;
+                if (isBlockOpen()) {
+                    advance();
+                    var expr = parseNcExpr();
+                    match(TK.Semicolon);
+                    expectBlockClose('Expected block close');
+                    if (expr.type === 'CodeExpr') cb = expr;
+                }
+                match(TK.Semicolon);
+                return AST.MachineDecl(name, address, pc, start, cb, msd.length > 0 ? msd : null);
+            }
+
+            var params = [];
+            if (!check(TK.RParen)) {
+                do {
+                    var ps = current().span;
+                    var psz = parseOptionalDataSize();
+                    var pn = expect(TK.Identifier, 'Expected parameter name').stringValue;
+                    var isArr = false;
+                    if (check(TK.ArrayBracketOpen)) { advance(); expect(TK.RBracket); isArr = true; }
+                    params.push(AST.ParamDecl(pn, psz, isArr, ps));
+                } while (match(TK.Comma));
+            }
+            expect(TK.RParen, "Expected ')'");
+
+            // MACHINE CODE def (0 params): FUNC()[CODE(...);]
+            if (isBlockOpen() && peekAt(1).kind === TK.Code) {
+                advance();
+                var expr = parseNcExpr();
+                match(TK.Semicolon);
+                expectBlockClose('Expected block close');
+                match(TK.Semicolon);
+                var cb = expr.type === 'CodeExpr' ? expr : null;
+                return AST.MachineDecl(name, address, params.length, start, cb);
+            }
+
+            // Static declarations (before BEGIN)
+            var staticDecls = [];
+            while (isDeclStart() && !isBlockOpen() && !_diag.hasReachedMaxErrors) {
+                var eb = _diag.errorCount, bp = _pos;
+                staticDecls.push(parseLocalDecl());
+                if (_diag.errorCount > eb) syncDecl(); else if (_pos === bp) advance();
+            }
+
+            expectBlockOpen('Expected BEGIN for function body');
+
+            // Local declarations (after BEGIN)
+            var localDecls = [];
+            while (isDeclStart() && !_diag.hasReachedMaxErrors) {
+                var eb = _diag.errorCount, bp = _pos;
+                localDecls.push(parseLocalDecl());
+                if (_diag.errorCount > eb) syncDecl(); else if (_pos === bp) advance();
+            }
+
+            var stmts = parseStmtList();
+            var body = AST.Block(stmts, start);
+            var retVal = null;
+            expectBlockClose('Expected END');
+            if (match(TK.LParen)) { retVal = parseExpr(); expect(TK.RParen, "Expected ')'"); }
+            match(TK.Semicolon);
+            return AST.FuncDef(name, address, params, staticDecls, localDecls, body, retVal, start);
+        }
+
+        function parseLocalDecl() {
+            if (check(TK.Array)) return parseArrayDeclList();
+            return parseVarDeclList();
+        }
+
+        // ---- Statements ----
+        function parseStmtList() {
+            var stmts = [];
+            while (!isBlockClose() && !check(TK.EOF) && !check(TK.Until) && !check(TK.Wend) && !_diag.hasReachedMaxErrors) {
+                if (match(TK.Semicolon)) continue;
+                var eb = _diag.errorCount, bp = _pos;
+                var stmt = parseStmt();
+                if (stmt) stmts.push(stmt);
+                if (_diag.errorCount > eb) syncStmt(); else if (_pos === bp) advance();
+            }
+            return stmts;
+        }
+
+        function parseStmt() {
+            var k = current().kind;
+            if (k === TK.If) return parseIf();
+            if (k === TK.While) return parseWhile();
+            if (k === TK.Repeat) return parseRepeat();
+            if (k === TK.Loop) return parseLoop();
+            if (k === TK.For) return parseFor();
+            if (k === TK.Case) return parseCase();
+            if (k === TK.Exit) return parseExit();
+            if (k === TK.Continue) { advance(); match(TK.Semicolon); return AST.ContinueStmt(current().span); }
+            if (k === TK.Return) return parseReturn();
+            if (k === TK.Goto) return parseGoto();
+            if (k === TK.Print) return parsePrint();
+            if (k === TK.Plain) return AST.PlainAsm(advance().stringValue, current().span);
+            if (k === TK.Var || k === TK.Array || k === TK.Byte || k === TK.Word || k === TK.Float) return parseLocalDecl();
+            if (k === TK.PreprocIf) return parsePreprocIf();
+            if (k === TK.PreprocEnd) { advance(); return null; }
+            if (isBlockOpen()) return parseCompound();
+            if (check(TK.Identifier) && peekAt(1).kind === TK.Colon) {
+                var lbl = advance().stringValue; advance();
+                return AST.LabelStmt(lbl, current().span);
+            }
+            return parseExprStmt();
+        }
+
+        function parseCompound() {
+            var s = current().span;
+            expectBlockOpen();
+            var stmts = parseStmtList();
+            expectBlockClose();
+            return AST.Block(stmts, s);
+        }
+
+        function parseExprStmt() {
+            var s = current().span;
+            var expr = parseExpr();
+            match(TK.Semicolon);
+            return AST.ExpressionStmt(expr, s);
+        }
+
+        // ---- IF ----
+        function parseIf() {
+            var s = advance().span;
+            var branches = [];
+            var cond = parseExpr(); match(TK.Then); var body = parseIfBody();
+            branches.push({ condition: cond, body: body });
+            while (check(TK.Elif) || check(TK.Ef) || (check(TK.Else) && peekAt(1).kind === TK.If)) {
+                if (match(TK.Elif) || match(TK.Ef)) { } else { advance(); advance(); }
+                cond = parseExpr(); match(TK.Then); body = parseIfBody();
+                branches.push({ condition: cond, body: body });
+            }
+            var elsePart = null;
+            if (match(TK.Else)) elsePart = parseIfBody();
+            match(TK.EndIf);
+            return AST.IfStmt(branches, elsePart, s);
+        }
+        function parseIfBody() {
+            if (isBlockOpen()) return parseCompound();
+            var stmt = parseStmt();
+            match(TK.Semicolon);
+            return stmt || AST.Block([], current().span);
+        }
+
+        // ---- WHILE ----
+        function parseWhile() {
+            var s = advance().span;
+            var cond = parseExpr();
+            var body;
+            if (match(TK.Do) || isBlockOpen()) {
+                if (isBlockOpen()) { body = parseCompound(); }
+                else { var stmts = parseStmtList(); if (match(TK.Wend)) {} else expectBlockClose(); body = AST.Block(stmts, s); }
+            } else { body = parseStmt() || AST.Block([], s); }
+            return AST.WhileStmt(cond, body, s);
+        }
+
+        // ---- REPEAT ----
+        function parseRepeat() {
+            var s = advance().span;
+            var body = isBlockOpen() ? parseCompound() : (parseStmt() || AST.Block([], s));
+            expect(TK.Until, 'Expected UNTIL');
+            var cond = parseExpr(); match(TK.Semicolon);
+            return AST.RepeatStmt(body, cond, s);
+        }
+
+        // ---- LOOP ----
+        function parseLoop() {
+            var s = advance().span;
+            var body = isBlockOpen() ? parseCompound() : parseStmt();
+            return AST.LoopStmt(body, s);
+        }
+
+        // ---- FOR ----
+        function parseFor() {
+            var s = advance().span;
+            var v = expect(TK.Identifier).stringValue;
+            expect(TK.Eq, "Expected '='");
+            var from = parseNcExpr();
+            var down = match(TK.DownTo);
+            if (!down) expect(TK.To, 'Expected TO or DOWNTO');
+            var to = parseNcExpr();
+            var body;
+            if (match(TK.Do) || isBlockOpen()) {
+                body = parseCompound(); match(TK.Next); match(TK.Semicolon);
+            } else {
+                body = parseStmt() || AST.Block([], s); match(TK.Next); match(TK.Semicolon);
+            }
+            return AST.ForStmt(v, from, to, down, body, s);
+        }
+
+        // ---- CASE ----
+        function parseCase() {
+            var s = advance().span;
+            var expr = parseExpr(); match(TK.Of); expectBlockOpen();
+            var branches = [];
+            while (!isBlockClose() && !check(TK.EOF)) {
+                if (match(TK.Semicolon)) continue;
+                if (check(TK.Others)) {
+                    advance(); match(TK.Colon);
+                    branches.push(AST.CaseBranch(null, null, parseStmt()));
+                } else {
+                    var val = parseNcExpr(), rangeEnd = null;
+                    while (match(TK.Comma)) {
+                        match(TK.Colon);
+                        if (!check(TK.IntegerLiteral) && !check(TK.Identifier)) {
+                            branches.push(AST.CaseBranch(val, rangeEnd, parseStmt()));
+                            val = null; break;
+                        }
+                        branches.push(AST.CaseBranch(val, null, AST.Block([], s)));
+                        val = parseNcExpr();
+                    }
+                    if (val !== null) {
+                        if (match(TK.To)) rangeEnd = parseNcExpr();
+                        match(TK.Colon);
+                        branches.push(AST.CaseBranch(val, rangeEnd, parseStmt()));
+                    }
+                }
+            }
+            expectBlockClose();
+            return AST.CaseStmt(expr, branches, s);
+        }
+
+        // ---- EXIT / RETURN / GOTO ----
+        function parseExit() {
+            var s = advance().span; var level = null, label = null;
+            if (match(TK.To)) label = expect(TK.Identifier).stringValue;
+            else if (match(TK.LParen)) { level = parseExpr(); expect(TK.RParen); }
+            match(TK.Semicolon);
+            return AST.ExitStmt(level, label, s);
+        }
+        function parseReturn() {
+            var s = advance().span; var val = null;
+            if (match(TK.LParen)) { val = parseExpr(); expect(TK.RParen); }
+            else if (!check(TK.Semicolon) && !isBlockClose() && !check(TK.EOF)) { val = parseExpr(); }
+            match(TK.Semicolon);
+            return AST.ReturnStmt(val, s);
+        }
+        function parseGoto() {
+            var s = advance().span;
+            var lbl = expect(TK.Identifier).stringValue; match(TK.Semicolon);
+            return AST.GotoStmt(lbl, s);
+        }
+
+        // ---- PRINT ----
+        function parsePrint() {
+            var s = advance().span;
+            expect(TK.LParen, "Expected '('");
+            var args = []; _argListDepth++;
+            while (!check(TK.RParen) && !check(TK.EOF)) {
+                args.push(parsePrintArg());
+                if (!match(TK.Comma)) break;
+            }
+            _argListDepth--;
+            expect(TK.RParen, "Expected ')'"); match(TK.Semicolon);
+            return AST.PrintStmt(args, s);
+        }
+        function parsePrintArg() {
+            var s = current().span;
+            if (check(TK.Slash)) { advance(); return AST.StringFuncExpr('/', [], s); }
+            if (check(TK.StringFunc)) {
+                var fn = advance().stringValue;
+                expect(TK.LParen); var args = parseArgList(); expect(TK.RParen);
+                return AST.StringFuncExpr(fn, args, s);
+            }
+            if (check(TK.Exclamation) && peekAt(1).kind === TK.LParen) {
+                advance(); expect(TK.LParen); var args = parseArgList(); expect(TK.RParen);
+                return AST.StringFuncExpr('!', args, s);
+            }
+            if (check(TK.Percent) && peekAt(1).kind === TK.LParen) {
+                advance(); expect(TK.LParen); var args = parseArgList(); expect(TK.RParen);
+                return AST.StringFuncExpr('%', args, s);
+            }
+            return parseNcExpr();
+        }
+
+        // ---- Expression parsing ----
+        function parseExpr() {
+            var e = parseAssign();
+            while (_argListDepth === 0 && match(TK.Comma)) { e = AST.CommaExpr(e, parseAssign(), e.span); }
+            return e;
+        }
+        function parseNcExpr() { return parseAssign(); }
+
+        function parseAssign() {
+            var e = parseConditional();
+            if (match(TK.Eq)) return AST.AssignExpr(e, parseAssign(), e.span);
+            if (checkAny(TK.PlusEq, TK.MinusEq, TK.StarEq, TK.SlashEq)) {
+                var k = current().kind;
+                var op = k === TK.PlusEq ? CompoundAssignOp.AddAssign :
+                         k === TK.MinusEq ? CompoundAssignOp.SubAssign :
+                         k === TK.StarEq ? CompoundAssignOp.MulAssign : CompoundAssignOp.DivAssign;
+                advance();
+                return AST.CompoundAssignExpr(op, e, parseAssign(), e.span);
+            }
+            return e;
+        }
+        function parseConditional() {
+            var e = parseLogOr();
+            if (match(TK.Question)) { var t = parseNcExpr(); expect(TK.Colon, "Expected ':' in ?:"); return AST.ConditionalExpr(e, t, parseConditional(), e.span); }
+            return e;
+        }
+        function parseLogOr() { var e = parseLogAnd(); while (match(TK.LogOr)) e = AST.BinaryExpr(BinaryOp.LogOr, e, parseLogAnd(), e.span); return e; }
+        function parseLogAnd() { var e = parseBitOps(); while (match(TK.LogAnd)) e = AST.BinaryExpr(BinaryOp.LogAnd, e, parseBitOps(), e.span); return e; }
+        function parseBitOps() {
+            var e = parseEquality();
+            while (true) {
+                if (match(TK.And) || match(TK.Ampersand)) e = AST.BinaryExpr(BinaryOp.And, e, parseEquality(), e.span);
+                else if (match(TK.Or) || match(TK.Pipe)) e = AST.BinaryExpr(BinaryOp.Or, e, parseEquality(), e.span);
+                else if (match(TK.Xor)) e = AST.BinaryExpr(BinaryOp.Xor, e, parseEquality(), e.span);
+                else break;
+            }
+            return e;
+        }
+        function parseEquality() {
+            var e = parseComparison();
+            while (checkAny(TK.EqEq, TK.NotEq)) {
+                var op = current().kind === TK.EqEq ? BinaryOp.Eq : BinaryOp.Neq; advance();
+                e = AST.BinaryExpr(op, e, parseComparison(), e.span);
+            }
+            return e;
+        }
+        function parseComparison() {
+            var e = parseAdd();
+            while (true) {
+                var op, k = current().kind;
+                if (k === TK.Lt) op = BinaryOp.Lt;
+                else if (k === TK.Gt) op = BinaryOp.Gt;
+                else if (k === TK.Le) op = BinaryOp.Le;
+                else if (k === TK.Ge) op = BinaryOp.Ge;
+                else if (k === TK.SignedLt) op = BinaryOp.SLt;
+                else if (k === TK.SignedGt) op = BinaryOp.SGt;
+                else if (k === TK.SignedLe) op = BinaryOp.SLe;
+                else if (k === TK.SignedGe) op = BinaryOp.SGe;
+                else break;
+                advance(); e = AST.BinaryExpr(op, e, parseAdd(), e.span);
+            }
+            return e;
+        }
+        function parseAdd() {
+            var e = parseMul();
+            while (checkAny(TK.Plus, TK.Minus)) {
+                var op = current().kind === TK.Plus ? BinaryOp.Add : BinaryOp.Sub; advance();
+                e = AST.BinaryExpr(op, e, parseMul(), e.span);
+            }
+            return e;
+        }
+        function parseMul() {
+            var e = parseUnary();
+            while (true) {
+                var op, k = current().kind;
+                if (k === TK.Star) op = BinaryOp.Mul;
+                else if (k === TK.Slash) op = BinaryOp.Div;
+                else if (k === TK.Mod) op = BinaryOp.Mod;
+                else if (k === TK.Shl) op = BinaryOp.Shl;
+                else if (k === TK.Shr) op = BinaryOp.Shr;
+                else if (k === TK.SignedMul) op = BinaryOp.SMul;
+                else if (k === TK.SignedDiv) op = BinaryOp.SDiv;
+                else if (k === TK.SignedMod) op = BinaryOp.SMod;
+                else if (k === TK.SignedShl) op = BinaryOp.SShl;
+                else if (k === TK.SignedShr) op = BinaryOp.SShr;
+                else break;
+                advance(); e = AST.BinaryExpr(op, e, parseUnary(), e.span);
+            }
+            return e;
+        }
+        function parseUnary() {
+            var s = current().span;
+            if (checkAny(TK.PlusPlus, TK.MinusMinus)) { var inc = current().kind === TK.PlusPlus; advance(); return AST.IncrementExpr(parseUnary(), inc, true, s); }
+            if (match(TK.Minus)) return AST.UnaryExpr(UnaryOp.Negate, parseUnary(), s);
+            if (match(TK.Plus)) return AST.UnaryExpr(UnaryOp.Plus, parseUnary(), s);
+            if (match(TK.Not)) return AST.UnaryExpr(UnaryOp.Not, parseUnary(), s);
+            if (match(TK.Cpl)) return AST.UnaryExpr(UnaryOp.Cpl, parseUnary(), s);
+            if (match(TK.Ampersand)) return AST.AddressOfExpr(parseUnary(), s);
+            if (check(TK.High)) { advance(); return AST.HighLowExpr(true, parseUnary(), s); }
+            if (check(TK.Low)) { advance(); return AST.HighLowExpr(false, parseUnary(), s); }
+            if (match(TK.Percent)) return AST.CastExpr(DataSize.Word, parseUnary(), s);
+            if (check(TK.Code)) {
+                advance(); expect(TK.LParen);
+                var codes = parseCodeExprList(); expect(TK.RParen);
+                return AST.CodeExpr(codes, s);
+            }
+            return parsePostfix();
+        }
+        function parsePostfix() {
+            var e = parsePrimary();
+            while (true) {
+                if (checkAny(TK.PlusPlus, TK.MinusMinus)) {
+                    var inc = current().kind === TK.PlusPlus; advance();
+                    e = AST.IncrementExpr(e, inc, false, e.span);
+                } else if (check(TK.ArrayBracketOpen)) {
+                    var indices = [];
+                    while (check(TK.ArrayBracketOpen)) { advance(); indices.push(parseNcExpr()); expect(TK.RBracket, "Expected ']'"); }
+                    e = AST.ArrayAccessExpr(e, indices, e.span);
+                } else if (check(TK.LParen)) {
+                    advance();
+                    var args = [];
+                    if (!check(TK.RParen)) { _argListDepth++; args = parseArgList(); _argListDepth--; }
+                    expect(TK.RParen, "Expected ')'");
+                    e = AST.CallExpr(e, args, e.span);
+                } else break;
+            }
+            return e;
+        }
+        function parsePrimary() {
+            var s = current().span;
+            if (check(TK.IntegerLiteral) || check(TK.CharLiteral)) { var t = advance(); return AST.IntegerLiteral(t.intValue, t.span); }
+            if (check(TK.FloatLiteral)) { var t = advance(); return AST.FloatLiteral(t.floatValue, t.span); }
+            if (check(TK.StringLiteral)) { var t = advance(); return AST.StringLiteral(t.stringValue, t.span); }
+            if (check(TK.Identifier)) {
+                var t = advance();
+                if (t.text.toUpperCase() === 'TRUE') return AST.IntegerLiteral(1, t.span);
+                if (t.text.toUpperCase() === 'FALSE') return AST.IntegerLiteral(0, t.span);
+                return AST.IdentifierExpr(t.stringValue, t.span);
+            }
+            if (match(TK.LParen)) { var e = parseExpr(); expect(TK.RParen, "Expected ')'"); return e; }
+            error('Expected expression, got ' + current().kind + " '" + current().text + "'");
+            return AST.IntegerLiteral(0, s);
+        }
+
+        // ---- Helpers ----
+        function parseArgList() { var list = []; do { list.push(parseNcExpr()); } while (match(TK.Comma)); return list; }
+        function parseCodeExprList() { var list = []; do { list.push(parseCodeItem()); } while (match(TK.Comma)); return list; }
+        function parseCodeItem() {
+            var s = current().span;
+            if (check(TK.LBracket)) { advance(); var expr = parseNcExpr(); expect(TK.RBracket, "Expected ']'"); return AST.CodeEvalExpr(expr, s); }
+            if (check(TK.Lt)) { advance(); var label = expect(TK.Identifier, 'Expected label name').stringValue; expect(TK.Gt, "Expected '>'"); return AST.CodeLabelRef(label, s); }
+            if (checkAny(TK.Byte, TK.Exclamation)) { advance(); match(TK.Comma); return AST.CastExpr(DataSize.Byte, parseNcExpr(), s); }
+            if (checkAny(TK.Word, TK.Percent)) { advance(); match(TK.Comma); return AST.CastExpr(DataSize.Word, parseNcExpr(), s); }
+            return parseNcExpr();
+        }
+        function parseCodeBlock() { expectBlockOpen(); var list = parseCodeExprList(); expectBlockClose(); return list; }
+
+        // ---- Top-level ----
+        function parseTopLevel() {
+            var k = current().kind;
+            if (k === TK.Org) return parseOrg();
+            if (k === TK.Work) return parseWork();
+            if (k === TK.Offset) return parseOffset();
+            if (k === TK.Plain) return AST.PlainAsm(advance().stringValue, current().span);
+            if (k === TK.PreprocIf) return parsePreprocIf();
+            if (k === TK.PreprocElse || k === TK.PreprocEnd || k === TK.PreprocInclude) { advance(); return null; }
+            if (k === TK.Const) return parseConstDecl();
+            if (k === TK.Var) return parseVarDeclList();
+            if (k === TK.Array) return parseArrayDeclList();
+            if (k === TK.Machine) return parseMachineDeclList();
+            if (k === TK.Byte || k === TK.Word || k === TK.Float || k === TK.Exclamation) return parseVarDeclList();
+            if (k === TK.Identifier && isFuncDefStart()) return parseFuncDef();
+            if (k === TK.Identifier) { error('Unexpected identifier at top level: ' + current().text); return null; }
+            if (k === TK.Module) return parseModuleBlock();
+            error('Unexpected token at top level: ' + current().kind + " '" + current().text + "'");
+            return null;
+        }
+
+        return {
+            parseCompilationUnit: function() {
+                var defs = [];
+                while (!check(TK.EOF) && !_diag.hasReachedMaxErrors) {
+                    if (match(TK.Semicolon)) continue;
+                    var eb = _diag.errorCount, bp = _pos;
+                    var def = parseTopLevel();
+                    if (def) defs.push(def);
+                    if (_diag.errorCount > eb) syncTopLevel();
+                    else if (_pos === bp) advance();
+                }
+                return AST.CompilationUnit(defs, SourceSpan.Unknown);
+            }
+        };
+    }
+
+    // ================================================================
     // Public API (Phase 1 foundation)
     // ================================================================
     window.X1PenSlangCompiler = {
@@ -716,6 +1495,11 @@
         _convertToF24: convertToF24,
         _toAsmDbArgs: toAsmDbArgs,
         _Lexer: Lexer,
+        _Parser: Parser,
+        _AST: AST,
+        _DataSize: DataSize,
+        _BinaryOp: BinaryOp,
+        _UnaryOp: UnaryOp,
 
         // Main compile entry point (stub — will be implemented in later phases)
         compile: function(source, virtualFS, env) {
