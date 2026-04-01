@@ -1477,6 +1477,384 @@
     }
 
     // ================================================================
+    // Type System
+    // ================================================================
+
+    var PrimitiveKind = { Byte: 'Byte', Word: 'Word', Float: 'Float', Void: 'Void' };
+
+    function PrimitiveType(kind) {
+        var sizes = { Byte: 1, Word: 2, Float: 3, Void: 0 };
+        return { typeClass: 'Primitive', kind: kind, byteSize: sizes[kind] || 0 };
+    }
+    function PointerType(elemType) { return { typeClass: 'Pointer', elementType: elemType, byteSize: 2 }; }
+    function ArrayType(elemType, dims) {
+        var total = 1; for (var i = 0; i < dims.length; i++) total *= dims[i];
+        return {
+            typeClass: 'Array', elementType: elemType, dimensions: dims,
+            rank: dims.length, totalElements: total, byteSize: total * elemType.byteSize,
+            getStride: function(dim) {
+                var s = elemType.byteSize;
+                for (var i = dims.length - 1; i > dim; i--) s *= dims[i];
+                return s;
+            }
+        };
+    }
+    function FunctionType(retType, paramTypes) { return { typeClass: 'Function', returnType: retType, parameterTypes: paramTypes, byteSize: 2 }; }
+    function PortArrayType(elemType) { return { typeClass: 'PortArray', elementType: elemType, byteSize: 0 }; }
+    function MemoryArrayType(elemType) { return { typeClass: 'MemoryArray', elementType: elemType, byteSize: 0 }; }
+
+    var SlangType = {
+        Word: PrimitiveType(PrimitiveKind.Word),
+        Byte: PrimitiveType(PrimitiveKind.Byte),
+        Float: PrimitiveType(PrimitiveKind.Float),
+        Void: PrimitiveType(PrimitiveKind.Void),
+    };
+
+    function dataSizeToType(size) {
+        if (size === DataSize.Byte) return SlangType.Byte;
+        if (size === DataSize.Float) return SlangType.Float;
+        return SlangType.Word;
+    }
+
+    // ================================================================
+    // Symbol Table
+    // ================================================================
+
+    var SymbolKind = {
+        Variable: 'Variable', Parameter: 'Parameter', Function: 'Function',
+        MachineFunction: 'MachineFunction', Constant: 'Constant', Label: 'Label',
+    };
+
+    function Symbol(name, kind, type) {
+        return {
+            name: name, kind: kind, type: type,
+            address: null, offset: 0, constValue: null,
+            isGlobal: false, isCodeBlock: false, asmLabel: null, isArrayDecl: false,
+            constAst: null, addressAst: null,
+            constAsmExpr: null, constAsmDeps: null, constAsmResolved: false,
+            addressExpr: null, addressExprDeps: null, addressExprResolved: false,
+        };
+    }
+
+    function Scope(name, parent) {
+        var _symbols = {};
+        return {
+            name: name, parent: parent, symbols: _symbols,
+            define: function(sym) { _symbols[sym.name.toUpperCase()] = sym; },
+            resolve: function(n) { var s = _symbols[n.toUpperCase()]; return s || (parent ? parent.resolve(n) : null); },
+            resolveLocal: function(n) { return _symbols[n.toUpperCase()] || null; },
+        };
+    }
+
+    function SymbolTable() {
+        var _scopes = [];
+        _scopes.push(Scope('global', null));
+        return {
+            get currentScope() { return _scopes[_scopes.length - 1]; },
+            get isGlobalScope() { return _scopes.length === 1; },
+            pushScope: function(name) { _scopes.push(Scope(name, _scopes[_scopes.length - 1])); },
+            popScope: function() { if (_scopes.length > 1) _scopes.pop(); },
+            define: function(name, kind, type) {
+                var sym = Symbol(name, kind, type);
+                sym.isGlobal = _scopes.length === 1;
+                this.currentScope.define(sym);
+                return sym;
+            },
+            resolve: function(name) { return this.currentScope.resolve(name); },
+        };
+    }
+
+    // ================================================================
+    // Const Evaluator
+    // ================================================================
+
+    function ConstEvaluator(symbols) {
+        function evaluate(expr) {
+            if (!expr) return null;
+            var t = expr.type;
+            if (t === 'IntegerLiteral') return expr.value | 0;
+            if (t === 'FloatLiteral' && expr.value === Math.trunc(expr.value)) return expr.value | 0;
+            if (t === 'IdentifierExpr') return evalId(expr);
+            if (t === 'UnaryExpr') return evalUnary(expr);
+            if (t === 'BinaryExpr') return evalBinary(expr);
+            if (t === 'HighLowExpr') return evalHighLow(expr);
+            if (t === 'CastExpr') return evaluate(expr.operand);
+            if (t === 'ConditionalExpr') return evalCond(expr);
+            return null;
+        }
+        function evalId(expr) {
+            var n = expr.name.toUpperCase();
+            if (n === 'TRUE') return 1; if (n === 'FALSE') return 0;
+            if (symbols) { var sym = symbols.resolve(expr.name); if (sym && sym.kind === SymbolKind.Constant && typeof sym.constValue === 'number') return sym.constValue; }
+            return null;
+        }
+        function evalUnary(expr) {
+            var v = evaluate(expr.operand); if (v === null) return null;
+            if (expr.op === UnaryOp.Negate) return (-v) & 0xFFFF;
+            if (expr.op === UnaryOp.Plus) return v;
+            if (expr.op === UnaryOp.Not) return v === 0 ? 1 : 0;
+            if (expr.op === UnaryOp.Cpl) return (~v) & 0xFFFF;
+            return null;
+        }
+        function evalBinary(expr) {
+            var l = evaluate(expr.left), r = evaluate(expr.right);
+            if (l === null || r === null) return null;
+            var BO = BinaryOp;
+            switch (expr.op) {
+                case BO.Add: return (l + r) & 0xFFFF;
+                case BO.Sub: return (l - r) & 0xFFFF;
+                case BO.Mul: return (l * r) & 0xFFFF;
+                case BO.Div: return r !== 0 ? (l / r) | 0 : null;
+                case BO.Mod: return r !== 0 ? l % r : null;
+                case BO.And: return l & r;
+                case BO.Or: return l | r;
+                case BO.Xor: return l ^ r;
+                case BO.Shl: return (l << r) & 0xFFFF;
+                case BO.Shr: return (l >>> r) & 0xFFFF;
+                case BO.Eq: return l === r ? 1 : 0;
+                case BO.Neq: return l !== r ? 1 : 0;
+                case BO.Lt: return (l & 0xFFFF) < (r & 0xFFFF) ? 1 : 0;
+                case BO.Gt: return (l & 0xFFFF) > (r & 0xFFFF) ? 1 : 0;
+                case BO.Le: return (l & 0xFFFF) <= (r & 0xFFFF) ? 1 : 0;
+                case BO.Ge: return (l & 0xFFFF) >= (r & 0xFFFF) ? 1 : 0;
+                case BO.SLt: return ((l << 16) >> 16) < ((r << 16) >> 16) ? 1 : 0;
+                case BO.SGt: return ((l << 16) >> 16) > ((r << 16) >> 16) ? 1 : 0;
+                case BO.SLe: return ((l << 16) >> 16) <= ((r << 16) >> 16) ? 1 : 0;
+                case BO.SGe: return ((l << 16) >> 16) >= ((r << 16) >> 16) ? 1 : 0;
+                case BO.LogAnd: return (l !== 0 && r !== 0) ? 1 : 0;
+                case BO.LogOr: return (l !== 0 || r !== 0) ? 1 : 0;
+                default: return null;
+            }
+        }
+        function evalHighLow(expr) {
+            var v = evaluate(expr.operand); if (v === null) return null;
+            return expr.isHigh ? (v >> 8) & 0xFF : v & 0xFF;
+        }
+        function evalCond(expr) {
+            var c = evaluate(expr.condition); if (c === null) return null;
+            return c !== 0 ? evaluate(expr.trueExpr) : evaluate(expr.falseExpr);
+        }
+        return { evaluate: evaluate };
+    }
+
+    // ================================================================
+    // FuncInfo (local variable allocation)
+    // ================================================================
+
+    function FuncInfo(name) {
+        var localSize = 0;
+        return {
+            name: name,
+            get localSize() { return localSize; },
+            allocLocal: function(byteSize, opts) {
+                if (opts && opts.isArray) localSize += byteSize;
+                else if (opts && opts.isFloat) localSize += 3;
+                else localSize += 2;
+                return 0x70 - localSize;
+            }
+        };
+    }
+
+    // ================================================================
+    // Semantic Analyzer
+    // ================================================================
+
+    function SemanticAnalyzer(diagnostics) {
+        var _diag = diagnostics;
+        var _symbols = SymbolTable();
+        var _constEval = ConstEvaluator(_symbols);
+        var _inStaticDecl = false;
+        var _currentFuncName = null;
+        var _currentFunc = null;
+
+        // ---- Builtins ----
+        function defineConst(name, value) {
+            var sym = _symbols.define(name, SymbolKind.Constant, SlangType.Word);
+            sym.constValue = value; sym.isGlobal = true;
+        }
+        function defineSysArray(name, elemType) {
+            var sym = _symbols.define(name, SymbolKind.Variable, MemoryArrayType(elemType));
+            sym.isGlobal = true; sym.asmLabel = '_SYS_' + name;
+        }
+        defineConst('TRUE', 1); defineConst('FALSE', 0);
+        defineSysArray('MEM', SlangType.Byte); defineSysArray('MEMW', SlangType.Word);
+        defineSysArray('PORT', SlangType.Byte); defineSysArray('PORTW', SlangType.Word);
+        defineSysArray('SOS', SlangType.Byte); defineSysArray('SOSW', SlangType.Word);
+
+        var regVars = ['^BC','^DE','^HL','^IX','^IY','^AF','^SP','^CARRY','^ZERO'];
+        for (var ri = 0; ri < regVars.length; ri++) {
+            var rn = regVars[ri];
+            var rs = _symbols.define(rn, SymbolKind.Variable, SlangType.Word);
+            rs.isGlobal = true; rs.asmLabel = '_' + rn.substring(1).toUpperCase();
+        }
+        var aReg = _symbols.define('^A', SymbolKind.Variable, SlangType.Word); aReg.isGlobal = true; aReg.asmLabel = '_A';
+        var cyReg = _symbols.define('^CY', SymbolKind.Variable, SlangType.Word); cyReg.isGlobal = true; cyReg.asmLabel = '_CARRY';
+        var kbuff = _symbols.define('@KBUFF', SymbolKind.Variable, SlangType.Word); kbuff.isGlobal = true; kbuff.asmLabel = '_KBUFF';
+
+        var builtinFuncs = [
+            ['BEEP',0],['STOP',0],['LOCATE',2],['INKEY',1],
+            ['INPUT',0],['GETL',1],['GETLIN',2],['LINPUT',2],
+            ['WIDTH',1],['SCREEN',2],['PRMODE',1],
+            ['BIT',2],['SET',2],['RESET',2],
+            ['ABS',1],['SEX',1],['SGN',1],['RND',1],
+            ['VTOS',2],['GETREG',0],['CALL',1],
+        ];
+        for (var bi = 0; bi < builtinFuncs.length; bi++) {
+            var bn = builtinFuncs[bi][0], bpc = builtinFuncs[bi][1];
+            var bpt = []; for (var j = 0; j < bpc; j++) bpt.push(SlangType.Word);
+            var bsym = _symbols.define(bn, SymbolKind.MachineFunction, FunctionType(SlangType.Word, bpt));
+            bsym.isGlobal = true; bsym.asmLabel = bn;
+        }
+
+        // ---- Visit helpers ----
+        function visitChildren(node) {
+            if (!node) return;
+            var t = node.type;
+            if (t === 'CompilationUnit') { for (var i = 0; i < node.definitions.length; i++) visit(node.definitions[i]); }
+            else if (t === 'Block') { for (var i = 0; i < node.statements.length; i++) visit(node.statements[i]); }
+            else if (t === 'IfStmt') {
+                for (var i = 0; i < node.branches.length; i++) { visit(node.branches[i].condition); visit(node.branches[i].body); }
+                if (node.elseBody) visit(node.elseBody);
+            }
+            else if (t === 'WhileStmt') { visit(node.condition); visit(node.body); }
+            else if (t === 'RepeatStmt') { visit(node.body); visit(node.condition); }
+            else if (t === 'LoopStmt') { visit(node.body); }
+            else if (t === 'ForStmt') { visit(node.from); visit(node.to); visit(node.body); }
+            else if (t === 'CaseStmt') {
+                visit(node.expr);
+                for (var i = 0; i < node.branches.length; i++) {
+                    if (node.branches[i].value) visit(node.branches[i].value);
+                    if (node.branches[i].rangeEnd) visit(node.branches[i].rangeEnd);
+                    visit(node.branches[i].body);
+                }
+            }
+            else if (t === 'ExpressionStmt') { visit(node.expr); }
+            else if (t === 'PrintStmt') { for (var i = 0; i < node.arguments.length; i++) visit(node.arguments[i]); }
+            else if (t === 'ReturnStmt') { if (node.value) visit(node.value); }
+            else if (t === 'ExitStmt') { if (node.level) visit(node.level); }
+            else if (t === 'BinaryExpr') { visit(node.left); visit(node.right); }
+            else if (t === 'UnaryExpr') { visit(node.operand); }
+            else if (t === 'AssignExpr') { visit(node.target); visit(node.value); }
+            else if (t === 'CompoundAssignExpr') { visit(node.target); visit(node.value); }
+            else if (t === 'IncrementExpr') { visit(node.operand); }
+            else if (t === 'CallExpr') { visit(node.func); for (var i = 0; i < node.arguments.length; i++) visit(node.arguments[i]); }
+            else if (t === 'ArrayAccessExpr') { visit(node.array); for (var i = 0; i < node.indices.length; i++) visit(node.indices[i]); }
+            else if (t === 'ConditionalExpr') { visit(node.condition); visit(node.trueExpr); visit(node.falseExpr); }
+            else if (t === 'CommaExpr') { visit(node.left); visit(node.right); }
+            else if (t === 'AddressOfExpr') { visit(node.operand); }
+            else if (t === 'HighLowExpr') { visit(node.operand); }
+            else if (t === 'CastExpr') { visit(node.operand); }
+            else if (t === 'CodeExpr') { for (var i = 0; i < node.values.length; i++) visit(node.values[i]); }
+            else if (t === 'StringFuncExpr') { for (var i = 0; i < node.arguments.length; i++) visit(node.arguments[i]); }
+            else if (t === 'ModuleBlock') { for (var i = 0; i < node.definitions.length; i++) visit(node.definitions[i]); }
+        }
+
+        function visit(node) {
+            if (!node) return;
+            var t = node.type;
+
+            if (t === 'VarDecl') {
+                var type = dataSizeToType(node.size);
+                var sym = _symbols.define(node.name, SymbolKind.Variable, type);
+                if (_currentFunc && !_symbols.isGlobalScope && !_inStaticDecl) {
+                    sym.isGlobal = false;
+                    sym.offset = _currentFunc.allocLocal(type.byteSize, { isFloat: node.size === DataSize.Float });
+                } else {
+                    sym.isGlobal = true;
+                    sym.asmLabel = (_inStaticDecl && _currentFuncName)
+                        ? staticVarLabel(_currentFuncName, node.name) : userVarLabel(node.name);
+                }
+                if (node.initialValue) visit(node.initialValue);
+                return;
+            }
+
+            if (t === 'ArrayDecl') {
+                var elemType = dataSizeToType(node.size);
+                var dims = [];
+                for (var i = 0; i < node.dimensions.length; i++) {
+                    if (node.dimensions[i] === null) dims.push(0);
+                    else { var v = _constEval.evaluate(node.dimensions[i]); dims.push(v !== null ? v + 1 : 1); }
+                }
+                var atype;
+                if (dims.every(function(d) { return d === 0; })) atype = PointerType(elemType);
+                else atype = ArrayType(elemType, dims);
+                var sym = _symbols.define(node.name, SymbolKind.Variable, atype);
+                if (node.isArrayKeyword) sym.isArrayDecl = true;
+                if (_currentFunc && !_symbols.isGlobalScope && !_inStaticDecl) {
+                    sym.isGlobal = false;
+                    sym.offset = _currentFunc.allocLocal(atype.byteSize, { isArray: true });
+                } else {
+                    sym.isGlobal = true;
+                    sym.asmLabel = (_inStaticDecl && _currentFuncName)
+                        ? staticVarLabel(_currentFuncName, node.name) : userVarLabel(node.name);
+                }
+                return;
+            }
+
+            if (t === 'ConstDecl') {
+                if (node.value && node.value.type === 'CodeExpr') {
+                    var sym = _symbols.define(node.name, SymbolKind.Variable, SlangType.Word);
+                    sym.isGlobal = true; sym.isCodeBlock = true;
+                    sym.asmLabel = (_inStaticDecl && _currentFuncName)
+                        ? staticVarLabel(_currentFuncName, node.name) : userVarLabel(node.name);
+                } else {
+                    var sym = _symbols.define(node.name, SymbolKind.Constant, SlangType.Word);
+                    var val = _constEval.evaluate(node.value);
+                    if (val !== null) sym.constValue = val;
+                    else sym.constAst = node.value;
+                }
+                return;
+            }
+
+            if (t === 'MachineDecl') {
+                var paramTypes = [];
+                if (node.paramCount !== null) { for (var i = 0; i < node.paramCount; i++) paramTypes.push(SlangType.Word); }
+                var sym = _symbols.define(node.name, SymbolKind.MachineFunction, FunctionType(SlangType.Word, paramTypes));
+                sym.isGlobal = true; sym.asmLabel = '_' + sanitizeLabel(node.name);
+                if (node.address) sym.addressAst = node.address;
+                if (node.staticDeclarations && node.staticDeclarations.length > 0) {
+                    _currentFuncName = node.name; _inStaticDecl = true;
+                    for (var i = 0; i < node.staticDeclarations.length; i++) visit(node.staticDeclarations[i]);
+                    _inStaticDecl = false; _currentFuncName = null;
+                }
+                return;
+            }
+
+            if (t === 'FuncDef') {
+                var paramTypes = node.parameters.map(function(p) { return dataSizeToType(p.size); });
+                var funcSym = _symbols.define(node.name, SymbolKind.Function, FunctionType(SlangType.Word, paramTypes));
+                funcSym.isGlobal = true; funcSym.asmLabel = sanitizeLabel(node.name);
+                _symbols.pushScope(node.name);
+                var prevFunc = _currentFunc;
+                _currentFunc = FuncInfo(node.name);
+                var argOff = 0x70;
+                for (var i = 0; i < node.parameters.length; i++) {
+                    var p = node.parameters[i];
+                    var pSym = _symbols.define(p.name, SymbolKind.Parameter, dataSizeToType(p.size));
+                    pSym.isGlobal = false; pSym.offset = argOff; argOff += 2;
+                }
+                _currentFuncName = node.name; _inStaticDecl = true;
+                for (var i = 0; i < node.staticDeclarations.length; i++) visit(node.staticDeclarations[i]);
+                _inStaticDecl = false;
+                for (var i = 0; i < node.localDeclarations.length; i++) visit(node.localDeclarations[i]);
+                visit(node.body);
+                funcSym.constValue = _currentFunc;
+                _currentFunc = prevFunc; _symbols.popScope();
+                return;
+            }
+
+            // Default: visit children
+            visitChildren(node);
+        }
+
+        return {
+            symbols: _symbols,
+            constEval: _constEval,
+            analyze: function(unit) { visit(unit); },
+        };
+    }
+
+    // ================================================================
     // Public API (Phase 1 foundation)
     // ================================================================
     window.X1PenSlangCompiler = {
@@ -1496,6 +1874,10 @@
         _toAsmDbArgs: toAsmDbArgs,
         _Lexer: Lexer,
         _Parser: Parser,
+        _SymbolTable: SymbolTable,
+        _ConstEvaluator: ConstEvaluator,
+        _SemanticAnalyzer: SemanticAnalyzer,
+        _SlangType: SlangType,
         _AST: AST,
         _DataSize: DataSize,
         _BinaryOp: BinaryOp,
