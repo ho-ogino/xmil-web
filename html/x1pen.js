@@ -561,7 +561,29 @@ window.__X1PEN_MODE = true;
                     return false;
                 }
             }
-            var slangResult = window.X1PenSlangCompiler.compile(slangSrc, {}, {});
+            // ランタイム .asm ファイルを virtualFS にロード (初回のみ fetch)
+            if (!window._slangRuntimeVFS) {
+                elStatus.textContent = 'Loading SLANG runtime...';
+                var runtimeFiles = [
+                    'runtime.asm', 'core.asm', 'opt.asm', 'libfloat.asm',
+                    'liblsx_base.asm', 'libx1_base.asm', 'libx1_grp.asm',
+                    'liblsx_input.asm', 'libx1_print.asm', 'liblsx_file.asm',
+                    'libx1_pcg.asm', 'libmag.asm', 'libm8a.asm', 'libx1_psg.asm',
+                    'libcompress.asm', 'libsoroban.asm', 'libx1_magic.asm', 'libx1_sgl.asm',
+                ];
+                var vfs = {};
+                for (var ri = 0; ri < runtimeFiles.length; ri++) {
+                    try {
+                        var resp = await fetch('slang_runtime/' + runtimeFiles[ri]);
+                        if (resp.ok) vfs[runtimeFiles[ri]] = await resp.text();
+                    } catch(e) { /* optional file */ }
+                }
+                window._slangRuntimeVFS = vfs;
+            }
+
+            // X1 環境固定
+            var slangEnv = { defaultOrg: 0x100, codeReadonly: false };
+            var slangResult = window.X1PenSlangCompiler.compile(slangSrc, window._slangRuntimeVFS, slangEnv);
             if (slangResult.errors && slangResult.errors.length > 0) {
                 var firstErr = slangResult.errors[0];
                 elStatus.textContent = 'SLANG: ' + (firstErr.message || firstErr);
@@ -569,7 +591,7 @@ window.__X1PEN_MODE = true;
             }
             // コンパイル結果の ASM を使う（ASM タブには書かない）
             asmSrc = slangResult.asm;
-            elStatus.textContent = 'SLANG compiled';
+            elStatus.textContent = 'SLANG compiled (' + asmSrc.split('\n').length + ' lines)';
         }
 
         var isSharedRun = !!pendingShareRuntime;

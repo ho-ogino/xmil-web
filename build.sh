@@ -110,6 +110,13 @@ done
 for f in "${SCRIPT_DIR}"/assets/lsxdodgers_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "./"
 done
+# SLANG runtime
+if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
+    mkdir -p ./slang_runtime
+    for f in "${SCRIPT_DIR}"/assets/slang_runtime/*.asm; do
+        [ -f "$f" ] && cp "$f" ./slang_runtime/
+    done
+fi
 # addrmap
 [ -f "${SCRIPT_DIR}/assets/addrmap_versions.json" ] && \
     cp "${SCRIPT_DIR}/assets/addrmap_versions.json" ./addrmap_versions.json
@@ -186,6 +193,13 @@ done
 for f in "${SCRIPT_DIR}"/assets/lsxdodgers_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
 done
+# SLANG runtime
+if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
+    mkdir -p "${DIST_DIR}/slang_runtime"
+    for f in "${SCRIPT_DIR}"/assets/slang_runtime/*.asm; do
+        [ -f "$f" ] && cp "$f" "${DIST_DIR}/slang_runtime/"
+    done
+fi
 # addrmap
 [ -f "${SCRIPT_DIR}/assets/addrmap_versions.json" ] && \
     cp "${SCRIPT_DIR}/assets/addrmap_versions.json" "${DIST_DIR}/addrmap_versions.json"
