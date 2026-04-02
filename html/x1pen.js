@@ -589,8 +589,10 @@ window.__X1PEN_MODE = true;
                 elStatus.textContent = 'SLANG: ' + (firstErr.message || firstErr);
                 return false;
             }
-            // コンパイル結果の ASM を使う（ASM タブには書かない）
+            // コンパイル結果の ASM を使う
             asmSrc = slangResult.asm;
+            // ASM タブにコンパイル結果を表示（デバッグ用、ユーザーの手書き ASM は退避しない）
+            if (asmEditor) asmEditor.setValue(asmSrc, { silent: true });
             elStatus.textContent = 'SLANG compiled (' + asmSrc.split('\n').length + ' lines)';
         }
 

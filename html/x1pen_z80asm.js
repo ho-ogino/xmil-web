@@ -31,8 +31,8 @@
         if (/^0x[0-9a-f]+$/i.test(s)) return parseInt(s, 16);
         // $ prefix hex
         if (/^\$[0-9a-f]+$/i.test(s)) return parseInt(s.slice(1), 16);
-        // Nh suffix hex (must start with digit)
-        if (/^[0-9][0-9a-f]*h$/i.test(s)) return parseInt(s.slice(0, -1), 16);
+        // Nh suffix hex (digits and A-F followed by H)
+        if (/^[0-9a-f][0-9a-f]*h$/i.test(s)) return parseInt(s.slice(0, -1), 16);
         // %prefix binary
         if (/^%[01]+$/.test(s)) return parseInt(s.slice(1), 2);
         // Nb suffix binary
@@ -85,7 +85,14 @@
             }
             if (/[a-zA-Z_.%]/.test(c)) {
                 while (i < s.length && /[a-zA-Z0-9_.]/.test(s[i])) i++;
-                tokens.push({ type: 'SYMBOL', val: s.substring(start, i) });
+                var sym = s.substring(start, i);
+                // A-F で始まり H で終わる場合、hex number の可能性を再チェック
+                var hexVal = parseNumber(sym);
+                if (hexVal !== null) {
+                    tokens.push({ type: 'NUMBER', val: hexVal });
+                } else {
+                    tokens.push({ type: 'SYMBOL', val: sym });
+                }
                 continue;
             }
             // Unknown character
