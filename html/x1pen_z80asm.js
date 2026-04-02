@@ -125,6 +125,9 @@
             if (t.type === 'SYMBOL') {
                 next();
                 var key = t.val.toUpperCase();
+                // LOW/HIGH unary operators
+                if (key === 'LOW') { var lv = parseAtom(); return (lv !== null && lv !== undefined) ? lv & 0xFF : lv; }
+                if (key === 'HIGH') { var hv = parseAtom(); return (hv !== null && hv !== undefined) ? (hv >> 8) & 0xFF : hv; }
                 // Resolve local labels: .foo → LASTGLOBAL.FOO
                 if (key[0] === '.' && globalLabel) {
                     key = globalLabel + key;
