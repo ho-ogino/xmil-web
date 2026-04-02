@@ -866,6 +866,7 @@
         // ---- Preprocessor (in-parser, simplified) ----
         function evalPreprocExpr(expr) {
             // Substitute defined constants and keywords
+            // Undefined identifiers become 0 (matching SLANG compiler behavior)
             var s = expr.replace(/[A-Za-z_][A-Za-z0-9_]*/g, function(name) {
                 var up = name.toUpperCase();
                 if (up === 'TRUE') return '1';
@@ -874,7 +875,7 @@
                 if (up === 'OR') return '|';
                 if (up === 'NOT') return '!';
                 if (up in _preprocDefs) return String(_preprocDefs[up]);
-                return name;
+                return '0';
             });
             // Remove surrounding parens for simpler eval
             s = s.trim();
@@ -912,6 +913,12 @@
                         var ns = '';
                         while (i < s.length && /[0-9]/.test(s[i])) ns += s[i++];
                         tokens.push({ t: 'num', v: parseInt(ns, 10) });
+                        continue;
+                    }
+                    // Identifier (residual after substitution) — treat as 0
+                    if (/[A-Za-z_]/.test(s[i])) {
+                        while (i < s.length && /[A-Za-z0-9_]/.test(s[i])) i++;
+                        tokens.push({ t: 'num', v: 0 });
                         continue;
                     }
                     // Unknown char — bail
@@ -982,8 +989,8 @@
             var t = advance();
             var expr = t.stringValue;
             var val = evalPreprocExpr(expr);
-            // If evaluation failed, default to true (include the block)
-            var condTrue = (val === null) ? true : (val !== 0);
+            // If evaluation failed (parse error), default to false (exclude the block)
+            var condTrue = (val === null) ? false : (val !== 0);
             if (!condTrue) {
                 // Condition false: skip to #ELSE or #END
                 skipPreprocBlock();

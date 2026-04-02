@@ -518,6 +518,49 @@ testOK('SL1 E',    'SL1 E',    [0xCB, 0x33]);
 testOK('sll e (lowercase)', 'sll e', [0xCB, 0x33]);
 testOK('SLL (IX+5)', 'SLL (IX+5)', [0xDD, 0xCB, 0x05, 0x36]);
 
+// --- MACRO / ENDM ---
+console.log('\n--- MACRO / ENDM ---');
+
+// No-arg macro
+testOK('Macro no args', 'ALLLD MACRO\n LD A,1\n LD B,2\nENDM\n ALLLD', [0x3E,0x01, 0x06,0x02]);
+
+// Macro with args
+testOK('Macro with args', 'MYSET MACRO REG,VAL\n LD REG,VAL\nENDM\n MYSET A,$42', [0x3E,0x42]);
+
+// Multiple expansions
+testOK('Macro multi expand', 'LOADR MACRO R,V\n LD R,V\nENDM\n LOADR A,1\n LOADR B,2',
+    [0x3E,0x01, 0x06,0x02]);
+
+// Macro with label on call line
+testOK('Macro call with label', 'MYPUSH MACRO R\n PUSH R\nENDM\nSTART: MYPUSH BC\n NOP',
+    [0xC5, 0x00]);
+
+// Forward reference: call before definition
+testOK('Macro forward ref', ' FWDMAC\nFWDMAC MACRO\n NOP\n HALT\nENDM', [0x00, 0x76]);
+
+// Nested macro call (macro A calls macro B)
+testOK('Nested macro call',
+    'INNER MACRO\n NOP\nENDM\nOUTER MACRO\n INNER\n HALT\nENDM\n OUTER',
+    [0x00, 0x76]);
+
+// Error: unterminated MACRO
+testFail('Unterminated MACRO', 'FOO MACRO\n NOP');
+
+// Error: mnemonic name conflict
+testFail('Macro name conflict with mnemonic', 'NOP MACRO\n HALT\nENDM');
+
+// Error: arg count mismatch
+testFail('Macro arg count mismatch', 'M2 MACRO A,B\n LD A,B\nENDM\n M2 1');
+
+// Error: recursive macro
+testFail('Recursive macro', 'REC MACRO\n REC\nENDM\n REC');
+
+// Error: label in macro body
+testFail('Label in macro body', 'BADMAC MACRO\nFOO:\n NOP\nENDM');
+
+// Error: local label in macro body
+testFail('Local label in macro body', 'BADMAC2 MACRO\n.FOO:\n NOP\nENDM');
+
 console.log('\n' + '='.repeat(40));
 console.log('Results: ' + passes + ' passed, ' + failures + ' failed');
 console.log('='.repeat(40));

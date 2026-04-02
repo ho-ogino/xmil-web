@@ -944,6 +944,11 @@
                     if (bodyTrimmed.match(/\bMACRO\b/i)) {
                         errors.push({ line: mi + 1, msg: 'Nested macro definition not supported' });
                     }
+                    // Detect label definitions in macro body (v1 restriction)
+                    var bodyCode = stripComment(bodyTrimmed);
+                    if (bodyCode.match(/^(\.[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*)\s*:/)) {
+                        errors.push({ line: mi + 1, msg: 'Label definition inside macro body not supported' });
+                    }
                     macroBody.push(lines[mi]);
                     lines[mi] = '';
                     mi++;
