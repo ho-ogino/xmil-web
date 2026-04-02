@@ -117,6 +117,12 @@ if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
         [ -f "$f" ] && cp "$f" ./slang_runtime/
     done
 fi
+if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
+    mkdir -p ./slang_include
+    for f in "${SCRIPT_DIR}"/assets/slang_include/*; do
+        [ -f "$f" ] && cp "$f" ./slang_include/
+    done
+fi
 # addrmap
 [ -f "${SCRIPT_DIR}/assets/addrmap_versions.json" ] && \
     cp "${SCRIPT_DIR}/assets/addrmap_versions.json" ./addrmap_versions.json
@@ -198,6 +204,12 @@ if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
     mkdir -p "${DIST_DIR}/slang_runtime"
     for f in "${SCRIPT_DIR}"/assets/slang_runtime/*.asm; do
         [ -f "$f" ] && cp "$f" "${DIST_DIR}/slang_runtime/"
+    done
+fi
+if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
+    mkdir -p "${DIST_DIR}/slang_include"
+    for f in "${SCRIPT_DIR}"/assets/slang_include/*; do
+        [ -f "$f" ] && cp "$f" "${DIST_DIR}/slang_include/"
     done
 fi
 # addrmap

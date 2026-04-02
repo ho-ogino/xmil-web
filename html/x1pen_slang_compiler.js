@@ -5663,6 +5663,37 @@
             try {
                 var tokens = Lexer(source).tokenize();
 
+                // #INCLUDE 展開: PreprocInclude トークンをファイル内容のトークンに置換
+                if (virtualFS) {
+                    var expanded = [];
+                    for (var ti = 0; ti < tokens.length; ti++) {
+                        if (tokens[ti].kind === TK.PreprocInclude) {
+                            var incPath = tokens[ti].value || tokens[ti].text;
+                            // virtualFS からファイル内容を取得（大文字小文字非依存）
+                            var incContent = null;
+                            var incPathUpper = incPath.toUpperCase();
+                            for (var vk in virtualFS) {
+                                if (vk.toUpperCase() === incPathUpper || vk.toUpperCase().replace(/.*[\/\\]/, '') === incPathUpper) {
+                                    incContent = typeof virtualFS[vk] === 'string' ? virtualFS[vk] : null;
+                                    break;
+                                }
+                            }
+                            if (incContent) {
+                                var incTokens = Lexer(incContent, incPath).tokenize();
+                                // EOF トークンを除いて展開
+                                for (var iti = 0; iti < incTokens.length; iti++) {
+                                    if (incTokens[iti].kind !== TK.EOF) expanded.push(incTokens[iti]);
+                                }
+                            } else {
+                                diagnostics.warning('#INCLUDE file not found: ' + incPath);
+                            }
+                        } else {
+                            expanded.push(tokens[ti]);
+                        }
+                    }
+                    tokens = expanded;
+                }
+
                 var parser = Parser(tokens, diagnostics);
                 var ast = parser.parseCompilationUnit();
                 if (diagnostics.hasErrors) return { asm: '', errors: diagnostics.diagnostics };

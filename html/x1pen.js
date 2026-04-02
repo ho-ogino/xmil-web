@@ -578,6 +578,14 @@ window.__X1PEN_MODE = true;
                         if (resp.ok) vfs[runtimeFiles[ri]] = await resp.text();
                     } catch(e) { /* optional file */ }
                 }
+                // インクルードファイルも読み込み
+                var includeFiles = ['GRAPH.LIB', 'GRAPHF.LIB', 'SOROBAN.LIB'];
+                for (var ii = 0; ii < includeFiles.length; ii++) {
+                    try {
+                        var iresp = await fetch('slang_include/' + includeFiles[ii]);
+                        if (iresp.ok) vfs[includeFiles[ii]] = await iresp.text();
+                    } catch(e) { /* optional file */ }
+                }
                 window._slangRuntimeVFS = vfs;
             }
 
