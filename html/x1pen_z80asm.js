@@ -417,6 +417,7 @@
         if (mn === 'EX') {
             if (o.length === 2) {
                 if (o[0].type === 'qq' && o[0].name === 'DE' && o[1].type === 'qq' && o[1].name === 'HL') return [0xEB];
+                if (o[0].type === 'qq' && o[0].name === 'HL' && o[1].type === 'qq' && o[1].name === 'DE') return [0xEB]; // EX HL,DE alias
                 if (o[0].type === 'pp' && o[0].name === 'AF' && o[1].type === 'af_prime') return [0x08];
                 if (o[0].type === 'ind_sp' && o[1].type === 'qq' && o[1].name === 'HL') return [0xE3];
                 if (o[0].type === 'ind_sp' && o[1].type === 'ix') return [0xDD, 0xE3];
