@@ -132,6 +132,18 @@
                 var keyUpper = key.toUpperCase();
                 if (keyUpper === 'LOW' && peek()) { var lv = parseAtom(); return (lv !== null && lv !== undefined) ? lv & 0xFF : lv; }
                 if (keyUpper === 'HIGH' && peek()) { var hv = parseAtom(); return (hv !== null && hv !== undefined) ? (hv >> 8) & 0xFF : hv; }
+                if (keyUpper === 'EXISTS' && peek() && peek().type === 'SYMBOL') {
+                    var existsName = next().val;
+                    // シンボルテーブル + 名前空間解決で存在チェック
+                    if (existsName in symbols) return 1;
+                    if (currentNamespace) {
+                        if ((currentNamespace + '.' + existsName) in symbols) return 1;
+                        if (currentNamespace !== 'NAME_SPACE_DEFAULT' && ('NAME_SPACE_DEFAULT.' + existsName) in symbols) return 1;
+                        var esfx = '.' + existsName;
+                        for (var esk in symbols) { if (esk.length > esfx.length && esk.substring(esk.length - esfx.length) === esfx) return 1; }
+                    }
+                    return 0;
+                }
                 // Resolve local labels: .foo → LASTGLOBAL.FOO
                 if (key[0] === '.' && globalLabel) {
                     key = globalLabel + key;
