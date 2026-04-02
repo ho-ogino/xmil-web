@@ -383,6 +383,7 @@ window.__X1PEN_MODE = true;
         if (savedSlang) slangEditor.setValue(savedSlang, { silent: true });
     } catch(e) {}
 
+
     // ── ステート復元 (専用経路 — マウント復元なし) ──
 
     function restoreColdState(stateData) {
@@ -1162,6 +1163,20 @@ window.__X1PEN_MODE = true;
 
         // 共有コード読み込み (?id=xxx)
         var urlId = new URLSearchParams(location.search).get('id');
+
+        // Share パラメータなしの場合、保存済みコンテンツに応じてタブを自動選択
+        // BASIC → SLANG → ASM の優先順で、内容のあるタブに切り替える
+        if (!urlId) {
+            var hasBasic = basicEditor.getValue().trim().length > 0;
+            var hasSlang = slangEditor && slangEditor.getValue().trim().length > 0;
+            var hasAsm   = asmEditor && asmEditor.getValue().trim().length > 0;
+            if (!hasBasic && hasSlang) {
+                setActiveEditorTab('slang');
+            } else if (!hasBasic && !hasSlang && hasAsm) {
+                setActiveEditorTab('asm');
+            }
+        }
+
         if (urlId) {
             elStatus.textContent = 'Loading shared code...';
             // 読み込み中は Share ボタンを無効化 (race 防止)

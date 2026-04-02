@@ -1,5 +1,6 @@
 // x1pen_slang_compiler.js — SLANG Compiler for X1Pen
 // Ported from C# (SLANGCompiler.Core) to JavaScript
+// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ af899a2bbc716c5be4b3b0f0b6e54e46169ac0c7
 // Lazy-loaded: window.X1PenSlangCompiler = { compile: ... }
 
 (function() {
@@ -1054,6 +1055,10 @@
                 if (isBlockOpen()) { value = AST.CodeExpr(parseCodeBlock(), start); }
                 else { value = parseNcExpr(); }
                 decls.push(AST.ConstDecl(name, value, isAsm, start));
+                // Register integer constants for #IF preprocessor evaluation
+                if (value && value.type === 'IntegerLiteral' && name) {
+                    _preprocDefs[name] = value.value;
+                }
             } while (match(TK.Comma));
             match(TK.Semicolon);
             return decls.length === 1 ? decls[0] : AST.Block(decls, start);
