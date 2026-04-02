@@ -109,7 +109,7 @@
         return tokens;
     }
 
-    function evalExpr(exprStr, symbols, pc, globalLabel) {
+    function evalExpr(exprStr, symbols, pc, globalLabel, currentNamespace) {
         var tokens = tokenizeExpr(exprStr);
         if (!tokens) return null;
 
@@ -129,7 +129,17 @@
                 if (key[0] === '.' && globalLabel) {
                     key = globalLabel + key;
                 }
+                // 1. そのまま検索 (NS.LABEL 明示参照 or bare predefined symbol)
                 if (key in symbols) return symbols[key];
+                // 2-3. dotless → 名前空間解決
+                if (currentNamespace && key.indexOf('.') < 0) {
+                    var nsKey = currentNamespace + '.' + key;
+                    if (nsKey in symbols) return symbols[nsKey];
+                    if (currentNamespace !== 'NAME_SPACE_DEFAULT') {
+                        var defKey = 'NAME_SPACE_DEFAULT.' + key;
+                        if (defKey in symbols) return symbols[defKey];
+                    }
+                }
                 return undefined; // unresolved
             }
             if (t.type === 'LPAREN') {
@@ -240,6 +250,14 @@
         code = code.trimEnd();
         if (code.trim() === '') return result;
 
+        // Namespace directive: [NAME]
+        var nsMatch = code.trim().match(/^\[([a-zA-Z_][a-zA-Z0-9_]*)\]$/);
+        if (nsMatch) {
+            result.mnemonic = '_NAMESPACE';
+            result.operands = nsMatch[1];
+            return result;
+        }
+
         // Check for label: at start of line (with colon)
         var m = code.match(/^(\.[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*)\s*:/);
         if (m) {
@@ -318,7 +336,7 @@
     // Operand classification
     // ================================================================
 
-    function classifyOperand(s, symbols, pc, pass, globalLabel) {
+    function classifyOperand(s, symbols, pc, pass, globalLabel, currentNamespace) {
         var su = s.toUpperCase().trim();
 
         // Single 8-bit register
@@ -346,7 +364,7 @@
         // (IX+d), (IY+d)
         var ixm = su.match(/^\((IX|IY)\s*([+\-].*)\)$/i);
         if (ixm) {
-            var val = evalExpr(ixm[2], symbols, pc, globalLabel);
+            var val = evalExpr(ixm[2], symbols, pc, globalLabel, currentNamespace);
             return { type: 'ind_idx', idx: ixm[1].toUpperCase(), disp: val };
         }
         var ixm0 = su.match(/^\((IX|IY)\)$/i);
@@ -360,7 +378,7 @@
         // (nn) - indirect memory
         var indm = su.match(/^\((.+)\)$/);
         if (indm) {
-            var addr = evalExpr(indm[1], symbols, pc, globalLabel);
+            var addr = evalExpr(indm[1], symbols, pc, globalLabel, currentNamespace);
             return { type: 'ind_nn', val: addr };
         }
 
@@ -368,7 +386,7 @@
         if (su in CC) return { type: 'cc', code: CC[su], name: su };
 
         // Immediate / expression
-        var v = evalExpr(s, symbols, pc, globalLabel);
+        var v = evalExpr(s, symbols, pc, globalLabel, currentNamespace);
         if (v !== null && v !== undefined) return { type: 'imm', val: v };
 
         // Unresolved (pass 1)
@@ -830,16 +848,28 @@
         // ---- Pass 1: collect labels, determine sizes ----
         var pass1Addr = 0;
         var pass1BaseOrg = -1;
+        var currentNamespace = 'NAME_SPACE_DEFAULT';
 
         for (var i = 0; i < lines.length; i++) {
             var parsed = parseLine(lines[i]);
 
+            // Namespace directive
+            if (parsed.mnemonic === '_NAMESPACE') {
+                currentNamespace = parsed.operands.toUpperCase();
+                continue;
+            }
+
             if (parsed.label) {
-                var lbl = resolveLocalLabel(parsed.label, i + 1).toUpperCase();
-                if (parsed.label[0] !== '.') lastGlobalLabel = parsed.label.toUpperCase();
+                var lbl;
+                if (parsed.label[0] === '.') {
+                    lbl = resolveLocalLabel(parsed.label, i + 1).toUpperCase();
+                } else {
+                    lbl = (currentNamespace + '.' + parsed.label).toUpperCase();
+                    lastGlobalLabel = lbl;
+                }
 
                 if (parsed.mnemonic === 'EQU') {
-                    var eqVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel);
+                    var eqVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel, currentNamespace);
                     if (eqVal === null || eqVal === undefined) eqVal = 0;
                     symbols[lbl] = eqVal;
                     continue;
@@ -850,7 +880,7 @@
             if (!parsed.mnemonic) continue;
 
             if (parsed.mnemonic === 'ORG') {
-                var orgVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel);
+                var orgVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel, currentNamespace);
                 if (orgVal !== null && orgVal !== undefined) {
                     if (pass1BaseOrg < 0) pass1BaseOrg = orgVal;
                     pass1Addr = orgVal;
@@ -858,7 +888,7 @@
                 continue;
             }
 
-            var size = getInstructionSize(parsed, symbols, pass1Addr, 1, lastGlobalLabel);
+            var size = getInstructionSize(parsed, symbols, pass1Addr, 1, lastGlobalLabel, currentNamespace);
             if (size < 0) {
                 errors.push({ line: i + 1, msg: 'Unknown instruction: ' + parsed.mnemonic + ' ' + parsed.operands });
                 continue;
@@ -868,15 +898,31 @@
 
         // ---- Pass 2: emit bytes ----
         lastGlobalLabel = '';
+        currentNamespace = 'NAME_SPACE_DEFAULT';
         for (var j = 0; j < lines.length; j++) {
             var parsed2 = parseLine(lines[j]);
 
+            // Namespace directive
+            if (parsed2.mnemonic === '_NAMESPACE') {
+                currentNamespace = parsed2.operands.toUpperCase();
+                continue;
+            }
+
             if (parsed2.label) {
-                if (parsed2.label[0] !== '.') lastGlobalLabel = parsed2.label.toUpperCase();
+                if (parsed2.label[0] === '.') {
+                    // ローカルラベル
+                } else {
+                    var lbl2ns = (currentNamespace + '.' + parsed2.label).toUpperCase();
+                    lastGlobalLabel = lbl2ns;
+                }
                 if (parsed2.mnemonic === 'EQU') {
-                    // Re-resolve EQU with full symbol table + correct PC
-                    var lbl2 = resolveLocalLabel(parsed2.label, j + 1).toUpperCase();
-                    var eqVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel);
+                    var lbl2;
+                    if (parsed2.label[0] === '.') {
+                        lbl2 = resolveLocalLabel(parsed2.label, j + 1).toUpperCase();
+                    } else {
+                        lbl2 = (currentNamespace + '.' + parsed2.label).toUpperCase();
+                    }
+                    var eqVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel, currentNamespace);
                     if (eqVal2 !== null && eqVal2 !== undefined) symbols[lbl2] = eqVal2;
                     continue;
                 }
@@ -885,14 +931,14 @@
             if (!parsed2.mnemonic) continue;
 
             if (parsed2.mnemonic === 'ORG') {
-                var orgVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel);
+                var orgVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel, currentNamespace);
                 if (orgVal2 !== null && orgVal2 !== undefined) {
                     handleOrg(orgVal2, j + 1);
                 }
                 continue;
             }
 
-            var bytes = emitInstruction(parsed2, symbols, curAddr, 2, lastGlobalLabel);
+            var bytes = emitInstruction(parsed2, symbols, curAddr, 2, lastGlobalLabel, currentNamespace);
             if (bytes === null) {
                 errors.push({ line: j + 1, msg: 'Failed to encode: ' + parsed2.mnemonic + ' ' + parsed2.operands });
                 continue;
@@ -911,24 +957,24 @@
         };
     }
 
-    function getInstructionSize(parsed, symbols, pc, pass, globalLabel) {
+    function getInstructionSize(parsed, symbols, pc, pass, globalLabel, currentNamespace) {
         var bytes = emitInstruction(parsed, symbols, pc, pass, globalLabel);
         if (bytes === null) return -1;
         return bytes.length;
     }
 
-    function emitInstruction(parsed, symbols, pc, pass, globalLabel) {
+    function emitInstruction(parsed, symbols, pc, pass, globalLabel, currentNamespace) {
         var mn = parsed.mnemonic;
         var opStr = parsed.operands;
 
         // Pseudo-instructions
-        if (mn === 'DB' || mn === 'DEFB') return emitDB(opStr, symbols, pc, pass, globalLabel);
-        if (mn === 'DW' || mn === 'DEFW') return emitDW(opStr, symbols, pc, pass, globalLabel);
-        if (mn === 'DS' || mn === 'DEFS') return emitDS(opStr, symbols, pc, pass, globalLabel);
+        if (mn === 'DB' || mn === 'DEFB') return emitDB(opStr, symbols, pc, pass, globalLabel, currentNamespace);
+        if (mn === 'DW' || mn === 'DEFW') return emitDW(opStr, symbols, pc, pass, globalLabel, currentNamespace);
+        if (mn === 'DS' || mn === 'DEFS') return emitDS(opStr, symbols, pc, pass, globalLabel, currentNamespace);
 
         // Classify operands
         var rawOps = splitOperands(opStr);
-        var ops = rawOps.map(function(s) { return classifyOperand(s, symbols, pc, pass, globalLabel); });
+        var ops = rawOps.map(function(s) { return classifyOperand(s, symbols, pc, pass, globalLabel, currentNamespace); });
 
         // Try each family
         var result = encodeBasic(mn, ops, symbols, pc, pass);
@@ -943,7 +989,7 @@
         return null;
     }
 
-    function emitDB(opStr, symbols, pc, pass, globalLabel) {
+    function emitDB(opStr, symbols, pc, pass, globalLabel, currentNamespace) {
         var bytes = [];
         var parts = [];
         // Split by comma, but respect strings
@@ -966,7 +1012,7 @@
                     bytes.push(ch);
                 }
             } else {
-                var v = evalExpr(p, symbols, pc + bytes.length, globalLabel);
+                var v = evalExpr(p, symbols, pc + bytes.length, globalLabel, currentNamespace);
                 if (v === null) return null; // parse error (e.g. non-ASCII literal)
                 if (v === undefined && pass === 2) return null; // unresolved
                 if (v === undefined) v = 0; // pass 1 placeholder
@@ -976,11 +1022,11 @@
         return bytes;
     }
 
-    function emitDW(opStr, symbols, pc, pass, globalLabel) {
+    function emitDW(opStr, symbols, pc, pass, globalLabel, currentNamespace) {
         var bytes = [];
         var parts = splitOperands(opStr);
         for (var i = 0; i < parts.length; i++) {
-            var v = evalExpr(parts[i], symbols, pc + bytes.length, globalLabel);
+            var v = evalExpr(parts[i], symbols, pc + bytes.length, globalLabel, currentNamespace);
             if (v === null) return null;
             if (v === undefined && pass === 2) return null;
             if (v === undefined) v = 0;
@@ -990,11 +1036,11 @@
         return bytes;
     }
 
-    function emitDS(opStr, symbols, pc, pass, globalLabel) {
+    function emitDS(opStr, symbols, pc, pass, globalLabel, currentNamespace) {
         var parts = splitOperands(opStr);
-        var count = evalExpr(parts[0], symbols, pc, globalLabel);
+        var count = evalExpr(parts[0], symbols, pc, globalLabel, currentNamespace);
         if (count === null || count === undefined) count = 0;
-        var fill = parts.length > 1 ? evalExpr(parts[1], symbols, pc, globalLabel) : 0;
+        var fill = parts.length > 1 ? evalExpr(parts[1], symbols, pc, globalLabel, currentNamespace) : 0;
         if (fill === null || fill === undefined) fill = 0;
         var bytes = [];
         for (var i = 0; i < count; i++) bytes.push(fill & 0xFF);
