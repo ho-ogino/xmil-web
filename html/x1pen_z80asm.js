@@ -284,7 +284,7 @@
      'RLC RRC RL RR SLA SRA SRL BIT RES SET ' +
      'RETI RETN IM RRD RLD LDI LDIR LDD LDDR CPI CPIR CPD CPDR ' +
      'INI INIR IND INDR OUTI OTIR OUTD OTDR ' +
-     'ORG DB DW DS DEFB DEFW DEFS EQU ALIGN').split(' ').forEach(function(m) {
+     'ORG DB DW DS DEFB DEFW DEFS EQU ALIGN MACRO ENDM').split(' ').forEach(function(m) {
         KNOWN_MNEMONICS[m] = true;
     });
 
@@ -865,6 +865,124 @@
         }
         if (ifStack.length > 0) {
             errors.push({ line: lines.length, msg: 'Unterminated #IF' });
+        }
+
+        // ── Macro processing ──
+
+        function stripComment(line) {
+            var inStr = false;
+            for (var ci = 0; ci < line.length; ci++) {
+                if (line[ci] === '"') inStr = !inStr;
+                if (!inStr && line[ci] === ';') return line.substring(0, ci).trimEnd();
+            }
+            return line.trimEnd();
+        }
+
+        function splitMacroArgs(s) {
+            var args = [], current = '', depth = 0;
+            for (var ci = 0; ci < s.length; ci++) {
+                if (s[ci] === '(') depth++;
+                else if (s[ci] === ')') depth--;
+                else if (s[ci] === ',' && depth === 0) { args.push(current.trim()); current = ''; continue; }
+                current += s[ci];
+            }
+            if (current.trim()) args.push(current.trim());
+            return args;
+        }
+
+        // Macro collection
+        var macros = {};
+        for (var mi = 0; mi < lines.length; mi++) {
+            var mline = lines[mi].trim();
+            var macroMatch = mline.match(/^([a-zA-Z_][a-zA-Z0-9_()]*)\s+MACRO\b\s*(.*)?$/i);
+            if (macroMatch) {
+                var macroName = macroMatch[1].toUpperCase();
+                if (macroName in KNOWN_MNEMONICS) {
+                    errors.push({ line: mi + 1, msg: 'Cannot redefine mnemonic as macro: ' + macroName });
+                }
+                var macroArgs = macroMatch[2] ? macroMatch[2].split(',').map(function(a) { return a.trim(); }).filter(Boolean) : [];
+                var macroBody = [];
+                var macroStartLine = mi + 1;
+                lines[mi] = '';
+                mi++;
+                var foundEndm = false;
+                while (mi < lines.length) {
+                    var bodyTrimmed = lines[mi].trim();
+                    if (bodyTrimmed.match(/^ENDM$/i)) { lines[mi] = ''; foundEndm = true; break; }
+                    if (bodyTrimmed.match(/\bMACRO\b/i)) {
+                        errors.push({ line: mi + 1, msg: 'Nested macro definition not supported' });
+                    }
+                    macroBody.push(lines[mi]);
+                    lines[mi] = '';
+                    mi++;
+                }
+                if (!foundEndm) errors.push({ line: macroStartLine, msg: 'Unterminated MACRO: ' + macroName });
+                macros[macroName] = { args: macroArgs, body: macroBody };
+            }
+        }
+
+        // Macro expansion
+        if (Object.keys(macros).length > 0) {
+            var maxExpansions = 1000;
+            var totalExpansions = 0;
+
+            function detectMacroCall(line) {
+                var code = stripComment(line);
+                if (!code.trim()) return null;
+                var label = null;
+                var lm = code.match(/^(\s*(\.[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*)/);
+                if (lm) { label = lm[2]; code = code.substring(lm[1].length); }
+                code = code.trim();
+                if (!code) return null;
+                var parts = code.match(/^([a-zA-Z_][a-zA-Z0-9_()]*)\s*(.*)?$/);
+                if (parts && parts[1].toUpperCase() in macros) {
+                    return { macroName: parts[1].toUpperCase(), args: parts[2] || '', label: label };
+                }
+                return null;
+            }
+
+            function expandMacros(mlines, expandStack) {
+                var newLines = [];
+                for (var eli = 0; eli < mlines.length; eli++) {
+                    var call = detectMacroCall(mlines[eli]);
+                    if (call) {
+                        var macName = call.macroName;
+                        if (expandStack.indexOf(macName) >= 0) {
+                            errors.push({ line: eli + 1, msg: 'Recursive macro expansion: ' + macName });
+                            newLines.push(mlines[eli]); continue;
+                        }
+                        totalExpansions++;
+                        if (totalExpansions > maxExpansions) {
+                            errors.push({ line: eli + 1, msg: 'Macro expansion limit exceeded' });
+                            newLines.push(mlines[eli]); continue;
+                        }
+                        var mac = macros[macName];
+                        var callArgs = call.args ? splitMacroArgs(call.args) : [];
+                        if (callArgs.length !== mac.args.length) {
+                            errors.push({ line: eli + 1, msg: macName + ': argument count mismatch (expected ' + mac.args.length + ', got ' + callArgs.length + ')' });
+                            newLines.push(mlines[eli]); continue;
+                        }
+                        if (call.label) newLines.push(call.label + ':');
+                        var bodyLines = [];
+                        for (var bi = 0; bi < mac.body.length; bi++) {
+                            var bline = mac.body[bi];
+                            for (var ai = 0; ai < mac.args.length; ai++) {
+                                bline = bline.replace(new RegExp('\\b' + mac.args[ai] + '\\b', 'g'), callArgs[ai]);
+                            }
+                            bodyLines.push(bline);
+                        }
+                        expandStack.push(macName);
+                        var expandedBody = expandMacros(bodyLines, expandStack);
+                        expandStack.pop();
+                        for (var ei = 0; ei < expandedBody.length; ei++) newLines.push(expandedBody[ei]);
+                    } else {
+                        newLines.push(mlines[eli]);
+                    }
+                }
+                return newLines;
+            }
+
+            lines = expandMacros(lines, []);
         }
 
         var baseOrg = -1;  // first ORG (returned as .org)
