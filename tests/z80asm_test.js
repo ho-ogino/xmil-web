@@ -468,6 +468,56 @@ testFail('Unterminated #IF', '#IF 1\nNOP');
 testFail('Duplicate #ELSE', '#IF 1\nNOP\n#ELSE\nHALT\n#ELSE\nNOP\n#ENDIF');
 testFail('#IF syntax error', '#IF 1 +\nNOP\n#ENDIF');
 
+// --- IX/IY half registers ---
+console.log('\n--- IX/IY half registers ---');
+
+// LD r, IXH/IXL/IYH/IYL
+testOK('LD A,IXH',  'LD A,IXH',  [0xDD, 0x7C]);
+testOK('LD A,IXL',  'LD A,IXL',  [0xDD, 0x7D]);
+testOK('LD A,IYH',  'LD A,IYH',  [0xFD, 0x7C]);
+testOK('LD A,IYL',  'LD A,IYL',  [0xFD, 0x7D]);
+testOK('LD B,IXH',  'LD B,IXH',  [0xDD, 0x44]);
+testOK('LD C,IXL',  'LD C,IXL',  [0xDD, 0x4D]);
+
+// LD IXH/IXL/IYH/IYL, r
+testOK('LD IXH,A',  'LD IXH,A',  [0xDD, 0x67]);
+testOK('LD IXL,A',  'LD IXL,A',  [0xDD, 0x6F]);
+testOK('LD IYH,A',  'LD IYH,A',  [0xFD, 0x67]);
+testOK('LD IYL,A',  'LD IYL,A',  [0xFD, 0x6F]);
+testOK('LD IXH,B',  'LD IXH,B',  [0xDD, 0x60]);
+testOK('LD IXL,C',  'LD IXL,C',  [0xDD, 0x69]);
+
+// LD IXH/IXL, imm8
+testOK('LD IXH,$42', 'LD IXH,$42', [0xDD, 0x26, 0x42]);
+testOK('LD IXL,$42', 'LD IXL,$42', [0xDD, 0x2E, 0x42]);
+testOK('LD IYH,$42', 'LD IYH,$42', [0xFD, 0x26, 0x42]);
+testOK('LD IYL,$42', 'LD IYL,$42', [0xFD, 0x2E, 0x42]);
+
+// INC/DEC IXH/IXL/IYH/IYL
+testOK('INC IXH', 'INC IXH', [0xDD, 0x24]);
+testOK('DEC IXH', 'DEC IXH', [0xDD, 0x25]);
+testOK('INC IXL', 'INC IXL', [0xDD, 0x2C]);
+testOK('DEC IXL', 'DEC IXL', [0xDD, 0x2D]);
+testOK('INC IYH', 'INC IYH', [0xFD, 0x24]);
+testOK('DEC IYH', 'DEC IYH', [0xFD, 0x25]);
+testOK('INC IYL', 'INC IYL', [0xFD, 0x2C]);
+testOK('DEC IYL', 'DEC IYL', [0xFD, 0x2D]);
+
+// Case insensitive
+testOK('LD a,ixl',  'LD a,ixl',  [0xDD, 0x7D]);
+testOK('inc ixh',   'inc ixh',   [0xDD, 0x24]);
+testOK('dec iyl',   'dec iyl',   [0xFD, 0x2D]);
+
+// --- SLL (undocumented) ---
+console.log('\n--- SLL (undocumented) ---');
+testOK('SLL E',    'SLL E',    [0xCB, 0x33]);
+testOK('SLL A',    'SLL A',    [0xCB, 0x37]);
+testOK('SLL B',    'SLL B',    [0xCB, 0x30]);
+testOK('SLL (HL)', 'SLL (HL)', [0xCB, 0x36]);
+testOK('SL1 E',    'SL1 E',    [0xCB, 0x33]);
+testOK('sll e (lowercase)', 'sll e', [0xCB, 0x33]);
+testOK('SLL (IX+5)', 'SLL (IX+5)', [0xDD, 0xCB, 0x05, 0x36]);
+
 console.log('\n' + '='.repeat(40));
 console.log('Results: ' + passes + ' passed, ' + failures + ' failed');
 console.log('='.repeat(40));

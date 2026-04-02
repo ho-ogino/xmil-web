@@ -798,11 +798,12 @@
     // Parser
     // ================================================================
 
-    function Parser(tokens, diagnostics) {
+    function Parser(tokens, diagnostics, preprocDefs) {
         var _tokens = tokens;
         var _diag = diagnostics;
         var _pos = 0;
         var _argListDepth = 0;
+        var _preprocDefs = preprocDefs || {};
 
         function current() { return _pos < _tokens.length ? _tokens[_pos] : Token(TK.EOF, '', SourceSpan.Unknown); }
         function peekAt(offset) { var i = _pos + (offset || 0); return i < _tokens.length ? _tokens[i] : Token(TK.EOF, '', SourceSpan.Unknown); }
@@ -863,18 +864,152 @@
         }
 
         // ---- Preprocessor (in-parser, simplified) ----
+        function evalPreprocExpr(expr) {
+            // Substitute defined constants and keywords
+            var s = expr.replace(/[A-Za-z_][A-Za-z0-9_]*/g, function(name) {
+                var up = name.toUpperCase();
+                if (up === 'TRUE') return '1';
+                if (up === 'FALSE') return '0';
+                if (up === 'AND') return '&';
+                if (up === 'OR') return '|';
+                if (up === 'NOT') return '!';
+                if (up in _preprocDefs) return String(_preprocDefs[up]);
+                return name;
+            });
+            // Remove surrounding parens for simpler eval
+            s = s.trim();
+            // Simple expression evaluator for #IF conditions
+            try {
+                // Tokenize: numbers, identifiers, operators
+                var tokens = [];
+                var i = 0;
+                while (i < s.length) {
+                    if (s[i] === ' ' || s[i] === '\t') { i++; continue; }
+                    if (s[i] === '(') { tokens.push({ t: '(' }); i++; continue; }
+                    if (s[i] === ')') { tokens.push({ t: ')' }); i++; continue; }
+                    if (s[i] === '<' && s[i+1] === '=') { tokens.push({ t: '<=' }); i+=2; continue; }
+                    if (s[i] === '>' && s[i+1] === '=') { tokens.push({ t: '>=' }); i+=2; continue; }
+                    if (s[i] === '=' && s[i+1] === '=') { tokens.push({ t: '==' }); i+=2; continue; }
+                    if (s[i] === '!' && s[i+1] === '=') { tokens.push({ t: '!=' }); i+=2; continue; }
+                    if (s[i] === '<') { tokens.push({ t: '<' }); i++; continue; }
+                    if (s[i] === '>') { tokens.push({ t: '>' }); i++; continue; }
+                    if (s[i] === '=') { tokens.push({ t: '==' }); i++; continue; }
+                    if (s[i] === '+') { tokens.push({ t: '+' }); i++; continue; }
+                    if (s[i] === '-') { tokens.push({ t: '-' }); i++; continue; }
+                    if (s[i] === '*') { tokens.push({ t: '*' }); i++; continue; }
+                    if (s[i] === '/') { tokens.push({ t: '/' }); i++; continue; }
+                    if (s[i] === '&') { tokens.push({ t: '&' }); i++; continue; }
+                    if (s[i] === '|') { tokens.push({ t: '|' }); i++; continue; }
+                    if (s[i] === '!') { tokens.push({ t: '!' }); i++; continue; }
+                    if (s[i] === '$') {
+                        i++;
+                        var hs = '';
+                        while (i < s.length && /[0-9A-Fa-f]/.test(s[i])) hs += s[i++];
+                        tokens.push({ t: 'num', v: parseInt(hs, 16) || 0 });
+                        continue;
+                    }
+                    if (/[0-9]/.test(s[i])) {
+                        var ns = '';
+                        while (i < s.length && /[0-9]/.test(s[i])) ns += s[i++];
+                        tokens.push({ t: 'num', v: parseInt(ns, 10) });
+                        continue;
+                    }
+                    // Unknown char — bail
+                    return null;
+                }
+                // Recursive descent parser
+                var tp = 0;
+                function peek2() { return tp < tokens.length ? tokens[tp] : null; }
+                function next() { return tokens[tp++]; }
+                function parseOr() {
+                    var v = parseAnd();
+                    while (peek2() && peek2().t === '|') { next(); v = (v | parseAnd()); }
+                    return v;
+                }
+                function parseAnd() {
+                    var v = parseComp();
+                    while (peek2() && peek2().t === '&') { next(); v = (v & parseComp()); }
+                    return v;
+                }
+                function parseComp() {
+                    var v = parseAdd();
+                    while (peek2() && (peek2().t === '<=' || peek2().t === '>=' || peek2().t === '<' || peek2().t === '>' || peek2().t === '==' || peek2().t === '!=')) {
+                        var op = next().t;
+                        var r = parseAdd();
+                        if (op === '<=') v = (v <= r) ? 1 : 0;
+                        else if (op === '>=') v = (v >= r) ? 1 : 0;
+                        else if (op === '<') v = (v < r) ? 1 : 0;
+                        else if (op === '>') v = (v > r) ? 1 : 0;
+                        else if (op === '==') v = (v === r) ? 1 : 0;
+                        else if (op === '!=') v = (v !== r) ? 1 : 0;
+                    }
+                    return v;
+                }
+                function parseAdd() {
+                    var v = parseMul();
+                    while (peek2() && (peek2().t === '+' || peek2().t === '-')) {
+                        var op = next().t;
+                        v = op === '+' ? v + parseMul() : v - parseMul();
+                    }
+                    return v;
+                }
+                function parseMul() {
+                    var v = parseUnary();
+                    while (peek2() && (peek2().t === '*' || peek2().t === '/')) {
+                        var op = next().t;
+                        var r = parseUnary();
+                        v = op === '*' ? v * r : (r !== 0 ? Math.floor(v / r) : 0);
+                    }
+                    return v;
+                }
+                function parseUnary() {
+                    if (peek2() && peek2().t === '!') { next(); return parseUnary() ? 0 : 1; }
+                    if (peek2() && peek2().t === '-') { next(); return -parseUnary(); }
+                    return parsePrimary();
+                }
+                function parsePrimary() {
+                    var tok = peek2();
+                    if (!tok) return 0;
+                    if (tok.t === 'num') { next(); return tok.v; }
+                    if (tok.t === '(') { next(); var v = parseOr(); if (peek2() && peek2().t === ')') next(); return v; }
+                    return 0; // unknown — treat as 0
+                }
+                var result = parseOr();
+                return result;
+            } catch (e) { return null; }
+        }
         function parsePreprocIf() {
             var t = advance();
             var expr = t.stringValue;
-            if (expr.toUpperCase() === 'FALSE' || expr === '0') { skipPreprocBlock(); return null; }
+            var val = evalPreprocExpr(expr);
+            // If evaluation failed, default to true (include the block)
+            var condTrue = (val === null) ? true : (val !== 0);
+            if (!condTrue) {
+                // Condition false: skip to #ELSE or #END
+                skipPreprocBlock();
+                // After skip: if we stopped at #ELSE, the else-body will be parsed normally.
+                // If we stopped at #END, nothing more to parse.
+            }
+            // Condition true: body will be parsed normally by caller.
+            // We return null; the caller will parse statements until hitting #ELSE or #END.
             return null;
         }
+        // Skip tokens until matching #ELSE (at depth 1) or #END
         function skipPreprocBlock() {
             var depth = 1;
             while (!check(TK.EOF) && depth > 0) {
                 if (check(TK.PreprocIf)) { depth++; advance(); continue; }
                 if (check(TK.PreprocEnd)) { depth--; advance(); continue; }
                 if (check(TK.PreprocElse) && depth === 1) { advance(); return; }
+                advance();
+            }
+        }
+        // Skip tokens from #ELSE to matching #END (used when true-branch was taken)
+        function skipPreprocToEnd() {
+            var depth = 1;
+            while (!check(TK.EOF) && depth > 0) {
+                if (check(TK.PreprocIf)) { depth++; advance(); continue; }
+                if (check(TK.PreprocEnd)) { depth--; advance(); continue; }
                 advance();
             }
         }
@@ -1104,6 +1239,7 @@
             if (k === TK.Plain) return AST.PlainAsm(advance().stringValue, current().span);
             if (k === TK.Var || k === TK.Array || k === TK.Byte || k === TK.Word || k === TK.Float) return parseLocalDecl();
             if (k === TK.PreprocIf) return parsePreprocIf();
+            if (k === TK.PreprocElse) { advance(); skipPreprocToEnd(); return null; }
             if (k === TK.PreprocEnd) { advance(); return null; }
             if (isBlockOpen()) return parseCompound();
             if (check(TK.Identifier) && peekAt(1).kind === TK.Colon) {
@@ -1447,7 +1583,8 @@
             if (k === TK.Offset) return parseOffset();
             if (k === TK.Plain) return AST.PlainAsm(advance().stringValue, current().span);
             if (k === TK.PreprocIf) return parsePreprocIf();
-            if (k === TK.PreprocElse || k === TK.PreprocEnd || k === TK.PreprocInclude) { advance(); return null; }
+            if (k === TK.PreprocElse) { advance(); skipPreprocToEnd(); return null; }
+            if (k === TK.PreprocEnd || k === TK.PreprocInclude) { advance(); return null; }
             if (k === TK.Const) return parseConstDecl();
             if (k === TK.Var) return parseVarDeclList();
             if (k === TK.Array) return parseArrayDeclList();
@@ -5694,7 +5831,9 @@
                     tokens = expanded;
                 }
 
-                var parser = Parser(tokens, diagnostics);
+                var envConfig = env || {};
+                var preprocDefs = envConfig.defines || {};
+                var parser = Parser(tokens, diagnostics, preprocDefs);
                 var ast = parser.parseCompilationUnit();
                 if (diagnostics.hasErrors) return { asm: '', errors: diagnostics.diagnostics };
 
@@ -5720,7 +5859,6 @@
                     }
                 }
 
-                var envConfig = env || {};
                 var codeGen = CodeGenerator(irModule, rm, envConfig, diagnostics);
                 var asm = codeGen.generate();
                 return { asm: asm, errors: diagnostics.hasErrors ? diagnostics.diagnostics : [], warnings: [] };

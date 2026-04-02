@@ -589,8 +589,8 @@ window.__X1PEN_MODE = true;
                 window._slangRuntimeVFS = vfs;
             }
 
-            // X1 環境固定
-            var slangEnv = { defaultOrg: 0x100, codeReadonly: false };
+            // X1 環境固定 (ENV_TYPE: 0=CP/M, 1=LSX-Dodgers, 2=MSX-DOS)
+            var slangEnv = { defaultOrg: 0x100, codeReadonly: false, defines: { ENV_TYPE: 1 } };
             var slangResult = window.X1PenSlangCompiler.compile(slangSrc, window._slangRuntimeVFS, slangEnv);
             if (slangResult.errors && slangResult.errors.length > 0) {
                 var firstErr = slangResult.errors[0];

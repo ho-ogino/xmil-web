@@ -74,7 +74,7 @@
             }
             // Number or symbol
             var start = i;
-            if (c === "'" && i + 2 < s.length && s[i + 2] === "'") {
+            if ((c === "'" || c === '"') && i + 2 < s.length && s[i + 2] === c) {
                 var cv = s.charCodeAt(i + 1);
                 if (cv > 0x7F) return null; // non-ASCII
                 tokens.push({ type: 'NUMBER', val: cv });
@@ -286,7 +286,7 @@
     ('NOP HALT DI EI RLCA RRCA RLA RRA DAA CPL SCF CCF EXX RET ' +
      'LD PUSH POP EX ADD ADC SUB SBC AND OR XOR CP INC DEC ' +
      'JP JR DJNZ CALL RST IN OUT NEG ' +
-     'RLC RRC RL RR SLA SRA SRL BIT RES SET ' +
+     'RLC RRC RL RR SLA SRA SLL SL1 SRL BIT RES SET ' +
      'RETI RETN IM RRD RLD LDI LDIR LDD LDDR CPI CPIR CPD CPDR ' +
      'INI INIR IND INDR OUTI OTIR OUTD OTDR ' +
      'ORG DB DW DS DEFB DEFW DEFS EQU ALIGN MACRO ENDM').split(' ').forEach(function(m) {
@@ -357,8 +357,8 @@
             }
         }
 
-        // Mnemonic + operands
-        var parts = code.match(/^([a-zA-Z]+)\s*(.*)?$/);
+        // Mnemonic + operands (allow digits in mnemonic for SL1 etc.)
+        var parts = code.match(/^([a-zA-Z][a-zA-Z0-9]*)\s*(.*)?$/);
         if (parts) {
             result.mnemonic = parts[1].toUpperCase();
             result.operands = (parts[2] || '').trim();
@@ -552,6 +552,10 @@
                 if (o[0].type === 'qq') return [0x03 + o[0].reg * 16 + idOff * 8];
                 if (o[0].type === 'ix') return [0xDD, 0x23 + idOff * 8];
                 if (o[0].type === 'iy') return [0xFD, 0x23 + idOff * 8];
+                if (o[0].type === 'ixh') return [0xDD, 0x24 + idOff]; // INC/DEC IXH
+                if (o[0].type === 'ixl') return [0xDD, 0x2C + idOff]; // INC/DEC IXL
+                if (o[0].type === 'iyh') return [0xFD, 0x24 + idOff]; // INC/DEC IYH
+                if (o[0].type === 'iyl') return [0xFD, 0x2C + idOff]; // INC/DEC IYL
                 if (o[0].type === 'ind_idx') return [o[0].idx === 'IX' ? 0xDD : 0xFD, 0x34 + idOff, o[0].disp & 0xFF];
             }
         }
@@ -745,7 +749,7 @@
 
     // CB family encoder
     function encodeCB(mnemonic, ops, symbols, pc, pass) {
-        var CB_OPS = { RLC:0x00, RRC:0x08, RL:0x10, RR:0x18, SLA:0x20, SRA:0x28, SRL:0x38 };
+        var CB_OPS = { RLC:0x00, RRC:0x08, RL:0x10, RR:0x18, SLA:0x20, SRA:0x28, SLL:0x30, SL1:0x30, SRL:0x38 };
         var CB_BIT = { BIT:0x40, RES:0x80, SET:0xC0 };
 
         if (mnemonic in CB_OPS) {
