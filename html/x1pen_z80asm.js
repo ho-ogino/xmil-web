@@ -415,6 +415,12 @@
         if (su === 'IX') return { type: 'ix' };
         if (su === 'IY') return { type: 'iy' };
 
+        // IX/IY half registers (undocumented)
+        if (su === 'IXH') return { type: 'ixh' };
+        if (su === 'IXL') return { type: 'ixl' };
+        if (su === 'IYH') return { type: 'iyh' };
+        if (su === 'IYL') return { type: 'iyl' };
+
         // (HL), (BC), (DE), (SP)
         if (su === '(HL)') return { type: 'r8', reg: 6, name: '(HL)' };
         if (su === '(BC)') return { type: 'ind_bc' };
@@ -716,6 +722,23 @@
         if (dst.type === 'reg_r' && src.type === 'r8' && src.name === 'A') return [0xED, 0x4F];
         if (dst.type === 'r8' && dst.name === 'A' && src.type === 'reg_i') return [0xED, 0x57];
         if (dst.type === 'r8' && dst.name === 'A' && src.type === 'reg_r') return [0xED, 0x5F];
+
+        // IX/IY half registers (undocumented): DD/FD prefix + H=4, L=5
+        var ixylMap = { ixh: [0xDD, 4], ixl: [0xDD, 5], iyh: [0xFD, 4], iyl: [0xFD, 5] };
+        var dstIxyl = ixylMap[dst.type], srcIxyl = ixylMap[src.type];
+
+        // LD ixh/ixl/iyh/iyl, r8 (not (HL))
+        if (dstIxyl && src.type === 'r8' && src.reg !== 4 && src.reg !== 5 && src.reg !== 6)
+            return [dstIxyl[0], 0x60 + dstIxyl[1] * 8 - 0x20 + src.reg];
+        // LD r8, ixh/ixl/iyh/iyl (not (HL))
+        if (srcIxyl && dst.type === 'r8' && dst.reg !== 4 && dst.reg !== 5 && dst.reg !== 6)
+            return [srcIxyl[0], 0x40 + dst.reg * 8 + srcIxyl[1]];
+        // LD ixh/ixl, ixh/ixl (same prefix)
+        if (dstIxyl && srcIxyl && dstIxyl[0] === srcIxyl[0])
+            return [dstIxyl[0], 0x40 + dstIxyl[1] * 8 + srcIxyl[1]];
+        // LD ixh/ixl/iyh/iyl, n
+        if (dstIxyl && src.type === 'imm')
+            return [dstIxyl[0], 0x26 + (dstIxyl[1] - 4) * 8, src.val & 0xFF];
 
         return null;
     }
