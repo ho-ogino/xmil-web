@@ -5480,8 +5480,9 @@
             }
 
             // Phase 3: ORG
-            if (_module.orgAddress != null) {
-                _e.instruction('ORG', '$' + hex4(_module.orgAddress));
+            var effectiveOrg = _module.orgAddress != null ? _module.orgAddress : (_env.defaultOrg || null);
+            if (effectiveOrg != null) {
+                _e.instruction('ORG', '$' + hex4(effectiveOrg));
             }
 
             // Phase 4: Entry point
