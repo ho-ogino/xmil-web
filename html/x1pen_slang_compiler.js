@@ -3719,6 +3719,1905 @@
     }
 
     // ================================================================
+    // Z80Emitter
+    // ================================================================
+    function Z80Emitter() {
+        var _lines = [];
+        return {
+            get lines() { return _lines; },
+            label: function(name) { _lines.push(name + ':'); },
+            instruction: function(mnemonic, operands) {
+                if (operands != null)
+                    _lines.push('\t' + mnemonic + '\t' + operands);
+                else
+                    _lines.push('\t' + mnemonic);
+            },
+            comment: function(text) { _lines.push('; ' + text); },
+            blank: function() { _lines.push(''); },
+            raw: function(line) { _lines.push(line); },
+            org: function(address) {
+                _lines.push('\tORG\t$' + ('0000' + address.toString(16).toUpperCase()).slice(-4));
+            },
+            defByte: function(values) {
+                _lines.push('\tDB\t' + values.map(function(v) { return '$' + ('00' + (v & 0xFF).toString(16).toUpperCase()).slice(-2); }).join(','));
+            },
+            defWord: function(values) {
+                _lines.push('\tDW\t' + values.map(function(v) { return '$' + ('0000' + (v & 0xFFFF).toString(16).toUpperCase()).slice(-4); }).join(','));
+            },
+            defString: function(text) {
+                _lines.push('\tDB\t"' + text + '",0');
+            },
+            appendFrom: function(other) {
+                var ol = other.lines;
+                for (var i = 0; i < ol.length; i++) _lines.push(ol[i]);
+            },
+            optimizeWith: function(optimizer) {
+                var optimized = optimizer.optimize(_lines);
+                _lines.length = 0;
+                for (var i = 0; i < optimized.length; i++) _lines.push(optimized[i]);
+            },
+            toAssembly: function() { return _lines.join('\n'); },
+        };
+    }
+
+    // ================================================================
+    // PeepholeOptimizer
+    // ================================================================
+    function PeepholeOptimizer() {
+        function applyRules(lines) {
+            var result = [];
+            var changes = 0;
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim();
+                var next = (i + 1 < lines.length) ? lines[i + 1].trim() : '';
+                // Rule 1: PUSH HL / POP HL -> delete
+                if (line === 'PUSH\tHL' && next === 'POP\tHL') { i++; changes++; continue; }
+                // Rule 3: PUSH DE / POP DE -> delete
+                if (line === 'PUSH\tDE' && next === 'POP\tDE') { i++; changes++; continue; }
+                // Rule 4: LD HL,x / PUSH HL / POP DE -> LD DE,x
+                if (line.indexOf('LD\tHL,') === 0 && next === 'PUSH\tHL'
+                    && i + 2 < lines.length && lines[i + 2].trim() === 'POP\tDE') {
+                    var operand = line.substring(6);
+                    result.push('\tLD\tDE,' + operand);
+                    i += 2; changes++; continue;
+                }
+                // Rule 5: EX DE,HL / EX DE,HL -> delete
+                if (line === 'EX\tDE,HL' && next === 'EX\tDE,HL') { i++; changes++; continue; }
+                // Rule 6: JP label / label: -> label: (remove redundant jump)
+                if (line.indexOf('JP\t') === 0 && line.indexOf(',') < 0) {
+                    var target = line.substring(3).trim();
+                    if (next === target + ':') { changes++; continue; }
+                }
+                // Rule 7: LD DE,x / PUSH DE / POP HL -> LD HL,x
+                if (line.indexOf('LD\tDE,') === 0 && next === 'PUSH\tDE'
+                    && i + 2 < lines.length && lines[i + 2].trim() === 'POP\tHL') {
+                    result.push('\tLD\tHL,' + line.substring(6));
+                    i += 2; changes++; continue;
+                }
+                // Rule 8: PUSH HL / POP DE / EX DE,HL / ADD HL,DE -> ADD HL,HL
+                if (line === 'PUSH\tHL' && next === 'POP\tDE'
+                    && i + 2 < lines.length && lines[i + 2].trim() === 'EX\tDE,HL'
+                    && i + 3 < lines.length && lines[i + 3].trim() === 'ADD\tHL,DE') {
+                    result.push('\tADD\tHL,HL');
+                    i += 3; changes++; continue;
+                }
+                // Rule 9: PUSH HL / POP DE / EX DE,HL -> delete
+                if (line === 'PUSH\tHL' && next === 'POP\tDE'
+                    && i + 2 < lines.length && lines[i + 2].trim() === 'EX\tDE,HL') {
+                    i += 2; changes++; continue;
+                }
+                // Rule 10: POP DE / EX DE,HL / ADD HL,DE -> POP DE / ADD HL,DE
+                if (line === 'POP\tDE' && next === 'EX\tDE,HL'
+                    && i + 2 < lines.length && lines[i + 2].trim() === 'ADD\tHL,DE') {
+                    result.push(lines[i]);
+                    result.push('\tADD\tHL,DE');
+                    i += 2; changes++; continue;
+                }
+                // Rule 11: LD (var),HL / LD HL,(var) -> LD (var),HL (remove redundant reload)
+                if (line.indexOf('LD\t(') === 0 && line.length > 6 && line.substring(line.length - 3) === ',HL') {
+                    var varPart = line.substring(3, line.length - 3);
+                    if (next === 'LD\tHL,' + varPart) {
+                        result.push(lines[i]);
+                        i++; changes++; continue;
+                    }
+                }
+                result.push(lines[i]);
+            }
+            return { result: result, changes: changes };
+        }
+        return {
+            optimize: function(lines, maxPasses) {
+                if (maxPasses == null) maxPasses = 10;
+                var result = lines.slice();
+                for (var pass = 0; pass < maxPasses; pass++) {
+                    var r = applyRules(result);
+                    result = r.result;
+                    if (r.changes === 0) break;
+                }
+                return result;
+            },
+        };
+    }
+
+    // ================================================================
+    // RuntimeFunction / RuntimeParser / RuntimeManager
+    // ================================================================
+    function RuntimeFunction() {
+        return {
+            name: '', paramCount: 0, dependencies: [], code: '',
+            initCode: null, libName: null, sourceFile: '', loadOrder: 0,
+            works: null, calleeCleanup: false, aliases: [],
+        };
+    }
+
+    var RuntimeParser = {
+        parse: function(text, sourcePath) {
+            var functions = [];
+            var current = null;
+            var codeLines = [];
+            var initCodeLines = [];
+            var inInitCode = false;
+
+            var rawLines = text.split('\n');
+            for (var li = 0; li < rawLines.length; li++) {
+                var rawLine = rawLines[li].replace(/\r$/, '');
+                var trimLine = rawLine.trimStart ? rawLine.trimStart() : rawLine.replace(/^\s+/, '');
+                if (trimLine.indexOf('; @') === 0) {
+                    var meta = trimLine.substring(3);
+                    var spaceIdx = meta.indexOf(' ');
+                    var key = spaceIdx >= 0 ? meta.substring(0, spaceIdx).trim() : meta.trim();
+                    var value = spaceIdx >= 0 ? meta.substring(spaceIdx + 1).trim() : '';
+                    var keyLower = key.toLowerCase();
+                    if (keyLower === 'name') {
+                        if (current) {
+                            current.code = codeLines.join('\n').replace(/\s+$/, '');
+                            if (initCodeLines.length > 0) current.initCode = initCodeLines.join('\n').replace(/\s+$/, '');
+                            functions.push(current);
+                        }
+                        current = RuntimeFunction();
+                        current.name = value;
+                        current.sourceFile = sourcePath || '<inline>';
+                        codeLines = []; initCodeLines = []; inInitCode = false;
+                    } else if (keyLower === 'param_count') {
+                        if (current) { var pc = parseInt(value, 10); if (!isNaN(pc)) current.paramCount = pc; }
+                    } else if (keyLower === 'calls') {
+                        if (current) {
+                            var deps = value.split(',');
+                            for (var di = 0; di < deps.length; di++) {
+                                var d = deps[di].trim();
+                                if (d) current.dependencies.push(d);
+                            }
+                        }
+                    } else if (keyLower === 'lib') {
+                        if (current) current.libName = value;
+                    } else if (keyLower === 'works') {
+                        if (current && value) {
+                            if (!current.works) current.works = [];
+                            var items = value.split(',');
+                            for (var wi = 0; wi < items.length; wi++) {
+                                var item = items[wi].trim();
+                                var colonIdx = item.indexOf(':');
+                                if (colonIdx > 0) {
+                                    var wLabel = item.substring(0, colonIdx).trim();
+                                    var wSize = parseInt(item.substring(colonIdx + 1).trim(), 10);
+                                    if (!isNaN(wSize)) current.works.push({ label: wLabel, size: wSize });
+                                }
+                            }
+                        }
+                    } else if (keyLower === 'init_code') {
+                        inInitCode = true;
+                    } else if (keyLower === 'end_init') {
+                        inInitCode = false;
+                    } else if (keyLower === 'stack_cleanup') {
+                        if (current && value.toLowerCase() === 'callee') current.calleeCleanup = true;
+                    } else if (keyLower === 'alias') {
+                        if (current && value) current.aliases.push(value);
+                    }
+                    continue;
+                }
+                if (current) {
+                    if (inInitCode) initCodeLines.push(rawLine);
+                    else codeLines.push(rawLine);
+                }
+            }
+            if (current) {
+                current.code = codeLines.join('\n').replace(/\s+$/, '');
+                if (initCodeLines.length > 0) current.initCode = initCodeLines.join('\n').replace(/\s+$/, '');
+                functions.push(current);
+            }
+            return functions;
+        },
+    };
+
+    function RuntimeManager() {
+        var _functions = {};      // name(lowercase) -> RuntimeFunction
+        var _usedFunctions = {};  // name(lowercase) -> true
+        var _excludedFromOutput = {};
+        var _loadOrderCounter = 0;
+
+        function lc(s) { return s.toLowerCase(); }
+
+        function markUsed(name) {
+            var k = lc(name);
+            if (_usedFunctions[k]) return;
+            _usedFunctions[k] = true;
+            var func = _functions[k];
+            if (func) {
+                for (var i = 0; i < func.dependencies.length; i++) markUsed(func.dependencies[i]);
+            }
+        }
+
+        function collectDependencies(name, visited, result) {
+            var k = lc(name);
+            if (visited[k]) return;
+            visited[k] = true;
+            var func = _functions[k];
+            if (func) {
+                for (var i = 0; i < func.dependencies.length; i++)
+                    collectDependencies(func.dependencies[i], visited, result);
+                result.push(func);
+            }
+        }
+
+        function getUsedFunctions() {
+            var visited = {};
+            var result = [];
+            for (var name in _usedFunctions) {
+                if (_usedFunctions[name]) collectDependencies(name, visited, result);
+            }
+            return result;
+        }
+
+        return {
+            get functions() { return _functions; },
+            loadFromString: function(text, sourcePath) {
+                var funcs = RuntimeParser.parse(text, sourcePath);
+                for (var i = 0; i < funcs.length; i++) {
+                    var func = funcs[i];
+                    func.loadOrder = _loadOrderCounter++;
+                    _functions[lc(func.name)] = func;
+                    for (var j = 0; j < func.aliases.length; j++)
+                        _functions[lc(func.aliases[j])] = func;
+                }
+            },
+            markUsed: markUsed,
+            getAndExclude: function(name) {
+                markUsed(name);
+                _excludedFromOutput[lc(name)] = true;
+                var func = _functions[lc(name)];
+                return func ? func.code : null;
+            },
+            getUsedFunctions: getUsedFunctions,
+            getUsedWorkVariables: function() {
+                var seen = {};
+                var result = [];
+                var funcs = getUsedFunctions();
+                for (var i = 0; i < funcs.length; i++) {
+                    if (!funcs[i].works) continue;
+                    for (var j = 0; j < funcs[i].works.length; j++) {
+                        var w = funcs[i].works[j];
+                        var k = lc(w.label);
+                        if (!seen[k]) { seen[k] = true; result.push(w); }
+                    }
+                }
+                return result;
+            },
+            getUsedWorkVariablesWithLib: function() {
+                var seen = {};
+                var result = [];
+                var funcs = getUsedFunctions();
+                for (var i = 0; i < funcs.length; i++) {
+                    var f = funcs[i];
+                    if (!f.works) continue;
+                    for (var j = 0; j < f.works.length; j++) {
+                        var w = f.works[j];
+                        var k = lc(w.label);
+                        if (!seen[k]) { seen[k] = true; result.push({ label: w.label, size: w.size, libName: f.libName }); }
+                    }
+                }
+                return result;
+            },
+            getOutputFunctions: function() {
+                return getUsedFunctions()
+                    .filter(function(f) { return !_excludedFromOutput[lc(f.name)]; })
+                    .sort(function(a, b) { return a.loadOrder - b.loadOrder; });
+            },
+            resolveForNames: function(names, userFuncs) {
+                var visited = {};
+                var result = [];
+                for (var n in names) {
+                    if (names[n] && !userFuncs[lc(n)]) collectDependencies(n, visited, result);
+                }
+                return result.filter(function(f) { return !_excludedFromOutput[lc(f.name)]; })
+                    .sort(function(a, b) { return a.loadOrder - b.loadOrder; });
+            },
+            hasFunction: function(name) { return !!_functions[lc(name)]; },
+            getFunction: function(name) { return _functions[lc(name)] || null; },
+        };
+    }
+
+    // ================================================================
+    // CodeGenerator
+    // ================================================================
+    function CodeGenerator(irModule, runtimeManager, envConfig, diagnostics) {
+        var _module = irModule;
+        var _rm = runtimeManager || null;
+        var _env = envConfig || {};
+        var _diag = diagnostics || null;
+        var _mainEmitter = Z80Emitter();
+        var _e = _mainEmitter;
+        var _currentFuncExitLabel = '_EXIT';
+        var _currentFuncLocalSize = 0;
+        var _calledFunctions = {};
+        var _genLabelCount = 0;
+        var _currentFunction = null;
+
+        // optimization pass state
+        var _currentDirectBinaryOps = {};
+        var _currentHalfDirectOps = {};
+        var _currentReverseHalfDirectOps = {};
+        var _currentIndirStoreDirectValue = {};
+        var _currentSkipEmit = {};
+
+        var isCodeReadonly = _env.codeReadonly === true;
+
+        var SystemRegisterWorks = [
+            { label: '_BC', size: 2 }, { label: '_DE', size: 2 }, { label: '_HL', size: 2 },
+            { label: '_IX', size: 2 }, { label: '_IY', size: 2 }, { label: '_AF', size: 2 },
+            { label: '_CARRY', size: 2 }, { label: '_ZERO', size: 2 }, { label: '_SP', size: 2 },
+        ];
+
+        var InvertCond = { Z: 'NZ', NZ: 'Z', C: 'NC', NC: 'C' };
+        var SignedCompareRuntimeNames = { LT: 'OPSLTHLDE', GT: 'OPSGTHLDE', LE: 'OPSLEHLDE', GE: 'OPSGEHLDE' };
+
+        function hex4(v) { return ('0000' + ((v & 0xFFFF) >>> 0).toString(16).toUpperCase()).slice(-4); }
+        function hex2(v) { return ('00' + ((v & 0xFF) >>> 0).toString(16).toUpperCase()).slice(-2); }
+
+        function asmLabel(name) { return name; }
+
+        function callRuntime(name) {
+            _calledFunctions[name] = true;
+            _e.instruction('CALL', qualifyAsmExpr(name));
+        }
+
+        function qualifyRuntimeName(name) {
+            if (_rm) {
+                var func = _rm.getFunction(name);
+                if (func) {
+                    var resolved = func.name;
+                    if (func.libName) return func.libName + '.' + resolved;
+                    return resolved;
+                }
+            }
+            return name;
+        }
+
+        function qualifyAsmExpr(expr) {
+            if (!_rm) return expr;
+            var funcs = _rm.functions;
+            for (var key in funcs) {
+                var func = funcs[key];
+                var name = key;
+                var resolved = func.name;
+                if (!func.libName && name === resolved.toLowerCase()) continue;
+                // Find name in expr with word boundary check
+                var idx = expr.toLowerCase().indexOf(name);
+                if (idx < 0) continue;
+                var startOk = idx === 0 || (!isAlnumOrUnderscore(expr.charAt(idx - 1)));
+                var endOk = idx + name.length >= expr.length || (!isAlnumOrUnderscore(expr.charAt(idx + name.length)));
+                if (startOk && endOk) {
+                    var target = func.libName ? func.libName + '.' + resolved : resolved;
+                    expr = expr.substring(0, idx) + target + expr.substring(idx + name.length);
+                }
+            }
+            return expr;
+        }
+
+        function isAlnumOrUnderscore(ch) {
+            return /[a-zA-Z0-9_]/.test(ch);
+        }
+
+        function isBinaryOp(op) {
+            return op === IrOp.Add || op === IrOp.Sub || op === IrOp.Mul || op === IrOp.Div || op === IrOp.Mod
+                || op === IrOp.SMul || op === IrOp.SDiv || op === IrOp.SMod
+                || op === IrOp.And || op === IrOp.Or || op === IrOp.Xor
+                || op === IrOp.Shl || op === IrOp.Shr || op === IrOp.SShl || op === IrOp.SShr
+                || op === IrOp.CmpEq || op === IrOp.CmpNeq || op === IrOp.CmpLt || op === IrOp.CmpGt
+                || op === IrOp.CmpLe || op === IrOp.CmpGe
+                || op === IrOp.CmpSLt || op === IrOp.CmpSGt || op === IrOp.CmpSLe || op === IrOp.CmpSGe
+                || op === IrOp.LogAnd || op === IrOp.LogOr;
+        }
+
+        function isCommutativeOp(op) {
+            return op === IrOp.Add || op === IrOp.Mul || op === IrOp.SMul
+                || op === IrOp.And || op === IrOp.Or || op === IrOp.Xor
+                || op === IrOp.CmpEq || op === IrOp.CmpNeq
+                || op === IrOp.LogAnd || op === IrOp.LogOr;
+        }
+
+        function isCompareOp(op) {
+            return op === IrOp.CmpEq || op === IrOp.CmpNeq
+                || op === IrOp.CmpLt || op === IrOp.CmpGt || op === IrOp.CmpLe || op === IrOp.CmpGe
+                || op === IrOp.CmpSLt || op === IrOp.CmpSGt || op === IrOp.CmpSLe || op === IrOp.CmpSGe;
+        }
+
+        function isSimpleLoad(inst) {
+            return inst.dataSize !== 3 && (inst.op === IrOp.LoadVar || inst.op === IrOp.LoadConst
+                || inst.op === IrOp.LoadLocal || inst.op === IrOp.LoadAddr);
+        }
+
+        function usesTemp(inst, tempIdx) {
+            return (inst.src1.kind === IrOperandKind.Temp && inst.src1.tempIndex === tempIdx)
+                || (inst.src2.kind === IrOperandKind.Temp && inst.src2.tempIndex === tempIdx)
+                || (inst.dest.kind === IrOperandKind.Temp && inst.dest.tempIndex === tempIdx);
+        }
+
+        function needsPushAfter(insts, currentIdx, destTemp) {
+            for (var j = currentIdx + 1; j < insts.length; j++) {
+                if (_currentSkipEmit[j]) continue;
+                var next = insts[j];
+                if (next.src1.kind === IrOperandKind.Temp && next.src1.tempIndex === destTemp) {
+                    if (_currentDirectBinaryOps[j] || _currentHalfDirectOps[j] || _currentReverseHalfDirectOps[j])
+                        return false;
+                    if (isBinaryOp(next.op) && next.src2.kind === IrOperandKind.Temp)
+                        return true;
+                    if ((next.op === IrOp.IndirStore || next.op === IrOp.MemStore || next.op === IrOp.PortOut)
+                        && next.dest.kind === IrOperandKind.Temp && next.dest.tempIndex !== destTemp) {
+                        if (_currentIndirStoreDirectValue[j] != null) return false;
+                        return true;
+                    }
+                    if (next.op === IrOp.ArrayStore && next.src2.kind === IrOperandKind.Temp)
+                        return true;
+                    if (next.op === IrOp.StoreVar || next.op === IrOp.StoreLocal)
+                        continue;
+                    return false;
+                }
+                if (next.src2.kind === IrOperandKind.Temp && next.src2.tempIndex === destTemp)
+                    return false;
+                if (next.dest.kind === IrOperandKind.Temp && next.dest.tempIndex === destTemp)
+                    return false;
+            }
+            return false;
+        }
+
+        function emitPushValue(dataSize) {
+            if (dataSize == null) dataSize = 2;
+            if (dataSize === 3) _e.instruction('PUSH', 'AF');
+            _e.instruction('PUSH', 'HL');
+        }
+
+        function emitPopToDE(dataSize) {
+            if (dataSize == null) dataSize = 2;
+            if (dataSize === 3) {
+                _e.instruction('LD', 'C,A');
+                _e.instruction('EX', 'DE,HL');
+                _e.instruction('POP', 'HL');
+                _e.instruction('POP', 'AF');
+            } else {
+                _e.instruction('POP', 'DE');
+                _e.instruction('EX', 'DE,HL');
+            }
+        }
+
+        function emitLoadToDE(inst) {
+            switch (inst.op) {
+                case IrOp.LoadConst:
+                    if (inst.src1.kind === IrOperandKind.AsmString)
+                        _e.instruction('LD', 'DE,0 ; string placeholder');
+                    else
+                        _e.instruction('LD', 'DE,$' + hex4(inst.src1.immediateValue));
+                    break;
+                case IrOp.LoadVar:
+                    if (inst.dataSize === 1) {
+                        _e.instruction('LD', 'A,(' + asmLabel(inst.src1.name) + ')');
+                        _e.instruction('LD', 'E,A'); _e.instruction('LD', 'D,$00');
+                    } else
+                        _e.instruction('LD', 'DE,(' + asmLabel(inst.src1.name) + ')');
+                    break;
+                case IrOp.LoadLocal:
+                    var off = inst.src1.immediateValue | 0;
+                    if (inst.dataSize === 1) {
+                        _e.instruction('LD', 'E,(IY+$' + hex2(off) + ')');
+                        _e.instruction('LD', 'D,$00');
+                    } else {
+                        _e.instruction('LD', 'E,(IY+$' + hex2(off) + ')');
+                        _e.instruction('LD', 'D,(IY+$' + hex2(off + 1) + ')');
+                    }
+                    break;
+                case IrOp.LoadAddr:
+                    var addrName = inst.src1.kind === IrOperandKind.Symbol ? asmLabel(inst.src1.name) : inst.src1.name;
+                    _e.instruction('LD', 'DE,' + addrName);
+                    break;
+            }
+        }
+
+        function emitLoadToHL(inst) {
+            switch (inst.op) {
+                case IrOp.LoadConst:
+                    _e.instruction('LD', 'HL,$' + hex4(inst.src1.immediateValue));
+                    break;
+                case IrOp.LoadVar:
+                    if (inst.dataSize === 1) {
+                        _e.instruction('LD', 'A,(' + asmLabel(inst.src1.name) + ')');
+                        _e.instruction('LD', 'L,A'); _e.instruction('LD', 'H,$00');
+                    } else
+                        _e.instruction('LD', 'HL,(' + asmLabel(inst.src1.name) + ')');
+                    break;
+                case IrOp.LoadLocal:
+                    var off = inst.src1.immediateValue | 0;
+                    if (inst.dataSize === 1) {
+                        _e.instruction('LD', 'L,(IY+$' + hex2(off) + ')');
+                        _e.instruction('LD', 'H,$00');
+                    } else {
+                        _e.instruction('LD', 'L,(IY+$' + hex2(off) + ')');
+                        _e.instruction('LD', 'H,(IY+$' + hex2(off + 1) + ')');
+                    }
+                    break;
+                case IrOp.LoadAddr:
+                    var an = inst.src1.kind === IrOperandKind.Symbol ? asmLabel(inst.src1.name) : inst.src1.name;
+                    _e.instruction('LD', 'HL,' + an);
+                    break;
+            }
+        }
+
+        function emitLoadToBC(inst) {
+            switch (inst.op) {
+                case IrOp.LoadConst:
+                    _e.instruction('LD', 'BC,$' + hex4(inst.src1.immediateValue));
+                    break;
+                case IrOp.LoadVar:
+                    if (inst.dataSize === 1) {
+                        _e.instruction('LD', 'A,(' + asmLabel(inst.src1.name) + ')');
+                        _e.instruction('LD', 'C,A'); _e.instruction('LD', 'B,$00');
+                    } else
+                        _e.instruction('LD', 'BC,(' + asmLabel(inst.src1.name) + ')');
+                    break;
+                case IrOp.LoadLocal:
+                    var off = inst.src1.immediateValue | 0;
+                    if (inst.dataSize === 1) {
+                        _e.instruction('LD', 'C,(IY+$' + hex2(off) + ')');
+                        _e.instruction('LD', 'B,$00');
+                    } else {
+                        _e.instruction('LD', 'C,(IY+$' + hex2(off) + ')');
+                        _e.instruction('LD', 'B,(IY+$' + hex2(off + 1) + ')');
+                    }
+                    break;
+                case IrOp.LoadAddr:
+                    var an = inst.src1.kind === IrOperandKind.Symbol ? asmLabel(inst.src1.name) : inst.src1.name;
+                    _e.instruction('LD', 'BC,' + an);
+                    break;
+            }
+        }
+
+        function emitConstMul(constVal, emitSrc) {
+            switch (constVal) {
+                case 2:
+                    if (emitSrc) emitSrc();
+                    _e.instruction('ADD', 'HL,HL'); return true;
+                case 3:
+                    if (emitSrc) emitSrc();
+                    _e.instruction('LD', 'D,H'); _e.instruction('LD', 'E,L');
+                    _e.instruction('ADD', 'HL,HL'); _e.instruction('ADD', 'HL,DE'); return true;
+                case 4:
+                    if (emitSrc) emitSrc();
+                    _e.instruction('ADD', 'HL,HL'); _e.instruction('ADD', 'HL,HL'); return true;
+                case 5:
+                    if (emitSrc) emitSrc();
+                    _e.instruction('LD', 'D,H'); _e.instruction('LD', 'E,L');
+                    _e.instruction('ADD', 'HL,HL'); _e.instruction('ADD', 'HL,HL');
+                    _e.instruction('ADD', 'HL,DE'); return true;
+                case 6:
+                    if (emitSrc) emitSrc();
+                    _e.instruction('ADD', 'HL,HL');
+                    _e.instruction('LD', 'D,H'); _e.instruction('LD', 'E,L');
+                    _e.instruction('ADD', 'HL,HL'); _e.instruction('ADD', 'HL,DE'); return true;
+                case 8:
+                    if (emitSrc) emitSrc();
+                    _e.instruction('ADD', 'HL,HL'); _e.instruction('ADD', 'HL,HL'); _e.instruction('ADD', 'HL,HL'); return true;
+                default: return false;
+            }
+        }
+
+        function emitBinaryDirect(inst) {
+            var isFloat = inst.dataSize === 3;
+            switch (inst.op) {
+                case IrOp.Add:
+                    if (isFloat) callRuntime('f24add'); else _e.instruction('ADD', 'HL,DE'); break;
+                case IrOp.Sub:
+                    if (isFloat) callRuntime('f24sub');
+                    else { _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE'); } break;
+                case IrOp.Mul: case IrOp.SMul:
+                    if (isFloat) callRuntime('f24mul'); else callRuntime('MULHLDE'); break;
+                case IrOp.Div: case IrOp.SDiv:
+                    if (isFloat) callRuntime('f24div');
+                    else callRuntime(inst.op === IrOp.SDiv ? 'SDIVHLDE' : 'DIVHLDE'); break;
+                case IrOp.Mod: callRuntime('MODHLDE'); break;
+                case IrOp.SMod: callRuntime('SMODHLDE'); break;
+                case IrOp.And:
+                    _e.instruction('LD', 'A,H'); _e.instruction('AND', 'D'); _e.instruction('LD', 'H,A');
+                    _e.instruction('LD', 'A,L'); _e.instruction('AND', 'E'); _e.instruction('LD', 'L,A'); break;
+                case IrOp.Or:
+                    _e.instruction('LD', 'A,H'); _e.instruction('OR', 'D'); _e.instruction('LD', 'H,A');
+                    _e.instruction('LD', 'A,L'); _e.instruction('OR', 'E'); _e.instruction('LD', 'L,A'); break;
+                case IrOp.Xor:
+                    _e.instruction('LD', 'A,H'); _e.instruction('XOR', 'D'); _e.instruction('LD', 'H,A');
+                    _e.instruction('LD', 'A,L'); _e.instruction('XOR', 'E'); _e.instruction('LD', 'L,A'); break;
+                case IrOp.Shl: callRuntime('LSHIFTHLDE'); break;
+                case IrOp.Shr: callRuntime('RSHIFTHLDE'); break;
+                case IrOp.SShl: callRuntime('LSHIFTHLDE'); break;
+                case IrOp.SShr: callRuntime('SRSHIFTHLDE'); break;
+                case IrOp.CmpEq:
+                    if (isFloat) callRuntime('f24cmp');
+                    else { _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE'); }
+                    _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'NZ,$+3'); _e.instruction('INC', 'HL'); break;
+                case IrOp.CmpNeq:
+                    _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'Z,$+3'); _e.instruction('INC', 'HL'); break;
+                case IrOp.CmpLt:
+                    _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'NC,$+3'); _e.instruction('INC', 'HL'); break;
+                case IrOp.CmpGe:
+                    _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'C,$+3'); _e.instruction('INC', 'HL'); break;
+                case IrOp.CmpGt:
+                    _e.instruction('EX', 'DE,HL'); _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'NC,$+3'); _e.instruction('INC', 'HL'); break;
+                case IrOp.CmpLe:
+                    _e.instruction('EX', 'DE,HL'); _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'C,$+3'); _e.instruction('INC', 'HL'); break;
+                case IrOp.CmpSLt: callRuntime('OPSLTHLDE'); break;
+                case IrOp.CmpSGt: callRuntime('OPSGTHLDE'); break;
+                case IrOp.CmpSLe: callRuntime('OPSLEHLDE'); break;
+                case IrOp.CmpSGe: callRuntime('OPSGEHLDE'); break;
+                case IrOp.LogAnd:
+                    _e.instruction('LD', 'A,H'); _e.instruction('OR', 'L');
+                    _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'Z,$+7');
+                    _e.instruction('LD', 'A,D'); _e.instruction('OR', 'E');
+                    _e.instruction('JR', 'Z,$+3'); _e.instruction('INC', 'HL'); break;
+                case IrOp.LogOr:
+                    _e.instruction('LD', 'A,H'); _e.instruction('OR', 'L');
+                    _e.instruction('OR', 'D'); _e.instruction('OR', 'E');
+                    _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'Z,$+3'); _e.instruction('INC', 'HL'); break;
+                default:
+                    _e.comment('unsupported direct: ' + inst.op); break;
+            }
+        }
+
+        function emitSignedFusedJump(label, lessThan, jumpOnTrue) {
+            var jumpIfLess = lessThan === jumpOnTrue;
+            var sameSign = '_SC' + (_genLabelCount++);
+            _e.instruction('LD', 'A,H');
+            _e.instruction('XOR', 'D');
+            _e.instruction('JP', 'P,' + sameSign);
+            _e.instruction('BIT', '7,H');
+            if (jumpIfLess)
+                _e.instruction('JP', 'NZ,' + label);
+            else
+                _e.instruction('JP', 'Z,' + label);
+            var done = '_SC' + (_genLabelCount++);
+            _e.instruction('JP', done);
+            _e.label(sameSign);
+            _e.instruction('OR', 'A');
+            _e.instruction('SBC', 'HL,DE');
+            if (jumpIfLess)
+                _e.instruction('JP', 'C,' + label);
+            else
+                _e.instruction('JP', 'NC,' + label);
+            _e.label(done);
+        }
+
+        function emitFusedCompareJump(cmpInst, label, jumpOnTrue) {
+            if (cmpInst.dataSize === 3) {
+                callRuntime('f24cmp');
+                switch (cmpInst.op) {
+                    case IrOp.CmpEq:
+                        _e.instruction('JP', (jumpOnTrue ? 'Z' : 'NZ') + ',' + label); break;
+                    case IrOp.CmpNeq:
+                        _e.instruction('JP', (jumpOnTrue ? 'NZ' : 'Z') + ',' + label); break;
+                    case IrOp.CmpLt:
+                        _e.instruction('JP', (jumpOnTrue ? 'C' : 'NC') + ',' + label); break;
+                    case IrOp.CmpGe:
+                        _e.instruction('JP', (jumpOnTrue ? 'NC' : 'C') + ',' + label); break;
+                    case IrOp.CmpGt:
+                        if (jumpOnTrue) {
+                            var skipGt = '_SC' + (_genLabelCount++);
+                            _e.instruction('JP', 'C,' + skipGt);
+                            _e.instruction('JP', 'NZ,' + label);
+                            _e.label(skipGt);
+                        } else {
+                            _e.instruction('JP', 'C,' + label);
+                            _e.instruction('JP', 'Z,' + label);
+                        }
+                        break;
+                    case IrOp.CmpLe:
+                        if (jumpOnTrue) {
+                            _e.instruction('JP', 'C,' + label);
+                            _e.instruction('JP', 'Z,' + label);
+                        } else {
+                            var skipLe = '_SC' + (_genLabelCount++);
+                            _e.instruction('JP', 'C,' + skipLe);
+                            _e.instruction('JP', 'NZ,' + label);
+                            _e.label(skipLe);
+                        }
+                        break;
+                    default:
+                        emitBinaryDirect(cmpInst);
+                        _e.instruction('LD', 'A,H'); _e.instruction('OR', 'L');
+                        _e.instruction('JP', (jumpOnTrue ? 'NZ' : 'Z') + ',' + label);
+                        break;
+                }
+                return;
+            }
+            switch (cmpInst.op) {
+                case IrOp.CmpEq:
+                    _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    _e.instruction('JP', (jumpOnTrue ? 'Z' : 'NZ') + ',' + label); break;
+                case IrOp.CmpNeq:
+                    _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    _e.instruction('JP', (jumpOnTrue ? 'NZ' : 'Z') + ',' + label); break;
+                case IrOp.CmpLt:
+                    _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    _e.instruction('JP', (jumpOnTrue ? 'C' : 'NC') + ',' + label); break;
+                case IrOp.CmpGe:
+                    _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    _e.instruction('JP', (jumpOnTrue ? 'NC' : 'C') + ',' + label); break;
+                case IrOp.CmpGt:
+                    _e.instruction('EX', 'DE,HL'); _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    _e.instruction('JP', (jumpOnTrue ? 'C' : 'NC') + ',' + label); break;
+                case IrOp.CmpLe:
+                    _e.instruction('EX', 'DE,HL'); _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    _e.instruction('JP', (jumpOnTrue ? 'NC' : 'C') + ',' + label); break;
+                case IrOp.CmpSLt: emitSignedFusedJump(label, true, jumpOnTrue); break;
+                case IrOp.CmpSGe: emitSignedFusedJump(label, false, jumpOnTrue); break;
+                case IrOp.CmpSGt:
+                    _e.instruction('EX', 'DE,HL'); emitSignedFusedJump(label, true, jumpOnTrue); break;
+                case IrOp.CmpSLe:
+                    _e.instruction('EX', 'DE,HL'); emitSignedFusedJump(label, false, jumpOnTrue); break;
+                default:
+                    emitBinaryDirect(cmpInst);
+                    _e.instruction('LD', 'A,H'); _e.instruction('OR', 'L');
+                    _e.instruction('JP', (jumpOnTrue ? 'NZ' : 'Z') + ',' + label); break;
+            }
+        }
+
+        // ==== EmitInstruction dispatcher ====
+        function emitInstruction(inst) {
+            switch (inst.op) {
+                case IrOp.FuncBegin: emitFuncBegin(inst); break;
+                case IrOp.FuncEnd: emitFuncEnd(); break;
+                case IrOp.LoadConst: emitLoadConst(inst); break;
+                case IrOp.LoadVar: emitLoadVar(inst); break;
+                case IrOp.StoreVar: emitStoreVar(inst); break;
+                case IrOp.LoadLocal: emitLoadLocal(inst); break;
+                case IrOp.StoreLocal: emitStoreLocal(inst); break;
+                case IrOp.LoadAddr: emitLoadAddr(inst); break;
+                case IrOp.Add: emitArith(inst, 'ADD'); break;
+                case IrOp.Sub: emitArith(inst, 'SUB'); break;
+                case IrOp.Mul: case IrOp.SMul: emitMul(inst); break;
+                case IrOp.Div: emitDiv(inst, false); break;
+                case IrOp.SDiv: emitDiv(inst, true); break;
+                case IrOp.Mod: emitMod(inst, false); break;
+                case IrOp.SMod: emitMod(inst, true); break;
+                case IrOp.Neg: emitNeg(inst); break;
+                case IrOp.And: emitBitwise(inst, 'AND'); break;
+                case IrOp.Or: emitBitwise(inst, 'OR'); break;
+                case IrOp.Xor: emitBitwise(inst, 'XOR'); break;
+                case IrOp.Not: emitCpl(inst); break;
+                case IrOp.Shl: emitShift(inst, true); break;
+                case IrOp.Shr: emitShift(inst, false); break;
+                case IrOp.CmpEq: emitCompare(inst, 'Z'); break;
+                case IrOp.CmpNeq: emitCompare(inst, 'NZ'); break;
+                case IrOp.CmpLt: emitCompare(inst, 'C'); break;
+                case IrOp.CmpGe: emitCompare(inst, 'NC'); break;
+                case IrOp.CmpGt: emitCompareGt(inst); break;
+                case IrOp.CmpLe: emitCompareLe(inst); break;
+                case IrOp.CmpSLt: emitSignedCompare(inst, 'LT'); break;
+                case IrOp.CmpSGt: emitSignedCompare(inst, 'GT'); break;
+                case IrOp.CmpSLe: emitSignedCompare(inst, 'LE'); break;
+                case IrOp.CmpSGe: emitSignedCompare(inst, 'GE'); break;
+                case IrOp.LogAnd: emitLogAnd(inst); break;
+                case IrOp.LogOr: emitLogOr(inst); break;
+                case IrOp.LogNot: emitLogNot(inst); break;
+                case IrOp.High: emitHighLow(inst, true); break;
+                case IrOp.Low: emitHighLow(inst, false); break;
+                case IrOp.ArrayLoad: emitArrayLoad(inst); break;
+                case IrOp.ArrayStore: emitArrayStore(inst); break;
+                case IrOp.MemLoad: emitMemLoad(inst); break;
+                case IrOp.MemStore: emitMemStore(inst); break;
+                case IrOp.IndirLoad: emitIndirLoad(inst); break;
+                case IrOp.IndirStore: emitIndirStore(inst); break;
+                case IrOp.PortIn: emitPortIn(inst); break;
+                case IrOp.PortOut: emitPortOut(inst); break;
+                case IrOp.Label: _e.label(inst.dest.name || ''); break;
+                case IrOp.Jump: _e.instruction('JP', inst.dest.name); break;
+                case IrOp.JumpIfZero:
+                    _e.comment('if ' + inst.src1.tempIndex + ' == 0 goto ' + inst.dest.name);
+                    _e.instruction('LD', 'A,H'); _e.instruction('OR', 'L');
+                    _e.instruction('JP', 'Z,' + inst.dest.name); break;
+                case IrOp.JumpIfNonZero:
+                    _e.comment('if ' + inst.src1.tempIndex + ' != 0 goto ' + inst.dest.name);
+                    _e.instruction('LD', 'A,H'); _e.instruction('OR', 'L');
+                    _e.instruction('JP', 'NZ,' + inst.dest.name); break;
+                case IrOp.Call: emitCall(inst); break;
+                case IrOp.Return:
+                    if (inst.dest.kind !== IrOperandKind.None)
+                        _e.comment('return value in HL');
+                    _e.instruction('JP', _currentFuncExitLabel); break;
+                case IrOp.PushArg: emitPushValue(inst.dataSize); break;
+                case IrOp.InlineAsm:
+                    var asmCode = inst.dest.kind === IrOperandKind.Temp ? inst.src1.name : inst.dest.name;
+                    if (asmCode) {
+                        _e.raw(asmCode);
+                        var asmLines = asmCode.split('\n');
+                        for (var ai = 0; ai < asmLines.length; ai++) {
+                            var trimmed = asmLines[ai].trim();
+                            if (trimmed.indexOf('CALL\t') === 0 || trimmed.indexOf('CALL ') === 0) {
+                                var fn = trimmed.substring(5).trim().split(';')[0].trim();
+                                if (fn) _calledFunctions[fn] = true;
+                            }
+                        }
+                    }
+                    break;
+                case IrOp.Comment: _e.comment(inst.dest.name || ''); break;
+                case IrOp.DefByte: _e.raw('\tDB\t$' + hex2(inst.dest.immediateValue)); break;
+                case IrOp.DefWord:
+                    if (inst.dest.kind === IrOperandKind.Label) _e.raw('\tDW\t' + inst.dest.name);
+                    else _e.raw('\tDW\t$' + hex4(inst.dest.immediateValue));
+                    break;
+                case IrOp.DefString:
+                    if (inst.dest.name != null) {
+                        var dbArgs = toAsmDbArgs(inst.dest.name);
+                        _e.raw('\tDB\t' + dbArgs);
+                    }
+                    break;
+                case IrOp.Nop: break;
+                default: _e.comment('TODO: ' + inst.op); break;
+            }
+        }
+
+        // ==== Individual instruction emitters ====
+        function emitFuncBegin(inst) {
+            var funcName = inst.dest.name || 'UNKNOWN';
+            _currentFuncExitLabel = '_' + funcName + '_EXIT';
+            _currentFuncLocalSize = (_currentFunction && _currentFunction.localSize > 0)
+                ? _currentFunction.localSize : computeLocalSize();
+            _e.comment('function ' + funcName);
+            if (_currentFuncLocalSize > 0) {
+                _e.instruction('PUSH', 'IY');
+                _e.instruction('LD', 'BC,$' + hex4(_currentFuncLocalSize));
+                _e.instruction('ADD', 'IY,BC');
+            }
+        }
+
+        function emitFuncEnd() {
+            _e.label(_currentFuncExitLabel);
+            if (_currentFuncLocalSize > 0) _e.instruction('POP', 'IY');
+            _e.instruction('RET');
+        }
+
+        function computeLocalSize() {
+            if (!_currentFunction) return 0;
+            var minOffset = 0x70;
+            var insts = _currentFunction.instructions;
+            for (var i = 0; i < insts.length; i++) {
+                var inst = insts[i];
+                if (inst.op === IrOp.StoreLocal || inst.op === IrOp.LoadLocal) {
+                    var off = inst.op === IrOp.StoreLocal ? (inst.dest.immediateValue | 0) : (inst.src1.immediateValue | 0);
+                    if (off < 0x70 && off < minOffset) minOffset = off;
+                }
+            }
+            return 0x70 - minOffset;
+        }
+
+        function emitLoadConst(inst) {
+            if (inst.src1.kind === IrOperandKind.AsmString) {
+                _e.comment('load string ' + inst.src1.name);
+                _e.instruction('LD', 'HL,0 ; string placeholder');
+            } else {
+                var val = inst.src1.immediateValue & 0xFFFF;
+                if (inst.dataSize === 1)
+                    _e.instruction('LD', 'A,$' + hex2(val));
+                else
+                    _e.instruction('LD', 'HL,$' + hex4(val));
+            }
+        }
+
+        function emitLoadVar(inst) {
+            var lbl = asmLabel(inst.src1.name);
+            if (inst.dataSize === 1) {
+                _e.instruction('LD', 'A,(' + lbl + ')');
+                _e.instruction('LD', 'L,A'); _e.instruction('LD', 'H,$00');
+            } else {
+                _e.instruction('LD', 'HL,(' + lbl + ')');
+                if (inst.dataSize === 3) _e.instruction('LD', 'A,(' + lbl + '+2)');
+            }
+        }
+
+        function emitStoreVar(inst) {
+            var lbl = asmLabel(inst.dest.name);
+            if (inst.dataSize === 1) {
+                _e.instruction('LD', 'A,L'); _e.instruction('LD', '(' + lbl + '),A');
+            } else {
+                _e.instruction('LD', '(' + lbl + '),HL');
+                if (inst.dataSize === 3) _e.instruction('LD', '(' + lbl + '+2),A');
+            }
+        }
+
+        function emitLoadLocal(inst) {
+            var off = inst.src1.immediateValue | 0;
+            if (inst.dataSize === 1) {
+                _e.instruction('LD', 'L,(IY+$' + hex2(off) + ')'); _e.instruction('LD', 'H,$00');
+            } else {
+                _e.instruction('LD', 'L,(IY+$' + hex2(off) + ')');
+                _e.instruction('LD', 'H,(IY+$' + hex2(off + 1) + ')');
+                if (inst.dataSize === 3) _e.instruction('LD', 'A,(IY+$' + hex2(off + 2) + ')');
+            }
+        }
+
+        function emitStoreLocal(inst) {
+            var off = inst.dest.immediateValue | 0;
+            if (inst.dataSize === 1) {
+                _e.instruction('LD', '(IY+$' + hex2(off) + '),L');
+            } else {
+                _e.instruction('LD', '(IY+$' + hex2(off) + '),L');
+                _e.instruction('LD', '(IY+$' + hex2(off + 1) + '),H');
+                if (inst.dataSize === 3) _e.instruction('LD', '(IY+$' + hex2(off + 2) + '),A');
+            }
+        }
+
+        function emitLoadAddr(inst) {
+            var name = inst.src1.name;
+            var lbl = inst.src1.kind === IrOperandKind.Symbol ? asmLabel(name) : name;
+            _e.instruction('LD', 'HL,' + lbl);
+            if (inst.src1.kind === IrOperandKind.Symbol) _calledFunctions[name] = true;
+        }
+
+        function emitArith(inst, op) {
+            emitPopToDE(inst.dataSize);
+            if (inst.dataSize === 3) callRuntime(op === 'ADD' ? 'f24add' : 'f24sub');
+            else if (op === 'ADD') _e.instruction('ADD', 'HL,DE');
+            else { _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE'); }
+        }
+        function emitMul(inst) { emitPopToDE(inst.dataSize); if (inst.dataSize === 3) callRuntime('f24mul'); else callRuntime('MULHLDE'); }
+        function emitDiv(inst, signed) { emitPopToDE(inst.dataSize); if (inst.dataSize === 3) callRuntime('f24div'); else callRuntime(signed ? 'SDIVHLDE' : 'DIVHLDE'); }
+        function emitMod(inst, signed) { _e.instruction('POP', 'DE'); _e.instruction('EX', 'DE,HL'); callRuntime(signed ? 'SMODHLDE' : 'MODHLDE'); }
+        function emitNeg(inst) {
+            _e.instruction('LD', 'A,H'); _e.instruction('CPL'); _e.instruction('LD', 'H,A');
+            _e.instruction('LD', 'A,L'); _e.instruction('CPL'); _e.instruction('LD', 'L,A');
+            _e.instruction('INC', 'HL');
+        }
+        function emitBitwise(inst, op) {
+            _e.instruction('POP', 'DE');
+            _e.instruction('LD', 'A,D'); _e.instruction(op, 'H'); _e.instruction('LD', 'H,A');
+            _e.instruction('LD', 'A,E'); _e.instruction(op, 'L'); _e.instruction('LD', 'L,A');
+        }
+        function emitCpl(inst) {
+            _e.instruction('LD', 'A,H'); _e.instruction('CPL'); _e.instruction('LD', 'H,A');
+            _e.instruction('LD', 'A,L'); _e.instruction('CPL'); _e.instruction('LD', 'L,A');
+        }
+        function emitShift(inst, left) {
+            _e.instruction('POP', 'DE'); _e.instruction('EX', 'DE,HL');
+            callRuntime(left ? 'LSHIFTHLDE' : 'RSHIFTHLDE');
+        }
+        function emitCompare(inst, trueCond) {
+            emitPopToDE(inst.dataSize);
+            if (inst.dataSize === 3) callRuntime('f24cmp');
+            else { _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE'); }
+            _e.instruction('LD', 'HL,$0000');
+            _e.instruction('JR', InvertCond[trueCond] + ',$+3');
+            _e.instruction('INC', 'HL');
+        }
+        function emitCompareGt(inst) {
+            emitPopToDE(inst.dataSize);
+            _e.instruction('EX', 'DE,HL');
+            if (inst.dataSize === 3) {
+                _e.instruction('LD', 'B,A'); _e.instruction('LD', 'A,C'); _e.instruction('LD', 'C,B');
+                callRuntime('f24cmp');
+            } else { _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE'); }
+            _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'NC,$+3'); _e.instruction('INC', 'HL');
+        }
+        function emitCompareLe(inst) {
+            emitCompareGt(inst);
+            _e.instruction('LD', 'A,L'); _e.instruction('XOR', '$01'); _e.instruction('LD', 'L,A');
+        }
+        function emitSignedCompare(inst, kind) {
+            _e.instruction('POP', 'DE'); _e.instruction('EX', 'DE,HL');
+            callRuntime(SignedCompareRuntimeNames[kind]);
+        }
+        function emitLogAnd(inst) {
+            _e.instruction('POP', 'DE');
+            _e.instruction('LD', 'A,D'); _e.instruction('OR', 'E');
+            _e.instruction('LD', 'D,H'); _e.instruction('LD', 'E,L');
+            _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'Z,$+7');
+            _e.instruction('LD', 'A,D'); _e.instruction('OR', 'E');
+            _e.instruction('JR', 'Z,$+3'); _e.instruction('INC', 'HL');
+        }
+        function emitLogOr(inst) {
+            _e.instruction('POP', 'DE');
+            _e.instruction('LD', 'A,H'); _e.instruction('OR', 'L');
+            _e.instruction('OR', 'D'); _e.instruction('OR', 'E');
+            _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'Z,$+3'); _e.instruction('INC', 'HL');
+        }
+        function emitLogNot(inst) {
+            _e.instruction('LD', 'A,H'); _e.instruction('OR', 'L');
+            _e.instruction('LD', 'HL,$0001'); _e.instruction('JR', 'Z,$+3'); _e.instruction('DEC', 'HL');
+        }
+        function emitHighLow(inst, high) {
+            if (high) { _e.instruction('LD', 'L,H'); _e.instruction('LD', 'H,$00'); }
+            else _e.instruction('LD', 'H,$00');
+        }
+        function emitArrayLoad(inst) {
+            var isByte = inst.dataSize === 1;
+            _e.comment('array load [' + (isByte ? 'BYTE' : 'WORD') + ']');
+            if (!isByte) _e.instruction('ADD', 'HL,HL');
+            _e.instruction('POP', 'DE'); _e.instruction('ADD', 'HL,DE');
+            if (isByte) { _e.instruction('LD', 'L,(HL)'); _e.instruction('LD', 'H,$00'); }
+            else { _e.instruction('LD', 'E,(HL)'); _e.instruction('INC', 'HL'); _e.instruction('LD', 'D,(HL)'); _e.instruction('EX', 'DE,HL'); }
+        }
+        function emitArrayStore(inst) {
+            var isByte = inst.dataSize === 1;
+            _e.comment('array store [' + (isByte ? 'BYTE' : 'WORD') + ']');
+            if (!isByte) _e.instruction('ADD', 'HL,HL');
+            _e.instruction('POP', 'DE'); _e.instruction('ADD', 'HL,DE');
+            _e.instruction('POP', 'DE');
+            if (isByte) _e.instruction('LD', '(HL),E');
+            else { _e.instruction('LD', '(HL),E'); _e.instruction('INC', 'HL'); _e.instruction('LD', '(HL),D'); }
+        }
+        function emitMemLoad(inst) {
+            if (inst.dataSize === 1) { _e.instruction('LD', 'L,(HL)'); _e.instruction('LD', 'H,$00'); }
+            else { _e.instruction('LD', 'E,(HL)'); _e.instruction('INC', 'HL'); _e.instruction('LD', 'D,(HL)'); _e.instruction('EX', 'DE,HL'); }
+        }
+        function emitMemStore(inst) {
+            _e.instruction('POP', 'DE');
+            if (inst.dataSize === 1) _e.instruction('LD', '(HL),E');
+            else { _e.instruction('LD', '(HL),E'); _e.instruction('INC', 'HL'); _e.instruction('LD', '(HL),D'); }
+        }
+        function emitIndirLoad(inst) {
+            if (inst.dataSize === 1) { _e.instruction('LD', 'L,(HL)'); _e.instruction('LD', 'H,$00'); }
+            else { _e.instruction('LD', 'E,(HL)'); _e.instruction('INC', 'HL'); _e.instruction('LD', 'D,(HL)'); _e.instruction('EX', 'DE,HL'); }
+        }
+        function emitIndirStore(inst) {
+            _e.instruction('POP', 'DE');
+            if (inst.dataSize === 1) _e.instruction('LD', '(HL),E');
+            else { _e.instruction('LD', '(HL),E'); _e.instruction('INC', 'HL'); _e.instruction('LD', '(HL),D'); }
+        }
+        function emitPortIn(inst) {
+            _e.instruction('LD', 'B,H'); _e.instruction('LD', 'C,L');
+            if (inst.dataSize === 1) { _e.instruction('IN', 'L,(C)'); _e.instruction('LD', 'H,$00'); }
+            else { _e.instruction('IN', 'L,(C)'); _e.instruction('INC', 'BC'); _e.instruction('IN', 'H,(C)'); }
+        }
+        function emitPortOut(inst) {
+            _e.instruction('POP', 'DE');
+            _e.instruction('LD', 'B,H'); _e.instruction('LD', 'C,L');
+            _e.instruction('EX', 'DE,HL');
+            if (inst.dataSize === 1) _e.instruction('OUT', '(C),L');
+            else { _e.instruction('OUT', '(C),L'); _e.instruction('INC', 'BC'); _e.instruction('OUT', '(C),H'); }
+        }
+
+        function emitCall(inst) {
+            var funcName = inst.src1.name || String(inst.src1);
+            _calledFunctions[funcName] = true;
+            var isRuntimeOrExpr = (_rm && _rm.hasFunction(funcName))
+                || funcName.indexOf('+') >= 0 || funcName.indexOf('-') >= 0;
+            var callLabel = isRuntimeOrExpr ? qualifyAsmExpr(funcName) : funcName;
+            var callArgMode = inst.src2.immediateValue | 0;
+
+            if (callArgMode < 0) {
+                var userArgCount = -callArgMode;
+                var argOffset = 0x70 + (userArgCount - 1) * 2;
+                for (var i = userArgCount - 1; i >= 0; i--) {
+                    _e.instruction('POP', 'HL');
+                    _e.instruction('LD', '(IY+$' + hex2(argOffset) + '),L');
+                    _e.instruction('LD', '(IY+$' + hex2(argOffset + 1) + '),H');
+                    argOffset -= 2;
+                }
+            } else if (callArgMode > 0 && callArgMode <= 3) {
+                if (callArgMode >= 3) _e.instruction('POP', 'BC');
+                if (callArgMode >= 2) _e.instruction('POP', 'DE');
+                _e.instruction('POP', 'HL');
+            }
+
+            _e.instruction('CALL', callLabel);
+
+            if (callArgMode >= 4) {
+                var calleeCleanup = false;
+                if (_rm) { var rtFunc = _rm.getFunction(funcName); if (rtFunc) calleeCleanup = rtFunc.calleeCleanup; }
+                if (!calleeCleanup) {
+                    var stackSize = callArgMode * 2;
+                    _e.instruction('EX', 'DE,HL');
+                    _e.instruction('LD', 'HL,' + stackSize);
+                    _e.instruction('ADD', 'HL,SP');
+                    _e.instruction('LD', 'SP,HL');
+                    _e.instruction('EX', 'DE,HL');
+                }
+            }
+        }
+
+        // ==== EmitFunction: main function codegen with optimization passes ====
+        function emitFunction(func) {
+            _currentFunction = func;
+            _e.label(func.name);
+
+            var insts = func.instructions;
+            // Pass 1: temp definition map
+            var tempDef = {};
+            for (var i = 0; i < insts.length; i++) {
+                if (insts[i].dest.kind === IrOperandKind.Temp)
+                    tempDef[insts[i].dest.tempIndex] = i;
+            }
+
+            var skipEmit = {};
+            var directBinaryOps = {};
+            var halfDirectOps = {};
+            var reverseHalfDirectOps = {};
+
+            for (var i = 0; i < insts.length; i++) {
+                var inst = insts[i];
+                if (isBinaryOp(inst.op)
+                    && inst.src1.kind === IrOperandKind.Temp
+                    && inst.src2.kind === IrOperandKind.Temp
+                    && tempDef[inst.src1.tempIndex] != null
+                    && tempDef[inst.src2.tempIndex] != null) {
+                    var s1 = tempDef[inst.src1.tempIndex];
+                    var s2 = tempDef[inst.src2.tempIndex];
+                    if (isSimpleLoad(insts[s1]) && isSimpleLoad(insts[s2])) {
+                        skipEmit[s1] = true; skipEmit[s2] = true; directBinaryOps[i] = true;
+                    } else if (isSimpleLoad(insts[s2]) && !isSimpleLoad(insts[s1])) {
+                        skipEmit[s2] = true; halfDirectOps[i] = true;
+                    } else if (isSimpleLoad(insts[s1]) && !isSimpleLoad(insts[s2]) && isCommutativeOp(inst.op)) {
+                        skipEmit[s1] = true; reverseHalfDirectOps[i] = true;
+                    }
+                }
+            }
+
+            // Fused compare+jump
+            var fusedCompareJumps = {};
+            for (var i = 0; i < insts.length - 1; i++) {
+                if (isCompareOp(insts[i].op) && insts[i].dest.kind === IrOperandKind.Temp) {
+                    var cmpTemp = insts[i].dest.tempIndex;
+                    for (var j = i + 1; j < insts.length; j++) {
+                        if (skipEmit[j]) continue;
+                        if ((insts[j].op === IrOp.JumpIfZero || insts[j].op === IrOp.JumpIfNonZero)
+                            && insts[j].src1.kind === IrOperandKind.Temp
+                            && insts[j].src1.tempIndex === cmpTemp) {
+                            fusedCompareJumps[i] = j;
+                            skipEmit[j] = true;
+                            break;
+                        }
+                        if (usesTemp(insts[j], cmpTemp)) break;
+                    }
+                }
+            }
+
+            // IndirStore/MemStore direct value load
+            var indirStoreDirectValue = {};
+            for (var i = 0; i < insts.length; i++) {
+                var inst = insts[i];
+                if ((inst.op === IrOp.IndirStore || inst.op === IrOp.MemStore)
+                    && inst.src1.kind === IrOperandKind.Temp
+                    && tempDef[inst.src1.tempIndex] != null) {
+                    var valDefIdx = tempDef[inst.src1.tempIndex];
+                    var valDef = insts[valDefIdx];
+                    if (isSimpleLoad(valDef) && !skipEmit[valDefIdx]) {
+                        var valTemp = inst.src1.tempIndex;
+                        var onlyUsedHere = true;
+                        for (var j = 0; j < insts.length; j++) {
+                            if (j === i || j === valDefIdx) continue;
+                            if (skipEmit[j]) continue;
+                            if (usesTemp(insts[j], valTemp)) { onlyUsedHere = false; break; }
+                        }
+                        if (onlyUsedHere) { indirStoreDirectValue[i] = valDefIdx; skipEmit[valDefIdx] = true; }
+                    }
+                }
+            }
+
+            // StoreLocal direct const
+            var storeLocalDirectConst = {};
+            for (var i = 0; i < insts.length; i++) {
+                var inst = insts[i];
+                if (inst.op === IrOp.StoreLocal
+                    && inst.src1.kind === IrOperandKind.Temp
+                    && tempDef[inst.src1.tempIndex] != null) {
+                    var cDefIdx = tempDef[inst.src1.tempIndex];
+                    var cDef = insts[cDefIdx];
+                    if (cDef.op === IrOp.LoadConst && cDef.src1.kind === IrOperandKind.Immediate && !skipEmit[cDefIdx]) {
+                        var vt = inst.src1.tempIndex;
+                        var ouh = true;
+                        for (var j = 0; j < insts.length; j++) {
+                            if (j === i || j === cDefIdx) continue;
+                            if (usesTemp(insts[j], vt)) { ouh = false; break; }
+                        }
+                        if (ouh) { storeLocalDirectConst[i] = cDefIdx; skipEmit[cDefIdx] = true; }
+                    }
+                }
+            }
+
+            // MACHINE direct register load
+            var machineDirectCandidates = {};
+            for (var i = 0; i < insts.length; i++) {
+                var inst = insts[i];
+                if (inst.op !== IrOp.Call || inst.src2.kind !== IrOperandKind.Immediate) continue;
+                var argCount = inst.src2.immediateValue | 0;
+                if (argCount < 1 || argCount > 3) continue;
+                var argDefs = []; var pushIdxs = [];
+                var pos = i - 1;
+                var allSimple = true;
+                for (var a = argCount - 1; a >= 0; a--) {
+                    while (pos >= 0 && skipEmit[pos]) pos--;
+                    if (pos < 0 || insts[pos].op !== IrOp.PushArg) { allSimple = false; break; }
+                    pushIdxs.unshift(pos); pos--;
+                    while (pos >= 0 && skipEmit[pos]) pos--;
+                    if (pos < 0 || !isSimpleLoad(insts[pos])) { allSimple = false; break; }
+                    var loadTemp = insts[pos].dest.tempIndex;
+                    var onlyUsedByPush = true;
+                    for (var j = 0; j < insts.length; j++) {
+                        if (j === pos || j === pushIdxs[0]) continue;
+                        if (usesTemp(insts[j], loadTemp)) { onlyUsedByPush = false; break; }
+                    }
+                    if (!onlyUsedByPush) { allSimple = false; break; }
+                    argDefs.unshift(pos); pos--;
+                }
+                if (allSimple && argDefs.length === argCount)
+                    machineDirectCandidates[i] = { argDefs: argDefs, pushIdxs: pushIdxs };
+            }
+            var machineDirectArgs = {};
+            for (var callIdx in machineDirectCandidates) {
+                var c = machineDirectCandidates[callIdx];
+                machineDirectArgs[callIdx] = c.argDefs;
+                for (var ii = 0; ii < c.argDefs.length; ii++) skipEmit[c.argDefs[ii]] = true;
+                for (var ii = 0; ii < c.pushIdxs.length; ii++) skipEmit[c.pushIdxs[ii]] = true;
+            }
+
+            // Set fields for NeedsPushAfter
+            _currentDirectBinaryOps = directBinaryOps;
+            _currentHalfDirectOps = halfDirectOps;
+            _currentReverseHalfDirectOps = reverseHalfDirectOps;
+            _currentIndirStoreDirectValue = indirStoreDirectValue;
+            _currentSkipEmit = skipEmit;
+
+            // Pass 2: emit
+            for (var i = 0; i < insts.length; i++) {
+                if (skipEmit[i]) continue;
+                var inst = insts[i];
+
+                if (directBinaryOps[i] && inst.dataSize !== 3) {
+                    var s1Inst = insts[tempDef[inst.src1.tempIndex]];
+                    var s2Inst = insts[tempDef[inst.src2.tempIndex]];
+
+                    if (fusedCompareJumps[i] != null) {
+                        var jumpInst = insts[fusedCompareJumps[i]];
+                        var jumpOnTrue = jumpInst.op === IrOp.JumpIfNonZero;
+                        emitInstruction(s1Inst);
+                        emitLoadToDE(s2Inst);
+                        emitFusedCompareJump(inst, jumpInst.dest.name, jumpOnTrue);
+                        continue;
+                    }
+
+                    // Constant folding
+                    if (s1Inst.op === IrOp.LoadConst && s2Inst.op === IrOp.LoadConst
+                        && s1Inst.src1.kind === IrOperandKind.Immediate && s2Inst.src1.kind === IrOperandKind.Immediate) {
+                        var v1 = (s1Inst.src1.immediateValue & 0xFFFF);
+                        var v2 = (s2Inst.src1.immediateValue & 0xFFFF);
+                        var foldResult = null;
+                        switch (inst.op) {
+                            case IrOp.Add: foldResult = (v1 + v2) & 0xFFFF; break;
+                            case IrOp.Sub: foldResult = (v1 - v2) & 0xFFFF; break;
+                            case IrOp.Mul: case IrOp.SMul: foldResult = (v1 * v2) & 0xFFFF; break;
+                            case IrOp.And: foldResult = v1 & v2; break;
+                            case IrOp.Or: foldResult = v1 | v2; break;
+                            case IrOp.Xor: foldResult = v1 ^ v2; break;
+                            case IrOp.Shl: foldResult = (v1 << v2) & 0xFFFF; break;
+                            case IrOp.Shr: foldResult = (v1 >>> v2) & 0xFFFF; break;
+                        }
+                        if (foldResult !== null) {
+                            _e.instruction('LD', 'HL,$' + hex4(foldResult));
+                            if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                                _e.instruction('PUSH', 'HL');
+                            continue;
+                        }
+                    }
+
+                    // LoadAddr + LoadConst Add -> LD HL,label+offset
+                    if (inst.op === IrOp.Add) {
+                        var addrInst = null, constInst = null;
+                        if (s1Inst.op === IrOp.LoadAddr && s2Inst.op === IrOp.LoadConst && s2Inst.src1.kind === IrOperandKind.Immediate)
+                            { addrInst = s1Inst; constInst = s2Inst; }
+                        else if (s2Inst.op === IrOp.LoadAddr && s1Inst.op === IrOp.LoadConst && s1Inst.src1.kind === IrOperandKind.Immediate)
+                            { addrInst = s2Inst; constInst = s1Inst; }
+                        if (addrInst && constInst) {
+                            var addrOff = constInst.src1.immediateValue & 0xFFFF;
+                            var addrLbl = asmLabel(addrInst.src1.name);
+                            _e.instruction('LD', 'HL,' + addrLbl + (addrOff === 0 ? '' : '+' + addrOff));
+                            if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                                _e.instruction('PUSH', 'HL');
+                            continue;
+                        }
+                    }
+
+                    // Same operand Add -> ADD HL,HL
+                    if (inst.op === IrOp.Add && inst.src1.tempIndex === inst.src2.tempIndex) {
+                        emitInstruction(s1Inst);
+                        _e.instruction('ADD', 'HL,HL');
+                        if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                            _e.instruction('PUSH', 'HL');
+                        continue;
+                    }
+
+                    // Same variable Add -> ADD HL,HL
+                    if (inst.op === IrOp.Add
+                        && s1Inst.op === s2Inst.op && (s1Inst.op === IrOp.LoadVar || s1Inst.op === IrOp.LoadLocal || s1Inst.op === IrOp.LoadConst)
+                        && s1Inst.dataSize === 2
+                        && s1Inst.src1.kind === s2Inst.src1.kind
+                        && ((s1Inst.src1.kind === IrOperandKind.Label && s1Inst.src1.name === s2Inst.src1.name)
+                            || (s1Inst.src1.kind === IrOperandKind.Immediate && s1Inst.src1.immediateValue === s2Inst.src1.immediateValue))) {
+                        emitInstruction(s1Inst);
+                        _e.instruction('ADD', 'HL,HL');
+                        if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                            _e.instruction('PUSH', 'HL');
+                        continue;
+                    }
+
+                    // INC/DEC optimization
+                    if ((inst.op === IrOp.Add || inst.op === IrOp.Sub)
+                        && s2Inst.op === IrOp.LoadConst && s2Inst.src1.kind === IrOperandKind.Immediate) {
+                        var cv = s2Inst.src1.immediateValue & 0xFFFF;
+                        var incOrDec = inst.op === IrOp.Add ? 'INC' : 'DEC';
+                        if (cv === 0) { emitInstruction(s1Inst); }
+                        else if (cv === 1) { emitInstruction(s1Inst); _e.instruction(incOrDec, 'HL'); }
+                        else if (cv === 2) { emitInstruction(s1Inst); _e.instruction(incOrDec, 'HL'); _e.instruction(incOrDec, 'HL'); }
+                        else { cv = -1; } // signal not handled
+                        if (cv >= 0 && cv <= 2) {
+                            if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                                _e.instruction('PUSH', 'HL');
+                            continue;
+                        }
+                    }
+
+                    // Constant multiplication
+                    if (inst.op === IrOp.Mul && s2Inst.op === IrOp.LoadConst && s2Inst.src1.kind === IrOperandKind.Immediate) {
+                        var cv = s2Inst.src1.immediateValue & 0xFFFF;
+                        var handled = false;
+                        if (cv === 0) { _e.instruction('LD', 'HL,$0000'); handled = true; }
+                        else if (cv === 1) { emitInstruction(s1Inst); handled = true; }
+                        else { handled = emitConstMul(cv, function() { emitInstruction(s1Inst); }); }
+                        if (handled) {
+                            if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                                _e.instruction('PUSH', 'HL');
+                            continue;
+                        }
+                    }
+
+                    // Constant MOD power-of-2 -> AND
+                    if (inst.op === IrOp.Mod && s2Inst.op === IrOp.LoadConst && s2Inst.src1.kind === IrOperandKind.Immediate) {
+                        var cv = s2Inst.src1.immediateValue & 0xFFFF;
+                        if (cv > 0 && (cv & (cv - 1)) === 0) {
+                            emitInstruction(s1Inst);
+                            _e.instruction('LD', 'DE,$' + hex4(cv - 1));
+                            callRuntime('ANDHLDE');
+                            if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                                _e.instruction('PUSH', 'HL');
+                            continue;
+                        }
+                    }
+
+                    // Normal direct load path
+                    emitInstruction(s1Inst);
+                    // Same operand short form
+                    if (s1Inst.op === s2Inst.op && s1Inst.dataSize === 2
+                        && (s1Inst.op === IrOp.LoadVar || s1Inst.op === IrOp.LoadConst || s1Inst.op === IrOp.LoadLocal)
+                        && s1Inst.src1.kind === s2Inst.src1.kind
+                        && ((s1Inst.src1.kind === IrOperandKind.Label && s1Inst.src1.name === s2Inst.src1.name)
+                            || (s1Inst.src1.kind === IrOperandKind.Immediate && s1Inst.src1.immediateValue === s2Inst.src1.immediateValue))) {
+                        _e.instruction('LD', 'D,H'); _e.instruction('LD', 'E,L');
+                    } else {
+                        emitLoadToDE(s2Inst);
+                    }
+                    emitBinaryDirect(inst);
+                    if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                        _e.instruction('PUSH', 'HL');
+                    continue;
+                }
+
+                // halfDirectOps: src2 only simple load
+                if (halfDirectOps[i] && inst.dataSize !== 3) {
+                    var s2Inst = insts[tempDef[inst.src2.tempIndex]];
+                    if (fusedCompareJumps[i] != null) {
+                        var jumpInst = insts[fusedCompareJumps[i]];
+                        emitLoadToDE(s2Inst);
+                        emitFusedCompareJump(inst, jumpInst.dest.name, jumpInst.op === IrOp.JumpIfNonZero);
+                        continue;
+                    }
+                    // Constant add/sub optimization
+                    if ((inst.op === IrOp.Add || inst.op === IrOp.Sub)
+                        && s2Inst.op === IrOp.LoadConst && s2Inst.src1.kind === IrOperandKind.Immediate) {
+                        var cv = s2Inst.src1.immediateValue & 0xFFFF;
+                        var incOrDec = inst.op === IrOp.Add ? 'INC' : 'DEC';
+                        if (cv <= 2) {
+                            if (cv === 1) _e.instruction(incOrDec, 'HL');
+                            else if (cv === 2) { _e.instruction(incOrDec, 'HL'); _e.instruction(incOrDec, 'HL'); }
+                            if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                                _e.instruction('PUSH', 'HL');
+                            continue;
+                        }
+                    }
+                    // Constant mul
+                    if (inst.op === IrOp.Mul && s2Inst.op === IrOp.LoadConst && s2Inst.src1.kind === IrOperandKind.Immediate) {
+                        var cv = s2Inst.src1.immediateValue & 0xFFFF;
+                        var handled = false;
+                        if (cv === 0) { _e.instruction('LD', 'HL,$0000'); handled = true; }
+                        else if (cv === 1) handled = true;
+                        else handled = emitConstMul(cv);
+                        if (handled) {
+                            if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                                _e.instruction('PUSH', 'HL');
+                            continue;
+                        }
+                    }
+                    // Constant MOD power-of-2
+                    if (inst.op === IrOp.Mod && s2Inst.op === IrOp.LoadConst && s2Inst.src1.kind === IrOperandKind.Immediate) {
+                        var cv = s2Inst.src1.immediateValue & 0xFFFF;
+                        if (cv > 0 && (cv & (cv - 1)) === 0) {
+                            _e.instruction('LD', 'DE,$' + hex4(cv - 1));
+                            callRuntime('ANDHLDE');
+                            if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                                _e.instruction('PUSH', 'HL');
+                            continue;
+                        }
+                    }
+                    emitLoadToDE(s2Inst);
+                    emitBinaryDirect(inst);
+                    if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                        _e.instruction('PUSH', 'HL');
+                    continue;
+                }
+
+                // reverseHalfDirectOps: src1 only simple load (commutative)
+                if (reverseHalfDirectOps[i] && inst.dataSize !== 3) {
+                    var s1Inst = insts[tempDef[inst.src1.tempIndex]];
+                    if (fusedCompareJumps[i] != null) {
+                        var jumpInst = insts[fusedCompareJumps[i]];
+                        emitLoadToDE(s1Inst);
+                        emitFusedCompareJump(inst, jumpInst.dest.name, jumpInst.op === IrOp.JumpIfNonZero);
+                        continue;
+                    }
+                    if (inst.op === IrOp.Add && s1Inst.op === IrOp.LoadConst && s1Inst.src1.kind === IrOperandKind.Immediate) {
+                        var cv = s1Inst.src1.immediateValue & 0xFFFF;
+                        if (cv <= 2) {
+                            if (cv === 1) _e.instruction('INC', 'HL');
+                            else if (cv === 2) { _e.instruction('INC', 'HL'); _e.instruction('INC', 'HL'); }
+                            if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                                _e.instruction('PUSH', 'HL');
+                            continue;
+                        }
+                    }
+                    if (inst.op === IrOp.Mul && s1Inst.op === IrOp.LoadConst && s1Inst.src1.kind === IrOperandKind.Immediate) {
+                        var cv = s1Inst.src1.immediateValue & 0xFFFF;
+                        var handled = false;
+                        if (cv === 0) { _e.instruction('LD', 'HL,$0000'); handled = true; }
+                        else if (cv === 1) handled = true;
+                        else handled = emitConstMul(cv);
+                        if (handled) {
+                            if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                                _e.instruction('PUSH', 'HL');
+                            continue;
+                        }
+                    }
+                    emitLoadToDE(s1Inst);
+                    emitBinaryDirect(inst);
+                    if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                        _e.instruction('PUSH', 'HL');
+                    continue;
+                }
+
+                // Non-direct fused compare jump
+                if (fusedCompareJumps[i] != null) {
+                    var jumpInst = insts[fusedCompareJumps[i]];
+                    var jumpOnTrue = jumpInst.op === IrOp.JumpIfNonZero;
+                    if (inst.dataSize === 3) emitPopToDE(inst.dataSize);
+                    else { _e.instruction('POP', 'DE'); _e.instruction('EX', 'DE,HL'); }
+                    emitFusedCompareJump(inst, jumpInst.dest.name, jumpOnTrue);
+                    continue;
+                }
+
+                // IndirStore/MemStore direct value
+                if (indirStoreDirectValue[i] != null) {
+                    var isByte = inst.dataSize === 1;
+                    emitLoadToDE(insts[indirStoreDirectValue[i]]);
+                    if (isByte) _e.instruction('LD', '(HL),E');
+                    else { _e.instruction('LD', '(HL),E'); _e.instruction('INC', 'HL'); _e.instruction('LD', '(HL),D'); }
+                    continue;
+                }
+
+                // MACHINE direct register load
+                if (machineDirectArgs[i]) {
+                    var argDefIdxs = machineDirectArgs[i];
+                    var argCount = inst.src2.immediateValue | 0;
+                    emitLoadToHL(insts[argDefIdxs[0]]);
+                    if (argCount >= 2) emitLoadToDE(insts[argDefIdxs[1]]);
+                    if (argCount >= 3) emitLoadToBC(insts[argDefIdxs[2]]);
+                    var funcName = inst.src1.name || String(inst.src1);
+                    _calledFunctions[funcName] = true;
+                    var isRtOrExpr = (_rm && _rm.hasFunction(funcName)) || funcName.indexOf('+') >= 0 || funcName.indexOf('-') >= 0;
+                    _e.instruction('CALL', isRtOrExpr ? qualifyAsmExpr(funcName) : funcName);
+                    if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                        emitPushValue(inst.dataSize);
+                    continue;
+                }
+
+                // StoreLocal direct const
+                if (storeLocalDirectConst[i] != null) {
+                    var off = inst.dest.immediateValue | 0;
+                    var val = insts[storeLocalDirectConst[i]].src1.immediateValue & 0xFFFF;
+                    if (inst.dataSize === 1) {
+                        _e.instruction('LD', '(IY+$' + hex2(off) + '),$' + hex2(val));
+                    } else {
+                        _e.instruction('LD', '(IY+$' + hex2(off) + '),$' + hex2(val & 0xFF));
+                        _e.instruction('LD', '(IY+$' + hex2(off + 1) + '),$' + hex2((val >> 8) & 0xFF));
+                    }
+                    continue;
+                }
+
+                emitInstruction(inst);
+
+                if (inst.dest.kind === IrOperandKind.Temp && !skipEmit[i]) {
+                    if (needsPushAfter(insts, i, inst.dest.tempIndex))
+                        emitPushValue(inst.dataSize);
+                }
+            }
+            _currentFunction = null;
+        }
+
+        // ==== Generate helpers ====
+        function emitStringData(text) {
+            var allAscii = true;
+            for (var i = 0; i < text.length; i++) {
+                var c = text.charCodeAt(i);
+                if (c < 0x20 || c >= 0x7F || c === 0x22) { allAscii = false; break; }
+            }
+            if (allAscii) _e.raw('\tDB\t"' + text + '",0');
+            else _e.raw('\tDB\t' + toAsmDbArgs(text) + ',0');
+        }
+
+        function emitInitialItems(items) {
+            var byteRun = [];
+            for (var i = 0; i < items.length; i++) {
+                var item = items[i];
+                if (item.byteValue != null) {
+                    byteRun.push(item.byteValue);
+                } else {
+                    if (byteRun.length > 0) {
+                        _e.raw('\tDB\t' + byteRun.map(function(b) { return '$' + hex2(b); }).join(','));
+                        byteRun = [];
+                    }
+                    _e.raw('\tDW\t' + qualifyAsmExpr(item.asmExpr));
+                }
+            }
+            if (byteRun.length > 0)
+                _e.raw('\tDB\t' + byteRun.map(function(b) { return '$' + hex2(b); }).join(','));
+        }
+
+        function emitGlobalInit() {
+            var pendingConstVal = null;
+            var gd = _module.globalData;
+            for (var i = 0; i < gd.length; i++) {
+                var inst = gd[i];
+                if (inst.op === IrOp.LoadConst && inst.src1.kind === IrOperandKind.Immediate) {
+                    pendingConstVal = inst.src1.immediateValue & 0xFFFF;
+                } else if (inst.op === IrOp.StoreVar && pendingConstVal !== null) {
+                    _e.instruction('LD', 'HL,$' + hex4(pendingConstVal));
+                    _e.instruction('LD', '(' + asmLabel(inst.dest.name) + '),HL');
+                    pendingConstVal = null;
+                } else {
+                    pendingConstVal = null;
+                }
+            }
+        }
+
+        function emitGlobalPlainAsm() {
+            var gd = _module.globalData;
+            for (var i = 0; i < gd.length; i++) {
+                if (gd[i].op === IrOp.InlineAsm && gd[i].dest.kind === IrOperandKind.AsmString) {
+                    var lines = gd[i].dest.name.split('\n');
+                    for (var j = 0; j < lines.length; j++) {
+                        if (lines[j].trim()) _e.raw(lines[j]);
+                    }
+                }
+            }
+        }
+
+        function emitRuntimeCode(code, currentNamespace) {
+            var lines = code.split('\n');
+            for (var i = 0; i < lines.length; i++) {
+                if (lines[i].trim()) {
+                    var outLine = lines[i];
+                    if (currentNamespace)
+                        outLine = outLine.replace(/!\s*(\w+)/g, 'NAME_SPACE_DEFAULT.$1');
+                    else
+                        outLine = outLine.replace(/!\s*(\w+)/g, '$1');
+                    _e.raw(outLine);
+                }
+            }
+        }
+
+        function hasInitDataArrays() {
+            return _module.globalVars.some(function(v) {
+                return v.storageKind === VarStorageKind.InitArray && v.fixedAddress == null && v.fixedAddressLabel == null;
+            });
+        }
+
+        function hasRuntimeInitializers() {
+            if (!_rm) return false;
+            return _rm.getUsedFunctions().some(function(f) { return f.initCode && f.initCode.trim(); });
+        }
+
+        function buildCallInitializerCode() {
+            var sb = '';
+            if (isCodeReadonly && hasInitDataArrays()) {
+                sb += ' LD HL,__INIT_TEMPLATE\n';
+                sb += ' LD DE,__WORK__\n';
+                sb += ' LD BC,__INIT_TEMPLATE_END-__INIT_TEMPLATE\n';
+                sb += ' LDIR\n';
+            }
+            sb += ' CALL RUNTIME_INIT\n';
+            return sb;
+        }
+
+        function emitRuntimeInit() {
+            _e.blank();
+            _e.label('RUNTIME_INIT');
+            if (_rm) {
+                var uf = _rm.getUsedFunctions();
+                for (var i = 0; i < uf.length; i++) {
+                    if (uf[i].initCode && uf[i].initCode.trim())
+                        _e.instruction('CALL', uf[i].name + '_INITIALIZE');
+                }
+            }
+            _e.instruction('RET');
+            if (_rm) {
+                var uf = _rm.getUsedFunctions();
+                for (var i = 0; i < uf.length; i++) {
+                    if (uf[i].initCode && uf[i].initCode.trim()) {
+                        _e.blank();
+                        _e.label(uf[i].name + '_INITIALIZE');
+                        var lines = uf[i].initCode.split('\n');
+                        for (var j = 0; j < lines.length; j++) {
+                            if (lines[j].trim()) _e.raw(lines[j]);
+                        }
+                    }
+                }
+            }
+        }
+
+        function emitWorkArea() {
+            _e.blank();
+            _e.comment('; Variables (works)');
+            if (_module.workAddress != null) {
+                _e.instruction('ORG', '$' + hex4(_module.workAddress));
+                _e.blank();
+            }
+            _e.label('__WORK__');
+            var workOffset = 0;
+
+            // ROM: InitArray at __WORK__ start
+            if (isCodeReadonly) {
+                var gv = _module.globalVars;
+                for (var i = 0; i < gv.length; i++) {
+                    var v = gv[i];
+                    if (v.storageKind === VarStorageKind.InitArray && v.fixedAddress == null && v.fixedAddressLabel == null) {
+                        _e.raw(v.asmLabel + ' EQU (__WORK__ + ' + workOffset + ')');
+                        workOffset += v.byteSize;
+                    }
+                }
+            }
+
+            // Bss variables
+            var gv = _module.globalVars;
+            for (var i = 0; i < gv.length; i++) {
+                var v = gv[i];
+                if (v.fixedAddress == null && v.fixedAddressLabel == null && v.storageKind === VarStorageKind.Bss) {
+                    _e.raw(v.asmLabel + ' EQU (__WORK__ + ' + workOffset + ')');
+                    workOffset += v.byteSize;
+                }
+            }
+
+            // System register works
+            var afOffset = 0;
+            for (var i = 0; i < SystemRegisterWorks.length; i++) {
+                var sw = SystemRegisterWorks[i];
+                if (sw.label === '_AF') afOffset = workOffset;
+                _e.raw(sw.label + ' EQU (__WORK__ + ' + workOffset + ')');
+                workOffset += sw.size;
+            }
+            _e.raw('_A EQU (_AF + 1)');
+
+            // Runtime works variables
+            if (_rm) {
+                var currentNs = null;
+                var wvars = _rm.getUsedWorkVariablesWithLib();
+                for (var i = 0; i < wvars.length; i++) {
+                    var w = wvars[i];
+                    if (w.libName !== currentNs) {
+                        if (w.libName) _e.raw('[' + w.libName + ']');
+                        else if (currentNs) _e.raw('[NAME_SPACE_DEFAULT]');
+                        currentNs = w.libName;
+                    }
+                    var workRef = currentNs ? 'NAME_SPACE_DEFAULT.__WORK__' : '__WORK__';
+                    _e.raw(w.label + ' EQU (' + workRef + ' + ' + workOffset + ')');
+                    workOffset += w.size;
+                }
+                if (currentNs) _e.raw('[NAME_SPACE_DEFAULT]');
+            }
+
+            _e.raw('__IYWORK EQU (__WORK__ + ' + workOffset + ')');
+            _e.raw('WORKEND EQU (__WORK__ + ' + (workOffset + 256) + ')');
+            _e.blank();
+            _e.raw('__WORKEND__ EQU (__WORK__ + ' + (workOffset + 256) + ')');
+        }
+
+        // ==== Main Generate method ====
+        function generate() {
+            // Phase 1: Generate function bodies (collecting _calledFunctions)
+            var funcEmitter = Z80Emitter();
+            var savedEmitter = _e;
+            _e = funcEmitter;
+            for (var i = 0; i < _module.functions.length; i++) {
+                emitFunction(_module.functions[i]);
+                _e.blank();
+            }
+            _e = savedEmitter;
+
+            // Phase 2: Mark runtime usage
+            if (_rm) {
+                var userFuncs = {};
+                for (var i = 0; i < _module.functions.length; i++) userFuncs[_module.functions[i].name.toLowerCase()] = true;
+                for (var name in _calledFunctions) {
+                    if (_calledFunctions[name] && !userFuncs[name.toLowerCase()]) _rm.markUsed(name);
+                }
+                var adeps = _module.addressSymbolDeps;
+                for (var dep in adeps) {
+                    if (adeps[dep] && _rm.hasFunction(dep)) _rm.markUsed(dep);
+                }
+            }
+
+            // Phase 3: ORG
+            if (_module.orgAddress != null) {
+                _e.instruction('ORG', '$' + hex4(_module.orgAddress));
+            }
+
+            // Phase 4: Entry point
+            if (_rm && _rm.hasFunction('SLANGINIT')) {
+                var code = _rm.getAndExclude('SLANGINIT');
+                if (code) {
+                    var callinitReplacement = buildCallInitializerCode();
+                    code = code.replace('<<CALLINITIALIZER>>', callinitReplacement);
+                    var codeLines = code.split('\n');
+                    for (var i = 0; i < codeLines.length; i++) {
+                        var tokens = codeLines[i].trim().split(/[\s\t]+/);
+                        if (tokens.length >= 2 && tokens[0].toUpperCase() === 'CALL' && tokens[1].toUpperCase() === 'MAIN')
+                            emitGlobalInit();
+                        if (codeLines[i].trim()) _e.raw(codeLines[i]);
+                    }
+                }
+            } else {
+                _e.comment('=== Entry Point ===');
+                _e.instruction('XOR', 'A');
+                _e.instruction('LD', 'HL,__WORK__');
+                _e.instruction('LD', 'DE,__WORK__+1');
+                _e.instruction('LD', 'BC,__WORKEND__-__WORK__-1');
+                _e.instruction('LD', '(HL),A');
+                _e.instruction('LDIR');
+                if (isCodeReadonly && hasInitDataArrays()) {
+                    _e.instruction('LD', 'HL,__INIT_TEMPLATE');
+                    _e.instruction('LD', 'DE,__WORK__');
+                    _e.instruction('LD', 'BC,__INIT_TEMPLATE_END-__INIT_TEMPLATE');
+                    _e.instruction('LDIR');
+                }
+                if (hasRuntimeInitializers()) _e.instruction('CALL', 'RUNTIME_INIT');
+                _e.instruction('LD', 'IY,__IYWORK');
+                emitGlobalInit();
+                _e.instruction('CALL', 'MAIN');
+                _e.instruction('RET');
+            }
+            _e.blank();
+
+            // Phase 5: Optimized function bodies
+            funcEmitter.optimizeWith(PeepholeOptimizer());
+            _e.appendFrom(funcEmitter);
+
+            // Phase 5.5: Top-level inline ASM
+            emitGlobalPlainAsm();
+
+            // Phase 6: String table
+            var stKeys = Object.keys(_module.stringTable);
+            if (stKeys.length > 0) {
+                _e.blank();
+                _e.comment('=== String Table ===');
+                for (var i = 0; i < stKeys.length; i++) {
+                    _e.label(stKeys[i]);
+                    emitStringData(_module.stringTable[stKeys[i]]);
+                }
+            }
+
+            // Phase 7: Global variables with initializers
+            var gv = _module.globalVars;
+            // Fixed-address: EQU
+            for (var i = 0; i < gv.length; i++) {
+                var v = gv[i];
+                if (v.fixedAddress != null)
+                    _e.raw(v.asmLabel + '\tEQU\t$' + hex4(v.fixedAddress));
+                else if (v.fixedAddressLabel != null)
+                    _e.raw(v.asmLabel + '\tEQU\t' + v.fixedAddressLabel);
+                else continue;
+                if (isCodeReadonly && v.hasInitializer && _diag)
+                    _diag.error("Fixed-address array '" + v.name + "' with initializer is not supported in code_readonly environment");
+            }
+
+            // CodeConst
+            for (var i = 0; i < gv.length; i++) {
+                if (gv[i].storageKind === VarStorageKind.CodeConst) {
+                    _e.label(gv[i].asmLabel);
+                    emitInitialItems(gv[i].initialItems);
+                }
+            }
+
+            // InitArray: RAM/ROM split
+            var initArrays = gv.filter(function(v) {
+                return v.storageKind === VarStorageKind.InitArray && v.fixedAddress == null && v.fixedAddressLabel == null;
+            });
+            if (isCodeReadonly) {
+                if (initArrays.length > 0) {
+                    _e.label('__INIT_TEMPLATE');
+                    for (var i = 0; i < initArrays.length; i++) {
+                        _e.comment(initArrays[i].asmLabel);
+                        emitInitialItems(initArrays[i].initialItems);
+                    }
+                    _e.label('__INIT_TEMPLATE_END');
+                }
+            } else {
+                for (var i = 0; i < initArrays.length; i++) {
+                    _e.label(initArrays[i].asmLabel);
+                    emitInitialItems(initArrays[i].initialItems);
+                }
+            }
+
+            // Phase 8: Runtime functions + RUNTIME_INIT
+            if (_rm) {
+                emitRuntimeInit();
+                var outputFuncs = _rm.getOutputFunctions();
+                if (outputFuncs.length > 0) {
+                    _e.blank();
+                    _e.comment('=== Runtime Functions ===');
+                    var currentNamespace = null;
+                    for (var i = 0; i < outputFuncs.length; i++) {
+                        var func = outputFuncs[i];
+                        var ns = func.libName;
+                        if (ns !== currentNamespace) {
+                            if (ns) _e.raw('[' + ns + ']');
+                            else if (currentNamespace) _e.raw('[NAME_SPACE_DEFAULT]');
+                            currentNamespace = ns;
+                        }
+                        _e.label(func.name);
+                        emitRuntimeCode(func.code, currentNamespace);
+                        _e.blank();
+                    }
+                    if (currentNamespace) _e.raw('[NAME_SPACE_DEFAULT]');
+                }
+            }
+
+            _e.label('SLANG_PROG_END');
+
+            // Phase 9: Work area layout
+            emitWorkArea();
+
+            return _e.toAssembly();
+        }
+
+        return {
+            generate: generate,
+        };
+    }
+
+    // ================================================================
     // Public API (Phase 1 foundation)
     // ================================================================
     window.X1PenSlangCompiler = {
@@ -3751,10 +5650,51 @@
         _DataSize: DataSize,
         _BinaryOp: BinaryOp,
         _UnaryOp: UnaryOp,
+        _Z80Emitter: Z80Emitter,
+        _PeepholeOptimizer: PeepholeOptimizer,
+        _CodeGenerator: CodeGenerator,
+        _RuntimeManager: RuntimeManager,
+        _RuntimeParser: RuntimeParser,
 
-        // Main compile entry point (stub — will be implemented in later phases)
+        // Main compile entry point
         compile: function(source, virtualFS, env) {
-            return { asm: '', errors: [{ message: 'SLANG compiler not yet implemented' }] };
+            var diagnostics = DiagnosticBag();
+            try {
+                var tokens = Lexer(source).tokenize();
+
+                var parser = Parser(tokens, diagnostics);
+                var ast = parser.parseCompilationUnit();
+                if (diagnostics.hasErrors) return { asm: '', errors: diagnostics.diagnostics };
+
+                var analyzer = SemanticAnalyzer(diagnostics);
+                analyzer.analyze(ast);
+                if (diagnostics.hasErrors) return { asm: '', errors: diagnostics.diagnostics };
+
+                var irGen = IrGenerator(diagnostics, analyzer.symbols);
+                var irModule = irGen.generate(ast);
+                if (diagnostics.hasErrors) return { asm: '', errors: diagnostics.diagnostics };
+
+                // Load runtime from virtualFS if available
+                var rm = null;
+                if (virtualFS) {
+                    rm = RuntimeManager();
+                    var fsKeys = typeof virtualFS.keys === 'function' ? Array.from(virtualFS.keys()) : Object.keys(virtualFS);
+                    for (var i = 0; i < fsKeys.length; i++) {
+                        var fname = fsKeys[i];
+                        if (fname.match(/\.asm$/i)) {
+                            var content = typeof virtualFS.get === 'function' ? virtualFS.get(fname) : virtualFS[fname];
+                            if (content) rm.loadFromString(content, fname);
+                        }
+                    }
+                }
+
+                var envConfig = env || {};
+                var codeGen = CodeGenerator(irModule, rm, envConfig, diagnostics);
+                var asm = codeGen.generate();
+                return { asm: asm, errors: diagnostics.hasErrors ? diagnostics.diagnostics : [], warnings: [] };
+            } catch (e) {
+                return { asm: '', errors: [{ message: 'Internal compiler error: ' + e.message }] };
+            }
         },
     };
 })();
