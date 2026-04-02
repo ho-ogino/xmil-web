@@ -83,7 +83,15 @@
                 // fallback to symbol
                 i = start;
             }
-            if (/[a-zA-Z_.%]/.test(c)) {
+            if (c === '%' && i + 1 < s.length && /[01]/.test(s[i + 1])) {
+                // %binary prefix
+                while (i < s.length && /[0-9a-fA-FxXhHbB%$]/.test(s[i])) i++;
+                var bs = s.substring(start, i);
+                var bv = parseNumber(bs);
+                if (bv !== null) { tokens.push({ type: 'NUMBER', val: bv }); continue; }
+                i = start + 1; // skip %
+            }
+            if (/[a-zA-Z_.]/.test(c)) {
                 while (i < s.length && /[a-zA-Z0-9_.]/.test(s[i])) i++;
                 var sym = s.substring(start, i);
                 // A-F で始まり H で終わる場合、hex number の可能性を再チェック
