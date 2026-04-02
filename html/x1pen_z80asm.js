@@ -832,19 +832,26 @@
         // 1回の走査で active 状態を見ながら EQU 収集と条件評価を同時処理
         var ppSymbols = {};
         if (predefinedSymbols) {
-            for (var k in predefinedSymbols) ppSymbols[k] = predefinedSymbols[k];
+            for (var k in predefinedSymbols) {
+                ppSymbols[k] = predefinedSymbols[k];
+                // NAME_SPACE_DEFAULT.KEY でも参照可能に
+                if (k.indexOf('.') < 0) {
+                    ppSymbols['NAME_SPACE_DEFAULT.' + k] = predefinedSymbols[k];
+                }
+            }
         }
         var ifStack = [];
         function ppIsActive() {
             if (ifStack.length === 0) return true;
             var top = ifStack[ifStack.length - 1];
-            return top.parentActive && (top.inElse ? !top.condTrue : top.condTrue);
+            return top.parentActive && top.condTrue;
         }
         for (var pi = 0; pi < lines.length; pi++) {
             var trimmed = lines[pi].trim();
-            var directive = trimmed.match(/^#(IF|ELSE|ENDIF)\b\s*(.*)?$/i);
+            var directive = trimmed.match(/^#(IF|ELIF|ELSEIF|ELSE|ENDIF)\b\s*(.*)?$/i);
             if (directive) {
                 var cmd = directive[1].toUpperCase();
+                if (cmd === 'ELSEIF') cmd = 'ELIF';
                 if (cmd === 'IF') {
                     var parentActive = ppIsActive();
                     var condActive = false;
@@ -858,7 +865,30 @@
                         }
                         condActive = (condVal !== 0);
                     }
-                    ifStack.push({ parentActive: parentActive, condTrue: condActive, inElse: false });
+                    ifStack.push({ parentActive: parentActive, condTrue: condActive, inElse: false, anyTrue: condActive });
+                } else if (cmd === 'ELIF') {
+                    if (ifStack.length === 0) {
+                        errors.push({ line: pi + 1, msg: '#ELIF without #IF' });
+                    } else {
+                        var top = ifStack[ifStack.length - 1];
+                        if (top.inElse) {
+                            errors.push({ line: pi + 1, msg: '#ELIF after #ELSE' });
+                        } else if (top.anyTrue || !top.parentActive) {
+                            // A previous branch was taken or parent is inactive — skip
+                            top.condTrue = false;
+                        } else {
+                            var exprStr = (directive[2] || '').replace(/;.*$/, '').trim();
+                            var condVal = evalExpr(exprStr, ppSymbols, 0, '');
+                            if (condVal === null) {
+                                errors.push({ line: pi + 1, msg: 'Invalid #ELIF expression' });
+                                condVal = 0;
+                            } else if (condVal === undefined) {
+                                condVal = 0;
+                            }
+                            top.condTrue = (condVal !== 0);
+                            if (top.condTrue) top.anyTrue = true;
+                        }
+                    }
                 } else if (cmd === 'ELSE') {
                     if (ifStack.length === 0) {
                         errors.push({ line: pi + 1, msg: '#ELSE without #IF' });
@@ -868,6 +898,8 @@
                             errors.push({ line: pi + 1, msg: 'Duplicate #ELSE' });
                         } else {
                             top.inElse = true;
+                            // #ELSE is active only if no previous branch was taken
+                            top.condTrue = !top.anyTrue;
                         }
                     }
                 } else if (cmd === 'ENDIF') {

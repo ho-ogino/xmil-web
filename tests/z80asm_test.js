@@ -468,6 +468,15 @@ testFail('Unterminated #IF', '#IF 1\nNOP');
 testFail('Duplicate #ELSE', '#IF 1\nNOP\n#ELSE\nHALT\n#ELSE\nNOP\n#ENDIF');
 testFail('#IF syntax error', '#IF 1 +\nNOP\n#ENDIF');
 
+// #ELIF
+testOK('#ELIF: IF true, ELIF skipped', '#IF 1\n LD A,1\n#ELIF 1\n LD A,2\n#ENDIF', [0x3E, 0x01]);
+testOK('#ELIF: IF false, ELIF true', '#IF 0\n LD A,1\n#ELIF 1\n LD A,2\n#ENDIF', [0x3E, 0x02]);
+testOK('#ELIF: IF false, ELIF false, ELSE', '#IF 0\n LD A,1\n#ELIF 0\n LD A,2\n#ELSE\n LD A,3\n#ENDIF', [0x3E, 0x03]);
+testOK('#ELIF: multiple (V=2)', 'V EQU 2\n#IF V==0\n DB 0\n#ELIF V==1\n DB 1\n#ELIF V==2\n DB 2\n#ELSE\n DB 99\n#ENDIF', [0x02]);
+testOK('#ELIF: none match, ELSE', 'V EQU 5\n#IF V==0\n DB 0\n#ELIF V==1\n DB 1\n#ELIF V==2\n DB 2\n#ELSE\n DB 99\n#ENDIF', [0x63]);
+testFail('#ELIF after #ELSE', '#IF 0\n NOP\n#ELSE\n NOP\n#ELIF 1\n NOP\n#ENDIF');
+testFail('#ELIF without #IF', '#ELIF 1\nNOP\n#ENDIF');
+
 // --- IX/IY half registers ---
 console.log('\n--- IX/IY half registers ---');
 

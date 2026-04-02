@@ -675,7 +675,10 @@ window.__X1PEN_MODE = true;
 
         // 4. ASM アセンブル (タブに内容がある場合)
         //    addrmap から predefined symbols を構築
-        var predefined = {};
+        var predefined = {
+            OS_TYPE: 0,   // 0=LSX-Dodgers, 1=S-OS
+            ENV_TYPE: 1,  // 0=CP/M, 1=LSX-Dodgers(X1), 2=MSX-DOS
+        };
         var versions = await loadAddrmapVersions();
         var verName = COLD_STATE_VERSION[actualColdState];
         if (versions && verName && versions[verName]) {
