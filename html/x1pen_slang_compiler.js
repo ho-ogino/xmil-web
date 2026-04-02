@@ -1938,7 +1938,7 @@
     var VarStorageKind = { Bss: 'Bss', InitArray: 'InitArray', CodeConst: 'CodeConst' };
 
     function InitItem(byteValue, asmExpr) {
-        return { byteValue: byteValue, asmExpr: asmExpr || null, byteSize: asmExpr ? 2 : 1 };
+        return { byteValue: asmExpr ? null : byteValue, asmExpr: asmExpr || null, byteSize: asmExpr ? 2 : 1 };
     }
 
     function GlobalVarInfo(name, asmLabel, byteSize) {
