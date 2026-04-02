@@ -2853,8 +2853,8 @@
             var constEval = globalSymbols ? ConstEvaluator(globalSymbols) : null;
 
             for (var i = 0; i < node.branches.length; i++) {
-                var cond = node.branches[i][0];
-                var body = node.branches[i][1];
+                var cond = node.branches[i].condition;
+                var body = node.branches[i].body;
                 var nextLabel = (i < node.branches.length - 1 || node.elseBody) ? newLabel() : endLabel;
 
                 var constCond = constEval ? constEval.evaluate(cond) : null;
