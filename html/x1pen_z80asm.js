@@ -52,6 +52,9 @@
             // 2文字比較演算子を先にチェック
             if (i + 1 < s.length) {
                 var c2 = s[i] + s[i + 1];
+                if (c2 === '>>' || c2 === '<<') {
+                    tokens.push({ type: 'OP', val: c2 }); i += 2; continue;
+                }
                 if (c2 === '==' || c2 === '!=' || c2 === '>=' || c2 === '<=') {
                     tokens.push({ type: 'OP', val: c2 }); i += 2; continue;
                 }
@@ -204,12 +207,14 @@
             var left = parseAtom();
             while (true) {
                 var t = peek();
-                if (!t || t.type !== 'OP' || (t.val !== '*' && t.val !== '/')) break;
+                if (!t || t.type !== 'OP' || (t.val !== '*' && t.val !== '/' && t.val !== '>>' && t.val !== '<<')) break;
                 var op = next().val;
                 var right = parseAtom();
                 if (right === null || left === null) return null;
                 if (left === undefined || right === undefined) return undefined;
                 if (op === '*') left = (left * right) & 0xFFFF;
+                else if (op === '>>') left = (left >>> right) & 0xFFFF;
+                else if (op === '<<') left = (left << right) & 0xFFFF;
                 else left = (right !== 0) ? (Math.floor(left / right)) & 0xFFFF : 0;
             }
             return left;
