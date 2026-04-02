@@ -1023,7 +1023,7 @@
     }
 
     function getInstructionSize(parsed, symbols, pc, pass, globalLabel, currentNamespace) {
-        var bytes = emitInstruction(parsed, symbols, pc, pass, globalLabel);
+        var bytes = emitInstruction(parsed, symbols, pc, pass, globalLabel, currentNamespace);
         if (bytes === null) return -1;
         return bytes.length;
     }
