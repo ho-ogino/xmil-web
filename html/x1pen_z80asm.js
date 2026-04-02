@@ -61,6 +61,9 @@
             if (c === '-') { tokens.push({ type: 'OP', val: '-' }); i++; continue; }
             if (c === '*') { tokens.push({ type: 'OP', val: '*' }); i++; continue; }
             if (c === '/') { tokens.push({ type: 'OP', val: '/' }); i++; continue; }
+            if (c === '&') { tokens.push({ type: 'OP', val: '&' }); i++; continue; }
+            if (c === '|') { tokens.push({ type: 'OP', val: '|' }); i++; continue; }
+            if (c === '~') { tokens.push({ type: 'OP', val: '~' }); i++; continue; }
             if (c === '(') { tokens.push({ type: 'LPAREN' }); i++; continue; }
             if (c === ')') { tokens.push({ type: 'RPAREN' }); i++; continue; }
             if (c === '$' && (i + 1 >= s.length || !/[0-9a-f]/i.test(s[i + 1]))) {
@@ -162,7 +165,7 @@
             }
             if (t.type === 'LPAREN') {
                 next();
-                var v = parseAddSub();
+                var v = parseBitwise();
                 if (peek() && peek().type === 'RPAREN') next();
                 return v;
             }
@@ -175,6 +178,12 @@
                 var v2 = parseAtom();
                 if (v2 === null || v2 === undefined) return v2;
                 return (-v2) & 0xFFFF;
+            }
+            if (t.type === 'OP' && t.val === '~') {
+                next();
+                var v3 = parseAtom();
+                if (v3 === null || v3 === undefined) return v3;
+                return (~v3) & 0xFFFF;
             }
             return null;
         }
@@ -209,8 +218,24 @@
             return left;
         }
 
-        function parseCompare() {
+        function parseBitwise() {
             var left = parseAddSub();
+            while (true) {
+                var t = peek();
+                if (!t || t.type !== 'OP' || (t.val !== '&' && t.val !== '|' && t.val !== '^')) break;
+                var op = next().val;
+                var right = parseAddSub();
+                if (right === null || left === null) return null;
+                if (left === undefined || right === undefined) return undefined;
+                if (op === '&') left = (left & right) & 0xFFFF;
+                else if (op === '|') left = (left | right) & 0xFFFF;
+                else if (op === '^') left = (left ^ right) & 0xFFFF;
+            }
+            return left;
+        }
+
+        function parseCompare() {
+            var left = parseBitwise();
             while (true) {
                 var t = peek();
                 if (!t || t.type !== 'OP') break;
