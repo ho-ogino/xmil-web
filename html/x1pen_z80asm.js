@@ -925,29 +925,41 @@
         // Macro collection
         var macros = {};
         for (var mi = 0; mi < lines.length; mi++) {
-            var mline = lines[mi].trim();
+            var mline = stripComment(lines[mi].trim());
             var macroMatch = mline.match(/^([a-zA-Z_][a-zA-Z0-9_()]*)\s+MACRO\b\s*(.*)?$/i);
             if (macroMatch) {
                 var macroName = macroMatch[1].toUpperCase();
                 if (macroName in KNOWN_MNEMONICS) {
                     errors.push({ line: mi + 1, msg: 'Cannot redefine mnemonic as macro: ' + macroName });
                 }
-                var macroArgs = macroMatch[2] ? macroMatch[2].split(',').map(function(a) { return a.trim(); }).filter(Boolean) : [];
+                var rawArgs = stripComment(macroMatch[2] || '');
+                var macroArgs = rawArgs ? rawArgs.split(',').map(function(a) { return a.trim(); }).filter(Boolean) : [];
                 var macroBody = [];
                 var macroStartLine = mi + 1;
                 lines[mi] = '';
                 mi++;
                 var foundEndm = false;
                 while (mi < lines.length) {
-                    var bodyTrimmed = lines[mi].trim();
-                    if (bodyTrimmed.match(/^ENDM$/i)) { lines[mi] = ''; foundEndm = true; break; }
-                    if (bodyTrimmed.match(/\bMACRO\b/i)) {
+                    var bodyStripped = stripComment(lines[mi].trim());
+                    if (bodyStripped.match(/^ENDM$/i)) { lines[mi] = ''; foundEndm = true; break; }
+                    if (bodyStripped.match(/\bMACRO\b/i)) {
                         errors.push({ line: mi + 1, msg: 'Nested macro definition not supported' });
                     }
                     // Detect label definitions in macro body (v1 restriction)
-                    var bodyCode = stripComment(bodyTrimmed);
-                    if (bodyCode.match(/^(\.[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*)\s*:/)) {
-                        errors.push({ line: mi + 1, msg: 'Label definition inside macro body not supported' });
+                    // Use parseLine to catch all label forms: colon, EQU, colonless, .local
+                    var bodyParsed = parseLine(lines[mi]);
+                    if (bodyParsed.label) {
+                        // Colon-style labels and EQU are always errors
+                        // Colonless labels could be macro calls, so only flag if
+                        // the "label" isn't a known macro name and has no mnemonic
+                        // (pure label-only line) or the mnemonic is EQU
+                        var isColonLabel = bodyStripped.match(/^(\.[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*)\s*:/);
+                        var isEqu = bodyParsed.mnemonic === 'EQU';
+                        var isColonlessLabelOnly = !isColonLabel && !isEqu && !bodyParsed.mnemonic;
+                        var isMacroCall = bodyParsed.label.toUpperCase() in macros;
+                        if (isColonLabel || isEqu || (isColonlessLabelOnly && !isMacroCall)) {
+                            errors.push({ line: mi + 1, msg: 'Label definition inside macro body not supported' });
+                        }
                     }
                     macroBody.push(lines[mi]);
                     lines[mi] = '';

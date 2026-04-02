@@ -561,6 +561,20 @@ testFail('Label in macro body', 'BADMAC MACRO\nFOO:\n NOP\nENDM');
 // Error: local label in macro body
 testFail('Local label in macro body', 'BADMAC2 MACRO\n.FOO:\n NOP\nENDM');
 
+// Error: EQU label in macro body
+testFail('EQU in macro body', 'BAD MACRO\nLBL EQU 1\n NOP\nENDM');
+
+// Error: colonless label in macro body
+testFail('Colonless label in macro body', 'BAD3 MACRO\nLBL\n NOP\nENDM');
+
+// Error: local label without colon in macro body
+testFail('Local label no colon in macro body', 'BAD4 MACRO\n.LBL\n NOP\nENDM');
+
+// MACRO/ENDM with comments
+testOK('MACRO with comment', 'M MACRO ; comment\n NOP\nENDM\n M', [0x00]);
+testOK('MACRO args with comment', 'M MACRO R ; load reg\n LD R,0\nENDM\n M A', [0x3E, 0x00]);
+testOK('ENDM with comment', 'M MACRO\n NOP\nENDM ; done\n M', [0x00]);
+
 console.log('\n' + '='.repeat(40));
 console.log('Results: ' + passes + ' passed, ' + failures + ' failed');
 console.log('='.repeat(40));
