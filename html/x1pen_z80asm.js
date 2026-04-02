@@ -128,10 +128,10 @@
             if (t.type === 'SYMBOL') {
                 next();
                 var key = t.val;
-                // LOW/HIGH unary operators (case-insensitive)
+                // LOW/HIGH unary operators (case-insensitive, only when followed by another token)
                 var keyUpper = key.toUpperCase();
-                if (keyUpper === 'LOW') { var lv = parseAtom(); return (lv !== null && lv !== undefined) ? lv & 0xFF : lv; }
-                if (keyUpper === 'HIGH') { var hv = parseAtom(); return (hv !== null && hv !== undefined) ? (hv >> 8) & 0xFF : hv; }
+                if (keyUpper === 'LOW' && peek()) { var lv = parseAtom(); return (lv !== null && lv !== undefined) ? lv & 0xFF : lv; }
+                if (keyUpper === 'HIGH' && peek()) { var hv = parseAtom(); return (hv !== null && hv !== undefined) ? (hv >> 8) & 0xFF : hv; }
                 // Resolve local labels: .foo → LASTGLOBAL.FOO
                 if (key[0] === '.' && globalLabel) {
                     key = globalLabel + key;
@@ -404,13 +404,14 @@
         if (su === '(DE)') return { type: 'ind_de' };
         if (su === '(SP)') return { type: 'ind_sp' };
 
-        // (IX+d), (IY+d)
-        var ixm = su.match(/^\((IX|IY)\s*([+\-].*)\)$/i);
+        // (IX+d), (IY+d) — use original case for expression
+        var st = s.trim();
+        var ixm = st.match(/^\((IX|IY)\s*([+\-].*)\)$/i);
         if (ixm) {
             var val = evalExpr(ixm[2], symbols, pc, globalLabel, currentNamespace);
             return { type: 'ind_idx', idx: ixm[1].toUpperCase(), disp: val };
         }
-        var ixm0 = su.match(/^\((IX|IY)\)$/i);
+        var ixm0 = st.match(/^\((IX|IY)\)$/i);
         if (ixm0) {
             return { type: 'ind_idx', idx: ixm0[1].toUpperCase(), disp: 0 };
         }
@@ -418,8 +419,8 @@
         // (C) - for IN/OUT
         if (su === '(C)') return { type: 'ind_c' };
 
-        // (nn) - indirect memory
-        var indm = su.match(/^\((.+)\)$/);
+        // (nn) - indirect memory — use original case for expression
+        var indm = st.match(/^\((.+)\)$/);
         if (indm) {
             var addr = evalExpr(indm[1], symbols, pc, globalLabel, currentNamespace);
             return { type: 'ind_nn', val: addr };
@@ -428,8 +429,8 @@
         // Condition codes
         if (su in CC) return { type: 'cc', code: CC[su], name: su };
 
-        // Immediate / expression
-        var v = evalExpr(s, symbols, pc, globalLabel, currentNamespace);
+        // Immediate / expression — use original case
+        var v = evalExpr(st, symbols, pc, globalLabel, currentNamespace);
         if (v !== null && v !== undefined) return { type: 'imm', val: v };
 
         // Unresolved (pass 1)
@@ -1105,7 +1106,7 @@
         var parts = splitOperands(opStr);
         var count = evalExpr(parts[0], symbols, pc, globalLabel, currentNamespace);
         if (count === null || count === undefined) count = 0;
-        var fill = parts.length > 1 ? evalExpr(parts[1], symbols, pc, globalLabel, currentNamespace) : 0;
+        var fill = parts.length > 1 ? evalExpr(parts[1], symbols, pc, globalLabel, currentNamespace) : 0xFF;
         if (fill === null || fill === undefined) fill = 0;
         var bytes = [];
         for (var i = 0; i < count; i++) bytes.push(fill & 0xFF);

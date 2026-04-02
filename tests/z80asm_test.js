@@ -398,7 +398,7 @@ testOK('LD (IX+5),A displacement', 'LD (IX+5),A', [0xDD, 0x77, 0x05]);
 // ================================================================
 testOK('DB',  'DB 1,2,3',     [1, 2, 3]);
 testOK('DW',  'DW 0x1234',    [0x34, 0x12]);
-testOK('DS',  'DS 3',         [0, 0, 0]);
+testOK('DS',  'DS 3',         [0xFF, 0xFF, 0xFF]);
 testOK('DS fill', 'DS 3,0xFF', [0xFF, 0xFF, 0xFF]);
 testOK('DB string', 'DB "AB"', [0x41, 0x42]);
 testOK('ORG', 'ORG 0x100\nNOP', [0x00]);
