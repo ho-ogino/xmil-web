@@ -1,6 +1,6 @@
 // x1pen_slang_compiler.js — SLANG Compiler for X1Pen
 // Ported from C# (SLANGCompiler.Core) to JavaScript
-// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ af899a2bbc716c5be4b3b0f0b6e54e46169ac0c7
+// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ 19dbd7931118237254d249c1f5246a72f934c7ba
 // Lazy-loaded: window.X1PenSlangCompiler = { compile: ... }
 
 (function() {
