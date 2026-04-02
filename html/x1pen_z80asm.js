@@ -124,23 +124,38 @@
             if (t.type === 'DOLLAR') { next(); return pc; }
             if (t.type === 'SYMBOL') {
                 next();
-                var key = t.val.toUpperCase();
-                // LOW/HIGH unary operators
-                if (key === 'LOW') { var lv = parseAtom(); return (lv !== null && lv !== undefined) ? lv & 0xFF : lv; }
-                if (key === 'HIGH') { var hv = parseAtom(); return (hv !== null && hv !== undefined) ? (hv >> 8) & 0xFF : hv; }
+                var key = t.val;
+                // LOW/HIGH unary operators (case-insensitive)
+                var keyUpper = key.toUpperCase();
+                if (keyUpper === 'LOW') { var lv = parseAtom(); return (lv !== null && lv !== undefined) ? lv & 0xFF : lv; }
+                if (keyUpper === 'HIGH') { var hv = parseAtom(); return (hv !== null && hv !== undefined) ? (hv >> 8) & 0xFF : hv; }
                 // Resolve local labels: .foo → LASTGLOBAL.FOO
                 if (key[0] === '.' && globalLabel) {
                     key = globalLabel + key;
                 }
                 // 1. そのまま検索 (NS.LABEL 明示参照 or bare predefined symbol)
                 if (key in symbols) return symbols[key];
-                // 2-3. dotless → 名前空間解決
-                if (currentNamespace && key.indexOf('.') < 0) {
+                // 2. currentNS.KEY (ドット付き参照でも名前空間プレフィックスを試す)
+                if (currentNamespace) {
                     var nsKey = currentNamespace + '.' + key;
                     if (nsKey in symbols) return symbols[nsKey];
+                }
+                // 3-5. dotless → 追加の名前空間解決
+                if (currentNamespace && key.indexOf('.') < 0) {
+                    // 2. currentNS.KEY
+                    var nsKey = currentNamespace + '.' + key;
+                    if (nsKey in symbols) return symbols[nsKey];
+                    // 3. NAME_SPACE_DEFAULT.KEY
                     if (currentNamespace !== 'NAME_SPACE_DEFAULT') {
                         var defKey = 'NAME_SPACE_DEFAULT.' + key;
                         if (defKey in symbols) return symbols[defKey];
+                    }
+                    // 4. 任意の名前空間で *.KEY を検索（ランタイムライブラリ互換）
+                    var suffix = '.' + key;
+                    for (var sk in symbols) {
+                        if (sk.length > suffix.length && sk.substring(sk.length - suffix.length) === suffix) {
+                            return symbols[sk];
+                        }
                     }
                 }
                 return undefined; // unresolved
@@ -232,7 +247,7 @@
      'RLC RRC RL RR SLA SRA SRL BIT RES SET ' +
      'RETI RETN IM RRD RLD LDI LDIR LDD LDDR CPI CPIR CPD CPDR ' +
      'INI INIR IND INDR OUTI OTIR OUTD OTDR ' +
-     'ORG DB DW DS DEFB DEFW DEFS EQU').split(' ').forEach(function(m) {
+     'ORG DB DW DS DEFB DEFW DEFS EQU ALIGN').split(' ').forEach(function(m) {
         KNOWN_MNEMONICS[m] = true;
     });
 
@@ -738,7 +753,7 @@
         // ユーザーの EQU/ラベル定義で後勝ちで上書き可能
         if (predefinedSymbols) {
             for (var k in predefinedSymbols) {
-                symbols[k.toUpperCase()] = predefinedSymbols[k];
+                symbols[k] = predefinedSymbols[k];
             }
         }
         var errors = [];
@@ -747,7 +762,7 @@
         // 1回の走査で active 状態を見ながら EQU 収集と条件評価を同時処理
         var ppSymbols = {};
         if (predefinedSymbols) {
-            for (var k in predefinedSymbols) ppSymbols[k.toUpperCase()] = predefinedSymbols[k];
+            for (var k in predefinedSymbols) ppSymbols[k] = predefinedSymbols[k];
         }
         var ifStack = [];
         function ppIsActive() {
@@ -806,7 +821,7 @@
             if (ppParsed.label && ppParsed.mnemonic === 'EQU') {
                 var ppVal = evalExpr(ppParsed.operands, ppSymbols, 0, '');
                 if (ppVal !== null && ppVal !== undefined) {
-                    ppSymbols[ppParsed.label.toUpperCase()] = ppVal;
+                    ppSymbols[ppParsed.label] = ppVal;
                 }
             }
         }
@@ -858,16 +873,16 @@
 
             // Namespace directive
             if (parsed.mnemonic === '_NAMESPACE') {
-                currentNamespace = parsed.operands.toUpperCase();
+                currentNamespace = parsed.operands;
                 continue;
             }
 
             if (parsed.label) {
                 var lbl;
                 if (parsed.label[0] === '.') {
-                    lbl = resolveLocalLabel(parsed.label, i + 1).toUpperCase();
+                    lbl = resolveLocalLabel(parsed.label, i + 1);
                 } else {
-                    lbl = (currentNamespace + '.' + parsed.label).toUpperCase();
+                    lbl = currentNamespace + '.' + parsed.label;
                     lastGlobalLabel = lbl;
                 }
 
@@ -891,6 +906,15 @@
                 continue;
             }
 
+            if (parsed.mnemonic === 'ALIGN') {
+                var alignVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel, currentNamespace);
+                if (alignVal && alignVal > 0) {
+                    var rem = pass1Addr % alignVal;
+                    if (rem !== 0) pass1Addr += alignVal - rem;
+                }
+                continue;
+            }
+
             var size = getInstructionSize(parsed, symbols, pass1Addr, 1, lastGlobalLabel, currentNamespace);
             if (size < 0) {
                 errors.push({ line: i + 1, msg: 'Unknown instruction: ' + parsed.mnemonic + ' ' + parsed.operands });
@@ -907,7 +931,7 @@
 
             // Namespace directive
             if (parsed2.mnemonic === '_NAMESPACE') {
-                currentNamespace = parsed2.operands.toUpperCase();
+                currentNamespace = parsed2.operands;
                 continue;
             }
 
@@ -915,15 +939,15 @@
                 if (parsed2.label[0] === '.') {
                     // ローカルラベル
                 } else {
-                    var lbl2ns = (currentNamespace + '.' + parsed2.label).toUpperCase();
+                    var lbl2ns = currentNamespace + '.' + parsed2.label;
                     lastGlobalLabel = lbl2ns;
                 }
                 if (parsed2.mnemonic === 'EQU') {
                     var lbl2;
                     if (parsed2.label[0] === '.') {
-                        lbl2 = resolveLocalLabel(parsed2.label, j + 1).toUpperCase();
+                        lbl2 = resolveLocalLabel(parsed2.label, j + 1);
                     } else {
-                        lbl2 = (currentNamespace + '.' + parsed2.label).toUpperCase();
+                        lbl2 = currentNamespace + '.' + parsed2.label;
                     }
                     var eqVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel, currentNamespace);
                     if (eqVal2 !== null && eqVal2 !== undefined) symbols[lbl2] = eqVal2;
@@ -937,6 +961,19 @@
                 var orgVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel, currentNamespace);
                 if (orgVal2 !== null && orgVal2 !== undefined) {
                     handleOrg(orgVal2, j + 1);
+                }
+                continue;
+            }
+
+            if (parsed2.mnemonic === 'ALIGN') {
+                var alignVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel, currentNamespace);
+                if (alignVal2 && alignVal2 > 0) {
+                    var rem2 = curAddr % alignVal2;
+                    if (rem2 !== 0) {
+                        var pad2 = alignVal2 - rem2;
+                        for (var ap = 0; ap < pad2; ap++) output.push(0xFF);
+                        curAddr += pad2;
+                    }
                 }
                 continue;
             }
