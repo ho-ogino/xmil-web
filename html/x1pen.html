@@ -162,14 +162,14 @@
         }
         .editor-tab-action:hover { background: #0d2244; color: #88bbff; }
 
-        #basic-editor-container, #asm-editor-container {
+        #basic-editor-container, #asm-editor-container, #slang-editor-container {
             flex: 1;
             overflow: hidden;
             background: #0d1117;
         }
         /* display:none だと CodeMirror の DOM 初期化が壊れるため、
            エディタコンテナは visibility で非表示にする */
-        #basic-editor-container.hidden, #asm-editor-container.hidden {
+        #basic-editor-container.hidden, #asm-editor-container.hidden, #slang-editor-container.hidden {
             display: flex !important;
             visibility: hidden;
             height: 0 !important;
@@ -177,7 +177,8 @@
             overflow: hidden;
         }
         #basic-editor-container .cm-editor,
-        #asm-editor-container .cm-editor {
+        #asm-editor-container .cm-editor,
+        #slang-editor-container .cm-editor {
             height: 100%;
         }
 
@@ -480,12 +481,14 @@
         <button class="mobile-tab active" data-panel="emulator">Emulator</button>
         <button class="mobile-tab" data-panel="basic">BASIC</button>
         <button class="mobile-tab" data-panel="asm">ASM</button>
+        <button class="mobile-tab" data-panel="slang">SLANG</button>
     </div>
     <div id="x1pen-main">
         <div id="editor-panel">
             <div id="editor-tabs">
                 <button class="editor-tab active" data-tab="basic">BASIC</button>
                 <button class="editor-tab" data-tab="asm">ASM</button>
+                <button class="editor-tab" data-tab="slang">SLANG</button>
                 <button class="editor-tab-action hidden" id="btn-asm-import" title="Import binary as DB lines">Import</button>
                 <input type="file" id="asm-import-file" style="display:none">
                 <a href="http://retropc.net/ohishi/s-os/fubasic.htm" class="editor-tab-action" id="btn-basic-manual" style="text-decoration:none; margin-left:auto;" title="FuzzyBASIC Manual" target="_blank" rel="noopener">Manual</a>
@@ -493,6 +496,7 @@
             </div>
             <div id="basic-editor-container"></div>
             <div id="asm-editor-container" class="hidden"></div>
+            <div id="slang-editor-container" class="hidden"></div>
         </div>
         <div id="emu-panel">
             <div style="position:relative; display:inline-block;">

@@ -92,6 +92,8 @@ cp "${SCRIPT_DIR}/html/x1pen.html"           ./x1pen.html
 cp "${SCRIPT_DIR}/html/x1pen.js"             ./x1pen.js
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
+[ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
+    cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ./x1pen_slang_compiler.js
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" ./x1pen_charmap.html
 [ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ./x1pen_editor.bundle.js
@@ -167,6 +169,8 @@ cp "${SCRIPT_DIR}/html/x1pen.html"           "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen.js"             "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
+[ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
+    cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" "${DIST_DIR}/"
