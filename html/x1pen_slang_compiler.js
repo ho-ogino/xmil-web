@@ -1,6 +1,6 @@
 // x1pen_slang_compiler.js — SLANG Compiler for X1Pen
 // Ported from C# (SLANGCompiler.Core) to JavaScript
-// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ 19dbd7931118237254d249c1f5246a72f934c7ba
+// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ b42d544
 // Lazy-loaded: window.X1PenSlangCompiler = { compile: ... }
 
 (function() {
@@ -2281,7 +2281,7 @@
                     var li = _localVars[key];
                     var varDs = li.byteSize;
                     var elemSz = li.kind === VarKind.Scalar ? varDs : (li.isByte ? 1 : 2);
-                    return { kind: li.kind, elemSize: elemSz, varDataSize: varDs, local: li, globalSym: null };
+                    return { kind: li.kind, elemSize: elemSz, varDataSize: varDs, local: li, globalSym: null, isResolved: true };
                 }
             }
             // 2. Static variable
@@ -2291,7 +2291,7 @@
                     var kind = (_staticVarKinds && _staticVarKinds[key2] !== undefined) ? _staticVarKinds[key2] : VarKind.Scalar;
                     var varDs2 = _staticVarSizes[key2];
                     var elemSz2 = kind === VarKind.Scalar ? varDs2 : ((_staticElemSizes && _staticElemSizes[key2] !== undefined) ? _staticElemSizes[key2] : 2);
-                    return { kind: kind, elemSize: elemSz2, varDataSize: varDs2, local: null, globalSym: null };
+                    return { kind: kind, elemSize: elemSz2, varDataSize: varDs2, local: null, globalSym: null, isResolved: true };
                 }
             }
             // 3. Global symbol
@@ -2306,10 +2306,18 @@
                 else kind2 = VarKind.Scalar;
                 var varDs3 = (sym.type && sym.type.byteSize) ? sym.type.byteSize : 2;
                 var elemSz3 = kind2 === VarKind.Scalar ? varDs3 : (isByte ? 1 : 2);
-                return { kind: kind2, elemSize: elemSz3, varDataSize: varDs3, local: null, globalSym: sym };
+                return { kind: kind2, elemSize: elemSz3, varDataSize: varDs3, local: null, globalSym: sym, isResolved: true };
             }
             // 4. Unresolved
-            return { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null };
+            return { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null, isResolved: false };
+        }
+
+        function checkDefined(name, span) {
+            var vi = resolveVarInfo(name);
+            if (!vi.isResolved) {
+                if (diagnostics) diagnostics.error('Undefined variable: ' + name, span);
+            }
+            return vi;
         }
 
         function allocLocalVar(name, byteSize) {
@@ -2392,7 +2400,7 @@
         // --- EmitStore ---
         function emitStore(target, value) {
             if (target.type === 'IdentifierExpr') {
-                var vi = resolveVarInfo(target.name);
+                var vi = checkDefined(target.name, target.span);
                 var storeDs = vi.varDataSize;
                 value = emitTypeConversion(value, storeDs);
                 if (vi.local)
@@ -2401,7 +2409,8 @@
                     emit(IrOp.StoreVar, IrOperand.Sym(resolveAsmLabel(target.name)), value, undefined, storeDs);
             } else if (target.type === 'ArrayAccessExpr') {
                 var arrayName = (target.array && target.array.type === 'IdentifierExpr') ? target.array.name : null;
-                var stVi = arrayName ? resolveVarInfo(arrayName) : { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null };
+                // shape統一用fallback — checkDefined対象外（arrayNameがnullの場合のみ）
+                var stVi = arrayName ? checkDefined(arrayName, target.array.span) : { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null, isResolved: false };
                 var arraySym = stVi.globalSym;
                 var isMemArray = arraySym && arraySym.type && arraySym.type.typeClass === 'MemoryArray';
                 var isByteAccess = isMemArray && arraySym.type.elementType === SlangType.Byte;
@@ -3094,7 +3103,7 @@
             var contLabel = newLabel();
             var endLabel = newLabel();
 
-            var forVi = resolveVarInfo(node.variable);
+            var forVi = checkDefined(node.variable, node.span);
             var forVarInfo = forVi.local;
             var forVarIsLocal = forVarInfo !== null;
             var forVarDs = forVi.varDataSize;
@@ -3368,7 +3377,7 @@
             } else if (sym && sym.isCodeBlock) {
                 emit(IrOp.LoadAddr, t, IrOperand.Sym(resolveAsmLabel(node.name)));
             } else {
-                var vi = resolveVarInfo(node.name);
+                var vi = checkDefined(node.name, node.span);
                 if (vi.kind === VarKind.Array) {
                     emit(IrOp.LoadAddr, t, IrOperand.Sym(resolveAsmLabel(node.name)));
                 } else {
@@ -3650,7 +3659,8 @@
             var isMemArray = arraySym && arraySym.type && arraySym.type.typeClass === 'MemoryArray';
             var isByteAccess = isMemArray && arraySym.type.elementType === SlangType.Byte;
 
-            var arrVi = arrayName ? resolveVarInfo(arrayName) : { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null };
+            // shape統一用fallback — checkDefined対象外（arrayNameがnullの場合のみ）
+            var arrVi = arrayName ? checkDefined(arrayName, node.array.span) : { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null, isResolved: false };
             var isIndirect = arrVi.kind === VarKind.Pointer;
             var isIndirectByte = isIndirect && arrVi.elemSize === 1;
             var isArrayByte = arrVi.kind === VarKind.Array && arrVi.elemSize === 1;
@@ -3718,6 +3728,7 @@
                     emit(IrOp.InlineAsm, t, IrOperand.Asm('\tPUSH\tIY\n\tPOP\tHL\n\tLD\tDE,$' + hexOff + '\n\tADD\tHL,DE'));
                     return t;
                 }
+                checkDefined(node.operand.name, node.operand.span);
                 emit(IrOp.LoadAddr, t, IrOperand.Sym(resolveAsmLabel(node.operand.name)));
                 return t;
             }
@@ -3732,7 +3743,8 @@
                 if (arrName && (arrName.toUpperCase() === 'PORT' || arrName.toUpperCase() === 'PORTW'))
                     return visitNode(arr.indices[0]);
 
-                var addrVi = arrName ? resolveVarInfo(arrName) : { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null };
+                // shape統一用fallback — checkDefined対象外（arrNameがnullの場合のみ）
+                var addrVi = arrName ? checkDefined(arrName, arr.array.span) : { kind: VarKind.Scalar, elemSize: 2, varDataSize: 2, local: null, globalSym: null, isResolved: false };
                 if (addrVi.kind === VarKind.Pointer) {
                     var baseAddr = visitNode(arr.array);
                     var idx = visitNode(arr.indices[0]);

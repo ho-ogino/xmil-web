@@ -573,7 +573,7 @@ window.__X1PEN_MODE = true;
                     'liblsx_base.asm', 'libx1_base.asm', 'libx1_grp.asm',
                     'liblsx_input.asm', 'libx1_print.asm', 'liblsx_file.asm',
                     'libx1_pcg.asm', 'libmag.asm', 'libm8a.asm', 'libx1_psg.asm',
-                    'libcompress.asm', 'libsoroban.asm', 'libx1_magic.asm', 'libx1_sgl.asm',
+                    'libcompress.asm', 'libsoroban.asm', 'libx1_magic.asm',
                 ];
                 var vfs = {};
                 var vBust = (XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '';
