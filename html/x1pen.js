@@ -11,7 +11,9 @@ window.__X1PEN_MODE = true;
     var BOOT_DISK_FILE  = 'fuzzybasic_boot.v2.d88';
     var LSX_COLD_STATE  = 'lsxdodgers_cold.v1.xmst';
     var LSX_BOOT_DISK   = 'lsxdodgers_boot.v1.d88';
+    var XMIL_BUILD_HASH = '@@XMIL_BUILD_HASH@@';
     var module = null;
+    var lastAsmSymbols = null;  // { symbols: {}, predefined: {}, sourceMode: string }
 
     // ── FuzzyBASIC addrmap ──
 
@@ -323,6 +325,7 @@ window.__X1PEN_MODE = true;
 
     async function reloadAssetsBypassCache() {
         assetCache = {};
+        window._slangRuntimeVFS = null; // SLANG ランタイムも再読み込み
         if (elBtnDevReload) elBtnDevReload.disabled = true;
         elStatus.textContent = 'Reloading assets...';
         try {
@@ -573,9 +576,10 @@ window.__X1PEN_MODE = true;
                     'libcompress.asm', 'libsoroban.asm', 'libx1_magic.asm', 'libx1_sgl.asm',
                 ];
                 var vfs = {};
+                var vBust = (XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '';
                 for (var ri = 0; ri < runtimeFiles.length; ri++) {
                     try {
-                        var resp = await fetch('slang_runtime/' + runtimeFiles[ri]);
+                        var resp = await fetch('slang_runtime/' + runtimeFiles[ri] + vBust);
                         if (resp.ok) vfs[runtimeFiles[ri]] = await resp.text();
                     } catch(e) { /* optional file */ }
                 }
@@ -583,7 +587,7 @@ window.__X1PEN_MODE = true;
                 var includeFiles = ['GRAPH.LIB', 'GRAPHF.LIB', 'SOROBAN.LIB'];
                 for (var ii = 0; ii < includeFiles.length; ii++) {
                     try {
-                        var iresp = await fetch('slang_include/' + includeFiles[ii]);
+                        var iresp = await fetch('slang_include/' + includeFiles[ii] + vBust);
                         if (iresp.ok) vfs[includeFiles[ii]] = await iresp.text();
                     } catch(e) { /* optional file */ }
                 }
@@ -596,6 +600,7 @@ window.__X1PEN_MODE = true;
             if (slangResult.errors && slangResult.errors.length > 0) {
                 var firstErr = slangResult.errors[0];
                 elStatus.textContent = 'SLANG: ' + (firstErr.message || firstErr);
+                clearSymbols();
                 return false;
             }
             // コンパイル結果の ASM を使う
@@ -700,8 +705,18 @@ window.__X1PEN_MODE = true;
             if (asmResult.errors.length > 0) {
                 elStatus.textContent = 'ASM error (L' + asmResult.errors[0].line + '): ' +
                                        asmResult.errors[0].msg;
+                clearSymbols();
                 return false;
             }
+            // シンボルテーブル保存
+            lastAsmSymbols = {
+                symbols: asmResult.symbols,
+                predefined: Object.assign({}, predefined),
+                sourceMode: sourceMode
+            };
+            var symBtn = document.getElementById('btn-symbols');
+            if (symBtn) symBtn.disabled = false;
+
             if (asmResult.bytes.length > 0) {
                 var orgAddr = asmResult.org;
                 var endAddr = orgAddr + asmResult.bytes.length - 1;
@@ -709,6 +724,9 @@ window.__X1PEN_MODE = true;
                     orgAddr.toString(16).toUpperCase().padStart(4, '0') + 'h-' +
                     endAddr.toString(16).toUpperCase().padStart(4, '0') + 'h)';
             }
+        } else {
+            // ASM なし（BASIC only）
+            clearSymbols();
         }
 
         // 5. BASIC ソースをトークナイズ (FuzzyBASIC モードのみ)
@@ -993,6 +1011,117 @@ window.__X1PEN_MODE = true;
                 elStatus.textContent = 'Copy failed - please copy manually';
             }
         }
+    })();
+
+    // ── Symbol Table ダイアログ ──
+
+    function clearSymbols() {
+        lastAsmSymbols = null;
+        var symBtn = document.getElementById('btn-symbols');
+        if (symBtn) symBtn.disabled = true;
+    }
+
+    var symSortByAddr = true;
+    var symHidePredefined = false;
+
+    function openSymbolDialog() {
+        if (!lastAsmSymbols) return;
+        document.getElementById('sym-dialog').classList.remove('hidden');
+        // ソースモード表示
+        var srcLabel = document.getElementById('sym-source');
+        if (srcLabel) {
+            var mode = (lastAsmSymbols.sourceMode || '').toUpperCase();
+            if (mode === 'BASIC+ASM') mode = 'BASIC+ASM';
+            srcLabel.textContent = mode ? '(' + mode + ')' : '';
+        }
+        document.getElementById('sym-filter').value = '';
+        renderSymbolTable();
+    }
+
+    function closeSymbolDialog() {
+        document.getElementById('sym-dialog').classList.add('hidden');
+    }
+
+    function renderSymbolTable() {
+        var syms = lastAsmSymbols.symbols;
+        var predefined = lastAsmSymbols.predefined;
+        var filterText = (document.getElementById('sym-filter').value || '').toUpperCase();
+
+        // 省略後の名前の出現回数（重複検出）
+        var nameCount = {};
+        for (var key in syms) {
+            var short = key.indexOf('NAME_SPACE_DEFAULT.') === 0 ? key.substring(19) : key;
+            nameCount[short] = (nameCount[short] || 0) + 1;
+        }
+
+        var entries = [];
+        var totalCount = 0;
+        for (var key in syms) {
+            var isPredefined = key in predefined;
+            if (symHidePredefined && isPredefined) { totalCount++; continue; }
+            totalCount++;
+            var displayName = key;
+            if (key.indexOf('NAME_SPACE_DEFAULT.') === 0) {
+                var short = key.substring(19);
+                displayName = nameCount[short] > 1 ? key : short;
+            }
+            if (filterText && displayName.toUpperCase().indexOf(filterText) < 0) continue;
+            entries.push({ name: displayName, value: syms[key], isPredefined: isPredefined });
+        }
+
+        if (symSortByAddr) {
+            entries.sort(function(a, b) { return a.value - b.value; });
+        } else {
+            entries.sort(function(a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+        }
+
+        var tbody = document.getElementById('sym-table-body');
+        tbody.innerHTML = '';
+        for (var i = 0; i < entries.length; i++) {
+            var e = entries[i];
+            var tr = document.createElement('tr');
+            if (e.isPredefined) tr.className = 'sym-predefined';
+            var tdName = document.createElement('td');
+            tdName.textContent = e.name;
+            var tdVal = document.createElement('td');
+            tdVal.textContent = (e.value >= 0 && e.value <= 0xFFFF)
+                ? e.value.toString(16).toUpperCase().padStart(4, '0') + 'h'
+                : String(e.value);
+            tr.appendChild(tdName);
+            tr.appendChild(tdVal);
+            tbody.appendChild(tr);
+        }
+
+        var countEl = document.getElementById('sym-count');
+        if (countEl) {
+            countEl.textContent = entries.length < totalCount
+                ? entries.length + ' / ' + totalCount + ' symbols'
+                : totalCount + ' symbols';
+        }
+    }
+
+    (function() {
+        var symBtn = document.getElementById('btn-symbols');
+        if (symBtn) symBtn.addEventListener('click', openSymbolDialog);
+        var symClose = document.getElementById('sym-dialog-close');
+        var symOk = document.getElementById('sym-dialog-ok');
+        var symBackdrop = document.getElementById('sym-dialog-backdrop');
+        if (symClose) symClose.addEventListener('click', closeSymbolDialog);
+        if (symOk) symOk.addEventListener('click', closeSymbolDialog);
+        if (symBackdrop) symBackdrop.addEventListener('click', closeSymbolDialog);
+        var symFilter = document.getElementById('sym-filter');
+        if (symFilter) symFilter.addEventListener('input', renderSymbolTable);
+        var symSortBtn = document.getElementById('sym-sort-toggle');
+        if (symSortBtn) symSortBtn.addEventListener('click', function() {
+            symSortByAddr = !symSortByAddr;
+            symSortBtn.textContent = symSortByAddr ? 'Addr\u25B2' : 'Name\u25B2';
+            renderSymbolTable();
+        });
+        var symHideChk = document.getElementById('sym-hide-predefined');
+        if (symHideChk) symHideChk.addEventListener('change', function() {
+            symHidePredefined = symHideChk.checked;
+            renderSymbolTable();
+        });
     })();
 
     async function onShareClick() {
