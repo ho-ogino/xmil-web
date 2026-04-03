@@ -446,6 +446,8 @@
         var indm = st.match(/^\((.+)\)$/);
         if (indm) {
             var addr = evalExpr(indm[1], symbols, pc, globalLabel, currentNamespace);
+            if (addr === undefined && pass === 1) addr = 0; // placeholder
+            if (addr === undefined) return { type: 'unknown', raw: s }; // unresolved in pass 2
             return { type: 'ind_nn', val: addr };
         }
 

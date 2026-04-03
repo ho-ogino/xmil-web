@@ -555,7 +555,7 @@ window.__X1PEN_MODE = true;
                 try {
                     await new Promise(function(resolve, reject) {
                         var s = document.createElement('script');
-                        s.src = 'x1pen_slang_compiler.js';
+                        s.src = 'x1pen_slang_compiler.js' + ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
                         s.onload = resolve;
                         s.onerror = function() { reject(new Error('Failed to load SLANG compiler')); };
                         document.head.appendChild(s);
