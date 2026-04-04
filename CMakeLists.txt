@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(XMillennium-Web)
 
-set(XMIL_VERSION "0.7.1")
+set(XMIL_VERSION "0.7.2")
 
 # Emscripten用の設定
 if(EMSCRIPTEN)
