@@ -237,6 +237,16 @@
 
     // StringEncoder: Unicode → Shift-JIS DB args for Z80
     // Simplified version: ASCII-only for now, non-ASCII chars encoded as hex
+    // Unicode code point → Shift-JIS byte(s)
+    function unicodeToSjisBytes(c) {
+        // ASCII
+        if (c < 0x80) return [c];
+        // 半角カナ: U+FF61..U+FF9F → 0xA1..0xDF
+        if (c >= 0xFF61 && c <= 0xFF9F) return [c - 0xFEC0];
+        // その他の非 ASCII: 下位バイトのみ（フォールバック）
+        return [c & 0xFF];
+    }
+
     function toAsmDbArgs(text) {
         var allAscii = true;
         for (var i = 0; i < text.length; i++) {
@@ -253,7 +263,10 @@
                 strBuf += text[i];
             } else {
                 if (strBuf.length > 0) { parts.push('"' + strBuf + '"'); strBuf = ''; }
-                parts.push('$' + (c & 0xFF).toString(16).toUpperCase().padStart(2, '0'));
+                var sjisBytes = unicodeToSjisBytes(c);
+                for (var bi = 0; bi < sjisBytes.length; bi++) {
+                    parts.push('$' + sjisBytes[bi].toString(16).toUpperCase().padStart(2, '0'));
+                }
             }
         }
         if (strBuf.length > 0) parts.push('"' + strBuf + '"');
