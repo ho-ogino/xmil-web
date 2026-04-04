@@ -191,6 +191,25 @@ void xmil_stop() {
 
 // メイン関数
 int main(int argc, char** argv) {
+    // localStorage の保存済み設定を xmilcfg に反映
+    // xmil_init() → x1r_init() → reset_x1() より前に実行する必要がある
+    // （さもないと初回起動時にデフォルト ROM_TYPE=1(X1) で起動してしまう）
+    xmilcfg.ROM_TYPE = (BYTE)EM_ASM_INT({
+        try {
+            var s = JSON.parse(localStorage.getItem('xmil_settings') || '{}');
+            return (s.romType >= 1 && s.romType <= 3) ? s.romType : 1;
+        } catch(e) { return 1; }
+    });
+    xmilcfg.DIP_SW = (BYTE)EM_ASM_INT({
+        try {
+            var s = JSON.parse(localStorage.getItem('xmil_settings') || '{}');
+            var dip = 0;
+            if (!s.dipHighres) dip |= 0x01;
+            if (s.dip2hd)      dip |= 0x04;
+            return dip;
+        } catch(e) { return 1; }
+    });
+
     // 初期化
     if (!xmil_init()) {
         EM_ASM({ console.error('xmil_init() failed!'); });
