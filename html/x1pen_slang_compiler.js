@@ -1,6 +1,6 @@
 // x1pen_slang_compiler.js — SLANG Compiler for X1Pen
 // Ported from C# (SLANGCompiler.Core) to JavaScript
-// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ b42d544
+// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ d52860f
 // Lazy-loaded: window.X1PenSlangCompiler = { compile: ... }
 
 (function() {
@@ -1236,6 +1236,12 @@
         }
 
         function parseStmt() {
+            // 空文（セミコロンのみ）: repeat ; until ... 等に対応
+            if (check(TK.Semicolon)) {
+                var span = current().span;
+                advance();
+                return AST.Block([], span);
+            }
             var k = current().kind;
             if (k === TK.If) return parseIf();
             if (k === TK.While) return parseWhile();
@@ -1357,20 +1363,18 @@
                     branches.push(AST.CaseBranch(null, null, parseStmt()));
                 } else {
                     var val = parseNcExpr(), rangeEnd = null;
+                    var commaValues = [];
                     while (match(TK.Comma)) {
-                        match(TK.Colon);
-                        if (!check(TK.IntegerLiteral) && !check(TK.Identifier)) {
-                            branches.push(AST.CaseBranch(val, rangeEnd, parseStmt()));
-                            val = null; break;
-                        }
-                        branches.push(AST.CaseBranch(val, null, AST.Block([], s)));
+                        commaValues.push(val);
                         val = parseNcExpr();
                     }
-                    if (val !== null) {
-                        if (match(TK.To)) rangeEnd = parseNcExpr();
-                        match(TK.Colon);
-                        branches.push(AST.CaseBranch(val, rangeEnd, parseStmt()));
-                    }
+                    if (match(TK.To)) rangeEnd = parseNcExpr();
+                    match(TK.Colon);
+                    var body = parseStmt();
+                    // カンマ先行値は body=null（IrGenerator でフォールスルー処理）
+                    for (var ci = 0; ci < commaValues.length; ci++)
+                        branches.push(AST.CaseBranch(commaValues[ci], null, null));
+                    branches.push(AST.CaseBranch(val, rangeEnd, body));
                 }
             }
             expectBlockClose();
@@ -1874,7 +1878,7 @@
                 for (var i = 0; i < node.branches.length; i++) {
                     if (node.branches[i].value) visit(node.branches[i].value);
                     if (node.branches[i].rangeEnd) visit(node.branches[i].rangeEnd);
-                    visit(node.branches[i].body);
+                    if (node.branches[i].body) visit(node.branches[i].body);
                 }
             }
             else if (t === 'ExpressionStmt') { visit(node.expr); }
@@ -2573,6 +2577,14 @@
 
             var elemSize = isArrayByte ? 1 : 2;
 
+            // 部分配列参照: 指定インデックス数 < 配列の次元数 → アドレスを返す
+            var arrayRank = 0;
+            if (isLocalArray && arrInfo.dims) arrayRank = arrInfo.dims.length;
+            else if (arraySym && arraySym.type && arraySym.type.typeClass === 'Array' && arraySym.type.dims)
+                arrayRank = arraySym.type.dims.length;
+            if (arrayRank > 0 && node.indices.length < arrayRank)
+                loadValue = false;
+
             // Local array const index optimization
             if (isLocalArray) {
                 var directOffset = tryComputeLocalArrayOffset(arrInfo, node.indices, strides, elemSize);
@@ -3145,39 +3157,61 @@
 
         function visitCaseStmt(node) {
             var endLabel = newLabel();
-            var exprVal = visitNode(node.expr);
             pushLoop(endLabel, endLabel);
 
+            // Phase 1: bodyLabel 前計算（後ろから走査）
+            // body===null のブランチ（カンマ先行値）は次の body 付きブランチの bodyLabel を共有
+            var bodyLabels = [];
+            var othersLabel = null;
+            var currentBodyLabel = null;
+            for (var i = node.branches.length - 1; i >= 0; i--) {
+                var b = node.branches[i];
+                if (b.body !== null) {
+                    currentBodyLabel = newLabel();
+                    bodyLabels[i] = currentBodyLabel;
+                    if (b.value === null) othersLabel = currentBodyLabel;
+                } else {
+                    bodyLabels[i] = currentBodyLabel;
+                }
+            }
+
+            // Phase 2: 比較コード出力
             for (var i = 0; i < node.branches.length; i++) {
                 var branch = node.branches[i];
-                if (!branch.value) {
-                    visitNode(branch.body);
-                    emit(IrOp.Jump, IrOperand.Lbl(endLabel));
+                if (branch.value === null) continue; // OTHERS — Phase 3 で出力
+                var nextLabel = newLabel();
+                var branchVal = visitNode(branch.value);
+
+                if (branch.rangeEnd) {
+                    var rangeEnd = visitNode(branch.rangeEnd);
+                    var reloaded1 = visitNode(node.expr);
+                    var cmpLo = IrOperand.Temp(allocTemp());
+                    emit(IrOp.CmpGe, cmpLo, reloaded1, branchVal);
+                    emit(IrOp.JumpIfZero, IrOperand.Lbl(nextLabel), cmpLo);
+                    var reloaded2 = visitNode(node.expr);
+                    var cmpHi = IrOperand.Temp(allocTemp());
+                    emit(IrOp.CmpLe, cmpHi, reloaded2, rangeEnd);
+                    emit(IrOp.JumpIfZero, IrOperand.Lbl(nextLabel), cmpHi);
                 } else {
-                    var nextLabel = newLabel();
-                    var branchVal = visitNode(branch.value);
-
-                    if (branch.rangeEnd) {
-                        var rangeEnd = visitNode(branch.rangeEnd);
-                        var reloaded1 = visitNode(node.expr);
-                        var cmpLo = IrOperand.Temp(allocTemp());
-                        emit(IrOp.CmpGe, cmpLo, reloaded1, branchVal);
-                        emit(IrOp.JumpIfZero, IrOperand.Lbl(nextLabel), cmpLo);
-                        var reloaded2 = visitNode(node.expr);
-                        var cmpHi = IrOperand.Temp(allocTemp());
-                        emit(IrOp.CmpLe, cmpHi, reloaded2, rangeEnd);
-                        emit(IrOp.JumpIfZero, IrOperand.Lbl(nextLabel), cmpHi);
-                    } else {
-                        var reloaded = visitNode(node.expr);
-                        var cmp2 = IrOperand.Temp(allocTemp());
-                        emit(IrOp.CmpEq, cmp2, reloaded, branchVal);
-                        emit(IrOp.JumpIfZero, IrOperand.Lbl(nextLabel), cmp2);
-                    }
-
-                    visitNode(branch.body);
-                    emit(IrOp.Jump, IrOperand.Lbl(endLabel));
-                    emit(IrOp.Label, IrOperand.Lbl(nextLabel));
+                    var reloaded = visitNode(node.expr);
+                    var cmp2 = IrOperand.Temp(allocTemp());
+                    emit(IrOp.CmpEq, cmp2, reloaded, branchVal);
+                    emit(IrOp.JumpIfZero, IrOperand.Lbl(nextLabel), cmp2);
                 }
+
+                emit(IrOp.Jump, IrOperand.Lbl(bodyLabels[i]));
+                emit(IrOp.Label, IrOperand.Lbl(nextLabel));
+            }
+
+            // 全比較不一致: OTHERS があればそこへ、なければ endLabel へ
+            emit(IrOp.Jump, IrOperand.Lbl(othersLabel || endLabel));
+
+            // Phase 3: body コード出力（body !== null のブランチだけ）
+            for (var i = 0; i < node.branches.length; i++) {
+                if (node.branches[i].body === null) continue;
+                emit(IrOp.Label, IrOperand.Lbl(bodyLabels[i]));
+                visitNode(node.branches[i].body);
+                emit(IrOp.Jump, IrOperand.Lbl(endLabel));
             }
 
             emit(IrOp.Label, IrOperand.Lbl(endLabel));

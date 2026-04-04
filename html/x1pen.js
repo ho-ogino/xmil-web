@@ -1653,8 +1653,10 @@ window.__X1PEN_MODE = true;
         if (!refEl) return;
         refEl.innerHTML = '';
         loadAddrmapVersions().then(function(versions) {
-            var verName = COLD_STATE_VERSION[coldStateFile || COLD_STATE_FILE];
-            if (!versions || !verName || !versions[verName]) {
+            var csFile = coldStateFile || COLD_STATE_FILE;
+            var verName = COLD_STATE_VERSION[csFile];
+            if (!verName) return; // LSX-Dodgers etc. — no addrmap needed
+            if (!versions || !versions[verName]) {
                 console.warn('[x1pen] ADDR Reference unavailable (addrmap not loaded or version mismatch)');
                 return;
             }
