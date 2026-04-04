@@ -584,6 +584,20 @@ testOK('MACRO with comment', 'M MACRO ; comment\n NOP\nENDM\n M', [0x00]);
 testOK('MACRO args with comment', 'M MACRO R ; load reg\n LD R,0\nENDM\n M A', [0x3E, 0x00]);
 testOK('ENDM with comment', 'M MACRO\n NOP\nENDM ; done\n M', [0x00]);
 
+// --- Case insensitive symbols ---
+console.log('\n--- Case insensitive symbols ---');
+
+// Labels: mixed case reference
+testOK('Case insensitive label', 'Foo: NOP\n JP FOO', [0x00, 0xC3, 0x00, 0x00]);
+testOK('Case insensitive label (lower ref)', 'FOO: NOP\n JP foo', [0x00, 0xC3, 0x00, 0x00]);
+testOK('Case insensitive EQU', 'myVal EQU $42\n LD A,(MYVAL)', [0x3A, 0x42, 0x00]);
+
+// exists operator case insensitive
+testOK('exists case insensitive', 'FOO EQU 1\n#IF exists foo\n NOP\n#ENDIF', [0x00]);
+
+// CALL MAIN resolves to main: (SLANG pattern)
+testOK('CALL MAIN matches main:', 'main:\n RET\nentry:\n CALL MAIN', [0xC9, 0xCD, 0x00, 0x00]);
+
 console.log('\n' + '='.repeat(40));
 console.log('Results: ' + passes + ' passed, ' + failures + ' failed');
 console.log('='.repeat(40));

@@ -130,13 +130,13 @@
             if (t.type === 'DOLLAR') { next(); return pc; }
             if (t.type === 'SYMBOL') {
                 next();
-                var key = t.val;
+                var key = t.val.toUpperCase();
                 // LOW/HIGH unary operators (case-insensitive, only when followed by another token)
-                var keyUpper = key.toUpperCase();
+                var keyUpper = key;
                 if (keyUpper === 'LOW' && peek()) { var lv = parseAtom(); return (lv !== null && lv !== undefined) ? lv & 0xFF : lv; }
                 if (keyUpper === 'HIGH' && peek()) { var hv = parseAtom(); return (hv !== null && hv !== undefined) ? (hv >> 8) & 0xFF : hv; }
                 if (keyUpper === 'EXISTS' && peek() && peek().type === 'SYMBOL') {
-                    var existsName = next().val;
+                    var existsName = next().val.toUpperCase();
                     // シンボルテーブル + 名前空間解決で存在チェック
                     if (existsName in symbols) return 1;
                     if (currentNamespace) {
@@ -314,7 +314,7 @@
         var nsMatch = code.trim().match(/^\[([a-zA-Z_][a-zA-Z0-9_]*)\]$/);
         if (nsMatch) {
             result.mnemonic = '_NAMESPACE';
-            result.operands = nsMatch[1];
+            result.operands = nsMatch[1].toUpperCase();
             return result;
         }
 
@@ -825,7 +825,7 @@
         // ユーザーの EQU/ラベル定義で後勝ちで上書き可能
         if (predefinedSymbols) {
             for (var k in predefinedSymbols) {
-                symbols[k] = predefinedSymbols[k];
+                symbols[k.toUpperCase()] = predefinedSymbols[k];
             }
         }
         var errors = [];
@@ -835,10 +835,11 @@
         var ppSymbols = {};
         if (predefinedSymbols) {
             for (var k in predefinedSymbols) {
-                ppSymbols[k] = predefinedSymbols[k];
+                var ku = k.toUpperCase();
+                ppSymbols[ku] = predefinedSymbols[k];
                 // NAME_SPACE_DEFAULT.KEY でも参照可能に
-                if (k.indexOf('.') < 0) {
-                    ppSymbols['NAME_SPACE_DEFAULT.' + k] = predefinedSymbols[k];
+                if (ku.indexOf('.') < 0) {
+                    ppSymbols['NAME_SPACE_DEFAULT.' + ku] = predefinedSymbols[k];
                 }
             }
         }
@@ -925,7 +926,7 @@
             if (ppParsed.label && ppParsed.mnemonic === 'EQU') {
                 var ppVal = evalExpr(ppParsed.operands, ppSymbols, 0, '');
                 if (ppVal !== null && ppVal !== undefined) {
-                    ppSymbols[ppParsed.label] = ppVal;
+                    ppSymbols[ppParsed.label.toUpperCase()] = ppVal;
                 }
             }
         }
@@ -1119,9 +1120,9 @@
             if (parsed.label) {
                 var lbl;
                 if (parsed.label[0] === '.') {
-                    lbl = resolveLocalLabel(parsed.label, i + 1);
+                    lbl = resolveLocalLabel(parsed.label.toUpperCase(), i + 1);
                 } else {
-                    lbl = currentNamespace + '.' + parsed.label;
+                    lbl = currentNamespace + '.' + parsed.label.toUpperCase();
                     lastGlobalLabel = lbl;
                 }
 
@@ -1178,15 +1179,15 @@
                 if (parsed2.label[0] === '.') {
                     // ローカルラベル
                 } else {
-                    var lbl2ns = currentNamespace + '.' + parsed2.label;
+                    var lbl2ns = currentNamespace + '.' + parsed2.label.toUpperCase();
                     lastGlobalLabel = lbl2ns;
                 }
                 if (parsed2.mnemonic === 'EQU') {
                     var lbl2;
                     if (parsed2.label[0] === '.') {
-                        lbl2 = resolveLocalLabel(parsed2.label, j + 1);
+                        lbl2 = resolveLocalLabel(parsed2.label.toUpperCase(), j + 1);
                     } else {
-                        lbl2 = currentNamespace + '.' + parsed2.label;
+                        lbl2 = currentNamespace + '.' + parsed2.label.toUpperCase();
                     }
                     var eqVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel, currentNamespace);
                     if (eqVal2 !== null && eqVal2 !== undefined) symbols[lbl2] = eqVal2;

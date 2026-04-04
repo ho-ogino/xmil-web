@@ -711,7 +711,7 @@ window.__X1PEN_MODE = true;
             // シンボルテーブル保存
             lastAsmSymbols = {
                 symbols: asmResult.symbols,
-                predefined: Object.assign({}, predefined),
+                predefined: (function() { var u = {}; for (var pk in predefined) u[pk.toUpperCase()] = predefined[pk]; return u; })(),
                 sourceMode: sourceMode
             };
             var symBtn = document.getElementById('btn-symbols');
