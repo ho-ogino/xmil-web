@@ -3199,7 +3199,8 @@ jp f24add
 
 
 ; @name FTAN
-; @result_type float; @calls FCOS,f24div
+; @result_type float
+; @calls FCOS,f24div
 f24tan:
 ;tan(AHL) ==> AHL
 push hl
