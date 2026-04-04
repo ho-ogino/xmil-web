@@ -1,6 +1,6 @@
 // x1pen_slang_compiler.js — SLANG Compiler for X1Pen
 // Ported from C# (SLANGCompiler.Core) to JavaScript
-// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ d52860f
+// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ df6587a
 // Lazy-loaded: window.X1PenSlangCompiler = { compile: ... }
 
 (function() {
@@ -1694,7 +1694,7 @@
     function Symbol(name, kind, type) {
         return {
             name: name, kind: kind, type: type,
-            address: null, offset: 0, constValue: null,
+            address: null, offset: 0, constValue: null, constFloatValue: null,
             isGlobal: false, isCodeBlock: false, asmLabel: null, isArrayDecl: false,
             constAst: null, addressAst: null,
             constAsmExpr: null, constAsmDeps: null, constAsmResolved: false,
@@ -1800,7 +1800,45 @@
             var c = evaluate(expr.condition); if (c === null) return null;
             return c !== 0 ? evaluate(expr.trueExpr) : evaluate(expr.falseExpr);
         }
-        return { evaluate: evaluate };
+        // FLOAT 定数式評価
+        function evaluateFloat(expr) {
+            if (!expr) return null;
+            var t = expr.type;
+            if (t === 'IntegerLiteral') return expr.value;
+            if (t === 'FloatLiteral') return expr.value;
+            if (t === 'IdentifierExpr') return evalFloatId(expr);
+            if (t === 'UnaryExpr') return evalFloatUnary(expr);
+            if (t === 'BinaryExpr') return evalFloatBinary(expr);
+            if (t === 'CastExpr') return evaluateFloat(expr.operand);
+            return null;
+        }
+        function evalFloatId(expr) {
+            if (!symbols) return null;
+            var sym = symbols.resolve(expr.name);
+            if (sym && sym.kind === SymbolKind.Constant) {
+                if (sym.constFloatValue !== null && sym.constFloatValue !== undefined) return sym.constFloatValue;
+                if (typeof sym.constValue === 'number') return sym.constValue;
+            }
+            return null;
+        }
+        function evalFloatUnary(expr) {
+            var v = evaluateFloat(expr.operand); if (v === null) return null;
+            if (expr.op === UnaryOp.Negate) return -v;
+            if (expr.op === UnaryOp.Plus) return v;
+            return null;
+        }
+        function evalFloatBinary(expr) {
+            var l = evaluateFloat(expr.left), r = evaluateFloat(expr.right);
+            if (l === null || r === null) return null;
+            switch (expr.op) {
+                case BinaryOp.Add: return l + r;
+                case BinaryOp.Sub: return l - r;
+                case BinaryOp.Mul: return l * r;
+                case BinaryOp.Div: return r !== 0 ? l / r : null;
+                default: return null;
+            }
+        }
+        return { evaluate: evaluate, evaluateFloat: evaluateFloat };
     }
 
     // ================================================================
@@ -1966,8 +2004,18 @@
                 } else {
                     var sym = _symbols.define(node.name, SymbolKind.Constant, SlangType.Word);
                     var val = _constEval.evaluate(node.value);
-                    if (val !== null) sym.constValue = val;
-                    else sym.constAst = node.value;
+                    if (val !== null) {
+                        sym.constValue = val;
+                    } else {
+                        // FLOAT 定数式を試行: CONST DEG2RAD = 3.14 / 180.0 等
+                        var floatVal = _constEval.evaluateFloat(node.value);
+                        if (floatVal !== null) {
+                            sym.constFloatValue = floatVal;
+                            sym.type = SlangType.Float;
+                        } else {
+                            sym.constAst = node.value;
+                        }
+                    }
                 }
                 return;
             }
@@ -2028,7 +2076,8 @@
         // Data movement
         LoadConst: 'LoadConst', LoadVar: 'LoadVar', StoreVar: 'StoreVar',
         LoadLocal: 'LoadLocal', StoreLocal: 'StoreLocal',
-        LoadAddr: 'LoadAddr', LoadIndirect: 'LoadIndirect', StoreIndirect: 'StoreIndirect',
+        LoadAddr: 'LoadAddr', LoadFloatConst: 'LoadFloatConst',
+        LoadIndirect: 'LoadIndirect', StoreIndirect: 'StoreIndirect',
         // Arithmetic
         Add: 'Add', Sub: 'Sub', Mul: 'Mul', Div: 'Div', Mod: 'Mod',
         SMul: 'SMul', SDiv: 'SDiv', SMod: 'SMod', Neg: 'Neg',
@@ -2194,7 +2243,8 @@
     // ================================================================
     // IrGenerator: AST → IR conversion
     // ================================================================
-    function IrGenerator(diagnostics, globalSymbols) {
+    function IrGenerator(diagnostics, globalSymbols, runtimeManager) {
+        var _irRm = runtimeManager || null;
         var _module = IrModule();
         var _currentFunction = null;
         var _labelCount = 0;
@@ -3339,6 +3389,10 @@
                             if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
                             emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PTAB'));
                             break;
+                        case 'FL$':
+                            if (arg.arguments.length > 0) visitNode(arg.arguments[0]);
+                            emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PFLOAT'));
+                            break;
                         default:
                             for (var ai = 0; ai < arg.arguments.length; ai++) visitNode(arg.arguments[ai]);
                             emit(IrOp.Call, IrOperand.None, IrOperand.Sym('PRINT_' + arg.funcName));
@@ -3361,17 +3415,18 @@
             return t;
         }
 
-        function visitFloatLiteral(node) {
-            var f24 = convertToF24(node.value);
-            var label = '_FC' + (_floatConstCount++);
-            var gvi = GlobalVarInfo(label, label, 3);
-            gvi.initialItems = [InitItem(f24[0]), InitItem(f24[1]), InitItem(f24[2])];
-            gvi.storageKind = VarStorageKind.CodeConst;
-            _module.globalVars.push(gvi);
+        function emitLoadFloatConstValue(value) {
+            var f24 = convertToF24(value);
+            var hlVal = f24[0] | (f24[1] << 8); // mantissa
+            var aVal = f24[2];                    // exponent
             var t = IrOperand.Temp(allocTemp());
-            emit(IrOp.LoadVar, t, IrOperand.Sym(label), undefined, 3);
+            emit(IrOp.LoadFloatConst, t, IrOperand.Imm(hlVal), IrOperand.Imm(aVal), 3);
             _tempDataSize[t.tempIndex] = 3;
             return t;
+        }
+
+        function visitFloatLiteral(node) {
+            return emitLoadFloatConstValue(node.value);
         }
 
         function visitStringLiteral(node) {
@@ -3410,6 +3465,8 @@
             var sym = globalSymbols ? globalSymbols.resolve(node.name) : null;
             if (sym && sym.kind === SymbolKind.Constant && typeof sym.constValue === 'number') {
                 emit(IrOp.LoadConst, t, IrOperand.Imm(sym.constValue));
+            } else if (sym && sym.kind === SymbolKind.Constant && sym.constFloatValue !== null && sym.constFloatValue !== undefined) {
+                return emitLoadFloatConstValue(sym.constFloatValue);
             } else if (sym && sym.kind === SymbolKind.Constant && sym.constAst) {
                 if (!sym.constAsmResolved) {
                     sym.constAsmResolved = true;
@@ -3686,7 +3743,14 @@
                 } else {
                     asmName = (funcSym && funcSym.asmLabel) ? funcSym.asmLabel : sanitizeLabel(funcName);
                 }
-                emit(IrOp.Call, dest, IrOperand.Sym(asmName), IrOperand.Imm(machineParamCount));
+                // ランタイム関数の FLOAT 戻り値: dataSize を 3 に設定
+                var callResultDs = 2;
+                if (funcName && _irRm) {
+                    var rtFunc = _irRm.getFunction(funcName);
+                    if (rtFunc && rtFunc.resultType === 'float') callResultDs = 3;
+                }
+                emit(IrOp.Call, dest, IrOperand.Sym(asmName), IrOperand.Imm(machineParamCount), callResultDs);
+                if (callResultDs === 3) _tempDataSize[dest.tempIndex] = 3;
                 return dest;
             } else {
                 for (var i2 = 0; i2 < node.arguments.length; i2++) {
@@ -4122,6 +4186,8 @@
                         if (current && value.toLowerCase() === 'callee') current.calleeCleanup = true;
                     } else if (keyLower === 'alias') {
                         if (current && value) current.aliases.push(value);
+                    } else if (keyLower === 'result_type') {
+                        if (current && value) current.resultType = value.toLowerCase();
                     }
                     continue;
                 }
@@ -4355,6 +4421,9 @@
             return inst.dataSize !== 3 && (inst.op === IrOp.LoadVar || inst.op === IrOp.LoadConst
                 || inst.op === IrOp.LoadLocal || inst.op === IrOp.LoadAddr);
         }
+        function isSimpleFloatLoad(inst) {
+            return inst.dataSize === 3 && (inst.op === IrOp.LoadFloatConst || inst.op === IrOp.LoadVar);
+        }
 
         function usesTemp(inst, tempIdx) {
             return (inst.src1.kind === IrOperandKind.Temp && inst.src1.tempIndex === tempIdx)
@@ -4466,6 +4535,10 @@
                 case IrOp.LoadAddr:
                     var an = inst.src1.kind === IrOperandKind.Symbol ? asmLabel(inst.src1.name) : inst.src1.name;
                     _e.instruction('LD', 'HL,' + an);
+                    break;
+                case IrOp.LoadFloatConst:
+                    _e.instruction('LD', 'HL,$' + hex4(inst.src1.immediateValue));
+                    _e.instruction('LD', 'A,$' + hex2(inst.src2.immediateValue));
                     break;
             }
         }
@@ -4696,6 +4769,7 @@
                 case IrOp.FuncBegin: emitFuncBegin(inst); break;
                 case IrOp.FuncEnd: emitFuncEnd(); break;
                 case IrOp.LoadConst: emitLoadConst(inst); break;
+                case IrOp.LoadFloatConst: emitLoadFloatConst(inst); break;
                 case IrOp.LoadVar: emitLoadVar(inst); break;
                 case IrOp.StoreVar: emitStoreVar(inst); break;
                 case IrOp.LoadLocal: emitLoadLocal(inst); break;
@@ -4829,6 +4903,30 @@
                     _e.instruction('LD', 'A,$' + hex2(val));
                 else
                     _e.instruction('LD', 'HL,$' + hex4(val));
+            }
+        }
+
+        function emitLoadFloatConst(inst) {
+            var hlVal = inst.src1.immediateValue & 0xFFFF;
+            var aVal = inst.src2.immediateValue & 0xFF;
+            _e.instruction('LD', 'HL,$' + hex4(hlVal));
+            _e.instruction('LD', 'A,$' + hex2(aVal));
+        }
+
+        // FLOAT src2 を CDE にロード（src1 が AHL に残っている前提）
+        function emitFloatSrc2ToCDE(inst) {
+            if (inst.op === IrOp.LoadFloatConst) {
+                var hlVal = inst.src1.immediateValue & 0xFFFF;
+                var aVal = inst.src2.immediateValue & 0xFF;
+                _e.instruction('LD', 'DE,$' + hex4(hlVal));
+                _e.instruction('LD', 'C,$' + hex2(aVal));
+            } else if (inst.op === IrOp.LoadVar) {
+                var lbl = asmLabel(inst.src1.name);
+                _e.instruction('EX', "AF,AF'");
+                _e.instruction('LD', 'A,(' + lbl + '+2)');
+                _e.instruction('LD', 'C,A');
+                _e.instruction('LD', 'DE,(' + lbl + ')');
+                _e.instruction('EX', "AF,AF'");
             }
         }
 
@@ -5075,6 +5173,13 @@
                     } else if (isSimpleLoad(insts[s2]) && !isSimpleLoad(insts[s1])) {
                         skipEmit[s2] = true; halfDirectOps[i] = true;
                     } else if (isSimpleLoad(insts[s1]) && !isSimpleLoad(insts[s2]) && isCommutativeOp(inst.op)) {
+                        skipEmit[s1] = true; reverseHalfDirectOps[i] = true;
+                    }
+                    // FLOAT direct 最適化
+                    else if (inst.dataSize === 3 && isSimpleFloatLoad(insts[s2]) && !isSimpleFloatLoad(insts[s1])) {
+                        skipEmit[s2] = true; halfDirectOps[i] = true;
+                    }
+                    else if (inst.dataSize === 3 && isSimpleFloatLoad(insts[s1]) && !isSimpleFloatLoad(insts[s2]) && isCommutativeOp(inst.op)) {
                         skipEmit[s1] = true; reverseHalfDirectOps[i] = true;
                     }
                 }
@@ -5416,6 +5521,26 @@
                     emitBinaryDirect(inst);
                     if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
                         _e.instruction('PUSH', 'HL');
+                    continue;
+                }
+
+                // FLOAT halfDirectOps: src1 が AHL に残っている、src2 を CDE に直接ロード
+                if (halfDirectOps[i] && inst.dataSize === 3) {
+                    var s2Inst = insts[tempDef[inst.src2.tempIndex]];
+                    emitFloatSrc2ToCDE(s2Inst);
+                    emitBinaryDirect(inst);
+                    if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                        emitPushValue(3);
+                    continue;
+                }
+
+                // FLOAT reverseHalfDirectOps: src2 が AHL に残っている、src1 を CDE に直接ロード（可換演算のみ）
+                if (reverseHalfDirectOps[i] && inst.dataSize === 3) {
+                    var s1Inst = insts[tempDef[inst.src1.tempIndex]];
+                    emitFloatSrc2ToCDE(s1Inst);
+                    emitBinaryDirect(inst);
+                    if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
+                        emitPushValue(3);
                     continue;
                 }
 
@@ -5914,11 +6039,7 @@
                 analyzer.analyze(ast);
                 if (diagnostics.hasErrors) return { asm: '', errors: diagnostics.diagnostics };
 
-                var irGen = IrGenerator(diagnostics, analyzer.symbols);
-                var irModule = irGen.generate(ast);
-                if (diagnostics.hasErrors) return { asm: '', errors: diagnostics.diagnostics };
-
-                // Load runtime from virtualFS if available
+                // Load runtime from virtualFS (before IR generation for result_type info)
                 var rm = null;
                 if (virtualFS) {
                     rm = RuntimeManager();
@@ -5931,6 +6052,10 @@
                         }
                     }
                 }
+
+                var irGen = IrGenerator(diagnostics, analyzer.symbols, rm);
+                var irModule = irGen.generate(ast);
+                if (diagnostics.hasErrors) return { asm: '', errors: diagnostics.diagnostics };
 
                 var codeGen = CodeGenerator(irModule, rm, envConfig, diagnostics);
                 var asm = codeGen.generate();
