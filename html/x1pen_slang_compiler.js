@@ -2580,8 +2580,10 @@
             // 部分配列参照: 指定インデックス数 < 配列の次元数 → アドレスを返す
             var arrayRank = 0;
             if (isLocalArray && arrInfo.dims) arrayRank = arrInfo.dims.length;
-            else if (arraySym && arraySym.type && arraySym.type.typeClass === 'Array' && arraySym.type.dims)
-                arrayRank = arraySym.type.dims.length;
+            else if (arraySym && arraySym.type && arraySym.type.typeClass === 'Array') {
+                if (arraySym.type.rank) arrayRank = arraySym.type.rank;
+                else if (arraySym.type.dimensions) arrayRank = arraySym.type.dimensions.length;
+            }
             if (arrayRank > 0 && node.indices.length < arrayRank)
                 loadValue = false;
 
