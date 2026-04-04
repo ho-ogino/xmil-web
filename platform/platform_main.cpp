@@ -261,10 +261,10 @@ void js_insert_disk(const char* path, int drive) {
 
 EMSCRIPTEN_KEEPALIVE
 void js_set_rom_type(int type) {
-    if (type >= 1 && type <= 3) {
+    // xmilcfg のみ設定（次回 reset/power on で反映される）
+    // x1flg.ROM_TYPE は reset_x1() や state restore で設定される
+    if (type >= 1 && type <= 3)
         xmilcfg.ROM_TYPE = (BYTE)type;
-        x1flg.ROM_TYPE = (BYTE)type;
-    }
 }
 
 EMSCRIPTEN_KEEPALIVE
