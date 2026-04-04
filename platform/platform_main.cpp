@@ -261,8 +261,10 @@ void js_insert_disk(const char* path, int drive) {
 
 EMSCRIPTEN_KEEPALIVE
 void js_set_rom_type(int type) {
-    if (type >= 1 && type <= 3)
+    if (type >= 1 && type <= 3) {
         xmilcfg.ROM_TYPE = (BYTE)type;
+        x1flg.ROM_TYPE = (BYTE)type;
+    }
 }
 
 EMSCRIPTEN_KEEPALIVE

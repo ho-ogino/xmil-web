@@ -635,10 +635,10 @@ window.__X1PEN_MODE = true;
             return false;
         }
 
-        // state restore で x1flg.ROM_TYPE が確定 → lastUsedRuntime を更新
-        if (module._js_get_rom_type) {
-            lastUsedRuntime.model = module._js_get_rom_type();
-        }
+        // state restore 後にユーザー指定の MODEL を再適用
+        // (cold state 内の ROM_TYPE とユーザー設定が異なる場合がある)
+        if (module._js_set_rom_type) module._js_set_rom_type(runtime.model);
+        lastUsedRuntime.model = runtime.model;
 
         // ADDR Reference を actual cold state に合わせて更新
         updateAddrReference(actualColdState);
