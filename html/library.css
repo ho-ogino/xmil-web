@@ -513,3 +513,105 @@
     line-height: 1.2;
 }
 .hw-state-btn:hover { background: #3a3a3a; color: #fff; }
+
+/* ── Drive ファイルブラウザ モーダル ── */
+#drive-browser-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#drive-browser-modal.hidden { display: none !important; }
+.drive-browser-dialog {
+    background: #1a1a2e;
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 520px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.drive-browser-header {
+    padding: 12px 16px;
+    font-weight: bold;
+    color: #e0e0e0;
+    border-bottom: 1px solid #0f3460;
+}
+.drive-browser-search {
+    display: flex;
+    gap: 8px;
+    padding: 8px 16px;
+    border-bottom: 1px solid #0f3460;
+}
+.drive-browser-search input {
+    flex: 1;
+    font-size: 0.9em;
+    padding: 6px 8px;
+    background: #0d1117;
+    color: #e0e0e0;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    outline: none;
+}
+.drive-browser-search button {
+    font-size: 0.85em;
+    padding: 6px 12px;
+    background: #16213e;
+    color: #e0e0e0;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.drive-browser-search button:hover { background: #0f3460; }
+.drive-file-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 100px;
+    max-height: 50vh;
+}
+.drive-file-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    border-bottom: 1px solid #0a1a30;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+.drive-file-list li:hover { background: #16213e; }
+.drive-file-list .drive-empty {
+    text-align: center;
+    color: #666;
+    padding: 24px 16px;
+    cursor: default;
+}
+.drive-browser-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    border-top: 1px solid #0f3460;
+}
+.drive-browser-hint {
+    font-size: 0.75em;
+    color: #666;
+}
+#drive-browser-cancel {
+    font-size: 0.85em;
+    padding: 6px 16px;
+    background: #16213e;
+    color: #e0e0e0;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    cursor: pointer;
+}
+#drive-browser-cancel:hover { background: #0f3460; }
