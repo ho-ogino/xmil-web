@@ -14,6 +14,7 @@ window.__X1PEN_MODE = true;
     var XMIL_BUILD_HASH = '@@XMIL_BUILD_HASH@@';
     var module = null;
     var lastAsmSymbols = null;  // { symbols: {}, predefined: {}, sourceMode: string }
+    var lastAsmTabOrigin = null; // null | 'user' | 'slang-generated'
 
     // ── FuzzyBASIC addrmap ──
 
@@ -360,7 +361,7 @@ window.__X1PEN_MODE = true;
         { language: 'asm',
           showLineNumbers: true,
           placeholder: '; Z80 Assembly\nORG 0E000h\n    LD A,042h\n    RET',
-          onChange: function(text) { try { localStorage.setItem(LS_EDITOR_ASM, text); } catch(e) {} },
+          onChange: function(text) { lastAsmTabOrigin = 'user'; try { localStorage.setItem(LS_EDITOR_ASM, text); } catch(e) {} },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
     );
@@ -381,7 +382,7 @@ window.__X1PEN_MODE = true;
         var savedBasic = localStorage.getItem(LS_EDITOR_BASIC);
         if (savedBasic) basicEditor.setValue(savedBasic, { silent: true });
         var savedAsm = localStorage.getItem(LS_EDITOR_ASM);
-        if (savedAsm) asmEditor.setValue(savedAsm, { silent: true });
+        if (savedAsm) { asmEditor.setValue(savedAsm, { silent: true }); lastAsmTabOrigin = 'user'; }
         var savedSlang = localStorage.getItem(LS_EDITOR_SLANG);
         if (savedSlang) slangEditor.setValue(savedSlang, { silent: true });
     } catch(e) {}
@@ -605,8 +606,17 @@ window.__X1PEN_MODE = true;
             }
             // コンパイル結果の ASM を使う
             asmSrc = slangResult.asm;
-            // ASM タブにコンパイル結果を表示（デバッグ用、ユーザーの手書き ASM は退避しない）
-            if (asmEditor) asmEditor.setValue(asmSrc, { silent: true });
+            // ASM タブにユーザーの手書き ASM がある場合は確認
+            if (asmEditor && lastAsmTabOrigin === 'user' && asmEditor.getValue().trim()) {
+                if (!confirm('ASM タブの内容が上書きされます。よろしいですか？')) {
+                    return false;
+                }
+            }
+            // ASM タブにコンパイル結果を表示
+            if (asmEditor) {
+                asmEditor.setValue(asmSrc, { silent: true });
+                lastAsmTabOrigin = 'slang-generated';
+            }
             elStatus.textContent = 'SLANG compiled (' + asmSrc.split('\n').length + ' lines)';
         }
 
@@ -1159,9 +1169,11 @@ window.__X1PEN_MODE = true;
         };
         if (shareRuntime.relocAddrs) meta.relocAddrs = shareRuntime.relocAddrs;
 
+        // SLANG モードでは生成 ASM を payload に含めない（slang が正）
+        var shareAsm = (shareSourceMode === 'slang') ? null : (asmSrc || null);
         var payload = JSON.stringify({
             basic: src,
-            asm: asmSrc || null,
+            asm: shareAsm,
             slang: slangSrc || null,
             meta: meta
         });
@@ -1369,12 +1381,14 @@ window.__X1PEN_MODE = true;
                         model: replayRuntime.model,
                         coldState: replayRuntime.coldState,
                         bootDisk: replayRuntime.bootDisk,
-                        runMode: replayRuntime.runMode || 'fuzzybasic'
+                        runMode: replayRuntime.runMode || 'fuzzybasic',
+                        sourceMode: shared.meta.sourceMode || (shared.slang ? 'slang' : null)
                     };
                     if (replayRuntime.relocAddrs) replayMeta.relocAddrs = replayRuntime.relocAddrs;
                     var replayPayload = JSON.stringify({
                         basic: shared.basic,
                         asm: shared.asm || null,
+                        slang: shared.slang || null,
                         meta: replayMeta
                     });
                     lastShareHash = await computePayloadHash(replayPayload);
@@ -1994,7 +2008,8 @@ window.__X1PEN_MODE = true;
             emuPanel.classList.add('mobile-hidden');
             setActiveEditorTab(panel);
             setTimeout(function() {
-                var editor = (panel === 'basic') ? basicEditor : asmEditor;
+                var editor = (panel === 'basic') ? basicEditor :
+                             (panel === 'slang') ? slangEditor : asmEditor;
                 if (editor && editor.view) editor.view.requestMeasure();
             }, 0);
         }
