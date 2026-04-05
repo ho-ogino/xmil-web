@@ -1,6 +1,6 @@
 // x1pen_slang_compiler.js — SLANG Compiler for X1Pen
 // Ported from C# (SLANGCompiler.Core) to JavaScript
-// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ 27dae6f
+// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ d030dfb
 // Lazy-loaded: window.X1PenSlangCompiler = { compile: ... }
 
 (function() {
@@ -4634,19 +4634,34 @@
                     else { _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE'); }
                     _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'NZ,$+3'); _e.instruction('INC', 'HL'); break;
                 case IrOp.CmpNeq:
-                    _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    if (isFloat) callRuntime('f24cmp');
+                    else { _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE'); }
                     _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'Z,$+3'); _e.instruction('INC', 'HL'); break;
                 case IrOp.CmpLt:
-                    _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    if (isFloat) callRuntime('f24cmp');
+                    else { _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE'); }
                     _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'NC,$+3'); _e.instruction('INC', 'HL'); break;
                 case IrOp.CmpGe:
-                    _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    if (isFloat) callRuntime('f24cmp');
+                    else { _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE'); }
                     _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'C,$+3'); _e.instruction('INC', 'HL'); break;
                 case IrOp.CmpGt:
-                    _e.instruction('EX', 'DE,HL'); _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    if (isFloat) {
+                        _e.instruction('EX', 'DE,HL');
+                        _e.instruction('LD', 'B,A'); _e.instruction('LD', 'A,C'); _e.instruction('LD', 'C,B');
+                        callRuntime('f24cmp');
+                    } else {
+                        _e.instruction('EX', 'DE,HL'); _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    }
                     _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'NC,$+3'); _e.instruction('INC', 'HL'); break;
                 case IrOp.CmpLe:
-                    _e.instruction('EX', 'DE,HL'); _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    if (isFloat) {
+                        _e.instruction('EX', 'DE,HL');
+                        _e.instruction('LD', 'B,A'); _e.instruction('LD', 'A,C'); _e.instruction('LD', 'C,B');
+                        callRuntime('f24cmp');
+                    } else {
+                        _e.instruction('EX', 'DE,HL'); _e.instruction('OR', 'A'); _e.instruction('SBC', 'HL,DE');
+                    }
                     _e.instruction('LD', 'HL,$0000'); _e.instruction('JR', 'C,$+3'); _e.instruction('INC', 'HL'); break;
                 case IrOp.CmpSLt: callRuntime('OPSLTHLDE'); break;
                 case IrOp.CmpSGt: callRuntime('OPSGTHLDE'); break;
@@ -5527,6 +5542,14 @@
                 // FLOAT halfDirectOps: src1 が AHL に残っている、src2 を CDE に直接ロード
                 if (halfDirectOps[i] && inst.dataSize === 3) {
                     var s2Inst = insts[tempDef[inst.src2.tempIndex]];
+                    // 融合比較ジャンプ
+                    if (fusedCompareJumps[i] != null) {
+                        var jumpInst = insts[fusedCompareJumps[i]];
+                        var jumpOnTrue = jumpInst.op === IrOp.JumpIfNonZero;
+                        emitFloatSrc2ToCDE(s2Inst);
+                        emitFusedCompareJump(inst, jumpInst.dest.name, jumpOnTrue);
+                        continue;
+                    }
                     emitFloatSrc2ToCDE(s2Inst);
                     emitBinaryDirect(inst);
                     if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
@@ -5534,9 +5557,17 @@
                     continue;
                 }
 
-                // FLOAT reverseHalfDirectOps: src2 が AHL に残っている、src1 を CDE に直接ロード（可換演算のみ）
+                // FLOAT reverseHalfDirectOps: src2 が AHL に残っている、src1 を CDE に直接ロード（可換演算のみ: Add/Mul/CmpEq/CmpNeq）
                 if (reverseHalfDirectOps[i] && inst.dataSize === 3) {
                     var s1Inst = insts[tempDef[inst.src1.tempIndex]];
+                    // 融合比較ジャンプ
+                    if (fusedCompareJumps[i] != null) {
+                        var jumpInst = insts[fusedCompareJumps[i]];
+                        var jumpOnTrue = jumpInst.op === IrOp.JumpIfNonZero;
+                        emitFloatSrc2ToCDE(s1Inst);
+                        emitFusedCompareJump(inst, jumpInst.dest.name, jumpOnTrue);
+                        continue;
+                    }
                     emitFloatSrc2ToCDE(s1Inst);
                     emitBinaryDirect(inst);
                     if (inst.dest.kind === IrOperandKind.Temp && needsPushAfter(insts, i, inst.dest.tempIndex))
