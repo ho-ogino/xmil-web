@@ -1377,17 +1377,22 @@ window.__X1PEN_MODE = true;
                     } catch(e) {
                         replayRuntime = pendingShareRuntime || getUserDefaultRuntime();
                     }
+                    var replaySourceMode = (shared.meta && shared.meta.sourceMode)
+                        ? shared.meta.sourceMode
+                        : (shared.slang ? 'slang' : null);
                     var replayMeta = {
                         model: replayRuntime.model,
                         coldState: replayRuntime.coldState,
                         bootDisk: replayRuntime.bootDisk,
                         runMode: replayRuntime.runMode || 'fuzzybasic',
-                        sourceMode: shared.meta.sourceMode || (shared.slang ? 'slang' : null)
+                        sourceMode: replaySourceMode
                     };
                     if (replayRuntime.relocAddrs) replayMeta.relocAddrs = replayRuntime.relocAddrs;
+                    // SLANG Share では生成 ASM を含めない（通常 Share 側と同じ正規化）
+                    var replayAsm = (replaySourceMode === 'slang') ? null : (shared.asm || null);
                     var replayPayload = JSON.stringify({
                         basic: shared.basic,
-                        asm: shared.asm || null,
+                        asm: replayAsm,
                         slang: shared.slang || null,
                         meta: replayMeta
                     });
@@ -2038,7 +2043,8 @@ window.__X1PEN_MODE = true;
             document.getElementById('editor-panel').classList.remove('mobile-hidden');
             document.getElementById('emu-panel').classList.remove('mobile-hidden');
             setTimeout(function() {
-                var editor = (activeTab === 'basic') ? basicEditor : asmEditor;
+                var editor = (activeTab === 'basic') ? basicEditor :
+                             (activeTab === 'slang') ? slangEditor : asmEditor;
                 if (editor && editor.view) editor.view.requestMeasure();
             }, 0);
         } else {
