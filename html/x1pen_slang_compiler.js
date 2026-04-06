@@ -4124,7 +4124,7 @@
         return {
             name: '', paramCount: 0, dependencies: [], code: '',
             initCode: null, libName: null, sourceFile: '', loadOrder: 0,
-            works: null, calleeCleanup: false, aliases: [],
+            works: null, worksAlignment: 0, calleeCleanup: false, aliases: [],
         };
     }
 
@@ -4192,6 +4192,8 @@
                         if (current && value) current.aliases.push(value);
                     } else if (keyLower === 'result_type') {
                         if (current && value) current.resultType = value.toLowerCase();
+                    } else if (keyLower === 'works_align') {
+                        if (current && value) current.worksAlignment = parseInt(value, 10) || 0;
                     }
                     continue;
                 }
@@ -4314,6 +4316,71 @@
             hasFunction: function(name) { return !!_functions[lc(name)]; },
             getFunction: function(name) { return _functions[lc(name)] || null; },
         };
+    }
+
+    // ================================================================
+    // WorkAreaPacker (align-aware memory tetris)
+    // ================================================================
+    function workAreaPack(blocks, baseOffset) {
+        if (blocks.length === 0) return { placed: [], totalSize: baseOffset };
+        function alignUp(v, a) { return a <= 1 ? v : Math.ceil(v / a) * a; }
+        function totalSize(b) { var s = 0; for (var i = 0; i < b.items.length; i++) s += b.items[i].size; return s; }
+
+        var aligned = [], unaligned = [];
+        for (var i = 0; i < blocks.length; i++) {
+            if (blocks[i].alignment > 1) aligned.push(blocks[i]);
+            else unaligned.push(blocks[i]);
+        }
+        aligned.sort(function(a, b) { return b.alignment - a.alignment || totalSize(b) - totalSize(a); });
+        unaligned.sort(function(a, b) { return totalSize(b) - totalSize(a); });
+
+        var placed = [];
+        var gaps = []; // [{offset, size}]
+        var cursor = baseOffset;
+
+        // Phase 1: align付きブロックを境界配置
+        for (var i = 0; i < aligned.length; i++) {
+            var bl = aligned[i];
+            var ao = alignUp(cursor, bl.alignment);
+            if (ao > cursor) gaps.push({ offset: cursor, size: ao - cursor });
+            bl.offset = ao;
+            placed.push(bl);
+            cursor = ao + totalSize(bl);
+            var nb = alignUp(cursor, bl.alignment);
+            if (nb > cursor) gaps.push({ offset: cursor, size: nb - cursor });
+        }
+
+        // Phase 2: 隙間にalignなしブロックを詰め込む
+        gaps.sort(function(a, b) { return a.offset - b.offset; });
+        var remaining = [];
+        for (var i = 0; i < unaligned.length; i++) {
+            var bl = unaligned[i];
+            var bs = totalSize(bl);
+            var fitted = false;
+            for (var g = 0; g < gaps.length; g++) {
+                if (bs <= gaps[g].size) {
+                    bl.offset = gaps[g].offset;
+                    placed.push(bl);
+                    var newOff = gaps[g].offset + bs;
+                    var newSz = gaps[g].size - bs;
+                    if (newSz > 0) gaps[g] = { offset: newOff, size: newSz };
+                    else gaps.splice(g, 1);
+                    fitted = true;
+                    break;
+                }
+            }
+            if (!fitted) remaining.push(bl);
+        }
+
+        // Phase 3: 残りを末尾に積む
+        for (var i = 0; i < remaining.length; i++) {
+            remaining[i].offset = cursor;
+            placed.push(remaining[i]);
+            cursor += totalSize(remaining[i]);
+        }
+
+        placed.sort(function(a, b) { return a.offset - b.offset; });
+        return { placed: placed, totalSize: cursor };
     }
 
     // ================================================================
@@ -5800,28 +5867,71 @@
             }
             _e.raw('_A EQU (_AF + 1)');
 
-            // Runtime works variables
+            // Runtime works variables (align-aware tetris packing)
             if (_rm) {
+                // Step 1: フラット化 + dedup (case-insensitive, first-wins)
+                var seenLabels = {};
+                var flatItems = [];
+                var usedFuncs = _rm.getUsedFunctions();
+                for (var fi = 0; fi < usedFuncs.length; fi++) {
+                    var func = usedFuncs[fi];
+                    if (!func.works || func.works.length === 0) continue;
+                    for (var wi = 0; wi < func.works.length; wi++) {
+                        var wk = func.works[wi].label.toUpperCase();
+                        if (!seenLabels[wk]) {
+                            seenLabels[wk] = true;
+                            flatItems.push({ label: func.works[wi].label, size: func.works[wi].size,
+                                             libName: func.libName, alignment: func.worksAlignment || 0 });
+                        }
+                    }
+                }
+
+                // Step 2: LibName + Alignment でブロック化
+                var blocks = [];
+                var curBlock = null;
+                for (var fi = 0; fi < flatItems.length; fi++) {
+                    var item = flatItems[fi];
+                    if (!curBlock || curBlock.libName !== item.libName || curBlock.alignment !== item.alignment) {
+                        curBlock = { items: [], libName: item.libName, alignment: item.alignment, offset: 0 };
+                        blocks.push(curBlock);
+                    }
+                    curBlock.items.push({ label: item.label, size: item.size });
+                }
+
+                // __IYWORK (256 bytes, align 256) をブロックとして追加
+                blocks.push({ items: [{ label: '__IYWORK', size: 256 }], libName: null, alignment: 256, offset: 0 });
+
+                // テトリス配置
+                var packResult = workAreaPack(blocks, workOffset);
+
+                // EQU 出力
                 var currentNs = null;
-                var wvars = _rm.getUsedWorkVariablesWithLib();
-                for (var i = 0; i < wvars.length; i++) {
-                    var w = wvars[i];
-                    if (w.libName !== currentNs) {
-                        if (w.libName) _e.raw('[' + w.libName + ']');
+                for (var pi = 0; pi < packResult.placed.length; pi++) {
+                    var block = packResult.placed[pi];
+                    if (block.libName !== currentNs) {
+                        if (block.libName) _e.raw('[' + block.libName + ']');
                         else if (currentNs) _e.raw('[NAME_SPACE_DEFAULT]');
-                        currentNs = w.libName;
+                        currentNs = block.libName;
                     }
                     var workRef = currentNs ? 'NAME_SPACE_DEFAULT.__WORK__' : '__WORK__';
-                    _e.raw(w.label + ' EQU (' + workRef + ' + ' + workOffset + ')');
-                    workOffset += w.size;
+                    var itemOffset = block.offset;
+                    for (var ii = 0; ii < block.items.length; ii++) {
+                        _e.raw(block.items[ii].label + ' EQU (' + workRef + ' + ' + itemOffset + ')');
+                        itemOffset += block.items[ii].size;
+                    }
                 }
                 if (currentNs) _e.raw('[NAME_SPACE_DEFAULT]');
+
+                workOffset = packResult.totalSize;
+            } else {
+                // ランタイムなし → __IYWORK だけ配置
+                _e.raw('__IYWORK EQU (__WORK__ + ' + workOffset + ')');
+                workOffset += 256;
             }
 
-            _e.raw('__IYWORK EQU (__WORK__ + ' + workOffset + ')');
-            _e.raw('WORKEND EQU (__WORK__ + ' + (workOffset + 256) + ')');
+            _e.raw('WORKEND EQU (__WORK__ + ' + workOffset + ')');
             _e.blank();
-            _e.raw('__WORKEND__ EQU (__WORK__ + ' + (workOffset + 256) + ')');
+            _e.raw('__WORKEND__ EQU (__WORK__ + ' + workOffset + ')');
         }
 
         // ==== Main Generate method ====
