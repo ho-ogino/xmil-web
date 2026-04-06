@@ -2605,8 +2605,10 @@
                     if (itemSize === 1) initItems.push(InitItem(v & 0xFF));
                     else { initItems.push(InitItem(v & 0xFF)); initItems.push(InitItem((v >> 8) & 0xFF)); }
                 } else if (initExpr.type === 'StringLiteral') {
-                    for (var ci = 0; ci < initExpr.value.length; ci++)
-                        initItems.push(InitItem(initExpr.value.charCodeAt(ci) & 0xFF));
+                    for (var ci = 0; ci < initExpr.value.length; ci++) {
+                        var sjb = unicodeToSjisBytes(initExpr.value.charCodeAt(ci));
+                        for (var sbi = 0; sbi < sjb.length; sbi++) initItems.push(InitItem(sjb[sbi]));
+                    }
                 } else {
                     var asmResult = exprToAsmString(initExpr, globalSymbols, diagnostics);
                     if (asmResult) {
@@ -2901,8 +2903,10 @@
                                 initItems.push(InitItem((v >> 8) & 0xFF));
                             }
                         } else if (initExpr.type === 'StringLiteral') {
-                            for (var si = 0; si < initExpr.value.length; si++)
-                                initItems.push(InitItem(initExpr.value.charCodeAt(si) & 0xFF));
+                            for (var si = 0; si < initExpr.value.length; si++) {
+                                var sjb2 = unicodeToSjisBytes(initExpr.value.charCodeAt(si));
+                                for (var sbi2 = 0; sbi2 < sjb2.length; sbi2++) initItems.push(InitItem(sjb2[sbi2]));
+                            }
                         } else {
                             var asmResult2 = exprToAsmString(initExpr, globalSymbols, diagnostics);
                             if (asmResult2 && itemSize === 2) {
