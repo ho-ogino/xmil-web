@@ -1107,6 +1107,7 @@
         var pass1Addr = 0;
         var pass1BaseOrg = -1;
         var currentNamespace = 'NAME_SPACE_DEFAULT';
+        var unresolvedEqUs = null;
 
         for (var i = 0; i < lines.length; i++) {
             var parsed = parseLine(lines[i]);
@@ -1128,8 +1129,14 @@
 
                 if (parsed.mnemonic === 'EQU') {
                     var eqVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel, currentNamespace);
-                    if (eqVal === null || eqVal === undefined) eqVal = 0;
-                    symbols[lbl] = eqVal;
+                    if (eqVal === null || eqVal === undefined) {
+                        // 前方参照: Pass 1 後に再解決する
+                        symbols[lbl] = 0; // placeholder
+                        if (!unresolvedEqUs) unresolvedEqUs = [];
+                        unresolvedEqUs.push({ lbl: lbl, operands: parsed.operands, pc: pass1Addr, globalLabel: lastGlobalLabel, ns: currentNamespace });
+                    } else {
+                        symbols[lbl] = eqVal;
+                    }
                     continue;
                 }
                 symbols[lbl] = pass1Addr;
@@ -1161,6 +1168,22 @@
                 continue;
             }
             pass1Addr += size;
+        }
+
+        // ---- Resolve forward-referenced EQUs ----
+        if (unresolvedEqUs) {
+            for (var maxIter = 0; maxIter < 10; maxIter++) {
+                var changed = false;
+                for (var ui = 0; ui < unresolvedEqUs.length; ui++) {
+                    var ue = unresolvedEqUs[ui];
+                    var val = evalExpr(ue.operands, symbols, ue.pc, ue.globalLabel, ue.ns);
+                    if (val !== null && val !== undefined && val !== symbols[ue.lbl]) {
+                        symbols[ue.lbl] = val;
+                        changed = true;
+                    }
+                }
+                if (!changed) break;
+            }
         }
 
         // ---- Pass 2: emit bytes ----
