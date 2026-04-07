@@ -1310,15 +1310,17 @@ window.__X1PEN_MODE = true;
 
         // Share パラメータなしの場合、保存済みコンテンツに応じてタブを自動選択
         // BASIC → SLANG → ASM の優先順で、内容のあるタブに切り替える
+        // (DOM/state 不整合を防ぐため、どのケースでも setActiveEditorTab を呼ぶ)
         if (!urlId) {
             var hasBasic = basicEditor.getValue().trim().length > 0;
             var hasSlang = slangEditor && slangEditor.getValue().trim().length > 0;
             var hasAsm   = asmEditor && asmEditor.getValue().trim().length > 0;
-            if (!hasBasic && hasSlang) {
-                setActiveEditorTab('slang');
-            } else if (!hasBasic && !hasSlang && hasAsm) {
-                setActiveEditorTab('asm');
-            }
+            var targetTab;
+            if (!hasBasic && hasSlang) targetTab = 'slang';
+            else if (!hasBasic && !hasSlang && hasAsm) targetTab = 'asm';
+            else targetTab = 'basic';
+            // activeTab と同じでも強制的にコンテナ状態を同期する
+            forceResyncEditorTab(targetTab);
         }
 
         if (urlId) {
@@ -1954,6 +1956,11 @@ window.__X1PEN_MODE = true;
 
     // タブ切り替え（共通関数）
     var editorTabs = document.getElementById('editor-tabs');
+    function forceResyncEditorTab(target) {
+        // activeTab と target が同じでも DOM 状態を強制同期する
+        activeTab = null; // 強制的に変化があったと判定させる
+        setActiveEditorTab(target);
+    }
     function setActiveEditorTab(target) {
         if (target === activeTab) return;
         activeTab = target;
