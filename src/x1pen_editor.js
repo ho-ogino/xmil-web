@@ -9,6 +9,7 @@ import { bracketMatching, HighlightStyle, syntaxHighlighting, indentUnit } from 
 import { tags } from '@lezer/highlight';
 import { fuzzyBasicLanguage, basicAutoLineNumber } from './x1pen_basic_lang.js';
 import { z80AsmLanguage } from './x1pen_asm_lang.js';
+import { slangLanguage } from './x1pen_slang_lang.js';
 
 // Annotation to suppress onChange callback (e.g. share load)
 const silentAnnotation = Annotation.define();
@@ -95,6 +96,7 @@ const x1penHighlight = HighlightStyle.define([
 const LANGUAGES = {
     'basic': fuzzyBasicLanguage,
     'asm': z80AsmLanguage,
+    'slang': slangLanguage,
 };
 
 /**

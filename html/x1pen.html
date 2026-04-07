@@ -162,14 +162,14 @@
         }
         .editor-tab-action:hover { background: #0d2244; color: #88bbff; }
 
-        #basic-editor-container, #asm-editor-container {
+        #basic-editor-container, #asm-editor-container, #slang-editor-container {
             flex: 1;
             overflow: hidden;
             background: #0d1117;
         }
         /* display:none だと CodeMirror の DOM 初期化が壊れるため、
            エディタコンテナは visibility で非表示にする */
-        #basic-editor-container.hidden, #asm-editor-container.hidden {
+        #basic-editor-container.hidden, #asm-editor-container.hidden, #slang-editor-container.hidden {
             display: flex !important;
             visibility: hidden;
             height: 0 !important;
@@ -177,7 +177,8 @@
             overflow: hidden;
         }
         #basic-editor-container .cm-editor,
-        #asm-editor-container .cm-editor {
+        #asm-editor-container .cm-editor,
+        #slang-editor-container .cm-editor {
             height: 100%;
         }
 
@@ -389,6 +390,101 @@
         }
         #share-dialog-ok:hover { background: #0f3460; }
 
+        /* Symbol Table ボタン */
+        #btn-symbols {
+            border-color: #4a4a1a !important;
+            color: #cccc55 !important;
+            background: #1e1e0d !important;
+        }
+        #btn-symbols:hover:not(:disabled) {
+            background: #2a2a14 !important;
+            color: #eeee88 !important;
+        }
+
+        /* Symbol Table ダイアログ */
+        #sym-dialog-backdrop {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 999;
+        }
+        #sym-dialog-box {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            width: 90%; max-width: 560px;
+            z-index: 1000;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+        }
+        #sym-dialog-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 16px;
+            border-bottom: 1px solid #0f3460;
+            font-size: 1.1em; font-weight: bold; color: #e0e0e0;
+        }
+        #sym-dialog-header button {
+            background: none; border: none; color: #888;
+            font-size: 1.2em; cursor: pointer; padding: 0 4px;
+        }
+        #sym-dialog-header button:hover { color: #e0e0e0; }
+        #sym-dialog-header .sym-source {
+            font-size: 0.75em; font-weight: normal; color: #888; margin-left: 12px;
+        }
+        #sym-dialog-controls {
+            display: flex; gap: 8px; align-items: center;
+            padding: 8px 16px; border-bottom: 1px solid #0f3460;
+            flex-wrap: wrap;
+        }
+        #sym-filter {
+            flex: 1; min-width: 120px;
+            font-family: 'Courier New', monospace; font-size: 0.85em;
+            padding: 4px 8px; background: #0d1117; color: #e0e0e0;
+            border: 1px solid #0f3460; border-radius: 4px; outline: none;
+        }
+        #sym-filter:focus { border-color: #1a4a88; }
+        #sym-sort-toggle, #sym-dialog-controls label {
+            font-family: 'Courier New', monospace; font-size: 0.8em;
+            padding: 3px 8px;
+            background: #16213e; color: #ccc;
+            border: 1px solid #0f3460; border-radius: 4px;
+            cursor: pointer; white-space: nowrap;
+            -webkit-appearance: none; appearance: none;
+        }
+        #sym-sort-toggle:hover { background: #0f3460; }
+        #sym-dialog-controls label { border: none; background: none; padding: 0; }
+        #sym-dialog-body {
+            padding: 0; max-height: 50vh; overflow-y: auto;
+        }
+        #sym-table {
+            width: 100%; border-collapse: collapse;
+            font-family: 'Courier New', monospace; font-size: 0.85em;
+        }
+        #sym-table th {
+            text-align: left; padding: 4px 16px; color: #888;
+            border-bottom: 1px solid #0f3460;
+            position: sticky; top: 0; background: #1a1a2e;
+        }
+        #sym-table td { padding: 3px 16px; border-bottom: 1px solid #0a1a30; }
+        #sym-table tr:hover td { background: #16213e; }
+        #sym-table .sym-predefined td { color: #666; }
+        #sym-dialog-footer {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 16px;
+            border-top: 1px solid #0f3460;
+        }
+        #sym-count { font-size: 0.8em; color: #888; font-family: 'Courier New', monospace; }
+        #sym-dialog-ok {
+            font-family: 'Courier New', monospace; font-size: 0.85em;
+            padding: 6px 20px;
+            background: #16213e; color: #e0e0e0;
+            border: 1px solid #0f3460; border-radius: 4px;
+            cursor: pointer;
+            -webkit-appearance: none; appearance: none;
+        }
+        #sym-dialog-ok:hover { background: #0f3460; }
+
         .hidden { display: none !important; }
 
         /* ── モバイルタブ — デスクトップでは非表示 ── */
@@ -473,6 +569,7 @@
         <button id="btn-run" disabled title="Ctrl+Enter">&#x25B6; RUN</button>
         <button id="btn-stop" title="Escape">&#x25A0; STOP</button>
         <button id="btn-dev-reload" class="hidden" title="Reload cached X1Pen assets">Reload Assets</button>
+        <button id="btn-symbols" title="Symbol Table" disabled>Sym</button>
         <button id="btn-share" title="Share code">Share</button>
         <span id="x1pen-status">Loading...</span>
     </div>
@@ -480,12 +577,14 @@
         <button class="mobile-tab active" data-panel="emulator">Emulator</button>
         <button class="mobile-tab" data-panel="basic">BASIC</button>
         <button class="mobile-tab" data-panel="asm">ASM</button>
+        <button class="mobile-tab" data-panel="slang">SLANG</button>
     </div>
     <div id="x1pen-main">
         <div id="editor-panel">
             <div id="editor-tabs">
                 <button class="editor-tab active" data-tab="basic">BASIC</button>
                 <button class="editor-tab" data-tab="asm">ASM</button>
+                <button class="editor-tab" data-tab="slang">SLANG</button>
                 <button class="editor-tab-action hidden" id="btn-asm-import" title="Import binary as DB lines">Import</button>
                 <input type="file" id="asm-import-file" style="display:none">
                 <a href="http://retropc.net/ohishi/s-os/fubasic.htm" class="editor-tab-action" id="btn-basic-manual" style="text-decoration:none; margin-left:auto;" title="FuzzyBASIC Manual" target="_blank" rel="noopener">Manual</a>
@@ -493,6 +592,7 @@
             </div>
             <div id="basic-editor-container"></div>
             <div id="asm-editor-container" class="hidden"></div>
+            <div id="slang-editor-container" class="hidden"></div>
         </div>
         <div id="emu-panel">
             <div style="position:relative; display:inline-block;">
@@ -643,6 +743,32 @@
         </div>
         <div id="share-dialog-footer">
             <button id="share-dialog-ok">OK</button>
+        </div>
+    </div>
+</div>
+
+<!-- Symbol Table ダイアログ -->
+<div id="sym-dialog" class="hidden">
+    <div id="sym-dialog-backdrop"></div>
+    <div id="sym-dialog-box">
+        <div id="sym-dialog-header">
+            <span>Symbol Table <span class="sym-source" id="sym-source"></span></span>
+            <button id="sym-dialog-close" title="Close">&#x2715;</button>
+        </div>
+        <div id="sym-dialog-controls">
+            <input type="text" id="sym-filter" placeholder="Filter...">
+            <button id="sym-sort-toggle" title="Toggle sort">Addr&#x25B2;</button>
+            <label><input type="checkbox" id="sym-hide-predefined"> Hide predefined</label>
+        </div>
+        <div id="sym-dialog-body">
+            <table id="sym-table">
+                <thead><tr><th>Symbol</th><th>Value</th></tr></thead>
+                <tbody id="sym-table-body"></tbody>
+            </table>
+        </div>
+        <div id="sym-dialog-footer">
+            <span id="sym-count"></span>
+            <button id="sym-dialog-ok">OK</button>
         </div>
     </div>
 </div>

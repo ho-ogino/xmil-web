@@ -31,8 +31,8 @@
         if (/^0x[0-9a-f]+$/i.test(s)) return parseInt(s, 16);
         // $ prefix hex
         if (/^\$[0-9a-f]+$/i.test(s)) return parseInt(s.slice(1), 16);
-        // Nh suffix hex (must start with digit)
-        if (/^[0-9][0-9a-f]*h$/i.test(s)) return parseInt(s.slice(0, -1), 16);
+        // Nh suffix hex (digits and A-F followed by H)
+        if (/^[0-9a-f][0-9a-f]*h$/i.test(s)) return parseInt(s.slice(0, -1), 16);
         // %prefix binary
         if (/^%[01]+$/.test(s)) return parseInt(s.slice(1), 2);
         // Nb suffix binary
@@ -52,6 +52,9 @@
             // 2文字比較演算子を先にチェック
             if (i + 1 < s.length) {
                 var c2 = s[i] + s[i + 1];
+                if (c2 === '>>' || c2 === '<<') {
+                    tokens.push({ type: 'OP', val: c2 }); i += 2; continue;
+                }
                 if (c2 === '==' || c2 === '!=' || c2 === '>=' || c2 === '<=') {
                     tokens.push({ type: 'OP', val: c2 }); i += 2; continue;
                 }
@@ -61,6 +64,9 @@
             if (c === '-') { tokens.push({ type: 'OP', val: '-' }); i++; continue; }
             if (c === '*') { tokens.push({ type: 'OP', val: '*' }); i++; continue; }
             if (c === '/') { tokens.push({ type: 'OP', val: '/' }); i++; continue; }
+            if (c === '&') { tokens.push({ type: 'OP', val: '&' }); i++; continue; }
+            if (c === '|') { tokens.push({ type: 'OP', val: '|' }); i++; continue; }
+            if (c === '~') { tokens.push({ type: 'OP', val: '~' }); i++; continue; }
             if (c === '(') { tokens.push({ type: 'LPAREN' }); i++; continue; }
             if (c === ')') { tokens.push({ type: 'RPAREN' }); i++; continue; }
             if (c === '$' && (i + 1 >= s.length || !/[0-9a-f]/i.test(s[i + 1]))) {
@@ -68,7 +74,7 @@
             }
             // Number or symbol
             var start = i;
-            if (c === "'" && i + 2 < s.length && s[i + 2] === "'") {
+            if ((c === "'" || c === '"') && i + 2 < s.length && s[i + 2] === c) {
                 var cv = s.charCodeAt(i + 1);
                 if (cv > 0x7F) return null; // non-ASCII
                 tokens.push({ type: 'NUMBER', val: cv });
@@ -83,9 +89,24 @@
                 // fallback to symbol
                 i = start;
             }
-            if (/[a-zA-Z_.%]/.test(c)) {
+            if (c === '%' && i + 1 < s.length && /[01]/.test(s[i + 1])) {
+                // %binary prefix
+                while (i < s.length && /[0-9a-fA-FxXhHbB%$]/.test(s[i])) i++;
+                var bs = s.substring(start, i);
+                var bv = parseNumber(bs);
+                if (bv !== null) { tokens.push({ type: 'NUMBER', val: bv }); continue; }
+                i = start + 1; // skip %
+            }
+            if (/[a-zA-Z_.]/.test(c)) {
                 while (i < s.length && /[a-zA-Z0-9_.]/.test(s[i])) i++;
-                tokens.push({ type: 'SYMBOL', val: s.substring(start, i) });
+                var sym = s.substring(start, i);
+                // A-F で始まり H で終わる場合、hex number の可能性を再チェック
+                var hexVal = parseNumber(sym);
+                if (hexVal !== null) {
+                    tokens.push({ type: 'NUMBER', val: hexVal });
+                } else {
+                    tokens.push({ type: 'SYMBOL', val: sym });
+                }
                 continue;
             }
             // Unknown character
@@ -94,7 +115,7 @@
         return tokens;
     }
 
-    function evalExpr(exprStr, symbols, pc, globalLabel) {
+    function evalExpr(exprStr, symbols, pc, globalLabel, currentNamespace) {
         var tokens = tokenizeExpr(exprStr);
         if (!tokens) return null;
 
@@ -110,16 +131,56 @@
             if (t.type === 'SYMBOL') {
                 next();
                 var key = t.val.toUpperCase();
+                // LOW/HIGH unary operators (case-insensitive, only when followed by another token)
+                var keyUpper = key;
+                if (keyUpper === 'LOW' && peek()) { var lv = parseAtom(); return (lv !== null && lv !== undefined) ? lv & 0xFF : lv; }
+                if (keyUpper === 'HIGH' && peek()) { var hv = parseAtom(); return (hv !== null && hv !== undefined) ? (hv >> 8) & 0xFF : hv; }
+                if (keyUpper === 'EXISTS' && peek() && peek().type === 'SYMBOL') {
+                    var existsName = next().val.toUpperCase();
+                    // シンボルテーブル + 名前空間解決で存在チェック
+                    if (existsName in symbols) return 1;
+                    if (currentNamespace) {
+                        if ((currentNamespace + '.' + existsName) in symbols) return 1;
+                        if (currentNamespace !== 'NAME_SPACE_DEFAULT' && ('NAME_SPACE_DEFAULT.' + existsName) in symbols) return 1;
+                        var esfx = '.' + existsName;
+                        for (var esk in symbols) { if (esk.length > esfx.length && esk.substring(esk.length - esfx.length) === esfx) return 1; }
+                    }
+                    return 0;
+                }
                 // Resolve local labels: .foo → LASTGLOBAL.FOO
                 if (key[0] === '.' && globalLabel) {
                     key = globalLabel + key;
                 }
+                // 1. そのまま検索 (NS.LABEL 明示参照 or bare predefined symbol)
                 if (key in symbols) return symbols[key];
+                // 2. currentNS.KEY (ドット付き参照でも名前空間プレフィックスを試す)
+                if (currentNamespace) {
+                    var nsKey = currentNamespace + '.' + key;
+                    if (nsKey in symbols) return symbols[nsKey];
+                }
+                // 3-5. dotless → 追加の名前空間解決
+                if (currentNamespace && key.indexOf('.') < 0) {
+                    // 2. currentNS.KEY
+                    var nsKey = currentNamespace + '.' + key;
+                    if (nsKey in symbols) return symbols[nsKey];
+                    // 3. NAME_SPACE_DEFAULT.KEY
+                    if (currentNamespace !== 'NAME_SPACE_DEFAULT') {
+                        var defKey = 'NAME_SPACE_DEFAULT.' + key;
+                        if (defKey in symbols) return symbols[defKey];
+                    }
+                    // 4. 任意の名前空間で *.KEY を検索（ランタイムライブラリ互換）
+                    var suffix = '.' + key;
+                    for (var sk in symbols) {
+                        if (sk.length > suffix.length && sk.substring(sk.length - suffix.length) === suffix) {
+                            return symbols[sk];
+                        }
+                    }
+                }
                 return undefined; // unresolved
             }
             if (t.type === 'LPAREN') {
                 next();
-                var v = parseAddSub();
+                var v = parseBitwise();
                 if (peek() && peek().type === 'RPAREN') next();
                 return v;
             }
@@ -133,6 +194,12 @@
                 if (v2 === null || v2 === undefined) return v2;
                 return (-v2) & 0xFFFF;
             }
+            if (t.type === 'OP' && t.val === '~') {
+                next();
+                var v3 = parseAtom();
+                if (v3 === null || v3 === undefined) return v3;
+                return (~v3) & 0xFFFF;
+            }
             return null;
         }
 
@@ -140,12 +207,14 @@
             var left = parseAtom();
             while (true) {
                 var t = peek();
-                if (!t || t.type !== 'OP' || (t.val !== '*' && t.val !== '/')) break;
+                if (!t || t.type !== 'OP' || (t.val !== '*' && t.val !== '/' && t.val !== '>>' && t.val !== '<<')) break;
                 var op = next().val;
                 var right = parseAtom();
                 if (right === null || left === null) return null;
                 if (left === undefined || right === undefined) return undefined;
                 if (op === '*') left = (left * right) & 0xFFFF;
+                else if (op === '>>') left = (left >>> right) & 0xFFFF;
+                else if (op === '<<') left = (left << right) & 0xFFFF;
                 else left = (right !== 0) ? (Math.floor(left / right)) & 0xFFFF : 0;
             }
             return left;
@@ -166,8 +235,24 @@
             return left;
         }
 
-        function parseCompare() {
+        function parseBitwise() {
             var left = parseAddSub();
+            while (true) {
+                var t = peek();
+                if (!t || t.type !== 'OP' || (t.val !== '&' && t.val !== '|' && t.val !== '^')) break;
+                var op = next().val;
+                var right = parseAddSub();
+                if (right === null || left === null) return null;
+                if (left === undefined || right === undefined) return undefined;
+                if (op === '&') left = (left & right) & 0xFFFF;
+                else if (op === '|') left = (left | right) & 0xFFFF;
+                else if (op === '^') left = (left ^ right) & 0xFFFF;
+            }
+            return left;
+        }
+
+        function parseCompare() {
+            var left = parseBitwise();
             while (true) {
                 var t = peek();
                 if (!t || t.type !== 'OP') break;
@@ -201,10 +286,10 @@
     ('NOP HALT DI EI RLCA RRCA RLA RRA DAA CPL SCF CCF EXX RET ' +
      'LD PUSH POP EX ADD ADC SUB SBC AND OR XOR CP INC DEC ' +
      'JP JR DJNZ CALL RST IN OUT NEG ' +
-     'RLC RRC RL RR SLA SRA SRL BIT RES SET ' +
+     'RLC RRC RL RR SLA SRA SLL SL1 SRL BIT RES SET ' +
      'RETI RETN IM RRD RLD LDI LDIR LDD LDDR CPI CPIR CPD CPDR ' +
      'INI INIR IND INDR OUTI OTIR OUTD OTDR ' +
-     'ORG DB DW DS DEFB DEFW DEFS EQU').split(' ').forEach(function(m) {
+     'ORG DB DW DS DEFB DEFW DEFS EQU ALIGN MACRO ENDM').split(' ').forEach(function(m) {
         KNOWN_MNEMONICS[m] = true;
     });
 
@@ -224,6 +309,14 @@
 
         code = code.trimEnd();
         if (code.trim() === '') return result;
+
+        // Namespace directive: [NAME]
+        var nsMatch = code.trim().match(/^\[([a-zA-Z_][a-zA-Z0-9_]*)\]$/);
+        if (nsMatch) {
+            result.mnemonic = '_NAMESPACE';
+            result.operands = nsMatch[1].toUpperCase();
+            return result;
+        }
 
         // Check for label: at start of line (with colon)
         var m = code.match(/^(\.[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*)\s*:/);
@@ -264,8 +357,8 @@
             }
         }
 
-        // Mnemonic + operands
-        var parts = code.match(/^([a-zA-Z]+)\s*(.*)?$/);
+        // Mnemonic + operands (allow digits in mnemonic for SL1 etc.)
+        var parts = code.match(/^([a-zA-Z][a-zA-Z0-9]*)\s*(.*)?$/);
         if (parts) {
             result.mnemonic = parts[1].toUpperCase();
             result.operands = (parts[2] || '').trim();
@@ -303,7 +396,7 @@
     // Operand classification
     // ================================================================
 
-    function classifyOperand(s, symbols, pc, pass, globalLabel) {
+    function classifyOperand(s, symbols, pc, pass, globalLabel, currentNamespace) {
         var su = s.toUpperCase().trim();
 
         // Single 8-bit register
@@ -322,19 +415,26 @@
         if (su === 'IX') return { type: 'ix' };
         if (su === 'IY') return { type: 'iy' };
 
+        // IX/IY half registers (undocumented)
+        if (su === 'IXH') return { type: 'ixh' };
+        if (su === 'IXL') return { type: 'ixl' };
+        if (su === 'IYH') return { type: 'iyh' };
+        if (su === 'IYL') return { type: 'iyl' };
+
         // (HL), (BC), (DE), (SP)
         if (su === '(HL)') return { type: 'r8', reg: 6, name: '(HL)' };
         if (su === '(BC)') return { type: 'ind_bc' };
         if (su === '(DE)') return { type: 'ind_de' };
         if (su === '(SP)') return { type: 'ind_sp' };
 
-        // (IX+d), (IY+d)
-        var ixm = su.match(/^\((IX|IY)\s*([+\-].*)\)$/i);
+        // (IX+d), (IY+d) — use original case for expression
+        var st = s.trim();
+        var ixm = st.match(/^\((IX|IY)\s*([+\-].*)\)$/i);
         if (ixm) {
-            var val = evalExpr(ixm[2], symbols, pc, globalLabel);
+            var val = evalExpr(ixm[2], symbols, pc, globalLabel, currentNamespace);
             return { type: 'ind_idx', idx: ixm[1].toUpperCase(), disp: val };
         }
-        var ixm0 = su.match(/^\((IX|IY)\)$/i);
+        var ixm0 = st.match(/^\((IX|IY)\)$/i);
         if (ixm0) {
             return { type: 'ind_idx', idx: ixm0[1].toUpperCase(), disp: 0 };
         }
@@ -342,18 +442,20 @@
         // (C) - for IN/OUT
         if (su === '(C)') return { type: 'ind_c' };
 
-        // (nn) - indirect memory
-        var indm = su.match(/^\((.+)\)$/);
+        // (nn) - indirect memory — use original case for expression
+        var indm = st.match(/^\((.+)\)$/);
         if (indm) {
-            var addr = evalExpr(indm[1], symbols, pc, globalLabel);
+            var addr = evalExpr(indm[1], symbols, pc, globalLabel, currentNamespace);
+            if (addr === undefined && pass === 1) addr = 0; // placeholder
+            if (addr === undefined) return { type: 'unknown', raw: s }; // unresolved in pass 2
             return { type: 'ind_nn', val: addr };
         }
 
         // Condition codes
         if (su in CC) return { type: 'cc', code: CC[su], name: su };
 
-        // Immediate / expression
-        var v = evalExpr(s, symbols, pc, globalLabel);
+        // Immediate / expression — use original case
+        var v = evalExpr(st, symbols, pc, globalLabel, currentNamespace);
         if (v !== null && v !== undefined) return { type: 'imm', val: v };
 
         // Unresolved (pass 1)
@@ -410,6 +512,7 @@
         if (mn === 'EX') {
             if (o.length === 2) {
                 if (o[0].type === 'qq' && o[0].name === 'DE' && o[1].type === 'qq' && o[1].name === 'HL') return [0xEB];
+                if (o[0].type === 'qq' && o[0].name === 'HL' && o[1].type === 'qq' && o[1].name === 'DE') return [0xEB]; // EX HL,DE alias
                 if (o[0].type === 'pp' && o[0].name === 'AF' && o[1].type === 'af_prime') return [0x08];
                 if (o[0].type === 'ind_sp' && o[1].type === 'qq' && o[1].name === 'HL') return [0xE3];
                 if (o[0].type === 'ind_sp' && o[1].type === 'ix') return [0xDD, 0xE3];
@@ -451,6 +554,10 @@
                 if (o[0].type === 'qq') return [0x03 + o[0].reg * 16 + idOff * 8];
                 if (o[0].type === 'ix') return [0xDD, 0x23 + idOff * 8];
                 if (o[0].type === 'iy') return [0xFD, 0x23 + idOff * 8];
+                if (o[0].type === 'ixh') return [0xDD, 0x24 + idOff]; // INC/DEC IXH
+                if (o[0].type === 'ixl') return [0xDD, 0x2C + idOff]; // INC/DEC IXL
+                if (o[0].type === 'iyh') return [0xFD, 0x24 + idOff]; // INC/DEC IYH
+                if (o[0].type === 'iyl') return [0xFD, 0x2C + idOff]; // INC/DEC IYL
                 if (o[0].type === 'ind_idx') return [o[0].idx === 'IX' ? 0xDD : 0xFD, 0x34 + idOff, o[0].disp & 0xFF];
             }
         }
@@ -622,12 +729,29 @@
         if (dst.type === 'r8' && dst.name === 'A' && src.type === 'reg_i') return [0xED, 0x57];
         if (dst.type === 'r8' && dst.name === 'A' && src.type === 'reg_r') return [0xED, 0x5F];
 
+        // IX/IY half registers (undocumented): DD/FD prefix + H=4, L=5
+        var ixylMap = { ixh: [0xDD, 4], ixl: [0xDD, 5], iyh: [0xFD, 4], iyl: [0xFD, 5] };
+        var dstIxyl = ixylMap[dst.type], srcIxyl = ixylMap[src.type];
+
+        // LD ixh/ixl/iyh/iyl, r8 (not (HL))
+        if (dstIxyl && src.type === 'r8' && src.reg !== 4 && src.reg !== 5 && src.reg !== 6)
+            return [dstIxyl[0], 0x60 + dstIxyl[1] * 8 - 0x20 + src.reg];
+        // LD r8, ixh/ixl/iyh/iyl (not (HL))
+        if (srcIxyl && dst.type === 'r8' && dst.reg !== 4 && dst.reg !== 5 && dst.reg !== 6)
+            return [srcIxyl[0], 0x40 + dst.reg * 8 + srcIxyl[1]];
+        // LD ixh/ixl, ixh/ixl (same prefix)
+        if (dstIxyl && srcIxyl && dstIxyl[0] === srcIxyl[0])
+            return [dstIxyl[0], 0x40 + dstIxyl[1] * 8 + srcIxyl[1]];
+        // LD ixh/ixl/iyh/iyl, n
+        if (dstIxyl && src.type === 'imm')
+            return [dstIxyl[0], 0x26 + (dstIxyl[1] - 4) * 8, src.val & 0xFF];
+
         return null;
     }
 
     // CB family encoder
     function encodeCB(mnemonic, ops, symbols, pc, pass) {
-        var CB_OPS = { RLC:0x00, RRC:0x08, RL:0x10, RR:0x18, SLA:0x20, SRA:0x28, SRL:0x38 };
+        var CB_OPS = { RLC:0x00, RRC:0x08, RL:0x10, RR:0x18, SLA:0x20, SRA:0x28, SLL:0x30, SL1:0x30, SRL:0x38 };
         var CB_BIT = { BIT:0x40, RES:0x80, SET:0xC0 };
 
         if (mnemonic in CB_OPS) {
@@ -710,19 +834,27 @@
         // 1回の走査で active 状態を見ながら EQU 収集と条件評価を同時処理
         var ppSymbols = {};
         if (predefinedSymbols) {
-            for (var k in predefinedSymbols) ppSymbols[k.toUpperCase()] = predefinedSymbols[k];
+            for (var k in predefinedSymbols) {
+                var ku = k.toUpperCase();
+                ppSymbols[ku] = predefinedSymbols[k];
+                // NAME_SPACE_DEFAULT.KEY でも参照可能に
+                if (ku.indexOf('.') < 0) {
+                    ppSymbols['NAME_SPACE_DEFAULT.' + ku] = predefinedSymbols[k];
+                }
+            }
         }
         var ifStack = [];
         function ppIsActive() {
             if (ifStack.length === 0) return true;
             var top = ifStack[ifStack.length - 1];
-            return top.parentActive && (top.inElse ? !top.condTrue : top.condTrue);
+            return top.parentActive && top.condTrue;
         }
         for (var pi = 0; pi < lines.length; pi++) {
             var trimmed = lines[pi].trim();
-            var directive = trimmed.match(/^#(IF|ELSE|ENDIF)\b\s*(.*)?$/i);
+            var directive = trimmed.match(/^#(IF|ELIF|ELSEIF|ELSE|ENDIF)\b\s*(.*)?$/i);
             if (directive) {
                 var cmd = directive[1].toUpperCase();
+                if (cmd === 'ELSEIF') cmd = 'ELIF';
                 if (cmd === 'IF') {
                     var parentActive = ppIsActive();
                     var condActive = false;
@@ -736,7 +868,30 @@
                         }
                         condActive = (condVal !== 0);
                     }
-                    ifStack.push({ parentActive: parentActive, condTrue: condActive, inElse: false });
+                    ifStack.push({ parentActive: parentActive, condTrue: condActive, inElse: false, anyTrue: condActive });
+                } else if (cmd === 'ELIF') {
+                    if (ifStack.length === 0) {
+                        errors.push({ line: pi + 1, msg: '#ELIF without #IF' });
+                    } else {
+                        var top = ifStack[ifStack.length - 1];
+                        if (top.inElse) {
+                            errors.push({ line: pi + 1, msg: '#ELIF after #ELSE' });
+                        } else if (top.anyTrue || !top.parentActive) {
+                            // A previous branch was taken or parent is inactive — skip
+                            top.condTrue = false;
+                        } else {
+                            var exprStr = (directive[2] || '').replace(/;.*$/, '').trim();
+                            var condVal = evalExpr(exprStr, ppSymbols, 0, '');
+                            if (condVal === null) {
+                                errors.push({ line: pi + 1, msg: 'Invalid #ELIF expression' });
+                                condVal = 0;
+                            } else if (condVal === undefined) {
+                                condVal = 0;
+                            }
+                            top.condTrue = (condVal !== 0);
+                            if (top.condTrue) top.anyTrue = true;
+                        }
+                    }
                 } else if (cmd === 'ELSE') {
                     if (ifStack.length === 0) {
                         errors.push({ line: pi + 1, msg: '#ELSE without #IF' });
@@ -746,6 +901,8 @@
                             errors.push({ line: pi + 1, msg: 'Duplicate #ELSE' });
                         } else {
                             top.inElse = true;
+                            // #ELSE is active only if no previous branch was taken
+                            top.condTrue = !top.anyTrue;
                         }
                     }
                 } else if (cmd === 'ENDIF') {
@@ -775,6 +932,141 @@
         }
         if (ifStack.length > 0) {
             errors.push({ line: lines.length, msg: 'Unterminated #IF' });
+        }
+
+        // ── Macro processing ──
+
+        function stripComment(line) {
+            var inStr = false;
+            for (var ci = 0; ci < line.length; ci++) {
+                if (line[ci] === '"') inStr = !inStr;
+                if (!inStr && line[ci] === ';') return line.substring(0, ci).trimEnd();
+            }
+            return line.trimEnd();
+        }
+
+        function splitMacroArgs(s) {
+            var args = [], current = '', depth = 0;
+            for (var ci = 0; ci < s.length; ci++) {
+                if (s[ci] === '(') depth++;
+                else if (s[ci] === ')') depth--;
+                else if (s[ci] === ',' && depth === 0) { args.push(current.trim()); current = ''; continue; }
+                current += s[ci];
+            }
+            if (current.trim()) args.push(current.trim());
+            return args;
+        }
+
+        // Macro collection
+        var macros = {};
+        for (var mi = 0; mi < lines.length; mi++) {
+            var mline = stripComment(lines[mi].trim());
+            var macroMatch = mline.match(/^([a-zA-Z_][a-zA-Z0-9_()]*)\s+MACRO\b\s*(.*)?$/i);
+            if (macroMatch) {
+                var macroName = macroMatch[1].toUpperCase();
+                if (macroName in KNOWN_MNEMONICS) {
+                    errors.push({ line: mi + 1, msg: 'Cannot redefine mnemonic as macro: ' + macroName });
+                }
+                var rawArgs = stripComment(macroMatch[2] || '');
+                var macroArgs = rawArgs ? rawArgs.split(',').map(function(a) { return a.trim(); }).filter(Boolean) : [];
+                var macroBody = [];
+                var macroStartLine = mi + 1;
+                lines[mi] = '';
+                mi++;
+                var foundEndm = false;
+                while (mi < lines.length) {
+                    var bodyStripped = stripComment(lines[mi].trim());
+                    if (bodyStripped.match(/^ENDM$/i)) { lines[mi] = ''; foundEndm = true; break; }
+                    if (bodyStripped.match(/\bMACRO\b/i)) {
+                        errors.push({ line: mi + 1, msg: 'Nested macro definition not supported' });
+                    }
+                    // Detect label definitions in macro body (v1 restriction)
+                    // Use parseLine to catch all label forms: colon, EQU, colonless, .local
+                    var bodyParsed = parseLine(lines[mi]);
+                    if (bodyParsed.label) {
+                        // Colon-style labels and EQU are always errors
+                        // Colonless labels could be macro calls, so only flag if
+                        // the "label" isn't a known macro name and has no mnemonic
+                        // (pure label-only line) or the mnemonic is EQU
+                        var isColonLabel = bodyStripped.match(/^(\.[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*)\s*:/);
+                        var isEqu = bodyParsed.mnemonic === 'EQU';
+                        var isColonlessLabelOnly = !isColonLabel && !isEqu && !bodyParsed.mnemonic;
+                        var isMacroCall = bodyParsed.label.toUpperCase() in macros;
+                        if (isColonLabel || isEqu || (isColonlessLabelOnly && !isMacroCall)) {
+                            errors.push({ line: mi + 1, msg: 'Label definition inside macro body not supported' });
+                        }
+                    }
+                    macroBody.push(lines[mi]);
+                    lines[mi] = '';
+                    mi++;
+                }
+                if (!foundEndm) errors.push({ line: macroStartLine, msg: 'Unterminated MACRO: ' + macroName });
+                macros[macroName] = { args: macroArgs, body: macroBody };
+            }
+        }
+
+        // Macro expansion
+        if (Object.keys(macros).length > 0) {
+            var maxExpansions = 1000;
+            var totalExpansions = 0;
+
+            function detectMacroCall(line) {
+                var code = stripComment(line);
+                if (!code.trim()) return null;
+                var label = null;
+                var lm = code.match(/^(\s*(\.[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*)/);
+                if (lm) { label = lm[2]; code = code.substring(lm[1].length); }
+                code = code.trim();
+                if (!code) return null;
+                var parts = code.match(/^([a-zA-Z_][a-zA-Z0-9_()]*)\s*(.*)?$/);
+                if (parts && parts[1].toUpperCase() in macros) {
+                    return { macroName: parts[1].toUpperCase(), args: parts[2] || '', label: label };
+                }
+                return null;
+            }
+
+            function expandMacros(mlines, expandStack) {
+                var newLines = [];
+                for (var eli = 0; eli < mlines.length; eli++) {
+                    var call = detectMacroCall(mlines[eli]);
+                    if (call) {
+                        var macName = call.macroName;
+                        if (expandStack.indexOf(macName) >= 0) {
+                            errors.push({ line: eli + 1, msg: 'Recursive macro expansion: ' + macName });
+                            newLines.push(mlines[eli]); continue;
+                        }
+                        totalExpansions++;
+                        if (totalExpansions > maxExpansions) {
+                            errors.push({ line: eli + 1, msg: 'Macro expansion limit exceeded' });
+                            newLines.push(mlines[eli]); continue;
+                        }
+                        var mac = macros[macName];
+                        var callArgs = call.args ? splitMacroArgs(call.args) : [];
+                        if (callArgs.length !== mac.args.length) {
+                            errors.push({ line: eli + 1, msg: macName + ': argument count mismatch (expected ' + mac.args.length + ', got ' + callArgs.length + ')' });
+                            newLines.push(mlines[eli]); continue;
+                        }
+                        if (call.label) newLines.push(call.label + ':');
+                        var bodyLines = [];
+                        for (var bi = 0; bi < mac.body.length; bi++) {
+                            var bline = mac.body[bi];
+                            for (var ai = 0; ai < mac.args.length; ai++) {
+                                bline = bline.replace(new RegExp('\\b' + mac.args[ai] + '\\b', 'g'), callArgs[ai]);
+                            }
+                            bodyLines.push(bline);
+                        }
+                        expandStack.push(macName);
+                        var expandedBody = expandMacros(bodyLines, expandStack);
+                        expandStack.pop();
+                        for (var ei = 0; ei < expandedBody.length; ei++) newLines.push(expandedBody[ei]);
+                    } else {
+                        newLines.push(mlines[eli]);
+                    }
+                }
+                return newLines;
+            }
+
+            lines = expandMacros(lines, []);
         }
 
         var baseOrg = -1;  // first ORG (returned as .org)
@@ -814,18 +1106,37 @@
         // ---- Pass 1: collect labels, determine sizes ----
         var pass1Addr = 0;
         var pass1BaseOrg = -1;
+        var currentNamespace = 'NAME_SPACE_DEFAULT';
+        var unresolvedEqUs = null;
 
         for (var i = 0; i < lines.length; i++) {
             var parsed = parseLine(lines[i]);
 
+            // Namespace directive
+            if (parsed.mnemonic === '_NAMESPACE') {
+                currentNamespace = parsed.operands;
+                continue;
+            }
+
             if (parsed.label) {
-                var lbl = resolveLocalLabel(parsed.label, i + 1).toUpperCase();
-                if (parsed.label[0] !== '.') lastGlobalLabel = parsed.label.toUpperCase();
+                var lbl;
+                if (parsed.label[0] === '.') {
+                    lbl = resolveLocalLabel(parsed.label.toUpperCase(), i + 1);
+                } else {
+                    lbl = currentNamespace + '.' + parsed.label.toUpperCase();
+                    lastGlobalLabel = lbl;
+                }
 
                 if (parsed.mnemonic === 'EQU') {
-                    var eqVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel);
-                    if (eqVal === null || eqVal === undefined) eqVal = 0;
-                    symbols[lbl] = eqVal;
+                    var eqVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel, currentNamespace);
+                    if (eqVal === null || eqVal === undefined) {
+                        // 前方参照: Pass 1 後に再解決する
+                        symbols[lbl] = 0; // placeholder
+                        if (!unresolvedEqUs) unresolvedEqUs = [];
+                        unresolvedEqUs.push({ lbl: lbl, operands: parsed.operands, pc: pass1Addr, globalLabel: lastGlobalLabel, ns: currentNamespace });
+                    } else {
+                        symbols[lbl] = eqVal;
+                    }
                     continue;
                 }
                 symbols[lbl] = pass1Addr;
@@ -834,7 +1145,7 @@
             if (!parsed.mnemonic) continue;
 
             if (parsed.mnemonic === 'ORG') {
-                var orgVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel);
+                var orgVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel, currentNamespace);
                 if (orgVal !== null && orgVal !== undefined) {
                     if (pass1BaseOrg < 0) pass1BaseOrg = orgVal;
                     pass1Addr = orgVal;
@@ -842,7 +1153,16 @@
                 continue;
             }
 
-            var size = getInstructionSize(parsed, symbols, pass1Addr, 1, lastGlobalLabel);
+            if (parsed.mnemonic === 'ALIGN') {
+                var alignVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel, currentNamespace);
+                if (alignVal && alignVal > 0) {
+                    var rem = pass1Addr % alignVal;
+                    if (rem !== 0) pass1Addr += alignVal - rem;
+                }
+                continue;
+            }
+
+            var size = getInstructionSize(parsed, symbols, pass1Addr, 1, lastGlobalLabel, currentNamespace);
             if (size < 0) {
                 errors.push({ line: i + 1, msg: 'Unknown instruction: ' + parsed.mnemonic + ' ' + parsed.operands });
                 continue;
@@ -850,17 +1170,49 @@
             pass1Addr += size;
         }
 
+        // ---- Resolve forward-referenced EQUs ----
+        if (unresolvedEqUs) {
+            for (var maxIter = 0; maxIter < 10; maxIter++) {
+                var changed = false;
+                for (var ui = 0; ui < unresolvedEqUs.length; ui++) {
+                    var ue = unresolvedEqUs[ui];
+                    var val = evalExpr(ue.operands, symbols, ue.pc, ue.globalLabel, ue.ns);
+                    if (val !== null && val !== undefined && val !== symbols[ue.lbl]) {
+                        symbols[ue.lbl] = val;
+                        changed = true;
+                    }
+                }
+                if (!changed) break;
+            }
+        }
+
         // ---- Pass 2: emit bytes ----
         lastGlobalLabel = '';
+        currentNamespace = 'NAME_SPACE_DEFAULT';
         for (var j = 0; j < lines.length; j++) {
             var parsed2 = parseLine(lines[j]);
 
+            // Namespace directive
+            if (parsed2.mnemonic === '_NAMESPACE') {
+                currentNamespace = parsed2.operands;
+                continue;
+            }
+
             if (parsed2.label) {
-                if (parsed2.label[0] !== '.') lastGlobalLabel = parsed2.label.toUpperCase();
+                if (parsed2.label[0] === '.') {
+                    // ローカルラベル
+                } else {
+                    var lbl2ns = currentNamespace + '.' + parsed2.label.toUpperCase();
+                    lastGlobalLabel = lbl2ns;
+                }
                 if (parsed2.mnemonic === 'EQU') {
-                    // Re-resolve EQU with full symbol table + correct PC
-                    var lbl2 = resolveLocalLabel(parsed2.label, j + 1).toUpperCase();
-                    var eqVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel);
+                    var lbl2;
+                    if (parsed2.label[0] === '.') {
+                        lbl2 = resolveLocalLabel(parsed2.label.toUpperCase(), j + 1);
+                    } else {
+                        lbl2 = currentNamespace + '.' + parsed2.label.toUpperCase();
+                    }
+                    var eqVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel, currentNamespace);
                     if (eqVal2 !== null && eqVal2 !== undefined) symbols[lbl2] = eqVal2;
                     continue;
                 }
@@ -869,14 +1221,27 @@
             if (!parsed2.mnemonic) continue;
 
             if (parsed2.mnemonic === 'ORG') {
-                var orgVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel);
+                var orgVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel, currentNamespace);
                 if (orgVal2 !== null && orgVal2 !== undefined) {
                     handleOrg(orgVal2, j + 1);
                 }
                 continue;
             }
 
-            var bytes = emitInstruction(parsed2, symbols, curAddr, 2, lastGlobalLabel);
+            if (parsed2.mnemonic === 'ALIGN') {
+                var alignVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel, currentNamespace);
+                if (alignVal2 && alignVal2 > 0) {
+                    var rem2 = curAddr % alignVal2;
+                    if (rem2 !== 0) {
+                        var pad2 = alignVal2 - rem2;
+                        for (var ap = 0; ap < pad2; ap++) output.push(0xFF);
+                        curAddr += pad2;
+                    }
+                }
+                continue;
+            }
+
+            var bytes = emitInstruction(parsed2, symbols, curAddr, 2, lastGlobalLabel, currentNamespace);
             if (bytes === null) {
                 errors.push({ line: j + 1, msg: 'Failed to encode: ' + parsed2.mnemonic + ' ' + parsed2.operands });
                 continue;
@@ -895,24 +1260,24 @@
         };
     }
 
-    function getInstructionSize(parsed, symbols, pc, pass, globalLabel) {
-        var bytes = emitInstruction(parsed, symbols, pc, pass, globalLabel);
+    function getInstructionSize(parsed, symbols, pc, pass, globalLabel, currentNamespace) {
+        var bytes = emitInstruction(parsed, symbols, pc, pass, globalLabel, currentNamespace);
         if (bytes === null) return -1;
         return bytes.length;
     }
 
-    function emitInstruction(parsed, symbols, pc, pass, globalLabel) {
+    function emitInstruction(parsed, symbols, pc, pass, globalLabel, currentNamespace) {
         var mn = parsed.mnemonic;
         var opStr = parsed.operands;
 
         // Pseudo-instructions
-        if (mn === 'DB' || mn === 'DEFB') return emitDB(opStr, symbols, pc, pass, globalLabel);
-        if (mn === 'DW' || mn === 'DEFW') return emitDW(opStr, symbols, pc, pass, globalLabel);
-        if (mn === 'DS' || mn === 'DEFS') return emitDS(opStr, symbols, pc, pass, globalLabel);
+        if (mn === 'DB' || mn === 'DEFB') return emitDB(opStr, symbols, pc, pass, globalLabel, currentNamespace);
+        if (mn === 'DW' || mn === 'DEFW') return emitDW(opStr, symbols, pc, pass, globalLabel, currentNamespace);
+        if (mn === 'DS' || mn === 'DEFS') return emitDS(opStr, symbols, pc, pass, globalLabel, currentNamespace);
 
         // Classify operands
         var rawOps = splitOperands(opStr);
-        var ops = rawOps.map(function(s) { return classifyOperand(s, symbols, pc, pass, globalLabel); });
+        var ops = rawOps.map(function(s) { return classifyOperand(s, symbols, pc, pass, globalLabel, currentNamespace); });
 
         // Try each family
         var result = encodeBasic(mn, ops, symbols, pc, pass);
@@ -927,7 +1292,7 @@
         return null;
     }
 
-    function emitDB(opStr, symbols, pc, pass, globalLabel) {
+    function emitDB(opStr, symbols, pc, pass, globalLabel, currentNamespace) {
         var bytes = [];
         var parts = [];
         // Split by comma, but respect strings
@@ -950,7 +1315,7 @@
                     bytes.push(ch);
                 }
             } else {
-                var v = evalExpr(p, symbols, pc + bytes.length, globalLabel);
+                var v = evalExpr(p, symbols, pc + bytes.length, globalLabel, currentNamespace);
                 if (v === null) return null; // parse error (e.g. non-ASCII literal)
                 if (v === undefined && pass === 2) return null; // unresolved
                 if (v === undefined) v = 0; // pass 1 placeholder
@@ -960,11 +1325,11 @@
         return bytes;
     }
 
-    function emitDW(opStr, symbols, pc, pass, globalLabel) {
+    function emitDW(opStr, symbols, pc, pass, globalLabel, currentNamespace) {
         var bytes = [];
         var parts = splitOperands(opStr);
         for (var i = 0; i < parts.length; i++) {
-            var v = evalExpr(parts[i], symbols, pc + bytes.length, globalLabel);
+            var v = evalExpr(parts[i], symbols, pc + bytes.length, globalLabel, currentNamespace);
             if (v === null) return null;
             if (v === undefined && pass === 2) return null;
             if (v === undefined) v = 0;
@@ -974,11 +1339,11 @@
         return bytes;
     }
 
-    function emitDS(opStr, symbols, pc, pass, globalLabel) {
+    function emitDS(opStr, symbols, pc, pass, globalLabel, currentNamespace) {
         var parts = splitOperands(opStr);
-        var count = evalExpr(parts[0], symbols, pc, globalLabel);
+        var count = evalExpr(parts[0], symbols, pc, globalLabel, currentNamespace);
         if (count === null || count === undefined) count = 0;
-        var fill = parts.length > 1 ? evalExpr(parts[1], symbols, pc, globalLabel) : 0;
+        var fill = parts.length > 1 ? evalExpr(parts[1], symbols, pc, globalLabel, currentNamespace) : 0xFF;
         if (fill === null || fill === undefined) fill = 0;
         var bytes = [];
         for (var i = 0; i < count; i++) bytes.push(fill & 0xFF);

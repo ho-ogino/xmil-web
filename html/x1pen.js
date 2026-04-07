@@ -11,7 +11,10 @@ window.__X1PEN_MODE = true;
     var BOOT_DISK_FILE  = 'fuzzybasic_boot.v2.d88';
     var LSX_COLD_STATE  = 'lsxdodgers_cold.v1.xmst';
     var LSX_BOOT_DISK   = 'lsxdodgers_boot.v1.d88';
+    var XMIL_BUILD_HASH = '@@XMIL_BUILD_HASH@@';
     var module = null;
+    var lastAsmSymbols = null;  // { symbols: {}, predefined: {}, sourceMode: string }
+    var lastAsmTabOrigin = null; // null | 'user' | 'slang-generated'
 
     // ── FuzzyBASIC addrmap ──
 
@@ -323,6 +326,7 @@ window.__X1PEN_MODE = true;
 
     async function reloadAssetsBypassCache() {
         assetCache = {};
+        window._slangRuntimeVFS = null; // SLANG ランタイムも再読み込み
         if (elBtnDevReload) elBtnDevReload.disabled = true;
         elStatus.textContent = 'Reloading assets...';
         try {
@@ -357,7 +361,18 @@ window.__X1PEN_MODE = true;
         { language: 'asm',
           showLineNumbers: true,
           placeholder: '; Z80 Assembly\nORG 0E000h\n    LD A,042h\n    RET',
-          onChange: function(text) { try { localStorage.setItem(LS_EDITOR_ASM, text); } catch(e) {} },
+          onChange: function(text) { lastAsmTabOrigin = 'user'; try { localStorage.setItem(LS_EDITOR_ASM, text); } catch(e) {} },
+          onFocus: pauseCallbacks.onFocus,
+          onBlur:  pauseCallbacks.onBlur }
+    );
+
+    var LS_EDITOR_SLANG = 'x1pen_editor_slang';
+    var slangEditor = window.X1PenEditor.create(
+        document.getElementById('slang-editor-container'),
+        { language: 'slang',
+          showLineNumbers: true,
+          placeholder: '// SLANG program\nVAR x = 42;\nmain() BEGIN\n  PRINT(x);\nEND;',
+          onChange: function(text) { try { localStorage.setItem(LS_EDITOR_SLANG, text); } catch(e) {} },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
     );
@@ -367,8 +382,11 @@ window.__X1PEN_MODE = true;
         var savedBasic = localStorage.getItem(LS_EDITOR_BASIC);
         if (savedBasic) basicEditor.setValue(savedBasic, { silent: true });
         var savedAsm = localStorage.getItem(LS_EDITOR_ASM);
-        if (savedAsm) asmEditor.setValue(savedAsm, { silent: true });
+        if (savedAsm) { asmEditor.setValue(savedAsm, { silent: true }); lastAsmTabOrigin = 'user'; }
+        var savedSlang = localStorage.getItem(LS_EDITOR_SLANG);
+        if (savedSlang) slangEditor.setValue(savedSlang, { silent: true });
     } catch(e) {}
+
 
     // ── ステート復元 (専用経路 — マウント復元なし) ──
 
@@ -508,19 +526,106 @@ window.__X1PEN_MODE = true;
     async function onRunClick() {
         if (!module) return false;
 
-        // 0. runMode 判定
+        // 0. sourceMode / runMode 判定
         var basicSrc = basicEditor.getValue().trim();
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
+        var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
 
-        if (!basicSrc && !asmSrc) {
+        // sourceMode 判定
+        var sourceMode;
+        if (pendingShareRuntime && pendingShareRuntime.sourceMode) {
+            sourceMode = pendingShareRuntime.sourceMode;
+        } else if (slangSrc) {
+            sourceMode = 'slang';
+        } else if (!basicSrc && asmSrc) {
+            sourceMode = 'asm';
+        } else {
+            sourceMode = 'basic+asm';
+        }
+
+        if (!basicSrc && !asmSrc && !slangSrc) {
             elStatus.textContent = 'Nothing to run';
             return false;
+        }
+
+        // SLANG → コンパイル → ASM に変換
+        if (sourceMode === 'slang') {
+            elStatus.textContent = 'Compiling SLANG...';
+            // 遅延ロード: SLANG コンパイラが未ロードなら動的ロード
+            if (!window.X1PenSlangCompiler) {
+                try {
+                    await new Promise(function(resolve, reject) {
+                        var s = document.createElement('script');
+                        s.src = 'x1pen_slang_compiler.js' + ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
+                        s.onload = resolve;
+                        s.onerror = function() { reject(new Error('Failed to load SLANG compiler')); };
+                        document.head.appendChild(s);
+                    });
+                } catch(e) {
+                    elStatus.textContent = e.message;
+                    return false;
+                }
+            }
+            // ランタイム .asm ファイルを virtualFS にロード (初回のみ fetch)
+            if (!window._slangRuntimeVFS) {
+                elStatus.textContent = 'Loading SLANG runtime...';
+                var runtimeFiles = [
+                    'runtime.asm', 'core.asm', 'opt.asm', 'libfloat.asm',
+                    'liblsx_base.asm', 'libx1_base.asm', 'libx1_grp.asm',
+                    'liblsx_input.asm', 'libx1_print.asm', 'liblsx_file.asm',
+                    'libx1_pcg.asm', 'libmag.asm', 'libm8a.asm', 'libx1_psg.asm',
+                    'libcompress.asm', 'libsoroban.asm', 'libx1_magic.asm',
+                ];
+                var vfs = {};
+                var vBust = (XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '';
+                for (var ri = 0; ri < runtimeFiles.length; ri++) {
+                    try {
+                        var resp = await fetch('slang_runtime/' + runtimeFiles[ri] + vBust);
+                        if (resp.ok) vfs[runtimeFiles[ri]] = await resp.text();
+                    } catch(e) { /* optional file */ }
+                }
+                // インクルードファイルも読み込み
+                var includeFiles = ['GRAPH.LIB', 'GRAPHF.LIB', 'SOROBAN.LIB'];
+                for (var ii = 0; ii < includeFiles.length; ii++) {
+                    try {
+                        var iresp = await fetch('slang_include/' + includeFiles[ii] + vBust);
+                        if (iresp.ok) vfs[includeFiles[ii]] = await iresp.text();
+                    } catch(e) { /* optional file */ }
+                }
+                window._slangRuntimeVFS = vfs;
+            }
+
+            // X1 環境固定 (ENV_TYPE: 0=CP/M, 1=LSX-Dodgers, 2=MSX-DOS)
+            var slangEnv = { defaultOrg: 0x100, codeReadonly: false, defines: { ENV_TYPE: 1 } };
+            var slangResult = window.X1PenSlangCompiler.compile(slangSrc, window._slangRuntimeVFS, slangEnv);
+            if (slangResult.errors && slangResult.errors.length > 0) {
+                var firstErr = slangResult.errors[0];
+                elStatus.textContent = 'SLANG: ' + (firstErr.message || firstErr);
+                clearSymbols();
+                return false;
+            }
+            // コンパイル結果の ASM を使う
+            asmSrc = slangResult.asm;
+            // ASM タブにユーザーの手書き ASM がある場合は確認
+            if (asmEditor && lastAsmTabOrigin === 'user' && asmEditor.getValue().trim()) {
+                if (!confirm('ASM タブの内容が上書きされます。よろしいですか？')) {
+                    return false;
+                }
+            }
+            // ASM タブにコンパイル結果を表示
+            if (asmEditor) {
+                asmEditor.setValue(asmSrc, { silent: true });
+                lastAsmTabOrigin = 'slang-generated';
+            }
+            elStatus.textContent = 'SLANG compiled (' + asmSrc.split('\n').length + ' lines)';
         }
 
         var isSharedRun = !!pendingShareRuntime;
         var runMode;
         if (pendingShareRuntime && pendingShareRuntime.runMode) {
             runMode = pendingShareRuntime.runMode;
+        } else if (sourceMode === 'slang' || sourceMode === 'asm') {
+            runMode = 'lsx';
         } else {
             runMode = detectRunMode(basicSrc, asmSrc);
         }
@@ -585,7 +690,10 @@ window.__X1PEN_MODE = true;
 
         // 4. ASM アセンブル (タブに内容がある場合)
         //    addrmap から predefined symbols を構築
-        var predefined = {};
+        var predefined = {
+            OS_TYPE: 0,   // 0=LSX-Dodgers, 1=S-OS
+            ENV_TYPE: 1,  // 0=CP/M, 1=LSX-Dodgers(X1), 2=MSX-DOS
+        };
         var versions = await loadAddrmapVersions();
         var verName = COLD_STATE_VERSION[actualColdState];
         if (versions && verName && versions[verName]) {
@@ -607,8 +715,18 @@ window.__X1PEN_MODE = true;
             if (asmResult.errors.length > 0) {
                 elStatus.textContent = 'ASM error (L' + asmResult.errors[0].line + '): ' +
                                        asmResult.errors[0].msg;
+                clearSymbols();
                 return false;
             }
+            // シンボルテーブル保存
+            lastAsmSymbols = {
+                symbols: asmResult.symbols,
+                predefined: (function() { var u = {}; for (var pk in predefined) u[pk.toUpperCase()] = predefined[pk]; return u; })(),
+                sourceMode: sourceMode
+            };
+            var symBtn = document.getElementById('btn-symbols');
+            if (symBtn) symBtn.disabled = false;
+
             if (asmResult.bytes.length > 0) {
                 var orgAddr = asmResult.org;
                 var endAddr = orgAddr + asmResult.bytes.length - 1;
@@ -616,6 +734,9 @@ window.__X1PEN_MODE = true;
                     orgAddr.toString(16).toUpperCase().padStart(4, '0') + 'h-' +
                     endAddr.toString(16).toUpperCase().padStart(4, '0') + 'h)';
             }
+        } else {
+            // ASM なし（BASIC only）
+            clearSymbols();
         }
 
         // 5. BASIC ソースをトークナイズ (FuzzyBASIC モードのみ)
@@ -902,12 +1023,125 @@ window.__X1PEN_MODE = true;
         }
     })();
 
+    // ── Symbol Table ダイアログ ──
+
+    function clearSymbols() {
+        lastAsmSymbols = null;
+        var symBtn = document.getElementById('btn-symbols');
+        if (symBtn) symBtn.disabled = true;
+    }
+
+    var symSortByAddr = true;
+    var symHidePredefined = false;
+
+    function openSymbolDialog() {
+        if (!lastAsmSymbols) return;
+        document.getElementById('sym-dialog').classList.remove('hidden');
+        // ソースモード表示
+        var srcLabel = document.getElementById('sym-source');
+        if (srcLabel) {
+            var mode = (lastAsmSymbols.sourceMode || '').toUpperCase();
+            if (mode === 'BASIC+ASM') mode = 'BASIC+ASM';
+            srcLabel.textContent = mode ? '(' + mode + ')' : '';
+        }
+        document.getElementById('sym-filter').value = '';
+        renderSymbolTable();
+    }
+
+    function closeSymbolDialog() {
+        document.getElementById('sym-dialog').classList.add('hidden');
+    }
+
+    function renderSymbolTable() {
+        var syms = lastAsmSymbols.symbols;
+        var predefined = lastAsmSymbols.predefined;
+        var filterText = (document.getElementById('sym-filter').value || '').toUpperCase();
+
+        // 省略後の名前の出現回数（重複検出）
+        var nameCount = {};
+        for (var key in syms) {
+            var short = key.indexOf('NAME_SPACE_DEFAULT.') === 0 ? key.substring(19) : key;
+            nameCount[short] = (nameCount[short] || 0) + 1;
+        }
+
+        var entries = [];
+        var totalCount = 0;
+        for (var key in syms) {
+            var isPredefined = key in predefined;
+            if (symHidePredefined && isPredefined) { totalCount++; continue; }
+            totalCount++;
+            var displayName = key;
+            if (key.indexOf('NAME_SPACE_DEFAULT.') === 0) {
+                var short = key.substring(19);
+                displayName = nameCount[short] > 1 ? key : short;
+            }
+            if (filterText && displayName.toUpperCase().indexOf(filterText) < 0) continue;
+            entries.push({ name: displayName, value: syms[key], isPredefined: isPredefined });
+        }
+
+        if (symSortByAddr) {
+            entries.sort(function(a, b) { return a.value - b.value; });
+        } else {
+            entries.sort(function(a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+        }
+
+        var tbody = document.getElementById('sym-table-body');
+        tbody.innerHTML = '';
+        for (var i = 0; i < entries.length; i++) {
+            var e = entries[i];
+            var tr = document.createElement('tr');
+            if (e.isPredefined) tr.className = 'sym-predefined';
+            var tdName = document.createElement('td');
+            tdName.textContent = e.name;
+            var tdVal = document.createElement('td');
+            tdVal.textContent = (e.value >= 0 && e.value <= 0xFFFF)
+                ? e.value.toString(16).toUpperCase().padStart(4, '0') + 'h'
+                : String(e.value);
+            tr.appendChild(tdName);
+            tr.appendChild(tdVal);
+            tbody.appendChild(tr);
+        }
+
+        var countEl = document.getElementById('sym-count');
+        if (countEl) {
+            countEl.textContent = entries.length < totalCount
+                ? entries.length + ' / ' + totalCount + ' symbols'
+                : totalCount + ' symbols';
+        }
+    }
+
+    (function() {
+        var symBtn = document.getElementById('btn-symbols');
+        if (symBtn) symBtn.addEventListener('click', openSymbolDialog);
+        var symClose = document.getElementById('sym-dialog-close');
+        var symOk = document.getElementById('sym-dialog-ok');
+        var symBackdrop = document.getElementById('sym-dialog-backdrop');
+        if (symClose) symClose.addEventListener('click', closeSymbolDialog);
+        if (symOk) symOk.addEventListener('click', closeSymbolDialog);
+        if (symBackdrop) symBackdrop.addEventListener('click', closeSymbolDialog);
+        var symFilter = document.getElementById('sym-filter');
+        if (symFilter) symFilter.addEventListener('input', renderSymbolTable);
+        var symSortBtn = document.getElementById('sym-sort-toggle');
+        if (symSortBtn) symSortBtn.addEventListener('click', function() {
+            symSortByAddr = !symSortByAddr;
+            symSortBtn.textContent = symSortByAddr ? 'Addr\u25B2' : 'Name\u25B2';
+            renderSymbolTable();
+        });
+        var symHideChk = document.getElementById('sym-hide-predefined');
+        if (symHideChk) symHideChk.addEventListener('change', function() {
+            symHidePredefined = symHideChk.checked;
+            renderSymbolTable();
+        });
+    })();
+
     async function onShareClick() {
         var src = basicEditor.getValue().trim();
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
-        if (!src && !asmSrc) { elStatus.textContent = 'Nothing to share'; return; }
+        var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
+        if (!src && !asmSrc && !slangSrc) { elStatus.textContent = 'Nothing to share'; return; }
 
-        var shareRunMode = detectRunMode(src, asmSrc);
+        var shareSourceMode = slangSrc ? 'slang' : (!src && asmSrc ? 'asm' : 'basic+asm');
+        var shareRunMode = (shareSourceMode === 'slang' || shareSourceMode === 'asm') ? 'lsx' : detectRunMode(src, asmSrc);
 
         // Share 用 runtime を決定 (relocAddrs を正規化済みで取得)
         var baseShareRuntime;
@@ -930,13 +1164,17 @@ window.__X1PEN_MODE = true;
             model: shareRuntime.model,
             coldState: shareRuntime.coldState,
             bootDisk: shareRuntime.bootDisk,
-            runMode: shareRunMode
+            runMode: shareRunMode,
+            sourceMode: shareSourceMode
         };
         if (shareRuntime.relocAddrs) meta.relocAddrs = shareRuntime.relocAddrs;
 
+        // SLANG モードでは生成 ASM を payload に含めない（slang が正）
+        var shareAsm = (shareSourceMode === 'slang') ? null : (asmSrc || null);
         var payload = JSON.stringify({
             basic: src,
-            asm: asmSrc || null,
+            asm: shareAsm,
+            slang: slangSrc || null,
             meta: meta
         });
 
@@ -1069,6 +1307,20 @@ window.__X1PEN_MODE = true;
 
         // 共有コード読み込み (?id=xxx)
         var urlId = new URLSearchParams(location.search).get('id');
+
+        // Share パラメータなしの場合、保存済みコンテンツに応じてタブを自動選択
+        // BASIC → SLANG → ASM の優先順で、内容のあるタブに切り替える
+        if (!urlId) {
+            var hasBasic = basicEditor.getValue().trim().length > 0;
+            var hasSlang = slangEditor && slangEditor.getValue().trim().length > 0;
+            var hasAsm   = asmEditor && asmEditor.getValue().trim().length > 0;
+            if (!hasBasic && hasSlang) {
+                setActiveEditorTab('slang');
+            } else if (!hasBasic && !hasSlang && hasAsm) {
+                setActiveEditorTab('asm');
+            }
+        }
+
         if (urlId) {
             elStatus.textContent = 'Loading shared code...';
             // 読み込み中は Share ボタンを無効化 (race 防止)
@@ -1086,9 +1338,12 @@ window.__X1PEN_MODE = true;
                     } else {
                         shared = await shareResp.json();
                     }
-                    basicEditor.setValue(shared.basic, { silent: true });
+                    basicEditor.setValue(shared.basic || '', { silent: true });
                     if (asmEditor) {
                         asmEditor.setValue(shared.asm || '', { silent: true });
+                    }
+                    if (slangEditor) {
+                        slangEditor.setValue(shared.slang || '', { silent: true });
                     }
                     // Share meta → pendingShareRuntime
                     if (shared.meta) {
@@ -1107,7 +1362,8 @@ window.__X1PEN_MODE = true;
                             model: validateModel(shared.meta.model, 1),
                             coldState: validateAssetName(shared.meta.coldState, COLD_STATE_FILE),
                             bootDisk: validateAssetName(shared.meta.bootDisk, BOOT_DISK_FILE),
-                            relocAddrs: shareRelocAddrs
+                            relocAddrs: shareRelocAddrs,
+                            sourceMode: shared.meta.sourceMode || (shared.slang ? 'slang' : null)
                         };
                         normalizeRuntimeForRunMode(pendingShareRuntime, sharedRunMode);
                     }
@@ -1121,16 +1377,23 @@ window.__X1PEN_MODE = true;
                     } catch(e) {
                         replayRuntime = pendingShareRuntime || getUserDefaultRuntime();
                     }
+                    var replaySourceMode = (shared.meta && shared.meta.sourceMode)
+                        ? shared.meta.sourceMode
+                        : (shared.slang ? 'slang' : null);
                     var replayMeta = {
                         model: replayRuntime.model,
                         coldState: replayRuntime.coldState,
                         bootDisk: replayRuntime.bootDisk,
-                        runMode: replayRuntime.runMode || 'fuzzybasic'
+                        runMode: replayRuntime.runMode || 'fuzzybasic',
+                        sourceMode: replaySourceMode
                     };
                     if (replayRuntime.relocAddrs) replayMeta.relocAddrs = replayRuntime.relocAddrs;
+                    // SLANG Share では生成 ASM を含めない（通常 Share 側と同じ正規化）
+                    var replayAsm = (replaySourceMode === 'slang') ? null : (shared.asm || null);
                     var replayPayload = JSON.stringify({
                         basic: shared.basic,
-                        asm: shared.asm || null,
+                        asm: replayAsm,
+                        slang: shared.slang || null,
                         meta: replayMeta
                     });
                     lastShareHash = await computePayloadHash(replayPayload);
@@ -1409,8 +1672,10 @@ window.__X1PEN_MODE = true;
         if (!refEl) return;
         refEl.innerHTML = '';
         loadAddrmapVersions().then(function(versions) {
-            var verName = COLD_STATE_VERSION[coldStateFile || COLD_STATE_FILE];
-            if (!versions || !verName || !versions[verName]) {
+            var csFile = coldStateFile || COLD_STATE_FILE;
+            var verName = COLD_STATE_VERSION[csFile];
+            if (!verName) return; // LSX-Dodgers etc. — no addrmap needed
+            if (!versions || !versions[verName]) {
                 console.warn('[x1pen] ADDR Reference unavailable (addrmap not loaded or version mismatch)');
                 return;
             }
@@ -1699,18 +1964,26 @@ window.__X1PEN_MODE = true;
         }
         var basicContainer = document.getElementById('basic-editor-container');
         var asmContainer = document.getElementById('asm-editor-container');
+        var slangContainer = document.getElementById('slang-editor-container');
         var importBtn = document.getElementById('btn-asm-import');
         var manualBtn = document.getElementById('btn-basic-manual');
+
+        // 全エディタコンテナを非表示
+        if (basicContainer) basicContainer.classList.add('hidden');
+        if (asmContainer) asmContainer.classList.add('hidden');
+        if (slangContainer) slangContainer.classList.add('hidden');
+        if (importBtn) importBtn.classList.add('hidden');
+        if (manualBtn) manualBtn.classList.add('hidden');
+
+        // 選択されたタブのコンテナを表示
         if (target === 'basic') {
             if (basicContainer) basicContainer.classList.remove('hidden');
-            if (asmContainer) asmContainer.classList.add('hidden');
-            if (importBtn) importBtn.classList.add('hidden');
             if (manualBtn) manualBtn.classList.remove('hidden');
-        } else {
-            if (basicContainer) basicContainer.classList.add('hidden');
+        } else if (target === 'asm') {
             if (asmContainer) asmContainer.classList.remove('hidden');
             if (importBtn) importBtn.classList.remove('hidden');
-            if (manualBtn) manualBtn.classList.add('hidden');
+        } else if (target === 'slang') {
+            if (slangContainer) slangContainer.classList.remove('hidden');
         }
     }
     if (editorTabs) {
@@ -1740,7 +2013,8 @@ window.__X1PEN_MODE = true;
             emuPanel.classList.add('mobile-hidden');
             setActiveEditorTab(panel);
             setTimeout(function() {
-                var editor = (panel === 'basic') ? basicEditor : asmEditor;
+                var editor = (panel === 'basic') ? basicEditor :
+                             (panel === 'slang') ? slangEditor : asmEditor;
                 if (editor && editor.view) editor.view.requestMeasure();
             }, 0);
         }
@@ -1769,7 +2043,8 @@ window.__X1PEN_MODE = true;
             document.getElementById('editor-panel').classList.remove('mobile-hidden');
             document.getElementById('emu-panel').classList.remove('mobile-hidden');
             setTimeout(function() {
-                var editor = (activeTab === 'basic') ? basicEditor : asmEditor;
+                var editor = (activeTab === 'basic') ? basicEditor :
+                             (activeTab === 'slang') ? slangEditor : asmEditor;
                 if (editor && editor.view) editor.view.requestMeasure();
             }, 0);
         } else {

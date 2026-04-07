@@ -92,6 +92,8 @@ cp "${SCRIPT_DIR}/html/x1pen.html"           ./x1pen.html
 cp "${SCRIPT_DIR}/html/x1pen.js"             ./x1pen.js
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
+[ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
+    cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ./x1pen_slang_compiler.js
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" ./x1pen_charmap.html
 [ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ./x1pen_editor.bundle.js
@@ -108,6 +110,19 @@ done
 for f in "${SCRIPT_DIR}"/assets/lsxdodgers_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "./"
 done
+# SLANG runtime
+if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
+    mkdir -p ./slang_runtime
+    for f in "${SCRIPT_DIR}"/assets/slang_runtime/*.asm; do
+        [ -f "$f" ] && cp "$f" ./slang_runtime/
+    done
+fi
+if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
+    mkdir -p ./slang_include
+    for f in "${SCRIPT_DIR}"/assets/slang_include/*; do
+        [ -f "$f" ] && cp "$f" ./slang_include/
+    done
+fi
 # addrmap
 [ -f "${SCRIPT_DIR}/assets/addrmap_versions.json" ] && \
     cp "${SCRIPT_DIR}/assets/addrmap_versions.json" ./addrmap_versions.json
@@ -167,6 +182,8 @@ cp "${SCRIPT_DIR}/html/x1pen.html"           "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen.js"             "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
+[ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
+    cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" "${DIST_DIR}/"
@@ -182,6 +199,19 @@ done
 for f in "${SCRIPT_DIR}"/assets/lsxdodgers_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
 done
+# SLANG runtime
+if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
+    mkdir -p "${DIST_DIR}/slang_runtime"
+    for f in "${SCRIPT_DIR}"/assets/slang_runtime/*.asm; do
+        [ -f "$f" ] && cp "$f" "${DIST_DIR}/slang_runtime/"
+    done
+fi
+if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
+    mkdir -p "${DIST_DIR}/slang_include"
+    for f in "${SCRIPT_DIR}"/assets/slang_include/*; do
+        [ -f "$f" ] && cp "$f" "${DIST_DIR}/slang_include/"
+    done
+fi
 # addrmap
 [ -f "${SCRIPT_DIR}/assets/addrmap_versions.json" ] && \
     cp "${SCRIPT_DIR}/assets/addrmap_versions.json" "${DIST_DIR}/addrmap_versions.json"
@@ -209,6 +239,15 @@ sed -i.bak "s/@@XMIL_VERSION@@/${XMIL_VERSION}/g" \
     "${DIST_DIR}/index.html" \
     "${DIST_DIR}/x1pen.html"
 rm -f "${DIST_DIR}/xmillennium.html.bak" "${DIST_DIR}/index.html.bak" "${DIST_DIR}/x1pen.html.bak"
+
+# ビルドハッシュ注入（キャッシュバスター用）
+XMIL_BUILD_HASH=$(git -C "${SCRIPT_DIR}" rev-parse --short HEAD 2>/dev/null || date +%s)
+sed -i.bak "s/@@XMIL_BUILD_HASH@@/${XMIL_BUILD_HASH}/g" "${DIST_DIR}/x1pen.js"
+rm -f "${DIST_DIR}/x1pen.js.bak"
+
+# x1pen.html の script タグにキャッシュバスター付与
+sed -i.bak "s|src=\"\([^\"]*\.js\)\"|src=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${DIST_DIR}/x1pen.html"
+rm -f "${DIST_DIR}/x1pen.html.bak"
 
 # config.js: html/config.js があればそれを使用、なければ空の example を使用
 if [ -f "${SCRIPT_DIR}/html/config.js" ]; then

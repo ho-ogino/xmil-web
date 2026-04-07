@@ -398,7 +398,7 @@ testOK('LD (IX+5),A displacement', 'LD (IX+5),A', [0xDD, 0x77, 0x05]);
 // ================================================================
 testOK('DB',  'DB 1,2,3',     [1, 2, 3]);
 testOK('DW',  'DW 0x1234',    [0x34, 0x12]);
-testOK('DS',  'DS 3',         [0, 0, 0]);
+testOK('DS',  'DS 3',         [0xFF, 0xFF, 0xFF]);
 testOK('DS fill', 'DS 3,0xFF', [0xFF, 0xFF, 0xFF]);
 testOK('DB string', 'DB "AB"', [0x41, 0x42]);
 testOK('ORG', 'ORG 0x100\nNOP', [0x00]);
@@ -467,6 +467,136 @@ testFail('#ENDIF without #IF', '#ENDIF');
 testFail('Unterminated #IF', '#IF 1\nNOP');
 testFail('Duplicate #ELSE', '#IF 1\nNOP\n#ELSE\nHALT\n#ELSE\nNOP\n#ENDIF');
 testFail('#IF syntax error', '#IF 1 +\nNOP\n#ENDIF');
+
+// #ELIF
+testOK('#ELIF: IF true, ELIF skipped', '#IF 1\n LD A,1\n#ELIF 1\n LD A,2\n#ENDIF', [0x3E, 0x01]);
+testOK('#ELIF: IF false, ELIF true', '#IF 0\n LD A,1\n#ELIF 1\n LD A,2\n#ENDIF', [0x3E, 0x02]);
+testOK('#ELIF: IF false, ELIF false, ELSE', '#IF 0\n LD A,1\n#ELIF 0\n LD A,2\n#ELSE\n LD A,3\n#ENDIF', [0x3E, 0x03]);
+testOK('#ELIF: multiple (V=2)', 'V EQU 2\n#IF V==0\n DB 0\n#ELIF V==1\n DB 1\n#ELIF V==2\n DB 2\n#ELSE\n DB 99\n#ENDIF', [0x02]);
+testOK('#ELIF: none match, ELSE', 'V EQU 5\n#IF V==0\n DB 0\n#ELIF V==1\n DB 1\n#ELIF V==2\n DB 2\n#ELSE\n DB 99\n#ENDIF', [0x63]);
+testFail('#ELIF after #ELSE', '#IF 0\n NOP\n#ELSE\n NOP\n#ELIF 1\n NOP\n#ENDIF');
+testFail('#ELIF without #IF', '#ELIF 1\nNOP\n#ENDIF');
+
+// --- IX/IY half registers ---
+console.log('\n--- IX/IY half registers ---');
+
+// LD r, IXH/IXL/IYH/IYL
+testOK('LD A,IXH',  'LD A,IXH',  [0xDD, 0x7C]);
+testOK('LD A,IXL',  'LD A,IXL',  [0xDD, 0x7D]);
+testOK('LD A,IYH',  'LD A,IYH',  [0xFD, 0x7C]);
+testOK('LD A,IYL',  'LD A,IYL',  [0xFD, 0x7D]);
+testOK('LD B,IXH',  'LD B,IXH',  [0xDD, 0x44]);
+testOK('LD C,IXL',  'LD C,IXL',  [0xDD, 0x4D]);
+
+// LD IXH/IXL/IYH/IYL, r
+testOK('LD IXH,A',  'LD IXH,A',  [0xDD, 0x67]);
+testOK('LD IXL,A',  'LD IXL,A',  [0xDD, 0x6F]);
+testOK('LD IYH,A',  'LD IYH,A',  [0xFD, 0x67]);
+testOK('LD IYL,A',  'LD IYL,A',  [0xFD, 0x6F]);
+testOK('LD IXH,B',  'LD IXH,B',  [0xDD, 0x60]);
+testOK('LD IXL,C',  'LD IXL,C',  [0xDD, 0x69]);
+
+// LD IXH/IXL, imm8
+testOK('LD IXH,$42', 'LD IXH,$42', [0xDD, 0x26, 0x42]);
+testOK('LD IXL,$42', 'LD IXL,$42', [0xDD, 0x2E, 0x42]);
+testOK('LD IYH,$42', 'LD IYH,$42', [0xFD, 0x26, 0x42]);
+testOK('LD IYL,$42', 'LD IYL,$42', [0xFD, 0x2E, 0x42]);
+
+// INC/DEC IXH/IXL/IYH/IYL
+testOK('INC IXH', 'INC IXH', [0xDD, 0x24]);
+testOK('DEC IXH', 'DEC IXH', [0xDD, 0x25]);
+testOK('INC IXL', 'INC IXL', [0xDD, 0x2C]);
+testOK('DEC IXL', 'DEC IXL', [0xDD, 0x2D]);
+testOK('INC IYH', 'INC IYH', [0xFD, 0x24]);
+testOK('DEC IYH', 'DEC IYH', [0xFD, 0x25]);
+testOK('INC IYL', 'INC IYL', [0xFD, 0x2C]);
+testOK('DEC IYL', 'DEC IYL', [0xFD, 0x2D]);
+
+// Case insensitive
+testOK('LD a,ixl',  'LD a,ixl',  [0xDD, 0x7D]);
+testOK('inc ixh',   'inc ixh',   [0xDD, 0x24]);
+testOK('dec iyl',   'dec iyl',   [0xFD, 0x2D]);
+
+// --- SLL (undocumented) ---
+console.log('\n--- SLL (undocumented) ---');
+testOK('SLL E',    'SLL E',    [0xCB, 0x33]);
+testOK('SLL A',    'SLL A',    [0xCB, 0x37]);
+testOK('SLL B',    'SLL B',    [0xCB, 0x30]);
+testOK('SLL (HL)', 'SLL (HL)', [0xCB, 0x36]);
+testOK('SL1 E',    'SL1 E',    [0xCB, 0x33]);
+testOK('sll e (lowercase)', 'sll e', [0xCB, 0x33]);
+testOK('SLL (IX+5)', 'SLL (IX+5)', [0xDD, 0xCB, 0x05, 0x36]);
+
+// --- MACRO / ENDM ---
+console.log('\n--- MACRO / ENDM ---');
+
+// No-arg macro
+testOK('Macro no args', 'ALLLD MACRO\n LD A,1\n LD B,2\nENDM\n ALLLD', [0x3E,0x01, 0x06,0x02]);
+
+// Macro with args
+testOK('Macro with args', 'MYSET MACRO REG,VAL\n LD REG,VAL\nENDM\n MYSET A,$42', [0x3E,0x42]);
+
+// Multiple expansions
+testOK('Macro multi expand', 'LOADR MACRO R,V\n LD R,V\nENDM\n LOADR A,1\n LOADR B,2',
+    [0x3E,0x01, 0x06,0x02]);
+
+// Macro with label on call line
+testOK('Macro call with label', 'MYPUSH MACRO R\n PUSH R\nENDM\nSTART: MYPUSH BC\n NOP',
+    [0xC5, 0x00]);
+
+// Forward reference: call before definition
+testOK('Macro forward ref', ' FWDMAC\nFWDMAC MACRO\n NOP\n HALT\nENDM', [0x00, 0x76]);
+
+// Nested macro call (macro A calls macro B)
+testOK('Nested macro call',
+    'INNER MACRO\n NOP\nENDM\nOUTER MACRO\n INNER\n HALT\nENDM\n OUTER',
+    [0x00, 0x76]);
+
+// Error: unterminated MACRO
+testFail('Unterminated MACRO', 'FOO MACRO\n NOP');
+
+// Error: mnemonic name conflict
+testFail('Macro name conflict with mnemonic', 'NOP MACRO\n HALT\nENDM');
+
+// Error: arg count mismatch
+testFail('Macro arg count mismatch', 'M2 MACRO A,B\n LD A,B\nENDM\n M2 1');
+
+// Error: recursive macro
+testFail('Recursive macro', 'REC MACRO\n REC\nENDM\n REC');
+
+// Error: label in macro body
+testFail('Label in macro body', 'BADMAC MACRO\nFOO:\n NOP\nENDM');
+
+// Error: local label in macro body
+testFail('Local label in macro body', 'BADMAC2 MACRO\n.FOO:\n NOP\nENDM');
+
+// Error: EQU label in macro body
+testFail('EQU in macro body', 'BAD MACRO\nLBL EQU 1\n NOP\nENDM');
+
+// Error: colonless label in macro body
+testFail('Colonless label in macro body', 'BAD3 MACRO\nLBL\n NOP\nENDM');
+
+// Error: local label without colon in macro body
+testFail('Local label no colon in macro body', 'BAD4 MACRO\n.LBL\n NOP\nENDM');
+
+// MACRO/ENDM with comments
+testOK('MACRO with comment', 'M MACRO ; comment\n NOP\nENDM\n M', [0x00]);
+testOK('MACRO args with comment', 'M MACRO R ; load reg\n LD R,0\nENDM\n M A', [0x3E, 0x00]);
+testOK('ENDM with comment', 'M MACRO\n NOP\nENDM ; done\n M', [0x00]);
+
+// --- Case insensitive symbols ---
+console.log('\n--- Case insensitive symbols ---');
+
+// Labels: mixed case reference
+testOK('Case insensitive label', 'Foo: NOP\n JP FOO', [0x00, 0xC3, 0x00, 0x00]);
+testOK('Case insensitive label (lower ref)', 'FOO: NOP\n JP foo', [0x00, 0xC3, 0x00, 0x00]);
+testOK('Case insensitive EQU', 'myVal EQU $42\n LD A,(MYVAL)', [0x3A, 0x42, 0x00]);
+
+// exists operator case insensitive
+testOK('exists case insensitive', 'FOO EQU 1\n#IF exists foo\n NOP\n#ENDIF', [0x00]);
+
+// CALL MAIN resolves to main: (SLANG pattern)
+testOK('CALL MAIN matches main:', 'main:\n RET\nentry:\n CALL MAIN', [0xC9, 0xCD, 0x00, 0x00]);
 
 console.log('\n' + '='.repeat(40));
 console.log('Results: ' + passes + ' passed, ' + failures + ' failed');

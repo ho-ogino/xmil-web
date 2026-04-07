@@ -50,7 +50,8 @@ export async function onRequestPost({ request, env }) {
 
     var hasBasic = parsed.basic && typeof parsed.basic === 'string';
     var hasAsm = parsed.asm && typeof parsed.asm === 'string';
-    if (!hasBasic && !hasAsm) {
+    var hasSlang = parsed.slang && typeof parsed.slang === 'string';
+    if (!hasBasic && !hasAsm && !hasSlang) {
         return new Response(JSON.stringify({ error: 'No code' }), { status: 400 });
     }
 
