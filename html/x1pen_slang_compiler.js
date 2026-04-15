@@ -1,6 +1,6 @@
 // x1pen_slang_compiler.js — SLANG Compiler for X1Pen
 // Ported from C# (SLANGCompiler.Core) to JavaScript
-// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ d030dfb
+// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ 1babc96
 // Lazy-loaded: window.X1PenSlangCompiler = { compile: ... }
 
 (function() {
@@ -5867,7 +5867,9 @@
             }
             _e.raw('_A EQU (_AF + 1)');
 
-            // Runtime works variables (align-aware tetris packing)
+            // Runtime works variables (2-pool: unaligned + aligned blocks)
+            // アラインなしブロック → __WORK__ + offset (従来通り)
+            // アライン付きブロック → __WORK_ALIGNED_<N>__ + offset (EQU 仮想ベースで絶対アライン)
             if (_rm) {
                 // Step 1: フラット化 + dedup (case-insensitive, first-wins)
                 var seenLabels = {};
@@ -5898,40 +5900,104 @@
                     curBlock.items.push({ label: item.label, size: item.size });
                 }
 
-                // __IYWORK (256 bytes, align 256) をブロックとして追加
-                blocks.push({ items: [{ label: '__IYWORK', size: 256 }], libName: null, alignment: 256, offset: 0 });
+                // Step 3: アラインなし/アライン付きに分離
+                // __IYWORK は __WORK__ 側専用ブロック（相対配置の align 256 で十分）
+                var unalignedBlocks = [];
+                var alignedBlocks = [];
+                for (var bi = 0; bi < blocks.length; bi++) {
+                    if (blocks[bi].alignment > 1) alignedBlocks.push(blocks[bi]);
+                    else unalignedBlocks.push(blocks[bi]);
+                }
+                unalignedBlocks.push({ items: [{ label: '__IYWORK', size: 256 }], libName: null, alignment: 256, offset: 0 });
 
-                // テトリス配置
-                var packResult = workAreaPack(blocks, workOffset);
-
-                // EQU 出力
-                var currentNs = null;
-                for (var pi = 0; pi < packResult.placed.length; pi++) {
-                    var block = packResult.placed[pi];
-                    if (block.libName !== currentNs) {
-                        if (block.libName) _e.raw('[' + block.libName + ']');
-                        else if (currentNs) _e.raw('[NAME_SPACE_DEFAULT]');
-                        currentNs = block.libName;
-                    }
-                    var workRef = currentNs ? 'NAME_SPACE_DEFAULT.__WORK__' : '__WORK__';
-                    var itemOffset = block.offset;
-                    for (var ii = 0; ii < block.items.length; ii++) {
-                        _e.raw(block.items[ii].label + ' EQU (' + workRef + ' + ' + itemOffset + ')');
-                        itemOffset += block.items[ii].size;
+                // @works_align の 2 の冪バリデーション
+                var alignValues = {};
+                for (var ai = 0; ai < alignedBlocks.length; ai++) alignValues[alignedBlocks[ai].alignment] = true;
+                for (var av in alignValues) {
+                    var avn = parseInt(av, 10);
+                    if ((avn & (avn - 1)) !== 0) {
+                        if (diagnostics) diagnostics.error('@works_align ' + avn + ' must be a power of 2', null);
                     }
                 }
-                if (currentNs) _e.raw('[NAME_SPACE_DEFAULT]');
+                if (diagnostics && diagnostics.hasErrors) return;
 
-                workOffset = packResult.totalSize;
+                // Step 4a: __WORK__ 側 (アラインなしブロック + __IYWORK) を配置
+                var packResult1 = workAreaPack(unalignedBlocks, workOffset);
+                emitWorksEqu(packResult1.placed, '__WORK__');
+                workOffset = packResult1.totalSize;
+
+                // Step 4b: アライン付きブロック → EQU 仮想ベース方式で絶対アライン
+                if (alignedBlocks.length > 0) {
+                    // アライン値でグループ化、降順ソート（大きいアラインを先に配置してパディング削減）
+                    var groupsMap = {};
+                    for (var bi = 0; bi < alignedBlocks.length; bi++) {
+                        var a = alignedBlocks[bi].alignment;
+                        if (!groupsMap[a]) groupsMap[a] = [];
+                        groupsMap[a].push(alignedBlocks[bi]);
+                    }
+                    var sortedAligns = Object.keys(groupsMap).map(function(k) { return parseInt(k, 10); });
+                    sortedAligns.sort(function(a, b) { return b - a; });
+
+                    var prevEnd = '__WORK__ + ' + workOffset;
+
+                    for (var gi = 0; gi < sortedAligns.length; gi++) {
+                        var align = sortedAligns[gi];
+                        var alignedBase = '__WORK_ALIGNED_' + align + '__';
+                        var mask = (~(align - 1)) & 0xFFFF;
+                        var alignMinus1Hex = (align - 1).toString(16).toUpperCase();
+                        while (alignMinus1Hex.length < 4) alignMinus1Hex = '0' + alignMinus1Hex;
+                        var maskHex = mask.toString(16).toUpperCase();
+                        while (maskHex.length < 4) maskHex = '0' + maskHex;
+
+                        // 仮想ベース EQU: ビットマスクで切り上げ
+                        _e.raw(alignedBase + ' EQU ((' + prevEnd + ' + $' + alignMinus1Hex + ') & $' + maskHex + ')');
+
+                        // このグループ内のブロックを baseOffset=0 で配置
+                        var packResult2 = workAreaPack(groupsMap[align], 0);
+                        emitWorksEqu(packResult2.placed, alignedBase);
+
+                        prevEnd = alignedBase + ' + ' + packResult2.totalSize;
+                    }
+
+                    // WORKEND: アライン付き領域の終端
+                    _e.raw('WORKEND EQU (' + prevEnd + ')');
+                    _e.blank();
+                    _e.raw('__WORKEND__ EQU (' + prevEnd + ')');
+                } else {
+                    // アライン付きブロックなし → 従来通り
+                    _e.raw('WORKEND EQU (__WORK__ + ' + workOffset + ')');
+                    _e.blank();
+                    _e.raw('__WORKEND__ EQU (__WORK__ + ' + workOffset + ')');
+                }
             } else {
                 // ランタイムなし → __IYWORK だけ配置
                 _e.raw('__IYWORK EQU (__WORK__ + ' + workOffset + ')');
                 workOffset += 256;
+                _e.raw('WORKEND EQU (__WORK__ + ' + workOffset + ')');
+                _e.blank();
+                _e.raw('__WORKEND__ EQU (__WORK__ + ' + workOffset + ')');
             }
+        }
 
-            _e.raw('WORKEND EQU (__WORK__ + ' + workOffset + ')');
-            _e.blank();
-            _e.raw('__WORKEND__ EQU (__WORK__ + ' + workOffset + ')');
+        // WorkAreaPacker の配置結果を EQU として出力する
+        // workRef は __WORK__ または __WORK_ALIGNED_N__ のようなベースラベル名
+        function emitWorksEqu(placed, workRef) {
+            var currentNs = null;
+            for (var pi = 0; pi < placed.length; pi++) {
+                var block = placed[pi];
+                if (block.libName !== currentNs) {
+                    if (block.libName) _e.raw('[' + block.libName + ']');
+                    else if (currentNs) _e.raw('[NAME_SPACE_DEFAULT]');
+                    currentNs = block.libName;
+                }
+                var actualRef = currentNs ? 'NAME_SPACE_DEFAULT.' + workRef : workRef;
+                var itemOffset = block.offset;
+                for (var ii = 0; ii < block.items.length; ii++) {
+                    _e.raw(block.items[ii].label + ' EQU (' + actualRef + ' + ' + itemOffset + ')');
+                    itemOffset += block.items[ii].size;
+                }
+            }
+            if (currentNs) _e.raw('[NAME_SPACE_DEFAULT]');
         }
 
         // ==== Main Generate method ====
