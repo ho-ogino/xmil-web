@@ -245,9 +245,9 @@ XMIL_BUILD_HASH=$(git -C "${SCRIPT_DIR}" rev-parse --short HEAD 2>/dev/null || d
 sed -i.bak "s/@@XMIL_BUILD_HASH@@/${XMIL_BUILD_HASH}/g" "${DIST_DIR}/x1pen.js"
 rm -f "${DIST_DIR}/x1pen.js.bak"
 
-# x1pen.html の script タグにキャッシュバスター付与
-sed -i.bak "s|src=\"\([^\"]*\.js\)\"|src=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${DIST_DIR}/x1pen.html"
-rm -f "${DIST_DIR}/x1pen.html.bak"
+# script タグにキャッシュバスター付与 (x1pen.html, xmillennium.html)
+sed -i.bak "s|src=\"\([^\"]*\.js\)\"|src=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${DIST_DIR}/x1pen.html" "${DIST_DIR}/xmillennium.html"
+rm -f "${DIST_DIR}/x1pen.html.bak" "${DIST_DIR}/xmillennium.html.bak"
 
 # config.js: html/config.js があればそれを使用、なければ空の example を使用
 if [ -f "${SCRIPT_DIR}/html/config.js" ]; then
