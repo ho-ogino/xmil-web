@@ -246,8 +246,14 @@ sed -i.bak "s/@@XMIL_BUILD_HASH@@/${XMIL_BUILD_HASH}/g" "${DIST_DIR}/x1pen.js"
 rm -f "${DIST_DIR}/x1pen.js.bak"
 
 # script タグにキャッシュバスター付与 (x1pen.html, xmillennium.html)
-sed -i.bak "s|src=\"\([^\"]*\.js\)\"|src=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${DIST_DIR}/x1pen.html" "${DIST_DIR}/xmillennium.html"
-rm -f "${DIST_DIR}/x1pen.html.bak" "${DIST_DIR}/xmillennium.html.bak"
+# minifier でクォートが外れるケース (src=foo.js) と付いたまま (src="foo.js") の両方に対応
+for _html in "${DIST_DIR}/x1pen.html" "${DIST_DIR}/xmillennium.html"; do
+    # クォート付き: src="foo.js" → src="foo.js?v=HASH"
+    sed -i.bak "s|src=\"\([^\"?]*\.js\)\"|src=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${_html}"
+    # クォートなし: src=foo.js → src="foo.js?v=HASH"
+    sed -i.bak "s|src=\([A-Za-z_][A-Za-z0-9_./-]*\.js\)|src=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${_html}"
+    rm -f "${_html}.bak"
+done
 
 # config.js: html/config.js があればそれを使用、なければ空の example を使用
 if [ -f "${SCRIPT_DIR}/html/config.js" ]; then
