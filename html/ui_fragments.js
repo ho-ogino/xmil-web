@@ -104,8 +104,10 @@
     '</div>' +
 
     // ── 隠しファイル入力 (ライブラリ追加用) ──
-    '<input type="file" id="file-add-to-library" multiple style="display:none"' +
-    '       accept=".d88,.2d,.d77,.xdf,.hdm,.dup,.hdi,.thd,.nhd,.hdd,.hdn,.t98,.bin,.cmt,.cas,.mem">';
+    // iOS/iPadOS では独自拡張子 (.d88 等) を accept に指定するとファイルが
+    // グレーアウトして選択できない。ファイル形式は addToLibrary() 側で
+    // detectFileType() により検証しているため、accept は省略する。
+    '<input type="file" id="file-add-to-library" multiple style="display:none">';
 
     document.body.appendChild(container);
 })();
