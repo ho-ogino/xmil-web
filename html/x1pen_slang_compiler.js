@@ -1,6 +1,6 @@
 // x1pen_slang_compiler.js — SLANG Compiler for X1Pen
 // Ported from C# (SLANGCompiler.Core) to JavaScript
-// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ 1babc96
+// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ 3394e75
 // Lazy-loaded: window.X1PenSlangCompiler = { compile: ... }
 
 (function() {
@@ -3664,9 +3664,16 @@
                     return dest;
                 }
             }
+            // FLOAT即値の単項マイナスは符号反転して定数化
+            if (node.op === UnaryOp.Negate && node.operand.type === 'FloatLiteral') {
+                return emitLoadFloatConstValue(-node.operand.value);
+            }
 
             var operand = visitNode(node.operand);
             if (node.op === UnaryOp.Plus) return operand;
+
+            var operandDs = (operand.kind === IrOperandKind.Temp && _tempDataSize[operand.tempIndex] !== undefined)
+                ? _tempDataSize[operand.tempIndex] : 2;
 
             var dest2 = IrOperand.Temp(allocTemp());
             var op;
@@ -3674,7 +3681,10 @@
             else if (node.op === UnaryOp.Not) op = IrOp.LogNot;
             else if (node.op === UnaryOp.Cpl) op = IrOp.Not;
             else op = IrOp.Nop;
-            emit(op, dest2, operand);
+            // FLOAT の単項マイナスは f24 符号ビットを反転 (DataSize=3 で識別)
+            var destDs = (op === IrOp.Neg && operandDs === 3) ? 3 : 2;
+            emit(op, dest2, operand, undefined, destDs);
+            if (destDs === 3) _tempDataSize[dest2.tempIndex] = 3;
             return dest2;
         }
 
@@ -4235,6 +4245,12 @@
             visited[k] = true;
             var func = _functions[k];
             if (func) {
+                // エイリアス経由で呼ばれた場合に正規名(@name)も visited に記録して二重追加を防ぐ
+                var canonicalKey = lc(func.name);
+                if (canonicalKey !== k) {
+                    if (visited[canonicalKey]) return;
+                    visited[canonicalKey] = true;
+                }
                 for (var i = 0; i < func.dependencies.length; i++)
                     collectDependencies(func.dependencies[i], visited, result);
                 result.push(func);
@@ -5076,6 +5092,11 @@
         function emitDiv(inst, signed) { emitPopToDE(inst.dataSize); if (inst.dataSize === 3) callRuntime('f24div'); else callRuntime(signed ? 'SDIVHLDE' : 'DIVHLDE'); }
         function emitMod(inst, signed) { _e.instruction('POP', 'DE'); _e.instruction('EX', 'DE,HL'); callRuntime(signed ? 'SMODHLDE' : 'MODHLDE'); }
         function emitNeg(inst) {
+            if (inst.dataSize === 3) {
+                // FLOAT (f24): 符号ビット (A レジスタの bit7) を反転
+                _e.instruction('XOR', '$80');
+                return;
+            }
             _e.instruction('LD', 'A,H'); _e.instruction('CPL'); _e.instruction('LD', 'H,A');
             _e.instruction('LD', 'A,L'); _e.instruction('CPL'); _e.instruction('LD', 'L,A');
             _e.instruction('INC', 'HL');
