@@ -1,6 +1,6 @@
 // x1pen_slang_compiler.js — SLANG Compiler for X1Pen
 // Ported from C# (SLANGCompiler.Core) to JavaScript
-// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ 3394e75
+// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ 6147192
 // Lazy-loaded: window.X1PenSlangCompiler = { compile: ... }
 
 (function() {
@@ -323,8 +323,8 @@
         MachineDecl: function(name, address, paramCount, span, codeBody, staticDecls) {
             return ast('MachineDecl', span, { name: name, address: address, paramCount: paramCount, codeBody: codeBody || null, staticDeclarations: staticDecls || [] });
         },
-        FuncDef: function(name, address, params, staticDecls, localDecls, body, retVal, span) {
-            return ast('FuncDef', span, { name: name, address: address, parameters: params, staticDeclarations: staticDecls, localDeclarations: localDecls, body: body, returnValue: retVal });
+        FuncDef: function(name, address, params, staticDecls, localDecls, body, retVal, span, returnSize) {
+            return ast('FuncDef', span, { name: name, address: address, returnSize: returnSize || DataSize.Word, parameters: params, staticDeclarations: staticDecls, localDeclarations: localDecls, body: body, returnValue: retVal });
         },
         ParamDecl: function(name, size, isArray, span) {
             return ast('ParamDecl', span, { name: name, size: size, isArray: isArray });
@@ -1154,11 +1154,24 @@
             var start = current().span;
             var name = advance().stringValue;
             var address = null;
-            if (match(TK.Colon)) address = parseNcExpr();
+            var returnSize = DataSize.Word;
+
+            if (match(TK.Colon)) {
+                // 直後が型キーワード(BYTE/WORD/FLOAT/!)なら戻り値型、それ以外はMACHINEアドレス式
+                if (check(TK.Byte) || check(TK.Word) || check(TK.Float) || check(TK.Exclamation)) {
+                    returnSize = parseOptionalDataSize();
+                } else {
+                    address = parseNcExpr();
+                }
+            }
             expect(TK.LParen, "Expected '('");
 
             // MACHINE CODE def: FUNC(paramCount) ...
             if (check(TK.IntegerLiteral)) {
+                // MACHINE関数の戻り値型は未サポート
+                if (returnSize !== DataSize.Word) {
+                    error('Return type specifier is not supported on MACHINE functions (WORD only)');
+                }
                 var pc = advance().intValue;
                 expect(TK.RParen, "Expected ')'");
                 var msd = [];
@@ -1194,6 +1207,9 @@
 
             // MACHINE CODE def (0 params): FUNC()[CODE(...);]
             if (isBlockOpen() && peekAt(1).kind === TK.Code) {
+                if (returnSize !== DataSize.Word) {
+                    error('Return type specifier is not supported on MACHINE functions (WORD only)');
+                }
                 advance();
                 var expr = parseNcExpr();
                 match(TK.Semicolon);
@@ -1227,7 +1243,7 @@
             expectBlockClose('Expected END');
             if (match(TK.LParen)) { retVal = parseExpr(); expect(TK.RParen, "Expected ')'"); }
             match(TK.Semicolon);
-            return AST.FuncDef(name, address, params, staticDecls, localDecls, body, retVal, start);
+            return AST.FuncDef(name, address, params, staticDecls, localDecls, body, retVal, start, returnSize);
         }
 
         function parseLocalDecl() {
@@ -2036,7 +2052,8 @@
 
             if (t === 'FuncDef') {
                 var paramTypes = node.parameters.map(function(p) { return dataSizeToType(p.size); });
-                var funcSym = _symbols.define(node.name, SymbolKind.Function, FunctionType(SlangType.Word, paramTypes));
+                var returnType = dataSizeToType(node.returnSize);
+                var funcSym = _symbols.define(node.name, SymbolKind.Function, FunctionType(returnType, paramTypes));
                 funcSym.isGlobal = true; funcSym.asmLabel = sanitizeLabel(node.name);
                 _symbols.pushScope(node.name);
                 var prevFunc = _currentFunc;
@@ -2131,7 +2148,7 @@
     };
 
     function IrInstruction(op, dest, src1, src2, dataSize) {
-        return { op: op, dest: dest || IrOperand.None, src1: src1 || IrOperand.None, src2: src2 || IrOperand.None, dataSize: dataSize || 2 };
+        return { op: op, dest: dest || IrOperand.None, src1: src1 || IrOperand.None, src2: src2 || IrOperand.None, dataSize: dataSize || 2, argSizes: null };
     }
 
     function IrFunction(name) {
@@ -2250,6 +2267,7 @@
         var _labelCount = 0;
         var _inStaticDecl = false;
         var _currentFuncName = null;
+        var _currentReturnDataSize = 2;
         var _emitToGlobalData = false;
         var _localVars = null;
         var _staticVarLabels = null;
@@ -2347,7 +2365,7 @@
                 if (_localVars[key] !== undefined) {
                     var li = _localVars[key];
                     var varDs = li.byteSize;
-                    var elemSz = li.kind === VarKind.Scalar ? varDs : (li.isByte ? 1 : 2);
+                    var elemSz = li.kind === VarKind.Scalar ? varDs : (li.elemSize || (li.isByte ? 1 : 2));
                     return { kind: li.kind, elemSize: elemSz, varDataSize: varDs, local: li, globalSym: null, isResolved: true };
                 }
             }
@@ -2364,15 +2382,20 @@
             // 3. Global symbol
             var sym = globalSymbols ? globalSymbols.resolve(name) : null;
             if (sym) {
-                var isByte = false;
-                if (sym.type && sym.type.typeClass === 'Array') isByte = sym.type.elementType === SlangType.Byte;
-                else if (sym.type && sym.type.typeClass === 'Pointer') isByte = sym.type.elementType === SlangType.Byte;
                 var kind2;
                 if (sym.type && sym.type.typeClass === 'Pointer' && !sym.isArrayDecl) kind2 = VarKind.Pointer;
                 else if ((sym.type && sym.type.typeClass === 'Array') || sym.isArrayDecl) kind2 = VarKind.Array;
                 else kind2 = VarKind.Scalar;
                 var varDs3 = (sym.type && sym.type.byteSize) ? sym.type.byteSize : 2;
-                var elemSz3 = kind2 === VarKind.Scalar ? varDs3 : (isByte ? 1 : 2);
+                var elemSz3;
+                if (kind2 === VarKind.Scalar)
+                    elemSz3 = varDs3;
+                else if (sym.type && sym.type.typeClass === 'Array' && sym.type.elementType)
+                    elemSz3 = sym.type.elementType.byteSize || 2;
+                else if (sym.type && sym.type.typeClass === 'Pointer')
+                    elemSz3 = (sym.type.elementType && sym.type.elementType.byteSize) ? sym.type.elementType.byteSize : 2;
+                else
+                    elemSz3 = 2;
                 return { kind: kind2, elemSize: elemSz3, varDataSize: varDs3, local: null, globalSym: sym, isResolved: true };
             }
             // 4. Unresolved
@@ -2509,20 +2532,22 @@
                     emit(IrOp.IndirStore, addrI, value, undefined, elemSz);
                 } else {
                     // Normal array store (multidimensional)
+                    // 要素サイズに応じた型変換
+                    value = emitTypeConversion(value, stVi.elemSize);
                     var storeIsByte = stVi.kind === VarKind.Array && stVi.elemSize === 1;
                     var strides;
                     var stArrLi = stVi.local;
                     var isLocalStoreArray = stArrLi && stArrLi.kind === VarKind.Array && stArrLi.dims;
                     if (isLocalStoreArray) {
-                        strides = computeStridesFromDims(stArrLi.dims, stArrLi.isByte ? 1 : 2, target.indices.length);
-                        storeIsByte = stArrLi.isByte;
+                        strides = computeStridesFromDims(stArrLi.dims, stArrLi.elemSize || (stArrLi.isByte ? 1 : 2), target.indices.length);
+                        storeIsByte = (stArrLi.elemSize || (stArrLi.isByte ? 1 : 2)) === 1;
                     } else {
                         strides = computeStrides(arraySym, target.indices.length, arrayName);
                     }
 
                     var localStoreHandled = false;
                     if (isLocalStoreArray) {
-                        var elemSz2 = stArrLi.isByte ? 1 : 2;
+                        var elemSz2 = stArrLi.elemSize || (stArrLi.isByte ? 1 : 2);
                         var directOff = tryComputeLocalArrayOffset(stArrLi, target.indices, strides, elemSz2);
                         if (directOff !== null) {
                             emit(IrOp.StoreLocal, IrOperand.Imm(directOff), value, undefined, elemSz2);
@@ -2531,7 +2556,7 @@
                     }
 
                     if (!localStoreHandled && !isLocalStoreArray && arrayName && stVi.kind === VarKind.Array) {
-                        var gElemSize = storeIsByte ? 1 : 2;
+                        var gElemSize = stVi.elemSize;
                         var globalOff = tryComputeConstArrayOffset(target.indices, strides);
                         if (globalOff !== null) {
                             var label = resolveAsmLabel(arrayName);
@@ -2576,7 +2601,7 @@
                             emit(IrOp.Add, newAddrS, addrS, scaledS);
                             addrS = newAddrS;
                         }
-                        emit(IrOp.IndirStore, addrS, value, undefined, storeIsByte ? 1 : 2);
+                        emit(IrOp.IndirStore, addrS, value, undefined, stVi.elemSize);
                     }
                 }
             } else {
@@ -2634,13 +2659,13 @@
             var strides;
             var isLocalArray = arrInfo && arrInfo.kind === VarKind.Array && arrInfo.dims;
             if (isLocalArray) {
-                strides = computeStridesFromDims(arrInfo.dims, arrInfo.isByte ? 1 : 2, node.indices.length);
-                isArrayByte = arrInfo.isByte;
+                strides = computeStridesFromDims(arrInfo.dims, arrInfo.elemSize || (arrInfo.isByte ? 1 : 2), node.indices.length);
+                isArrayByte = (arrInfo.elemSize || (arrInfo.isByte ? 1 : 2)) === 1;
             } else {
                 strides = computeStrides(arraySym, node.indices.length, arrayName);
             }
 
-            var elemSize = isArrayByte ? 1 : 2;
+            var elemSize = vi.elemSize;
 
             // 部分配列参照: 指定インデックス数 < 配列の次元数 → アドレスを返す
             var arrayRank = 0;
@@ -2659,6 +2684,7 @@
                     var result = IrOperand.Temp(allocTemp());
                     if (loadValue) {
                         emit(IrOp.LoadLocal, result, IrOperand.Imm(directOffset), undefined, elemSize);
+                        if (elemSize === 3) _tempDataSize[result.tempIndex] = 3;
                     } else {
                         var hexOff2 = directOffset.toString(16).toUpperCase();
                         while (hexOff2.length < 4) hexOff2 = '0' + hexOff2;
@@ -2675,9 +2701,10 @@
                     var result2 = IrOperand.Temp(allocTemp());
                     var label = resolveAsmLabel(arrayName);
                     var sym2 = globalOffset === 0 ? label : label + '+' + globalOffset;
-                    if (loadValue)
+                    if (loadValue) {
                         emit(IrOp.LoadVar, result2, IrOperand.Sym(sym2), undefined, elemSize);
-                    else
+                        if (elemSize === 3) _tempDataSize[result2.tempIndex] = 3;
+                    } else
                         emit(IrOp.LoadAddr, result2, IrOperand.Sym(sym2));
                     return result2;
                 }
@@ -2722,6 +2749,7 @@
             if (loadValue) {
                 var result3 = IrOperand.Temp(allocTemp());
                 emit(IrOp.IndirLoad, result3, addr, undefined, elemSize);
+                if (elemSize === 3) _tempDataSize[result3.tempIndex] = 3;
                 return result3;
             }
             return addr;
@@ -2842,7 +2870,7 @@
         }
 
         function visitArrayDecl(node) {
-            var elemSize = node.size === DataSize.Byte ? 1 : 2;
+            var elemSize = node.size === DataSize.Byte ? 1 : (node.size === DataSize.Float ? 3 : 2);
             var isByte = node.size === DataSize.Byte;
 
             var dims = [];
@@ -2880,6 +2908,26 @@
                 var initItems = null;
                 if (node.initialCode) {
                     initItems = [];
+                  if (node.size === DataSize.Float) {
+                    // FLOAT 配列専用パス: 全要素 3 バイト f24 で展開
+                    var constEvalF = globalSymbols ? ConstEvaluator(globalSymbols) : null;
+                    for (var ii = 0; ii < node.initialCode.length; ii++) {
+                        var fexpr = node.initialCode[ii];
+                        if (fexpr.type === 'CastExpr') {
+                            if (diagnostics) diagnostics.error('Cast expression not allowed in FLOAT array initializer', fexpr.span);
+                            continue;
+                        }
+                        var fval = constEvalF ? constEvalF.evaluateFloat(fexpr) : null;
+                        if (fval === null) {
+                            if (diagnostics) diagnostics.error('FLOAT array initializer must be a constant expression', fexpr.span);
+                            continue;
+                        }
+                        var fb = convertToF24(fval);
+                        initItems.push(InitItem(fb[0]));
+                        initItems.push(InitItem(fb[1]));
+                        initItems.push(InitItem(fb[2]));
+                    }
+                  } else {
                     for (var ii = 0; ii < node.initialCode.length; ii++) {
                         var initExpr = node.initialCode[ii];
                         var itemSize = 1;
@@ -2918,6 +2966,7 @@
                             }
                         }
                     }
+                  } // end non-FLOAT init path
                     // Pad to totalSize
                     var currentSize = 0;
                     for (var pi = 0; pi < initItems.length; pi++) currentSize += initItems[pi].byteSize;
@@ -2932,7 +2981,7 @@
                     _staticVarLabels[node.name.toUpperCase()] = label;
                     var isPointerType = dims.every(function(d) { return d === 0; });
                     _staticVarSizes[node.name.toUpperCase()] = 2;
-                    _staticElemSizes[node.name.toUpperCase()] = isByte ? 1 : 2;
+                    _staticElemSizes[node.name.toUpperCase()] = elemSize;
                     _staticVarKinds[node.name.toUpperCase()] = isPointerType ? VarKind.Pointer : VarKind.Array;
                 }
 
@@ -2953,7 +3002,7 @@
                 _localOffset += allocSize;
                 var offset = 0x70 - _localOffset;
                 var kind = isPointerVar ? VarKind.Pointer : VarKind.Array;
-                _localVars[node.name.toUpperCase()] = { offset: offset, byteSize: allocSize, kind: kind, isByte: isByte, dims: dims };
+                _localVars[node.name.toUpperCase()] = { offset: offset, byteSize: allocSize, kind: kind, isByte: isByte, dims: dims, elemSize: elemSize };
             }
             return IrOperand.None;
         }
@@ -3025,6 +3074,10 @@
             _currentFunction = IrFunction(sanitizeLabel(node.name));
             _tempDataSize = {};
 
+            // 関数の戻り値型を保存
+            var prevReturnDs = _currentReturnDataSize;
+            _currentReturnDataSize = node.returnSize === DataSize.Float ? 3 : 2;
+
             var prevLocalVars = _localVars;
             var prevOffset = _localOffset;
             var prevSL = _staticVarLabels;
@@ -3038,10 +3091,14 @@
             _staticVarKinds = {};
             _localOffset = 0;
 
+            // 仮引数を仮登録（オフセットは後で確定）
             var paramNames = [];
+            var paramSizes = [];
             for (var pi = 0; pi < node.parameters.length; pi++) {
-                _localVars[node.parameters[pi].name.toUpperCase()] = { offset: 0, byteSize: 2, kind: VarKind.Scalar, isByte: false, dims: null };
+                var psz = node.parameters[pi].size === DataSize.Float ? 3 : 2;
+                _localVars[node.parameters[pi].name.toUpperCase()] = { offset: 0, byteSize: psz, kind: VarKind.Scalar, isByte: false, dims: null, elemSize: 2 };
                 paramNames.push(node.parameters[pi].name);
+                paramSizes.push(psz);
             }
 
             emit(IrOp.FuncBegin, IrOperand.Sym(sanitizeLabel(node.name)));
@@ -3053,11 +3110,13 @@
             for (var li = 0; li < node.localDeclarations.length; li++) visitNode(node.localDeclarations[li]);
 
             // Fix param offsets after locals allocated
-            var totalFrameSize = _localOffset + paramNames.length * 2;
+            var paramTotalBytes = 0;
+            for (var pi2 = 0; pi2 < paramSizes.length; pi2++) paramTotalBytes += paramSizes[pi2];
+            var totalFrameSize = _localOffset + paramTotalBytes;
             var argOff = 0x70 - totalFrameSize;
             for (var ai = 0; ai < paramNames.length; ai++) {
-                _localVars[paramNames[ai].toUpperCase()] = { offset: argOff, byteSize: 2, kind: VarKind.Scalar, isByte: false, dims: null };
-                argOff += 2;
+                _localVars[paramNames[ai].toUpperCase()] = { offset: argOff, byteSize: paramSizes[ai], kind: VarKind.Scalar, isByte: false, dims: null, elemSize: 2 };
+                argOff += paramSizes[ai];
             }
             _localOffset = totalFrameSize;
 
@@ -3065,7 +3124,8 @@
 
             if (node.returnValue) {
                 var retVal = visitNode(node.returnValue);
-                emit(IrOp.Return, retVal);
+                retVal = convertReturnValue(retVal, node.returnValue.span);
+                emit(IrOp.Return, retVal, undefined, _currentReturnDataSize);
             }
 
             emit(IrOp.FuncEnd);
@@ -3078,6 +3138,7 @@
             _staticElemSizes = prevSE;
             _staticVarKinds = prevSK;
             _localOffset = prevOffset;
+            _currentReturnDataSize = prevReturnDs;
             return IrOperand.None;
         }
 
@@ -3309,11 +3370,35 @@
         function visitReturnStmt(node) {
             if (node.value) {
                 var val = visitNode(node.value);
-                emit(IrOp.Return, val);
+                val = convertReturnValue(val, node.value.span);
+                emit(IrOp.Return, val, undefined, _currentReturnDataSize);
             } else {
                 emit(IrOp.Return);
             }
             return IrOperand.None;
+        }
+
+        // 拡大方向のみ自動変換 (WORD→FLOAT)。縮小はそのまま返す。
+        function emitTypeConversionExpand(value, targetDs) {
+            var valueDs = (value.kind === IrOperandKind.Temp && _tempDataSize[value.tempIndex] !== undefined) ? _tempDataSize[value.tempIndex] : 2;
+            if (targetDs === 3 && valueDs !== 3) {
+                var conv = IrOperand.Temp(allocTemp());
+                emit(IrOp.Call, conv, IrOperand.Sym('i16tof24'), IrOperand.Imm(0), 3);
+                _tempDataSize[conv.tempIndex] = 3;
+                return conv;
+            }
+            return value;
+        }
+
+        // 戻り値の型変換。FLOAT→non-FLOAT はエラー。
+        function convertReturnValue(val, errSpan) {
+            var returnDs = _currentReturnDataSize;
+            var valueDs = (val.kind === IrOperandKind.Temp && _tempDataSize[val.tempIndex] !== undefined) ? _tempDataSize[val.tempIndex] : 2;
+            if (valueDs === 3 && returnDs !== 3) {
+                if (diagnostics) diagnostics.error('Cannot return FLOAT from non-FLOAT function (use FTOI for explicit conversion)', errSpan);
+                return val;
+            }
+            return emitTypeConversionExpand(val, returnDs);
         }
 
         function visitGotoStmt(node) {
@@ -3598,8 +3683,10 @@
             var leftDs = (left.kind === IrOperandKind.Temp && _tempDataSize[left.tempIndex] !== undefined) ? _tempDataSize[left.tempIndex] : 2;
 
             var rightMightBeFloat = node.right.type === 'FloatLiteral' ||
-                (node.right.type === 'IdentifierExpr' && globalSymbols &&
-                 (function() { var s = globalSymbols.resolve(node.right.name); return s && s.type && s.type.byteSize === 3; })());
+                (node.right.type === 'IdentifierExpr' && (
+                    (globalSymbols && (function() { var s = globalSymbols.resolve(node.right.name); return s && s.type && s.type.byteSize === 3; })()) ||
+                    (_localVars && _localVars[node.right.name.toUpperCase()] && _localVars[node.right.name.toUpperCase()].byteSize === 3)
+                ));
 
             if (leftDs !== 3 && rightMightBeFloat) {
                 var conv = IrOperand.Temp(allocTemp());
@@ -3767,14 +3854,39 @@
                 if (callResultDs === 3) _tempDataSize[dest.tempIndex] = 3;
                 return dest;
             } else {
+                // ユーザー関数: FLOAT 引数/戻り値対応
+                var funcType = funcSym && funcSym.type && funcSym.type.typeClass === 'Function' ? funcSym.type : null;
+                var paramTypes = funcType ? funcType.parameterTypes : null;
+                var returnType = funcType ? funcType.returnType : null;
+                var returnDs = (returnType && returnType.byteSize === 3) ? 3 : 2;
+
+                var argSizes = [];
                 for (var i2 = 0; i2 < node.arguments.length; i2++) {
+                    var targetDs = 2;
+                    if (paramTypes && i2 < paramTypes.length && paramTypes[i2] && paramTypes[i2].byteSize === 3)
+                        targetDs = 3;
+
                     var argVal2 = visitNode(node.arguments[i2]);
-                    emit(IrOp.PushArg, argVal2, IrOperand.Imm(i2));
+                    var argValDs = (argVal2.kind === IrOperandKind.Temp && _tempDataSize[argVal2.tempIndex] !== undefined) ? _tempDataSize[argVal2.tempIndex] : 2;
+
+                    // FLOAT → non-FLOAT はエラー
+                    if (argValDs === 3 && targetDs !== 3) {
+                        if (diagnostics) diagnostics.error('Cannot pass FLOAT value to non-FLOAT parameter (use FTOI for explicit conversion)', node.arguments[i2].span);
+                    }
+                    argVal2 = emitTypeConversionExpand(argVal2, targetDs);
+                    emit(IrOp.PushArg, argVal2, IrOperand.Imm(i2), undefined, targetDs);
+                    argSizes.push(targetDs);
                 }
+
                 var dest2 = IrOperand.Temp(allocTemp());
                 var asmName2 = (funcSym && funcSym.asmLabel) ? funcSym.asmLabel : sanitizeLabel(funcName || '__indirect_call');
-                emit(IrOp.Call, dest2, IrOperand.Sym(asmName2),
+                // IrInstruction を直接組み立てて argSizes を付与
+                var callInst = IrInstruction(IrOp.Call, dest2, IrOperand.Sym(asmName2),
                     IrOperand.Imm(node.arguments.length > 0 ? -node.arguments.length : 0));
+                callInst.dataSize = returnDs;
+                callInst.argSizes = node.arguments.length > 0 ? argSizes : null;
+                _currentFunction.instructions.push(callInst);
+                if (returnDs === 3) _tempDataSize[dest2.tempIndex] = 3;
                 return dest2;
             }
         }
@@ -4927,7 +5039,7 @@
                 case IrOp.Call: emitCall(inst); break;
                 case IrOp.Return:
                     if (inst.dest.kind !== IrOperandKind.None)
-                        _e.comment('return value in HL');
+                        _e.comment(inst.dataSize === 3 ? 'return value in AHL' : 'return value in HL');
                     _e.instruction('JP', _currentFuncExitLabel); break;
                 case IrOp.PushArg: emitPushValue(inst.dataSize); break;
                 case IrOp.InlineAsm:
@@ -5189,12 +5301,21 @@
         }
         function emitIndirLoad(inst) {
             if (inst.dataSize === 1) { _e.instruction('LD', 'L,(HL)'); _e.instruction('LD', 'H,$00'); }
+            else if (inst.dataSize === 3) {
+                _e.instruction('LD', 'E,(HL)'); _e.instruction('INC', 'HL');
+                _e.instruction('LD', 'D,(HL)'); _e.instruction('INC', 'HL');
+                _e.instruction('LD', 'A,(HL)'); _e.instruction('EX', 'DE,HL');
+            }
             else { _e.instruction('LD', 'E,(HL)'); _e.instruction('INC', 'HL'); _e.instruction('LD', 'D,(HL)'); _e.instruction('EX', 'DE,HL'); }
         }
         function emitIndirStore(inst) {
             _e.instruction('POP', 'DE');
+            if (inst.dataSize === 3) _e.instruction('POP', 'AF');
             if (inst.dataSize === 1) _e.instruction('LD', '(HL),E');
-            else { _e.instruction('LD', '(HL),E'); _e.instruction('INC', 'HL'); _e.instruction('LD', '(HL),D'); }
+            else {
+                _e.instruction('LD', '(HL),E'); _e.instruction('INC', 'HL'); _e.instruction('LD', '(HL),D');
+                if (inst.dataSize === 3) { _e.instruction('INC', 'HL'); _e.instruction('LD', '(HL),A'); }
+            }
         }
         function emitPortIn(inst) {
             _e.instruction('LD', 'B,H'); _e.instruction('LD', 'C,L');
@@ -5219,12 +5340,30 @@
 
             if (callArgMode < 0) {
                 var userArgCount = -callArgMode;
-                var argOffset = 0x70 + (userArgCount - 1) * 2;
+                var sizes = inst.argSizes || [];
+                // 各引数の格納オフセットを計算
+                var offsets = [];
+                var acc = 0x70;
+                for (var oi = 0; oi < userArgCount; oi++) {
+                    offsets.push(acc);
+                    acc += (oi < sizes.length ? sizes[oi] : 2);
+                }
+                // スタック先頭 = 最後の引数なので後ろから POP
                 for (var i = userArgCount - 1; i >= 0; i--) {
-                    _e.instruction('POP', 'HL');
-                    _e.instruction('LD', '(IY+$' + hex2(argOffset) + '),L');
-                    _e.instruction('LD', '(IY+$' + hex2(argOffset + 1) + '),H');
-                    argOffset -= 2;
+                    var sz = i < sizes.length ? sizes[i] : 2;
+                    var off = offsets[i];
+                    if (sz === 3) {
+                        // FLOAT: PushArg は PUSH AF; PUSH HL の順 → POP HL; POP AF の順
+                        _e.instruction('POP', 'HL');
+                        _e.instruction('LD', '(IY+$' + hex2(off) + '),L');
+                        _e.instruction('LD', '(IY+$' + hex2(off + 1) + '),H');
+                        _e.instruction('POP', 'AF');
+                        _e.instruction('LD', '(IY+$' + hex2(off + 2) + '),A');
+                    } else {
+                        _e.instruction('POP', 'HL');
+                        _e.instruction('LD', '(IY+$' + hex2(off) + '),L');
+                        _e.instruction('LD', '(IY+$' + hex2(off + 1) + '),H');
+                    }
                 }
             } else if (callArgMode > 0 && callArgMode <= 3) {
                 if (callArgMode >= 3) _e.instruction('POP', 'BC');
