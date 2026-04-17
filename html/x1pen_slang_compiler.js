@@ -1207,6 +1207,9 @@
 
             // MACHINE CODE def (0 params): FUNC()[CODE(...);]
             if (isBlockOpen() && peekAt(1).kind === TK.Code) {
+                if (returnSize !== DataSize.Word) {
+                    error('Return type specifier is not supported on MACHINE functions (WORD only)');
+                }
                 advance();
                 var expr = parseNcExpr();
                 match(TK.Semicolon);
@@ -2390,7 +2393,7 @@
                 else if (sym.type && sym.type.typeClass === 'Array' && sym.type.elementType)
                     elemSz3 = sym.type.elementType.byteSize || 2;
                 else if (sym.type && sym.type.typeClass === 'Pointer')
-                    elemSz3 = (sym.type.elementType === SlangType.Byte ? 1 : 2);
+                    elemSz3 = (sym.type.elementType && sym.type.elementType.byteSize) ? sym.type.elementType.byteSize : 2;
                 else
                     elemSz3 = 2;
                 return { kind: kind2, elemSize: elemSz3, varDataSize: varDs3, local: null, globalSym: sym, isResolved: true };
