@@ -168,6 +168,9 @@ static EM_BOOL keyboard_callback(int eventType, const EmscriptenKeyboardEvent* e
     }
 
     if (eventType == EMSCRIPTEN_EVENT_KEYDOWN) {
+        // OS のキーオートリピートは捨てる。X1 サブ CPU 内蔵のリピート機能に
+        // 一本化することで、両者の二重リピートで keyque が飽和する問題を回避する。
+        if (e->repeat) return TRUE;
         winkeydown106((WPARAM)vk, 0);
     } else if (eventType == EMSCRIPTEN_EVENT_KEYUP) {
         winkeyup106((WPARAM)vk, 0);
