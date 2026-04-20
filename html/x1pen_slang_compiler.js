@@ -1,6 +1,6 @@
 // x1pen_slang_compiler.js — SLANG Compiler for X1Pen
 // Ported from C# (SLANGCompiler.Core) to JavaScript
-// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ 6147192
+// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ c9e8f53
 // Lazy-loaded: window.X1PenSlangCompiler = { compile: ... }
 
 (function() {
@@ -809,6 +809,350 @@
     }
 
     // ================================================================
+    // Preprocessor expression evaluator (shared by runPreprocessor and Parser)
+    //
+    // #IF 式を評価する。defs は { NAME: intValue } 形式 (キーは大文字化済み)。
+    // 未定義の identifier は 0 として扱う (旧 SLANG 互換)。
+    // 評価失敗時は null を返す (呼び出し側は false としてフォールバック)。
+    // ================================================================
+    function evalPreprocExpr(expr, defs) {
+        defs = defs || {};
+        // Substitute defined constants and keywords
+        var s = expr.replace(/[A-Za-z_][A-Za-z0-9_]*/g, function(name) {
+            var up = name.toUpperCase();
+            if (up === 'TRUE') return '1';
+            if (up === 'FALSE') return '0';
+            if (up === 'AND') return '&';
+            if (up === 'OR') return '|';
+            if (up === 'NOT') return '!';
+            if (up in defs) return String(defs[up]);
+            return '0';
+        });
+        s = s.trim();
+        try {
+            var tokens = [];
+            var i = 0;
+            while (i < s.length) {
+                if (s[i] === ' ' || s[i] === '\t') { i++; continue; }
+                if (s[i] === '(') { tokens.push({ t: '(' }); i++; continue; }
+                if (s[i] === ')') { tokens.push({ t: ')' }); i++; continue; }
+                if (s[i] === '<' && s[i+1] === '=') { tokens.push({ t: '<=' }); i+=2; continue; }
+                if (s[i] === '>' && s[i+1] === '=') { tokens.push({ t: '>=' }); i+=2; continue; }
+                if (s[i] === '=' && s[i+1] === '=') { tokens.push({ t: '==' }); i+=2; continue; }
+                if (s[i] === '!' && s[i+1] === '=') { tokens.push({ t: '!=' }); i+=2; continue; }
+                if (s[i] === '<') { tokens.push({ t: '<' }); i++; continue; }
+                if (s[i] === '>') { tokens.push({ t: '>' }); i++; continue; }
+                if (s[i] === '=') { tokens.push({ t: '==' }); i++; continue; }
+                if (s[i] === '+') { tokens.push({ t: '+' }); i++; continue; }
+                if (s[i] === '-') { tokens.push({ t: '-' }); i++; continue; }
+                if (s[i] === '*') { tokens.push({ t: '*' }); i++; continue; }
+                if (s[i] === '/') { tokens.push({ t: '/' }); i++; continue; }
+                if (s[i] === '&') { tokens.push({ t: '&' }); i++; continue; }
+                if (s[i] === '|') { tokens.push({ t: '|' }); i++; continue; }
+                if (s[i] === '!') { tokens.push({ t: '!' }); i++; continue; }
+                if (s[i] === '$') {
+                    i++;
+                    var hs = '';
+                    while (i < s.length && /[0-9A-Fa-f]/.test(s[i])) hs += s[i++];
+                    tokens.push({ t: 'num', v: parseInt(hs, 16) || 0 });
+                    continue;
+                }
+                if (/[0-9]/.test(s[i])) {
+                    var ns = '';
+                    while (i < s.length && /[0-9]/.test(s[i])) ns += s[i++];
+                    tokens.push({ t: 'num', v: parseInt(ns, 10) });
+                    continue;
+                }
+                if (/[A-Za-z_]/.test(s[i])) {
+                    while (i < s.length && /[A-Za-z0-9_]/.test(s[i])) i++;
+                    tokens.push({ t: 'num', v: 0 });
+                    continue;
+                }
+                return null;
+            }
+            var tp = 0;
+            function peek2() { return tp < tokens.length ? tokens[tp] : null; }
+            function next() { return tokens[tp++]; }
+            function parseOr() {
+                var v = parseAnd();
+                while (peek2() && peek2().t === '|') { next(); v = (v | parseAnd()); }
+                return v;
+            }
+            function parseAnd() {
+                var v = parseComp();
+                while (peek2() && peek2().t === '&') { next(); v = (v & parseComp()); }
+                return v;
+            }
+            function parseComp() {
+                var v = parseAdd();
+                while (peek2() && (peek2().t === '<=' || peek2().t === '>=' || peek2().t === '<' || peek2().t === '>' || peek2().t === '==' || peek2().t === '!=')) {
+                    var op = next().t;
+                    var r = parseAdd();
+                    if (op === '<=') v = (v <= r) ? 1 : 0;
+                    else if (op === '>=') v = (v >= r) ? 1 : 0;
+                    else if (op === '<') v = (v < r) ? 1 : 0;
+                    else if (op === '>') v = (v > r) ? 1 : 0;
+                    else if (op === '==') v = (v === r) ? 1 : 0;
+                    else if (op === '!=') v = (v !== r) ? 1 : 0;
+                }
+                return v;
+            }
+            function parseAdd() {
+                var v = parseMul();
+                while (peek2() && (peek2().t === '+' || peek2().t === '-')) {
+                    var op = next().t;
+                    v = op === '+' ? v + parseMul() : v - parseMul();
+                }
+                return v;
+            }
+            function parseMul() {
+                var v = parseUnary();
+                while (peek2() && (peek2().t === '*' || peek2().t === '/')) {
+                    var op = next().t;
+                    var r = parseUnary();
+                    v = op === '*' ? v * r : (r !== 0 ? Math.floor(v / r) : 0);
+                }
+                return v;
+            }
+            function parseUnary() {
+                if (peek2() && peek2().t === '!') { next(); return parseUnary() ? 0 : 1; }
+                if (peek2() && peek2().t === '-') { next(); return -parseUnary(); }
+                return parsePrimary();
+            }
+            function parsePrimary() {
+                var tok = peek2();
+                if (!tok) return 0;
+                if (tok.t === 'num') { next(); return tok.v; }
+                if (tok.t === '(') { next(); var v = parseOr(); if (peek2() && peek2().t === ')') next(); return v; }
+                return 0;
+            }
+            return parseOr();
+        } catch (e) { return null; }
+    }
+
+    // ================================================================
+    // runPreprocessor
+    //
+    // #IF / #ELSE / #ENDIF / #INCLUDE を 1 パスで評価して展開済みトークン列を返す。
+    // 返り値は { tokens, preprocDefs } 固定。
+    //
+    // 設計上の要点:
+    //  - #IF の collect 中は #MODULE / #END の opener stack も併走させる
+    //    (Lexer 上 #END と #ENDIF が同じ TK.PreprocEnd に畳まれるため、
+    //     MODULE 用 #END を outer #IF の終端と誤認しないようにする)。
+    //  - include キーは virtualFS 上で実際に解決できたキー (vk) を canonical として採用。
+    //    basename 衝突 (foo/X.LIB と bar/X.LIB) を避ける。
+    //  - 重複 include は silent skip。循環 include は warning + skip。
+    //  - CONST A=1, ASM B=2, C=3; のように宣言子ごとに ASM フラグが付くので、
+    //    block-depth を見ながら宣言子単位で preprocDefs を更新する。
+    // ================================================================
+    function runPreprocessor(initTokens, virtualFS, envDefines, diagnostics) {
+        var preprocDefs = {};
+        if (envDefines) {
+            for (var k in envDefines) {
+                if (Object.prototype.hasOwnProperty.call(envDefines, k)) {
+                    preprocDefs[k.toUpperCase()] = envDefines[k];
+                }
+            }
+        }
+
+        var includedSet = {};
+        var includeStack = {};
+
+        function isBlockOpenKind(k) {
+            return k === TK.LBracket || k === TK.LBrace || k === TK.LAngleBracket || k === TK.Begin;
+        }
+        function isBlockCloseKind(k) {
+            return k === TK.RBracket || k === TK.RBrace || k === TK.RAngleBracket || k === TK.End;
+        }
+
+        // Scan past a single CONST declarator (honoring block depth).
+        // `i` points to the first token after `=` (or wherever we ran into
+        // a non-integer value). Returns the index where the declarator ends:
+        // the position of Comma / Semicolon at depth 0, or the length.
+        function skipDeclarator(tokens, i) {
+            var depth = 0;
+            while (i < tokens.length) {
+                var kk = tokens[i].kind;
+                if (depth === 0 && (kk === TK.Comma || kk === TK.Semicolon)) return i;
+                if (isBlockOpenKind(kk)) depth++;
+                else if (isBlockCloseKind(kk)) depth = depth > 0 ? depth - 1 : 0;
+                i++;
+            }
+            return i;
+        }
+
+        // tokens[constIndex] is TK.Const. Walk declarators and update preprocDefs.
+        // Only `NAME = <IntegerLiteral>` pairs (without the per-declarator ASM
+        // modifier) are registered; everything else is skipped declarator-wise.
+        function extractConstValues(tokens, constIndex) {
+            var i = constIndex + 1;
+            while (i < tokens.length) {
+                var isAsm = false;
+                if (tokens[i] && tokens[i].kind === TK.Asm) { isAsm = true; i++; }
+                var nameTok = tokens[i];
+                var eqTok = tokens[i + 1];
+                var valTok = tokens[i + 2];
+                var afterTok = tokens[i + 3];
+                if (nameTok && nameTok.kind === TK.Identifier &&
+                    eqTok && eqTok.kind === TK.Eq &&
+                    valTok && valTok.kind === TK.IntegerLiteral &&
+                    afterTok && (afterTok.kind === TK.Comma || afterTok.kind === TK.Semicolon)) {
+                    if (!isAsm) {
+                        preprocDefs[nameTok.stringValue.toUpperCase()] = valTok.value;
+                    }
+                    i += 3;
+                } else {
+                    // Non-integer value (expr, code block, identifier ref, etc.) -
+                    // skip just this declarator.
+                    if (!nameTok || nameTok.kind === TK.Semicolon || nameTok.kind === TK.EOF) break;
+                    // Step over "NAME =" if present, then skipDeclarator
+                    if (nameTok.kind === TK.Identifier && eqTok && eqTok.kind === TK.Eq) i += 2;
+                    i = skipDeclarator(tokens, i);
+                }
+                if (i >= tokens.length) break;
+                if (tokens[i].kind === TK.Comma) { i++; continue; }
+                if (tokens[i].kind === TK.Semicolon) break;
+                break;
+            }
+        }
+
+        // Return the virtualFS key that resolves `specifier`, or null.
+        function resolveIncludeKey(specifier) {
+            if (!virtualFS) return null;
+            var up = specifier.toUpperCase();
+            // First pass: exact match (case-insensitive)
+            for (var vk in virtualFS) {
+                if (Object.prototype.hasOwnProperty.call(virtualFS, vk) &&
+                    vk.toUpperCase() === up) return vk;
+            }
+            // Second pass: basename match
+            for (var vk2 in virtualFS) {
+                if (Object.prototype.hasOwnProperty.call(virtualFS, vk2) &&
+                    vk2.toUpperCase().replace(/.*[\/\\]/, '') === up) return vk2;
+            }
+            return null;
+        }
+
+        function processInclude(token, out) {
+            var specifier = token.value || token.stringValue || token.text;
+            var resolved = resolveIncludeKey(specifier);
+            if (resolved === null) {
+                diagnostics.warning('#INCLUDE file not found: ' + specifier, token.span);
+                return;
+            }
+            var canonical = resolved.toUpperCase();
+            if (includeStack[canonical]) {
+                diagnostics.warning('Circular #INCLUDE skipped: ' + specifier, token.span);
+                return;
+            }
+            if (includedSet[canonical]) {
+                // silent skip (方針 B: guard 不要の安全な重複排除)
+                return;
+            }
+            var content = virtualFS[resolved];
+            if (typeof content !== 'string') {
+                diagnostics.warning('#INCLUDE file not found: ' + specifier, token.span);
+                return;
+            }
+            var incTokens = Lexer(content, specifier).tokenize();
+            var nonEof = [];
+            for (var ti = 0; ti < incTokens.length; ti++) {
+                if (incTokens[ti].kind !== TK.EOF) nonEof.push(incTokens[ti]);
+            }
+            includeStack[canonical] = true;
+            var expanded = process(nonEof);
+            includeStack[canonical] = false;
+            for (var ei = 0; ei < expanded.length; ei++) out.push(expanded[ei]);
+            includedSet[canonical] = true;
+        }
+
+        // Consume #IF ... #END and push the resulting tokens (after recursive
+        // preprocessing) to `out`. Returns the index just past the closing #END.
+        // Uses an opener stack so that `#MODULE ... #END` inside the branch
+        // doesn't prematurely close the outer #IF.
+        function processIf(tokens, start, out) {
+            var ifToken = tokens[start];
+            var condVal = evalPreprocExpr(ifToken.stringValue || '', preprocDefs);
+            var condTrue = (condVal === null) ? false : (condVal !== 0);
+
+            var collectTrue = [];
+            var collectFalse = [];
+            var target = collectTrue;
+            var stack = ['if'];
+            var i = start + 1;
+
+            while (i < tokens.length && stack.length > 0) {
+                var t = tokens[i];
+                var kind = t.kind;
+                if (kind === TK.PreprocIf) {
+                    stack.push('if');
+                    target.push(t);
+                    i++;
+                } else if (kind === TK.Module) {
+                    stack.push('module');
+                    target.push(t);
+                    i++;
+                } else if (kind === TK.PreprocEnd) {
+                    var top = stack.pop();
+                    if (stack.length === 0 && top === 'if') {
+                        i++;
+                        break;
+                    }
+                    target.push(t);
+                    i++;
+                } else if (kind === TK.PreprocElse && stack.length === 1 && stack[0] === 'if') {
+                    target = collectFalse;
+                    i++;
+                } else {
+                    target.push(t);
+                    i++;
+                }
+            }
+
+            if (stack.length > 0) {
+                diagnostics.error('Unterminated #IF', ifToken.span);
+            }
+
+            var collected = condTrue ? collectTrue : collectFalse;
+            var processed = process(collected);
+            for (var ei = 0; ei < processed.length; ei++) out.push(processed[ei]);
+            return i;
+        }
+
+        function process(tokens) {
+            var out = [];
+            var i = 0;
+            while (i < tokens.length) {
+                var t = tokens[i];
+                var kind = t.kind;
+                if (kind === TK.PreprocInclude) {
+                    processInclude(t, out);
+                    i++;
+                } else if (kind === TK.PreprocIf) {
+                    i = processIf(tokens, i, out);
+                } else if (kind === TK.PreprocElse || kind === TK.PreprocEnd) {
+                    // Stray #ELSE/#END (unpaired) — pass through to Parser.
+                    // #MODULE ... #END relies on #END reaching parseModuleBlock,
+                    // so we must not silently drop it here.
+                    out.push(t);
+                    i++;
+                } else if (kind === TK.Const) {
+                    extractConstValues(tokens, i);
+                    out.push(t);
+                    i++;
+                } else {
+                    out.push(t);
+                    i++;
+                }
+            }
+            return out;
+        }
+
+        return { tokens: process(initTokens), preprocDefs: preprocDefs };
+    }
+
+    // ================================================================
     // Parser
     // ================================================================
 
@@ -877,132 +1221,12 @@
             }
         }
 
-        // ---- Preprocessor (in-parser, simplified) ----
-        function evalPreprocExpr(expr) {
-            // Substitute defined constants and keywords
-            // Undefined identifiers become 0 (matching SLANG compiler behavior)
-            var s = expr.replace(/[A-Za-z_][A-Za-z0-9_]*/g, function(name) {
-                var up = name.toUpperCase();
-                if (up === 'TRUE') return '1';
-                if (up === 'FALSE') return '0';
-                if (up === 'AND') return '&';
-                if (up === 'OR') return '|';
-                if (up === 'NOT') return '!';
-                if (up in _preprocDefs) return String(_preprocDefs[up]);
-                return '0';
-            });
-            // Remove surrounding parens for simpler eval
-            s = s.trim();
-            // Simple expression evaluator for #IF conditions
-            try {
-                // Tokenize: numbers, identifiers, operators
-                var tokens = [];
-                var i = 0;
-                while (i < s.length) {
-                    if (s[i] === ' ' || s[i] === '\t') { i++; continue; }
-                    if (s[i] === '(') { tokens.push({ t: '(' }); i++; continue; }
-                    if (s[i] === ')') { tokens.push({ t: ')' }); i++; continue; }
-                    if (s[i] === '<' && s[i+1] === '=') { tokens.push({ t: '<=' }); i+=2; continue; }
-                    if (s[i] === '>' && s[i+1] === '=') { tokens.push({ t: '>=' }); i+=2; continue; }
-                    if (s[i] === '=' && s[i+1] === '=') { tokens.push({ t: '==' }); i+=2; continue; }
-                    if (s[i] === '!' && s[i+1] === '=') { tokens.push({ t: '!=' }); i+=2; continue; }
-                    if (s[i] === '<') { tokens.push({ t: '<' }); i++; continue; }
-                    if (s[i] === '>') { tokens.push({ t: '>' }); i++; continue; }
-                    if (s[i] === '=') { tokens.push({ t: '==' }); i++; continue; }
-                    if (s[i] === '+') { tokens.push({ t: '+' }); i++; continue; }
-                    if (s[i] === '-') { tokens.push({ t: '-' }); i++; continue; }
-                    if (s[i] === '*') { tokens.push({ t: '*' }); i++; continue; }
-                    if (s[i] === '/') { tokens.push({ t: '/' }); i++; continue; }
-                    if (s[i] === '&') { tokens.push({ t: '&' }); i++; continue; }
-                    if (s[i] === '|') { tokens.push({ t: '|' }); i++; continue; }
-                    if (s[i] === '!') { tokens.push({ t: '!' }); i++; continue; }
-                    if (s[i] === '$') {
-                        i++;
-                        var hs = '';
-                        while (i < s.length && /[0-9A-Fa-f]/.test(s[i])) hs += s[i++];
-                        tokens.push({ t: 'num', v: parseInt(hs, 16) || 0 });
-                        continue;
-                    }
-                    if (/[0-9]/.test(s[i])) {
-                        var ns = '';
-                        while (i < s.length && /[0-9]/.test(s[i])) ns += s[i++];
-                        tokens.push({ t: 'num', v: parseInt(ns, 10) });
-                        continue;
-                    }
-                    // Identifier (residual after substitution) — treat as 0
-                    if (/[A-Za-z_]/.test(s[i])) {
-                        while (i < s.length && /[A-Za-z0-9_]/.test(s[i])) i++;
-                        tokens.push({ t: 'num', v: 0 });
-                        continue;
-                    }
-                    // Unknown char — bail
-                    return null;
-                }
-                // Recursive descent parser
-                var tp = 0;
-                function peek2() { return tp < tokens.length ? tokens[tp] : null; }
-                function next() { return tokens[tp++]; }
-                function parseOr() {
-                    var v = parseAnd();
-                    while (peek2() && peek2().t === '|') { next(); v = (v | parseAnd()); }
-                    return v;
-                }
-                function parseAnd() {
-                    var v = parseComp();
-                    while (peek2() && peek2().t === '&') { next(); v = (v & parseComp()); }
-                    return v;
-                }
-                function parseComp() {
-                    var v = parseAdd();
-                    while (peek2() && (peek2().t === '<=' || peek2().t === '>=' || peek2().t === '<' || peek2().t === '>' || peek2().t === '==' || peek2().t === '!=')) {
-                        var op = next().t;
-                        var r = parseAdd();
-                        if (op === '<=') v = (v <= r) ? 1 : 0;
-                        else if (op === '>=') v = (v >= r) ? 1 : 0;
-                        else if (op === '<') v = (v < r) ? 1 : 0;
-                        else if (op === '>') v = (v > r) ? 1 : 0;
-                        else if (op === '==') v = (v === r) ? 1 : 0;
-                        else if (op === '!=') v = (v !== r) ? 1 : 0;
-                    }
-                    return v;
-                }
-                function parseAdd() {
-                    var v = parseMul();
-                    while (peek2() && (peek2().t === '+' || peek2().t === '-')) {
-                        var op = next().t;
-                        v = op === '+' ? v + parseMul() : v - parseMul();
-                    }
-                    return v;
-                }
-                function parseMul() {
-                    var v = parseUnary();
-                    while (peek2() && (peek2().t === '*' || peek2().t === '/')) {
-                        var op = next().t;
-                        var r = parseUnary();
-                        v = op === '*' ? v * r : (r !== 0 ? Math.floor(v / r) : 0);
-                    }
-                    return v;
-                }
-                function parseUnary() {
-                    if (peek2() && peek2().t === '!') { next(); return parseUnary() ? 0 : 1; }
-                    if (peek2() && peek2().t === '-') { next(); return -parseUnary(); }
-                    return parsePrimary();
-                }
-                function parsePrimary() {
-                    var tok = peek2();
-                    if (!tok) return 0;
-                    if (tok.t === 'num') { next(); return tok.v; }
-                    if (tok.t === '(') { next(); var v = parseOr(); if (peek2() && peek2().t === ')') next(); return v; }
-                    return 0; // unknown — treat as 0
-                }
-                var result = parseOr();
-                return result;
-            } catch (e) { return null; }
-        }
+        // ---- Preprocessor (in-parser, 保険: Preprocessor が取りこぼした場合のみ発動) ----
+        // 式評価は IIFE 直下の共通 evalPreprocExpr(expr, defs) を使用。
         function parsePreprocIf() {
             var t = advance();
             var expr = t.stringValue;
-            var val = evalPreprocExpr(expr);
+            var val = evalPreprocExpr(expr, _preprocDefs);
             // If evaluation failed (parse error), default to false (exclude the block)
             var condTrue = (val === null) ? false : (val !== 0);
             if (!condTrue) {
@@ -1069,8 +1293,9 @@
                 else { value = parseNcExpr(); }
                 decls.push(AST.ConstDecl(name, value, isAsm, start));
                 // Register integer constants for #IF preprocessor evaluation
-                if (value && value.type === 'IntegerLiteral' && name) {
-                    _preprocDefs[name] = value.value;
+                // (Preprocessor 側も同じ規則で大文字化キーで登録するため、drift を避けるため揃える)
+                if (value && value.type === 'IntegerLiteral' && name && !isAsm) {
+                    _preprocDefs[name.toUpperCase()] = value.value;
                 }
             } while (match(TK.Comma));
             match(TK.Semicolon);
@@ -3024,6 +3249,26 @@
                 gvi.initialItems = initItems;
                 gvi.storageKind = VarStorageKind.CodeConst;
                 _module.globalVars.push(gvi);
+            } else if (node.isAsmEqu) {
+                // CONST ASM NAME = expr; → アセンブラの EQU として出力
+                var sym = globalSymbols ? globalSymbols.resolve(node.name) : null;
+                if (sym && sym.kind === SymbolKind.Constant && typeof sym.constValue === 'number') {
+                    var hex = (sym.constValue & 0xFFFF).toString(16).toUpperCase();
+                    while (hex.length < 4) hex = '0' + hex;
+                    emit(IrOp.InlineAsm, IrOperand.Asm(node.name + ' EQU $' + hex));
+                } else if (sym && sym.kind === SymbolKind.Constant && sym.constAst) {
+                    var result = exprToAsmString(sym.constAst, globalSymbols, diagnostics);
+                    if (result) {
+                        emit(IrOp.InlineAsm, IrOperand.Asm(node.name + ' EQU ' + result.expr));
+                        // 式中に含まれるランタイムラベルを依存として登録 (未登録だと本体が未出力になる)
+                        for (var d = 0; d < result.deps.length; d++)
+                            _module.addressSymbolDeps[result.deps[d]] = true;
+                    } else {
+                        diagnostics.error('CONST ASM ' + node.name + ' requires compile-time evaluable value', node.span);
+                    }
+                } else {
+                    diagnostics.error('CONST ASM ' + node.name + ' requires compile-time evaluable value', node.span);
+                }
             } else {
                 emit(IrOp.Comment, IrOperand.Asm('CONST ' + node.name));
             }
@@ -6368,40 +6613,13 @@
             var diagnostics = DiagnosticBag();
             try {
                 var tokens = Lexer(source).tokenize();
-
-                // #INCLUDE 展開: PreprocInclude トークンをファイル内容のトークンに置換
-                if (virtualFS) {
-                    var expanded = [];
-                    for (var ti = 0; ti < tokens.length; ti++) {
-                        if (tokens[ti].kind === TK.PreprocInclude) {
-                            var incPath = tokens[ti].value || tokens[ti].text;
-                            // virtualFS からファイル内容を取得（大文字小文字非依存）
-                            var incContent = null;
-                            var incPathUpper = incPath.toUpperCase();
-                            for (var vk in virtualFS) {
-                                if (vk.toUpperCase() === incPathUpper || vk.toUpperCase().replace(/.*[\/\\]/, '') === incPathUpper) {
-                                    incContent = typeof virtualFS[vk] === 'string' ? virtualFS[vk] : null;
-                                    break;
-                                }
-                            }
-                            if (incContent) {
-                                var incTokens = Lexer(incContent, incPath).tokenize();
-                                // EOF トークンを除いて展開
-                                for (var iti = 0; iti < incTokens.length; iti++) {
-                                    if (incTokens[iti].kind !== TK.EOF) expanded.push(incTokens[iti]);
-                                }
-                            } else {
-                                diagnostics.warning('#INCLUDE file not found: ' + incPath);
-                            }
-                        } else {
-                            expanded.push(tokens[ti]);
-                        }
-                    }
-                    tokens = expanded;
-                }
-
                 var envConfig = env || {};
-                var preprocDefs = envConfig.defines || {};
+
+                // プリプロセッサ: #IF / #ELSE / #ENDIF / #INCLUDE を 1 パスで評価・展開。
+                // 戻り値の preprocDefs は env.defines + active branch で通過した CONST から抽出。
+                var pp = runPreprocessor(tokens, virtualFS || null, envConfig.defines || {}, diagnostics);
+                tokens = pp.tokens;
+                var preprocDefs = pp.preprocDefs;
                 var parser = Parser(tokens, diagnostics, preprocDefs);
                 var ast = parser.parseCompilationUnit();
                 if (diagnostics.hasErrors) return { asm: '', errors: diagnostics.diagnostics };
