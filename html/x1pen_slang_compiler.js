@@ -3035,6 +3035,9 @@
                     var result = exprToAsmString(sym.constAst, globalSymbols, diagnostics);
                     if (result) {
                         emit(IrOp.InlineAsm, IrOperand.Asm(node.name + ' EQU ' + result.expr));
+                        // 式中に含まれるランタイムラベルを依存として登録 (未登録だと本体が未出力になる)
+                        for (var d = 0; d < result.deps.length; d++)
+                            _module.addressSymbolDeps[result.deps[d]] = true;
                     } else {
                         diagnostics.error('CONST ASM ' + node.name + ' requires compile-time evaluable value', node.span);
                     }
@@ -6387,9 +6390,11 @@
                 var tokens = Lexer(source).tokenize();
 
                 // #INCLUDE 展開: PreprocInclude トークンをファイル内容のトークンに置換
-                // ネスト #INCLUDE (LIB 内の #INCLUDE) にも対応。同一ファイルは 1 度だけ展開 (循環防止)。
+                // ネスト #INCLUDE (LIB 内の #INCLUDE) にも対応。重複 include は展開する
+                // (同一ファイルが #IF で条件付き/無条件の両方から読まれるケースに対応)。
+                // 循環参照のみ「展開中スタック」で検出して止める。
                 if (virtualFS) {
-                    var includedFiles = {};
+                    var includeStack = {};
                     function expandTokens(inputTokens) {
                         var out = [];
                         for (var ti = 0; ti < inputTokens.length; ti++) {
@@ -6399,8 +6404,10 @@
                             }
                             var incPath = inputTokens[ti].value || inputTokens[ti].text;
                             var incPathUpper = incPath.toUpperCase();
-                            if (includedFiles[incPathUpper]) continue; // 重複/循環を抑止
-                            includedFiles[incPathUpper] = true;
+                            if (includeStack[incPathUpper]) {
+                                diagnostics.warning('Circular #INCLUDE skipped: ' + incPath);
+                                continue;
+                            }
                             // virtualFS からファイル内容を取得（大文字小文字非依存）
                             var incContent = null;
                             for (var vk in virtualFS) {
@@ -6418,7 +6425,9 @@
                             for (var iti = 0; iti < incTokens.length; iti++) {
                                 if (incTokens[iti].kind !== TK.EOF) nonEof.push(incTokens[iti]);
                             }
+                            includeStack[incPathUpper] = true;
                             var subExpanded = expandTokens(nonEof);
+                            includeStack[incPathUpper] = false;
                             for (var ei = 0; ei < subExpanded.length; ei++) out.push(subExpanded[ei]);
                         }
                         return out;
