@@ -585,7 +585,10 @@ window.__X1PEN_MODE = true;
                     } catch(e) { /* optional file */ }
                 }
                 // インクルードファイルも読み込み
-                var includeFiles = ['GRAPH.LIB', 'GRAPHF.LIB', 'SOROBAN.LIB'];
+                var includeFiles = [
+                    'GRAPH.LIB', 'GRAPHF.LIB', 'SOROBAN.LIB',
+                    'CHIPLIB.LIB', 'SPRLIB.LIB', 'TILELIB.LIB', 'TILESPR.LIB', 'UILIB.LIB',
+                ];
                 for (var ii = 0; ii < includeFiles.length; ii++) {
                     try {
                         var iresp = await fetch('slang_include/' + includeFiles[ii] + vBust);

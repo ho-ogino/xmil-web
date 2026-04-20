@@ -1,6 +1,6 @@
 // x1pen_slang_compiler.js — SLANG Compiler for X1Pen
 // Ported from C# (SLANGCompiler.Core) to JavaScript
-// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ 6147192
+// C# source snapshot: https://github.com/h-o-soft/SLANG-compiler @ c9e8f53
 // Lazy-loaded: window.X1PenSlangCompiler = { compile: ... }
 
 (function() {
@@ -3024,6 +3024,23 @@
                 gvi.initialItems = initItems;
                 gvi.storageKind = VarStorageKind.CodeConst;
                 _module.globalVars.push(gvi);
+            } else if (node.isAsmEqu) {
+                // CONST ASM NAME = expr; → アセンブラの EQU として出力
+                var sym = globalSymbols ? globalSymbols.resolve(node.name) : null;
+                if (sym && sym.kind === SymbolKind.Constant && typeof sym.constValue === 'number') {
+                    var hex = (sym.constValue & 0xFFFF).toString(16).toUpperCase();
+                    while (hex.length < 4) hex = '0' + hex;
+                    emit(IrOp.InlineAsm, IrOperand.Asm(node.name + ' EQU $' + hex));
+                } else if (sym && sym.kind === SymbolKind.Constant && sym.constAst) {
+                    var result = exprToAsmString(sym.constAst, globalSymbols, diagnostics);
+                    if (result) {
+                        emit(IrOp.InlineAsm, IrOperand.Asm(node.name + ' EQU ' + result.expr));
+                    } else {
+                        diagnostics.error('CONST ASM ' + node.name + ' requires compile-time evaluable value', node.span);
+                    }
+                } else {
+                    diagnostics.error('CONST ASM ' + node.name + ' requires compile-time evaluable value', node.span);
+                }
             } else {
                 emit(IrOp.Comment, IrOperand.Asm('CONST ' + node.name));
             }
@@ -6370,34 +6387,43 @@
                 var tokens = Lexer(source).tokenize();
 
                 // #INCLUDE 展開: PreprocInclude トークンをファイル内容のトークンに置換
+                // ネスト #INCLUDE (LIB 内の #INCLUDE) にも対応。同一ファイルは 1 度だけ展開 (循環防止)。
                 if (virtualFS) {
-                    var expanded = [];
-                    for (var ti = 0; ti < tokens.length; ti++) {
-                        if (tokens[ti].kind === TK.PreprocInclude) {
-                            var incPath = tokens[ti].value || tokens[ti].text;
+                    var includedFiles = {};
+                    function expandTokens(inputTokens) {
+                        var out = [];
+                        for (var ti = 0; ti < inputTokens.length; ti++) {
+                            if (inputTokens[ti].kind !== TK.PreprocInclude) {
+                                out.push(inputTokens[ti]);
+                                continue;
+                            }
+                            var incPath = inputTokens[ti].value || inputTokens[ti].text;
+                            var incPathUpper = incPath.toUpperCase();
+                            if (includedFiles[incPathUpper]) continue; // 重複/循環を抑止
+                            includedFiles[incPathUpper] = true;
                             // virtualFS からファイル内容を取得（大文字小文字非依存）
                             var incContent = null;
-                            var incPathUpper = incPath.toUpperCase();
                             for (var vk in virtualFS) {
                                 if (vk.toUpperCase() === incPathUpper || vk.toUpperCase().replace(/.*[\/\\]/, '') === incPathUpper) {
                                     incContent = typeof virtualFS[vk] === 'string' ? virtualFS[vk] : null;
                                     break;
                                 }
                             }
-                            if (incContent) {
-                                var incTokens = Lexer(incContent, incPath).tokenize();
-                                // EOF トークンを除いて展開
-                                for (var iti = 0; iti < incTokens.length; iti++) {
-                                    if (incTokens[iti].kind !== TK.EOF) expanded.push(incTokens[iti]);
-                                }
-                            } else {
+                            if (!incContent) {
                                 diagnostics.warning('#INCLUDE file not found: ' + incPath);
+                                continue;
                             }
-                        } else {
-                            expanded.push(tokens[ti]);
+                            var incTokens = Lexer(incContent, incPath).tokenize();
+                            var nonEof = [];
+                            for (var iti = 0; iti < incTokens.length; iti++) {
+                                if (incTokens[iti].kind !== TK.EOF) nonEof.push(incTokens[iti]);
+                            }
+                            var subExpanded = expandTokens(nonEof);
+                            for (var ei = 0; ei < subExpanded.length; ei++) out.push(subExpanded[ei]);
                         }
+                        return out;
                     }
-                    tokens = expanded;
+                    tokens = expandTokens(tokens);
                 }
 
                 var envConfig = env || {};
