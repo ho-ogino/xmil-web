@@ -82,6 +82,10 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   const loaded = await page.evaluate((value) => window.X1PenAutomation.setProgram(value), program);
   assert.deepEqual(loaded, program);
 
+  const validation = await page.evaluate(() => window.X1PenAutomation.validate());
+  assert.equal(validation.ok, true);
+  assert.ok(validation.output.basicBytes > 0);
+
   await page.evaluate(() => window.XmilControls.setKeyMode(1));
   const result = await page.evaluate(() => window.X1PenAutomation.run());
   assert.equal(result.ok, true);
@@ -110,4 +114,13 @@ test('automation operations are serialized and stale source modes are cleared', 
     slang: 'main() BEGIN\nEND;',
     sourceMode: 'slang',
   });
+});
+
+test('automation validation returns structured assembler diagnostics', async () => {
+  await page.evaluate(() => window.X1PenAutomation.setProgram({ sourceMode: 'asm', asm: 'ORG $100\nBOGUS A' }));
+  const validation = await page.evaluate(() => window.X1PenAutomation.validate());
+  assert.equal(validation.ok, false);
+  assert.equal(validation.sourceMode, 'asm');
+  assert.equal(validation.diagnostics[0].kind, 'asm');
+  assert.equal(validation.diagnostics[0].line, 2);
 });
