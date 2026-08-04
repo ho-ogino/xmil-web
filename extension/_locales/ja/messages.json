@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "X1Pen Connector",
+    "description": "Extension name"
+  },
+  "extensionDescription": {
+    "message": "X1PenのタブをローカルMCPサーバーへ接続し、AIによるFuzzyBASIC・SLANG開発支援を可能にします。",
+    "description": "Chrome Web Store package summary"
+  },
+  "actionTitle": {
+    "message": "X1Penを接続",
+    "description": "Toolbar action tooltip"
+  }
+}

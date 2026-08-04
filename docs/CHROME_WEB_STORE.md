@@ -9,15 +9,15 @@ npm run test:extension-package
 npm run pack:extension
 ```
 
-Upload `dist/x1pen-connector-1.0.0.zip`. The ZIP has `manifest.json` at its root and excludes source artwork, README files, and Store-only images.
+Upload `dist/x1pen-connector-1.0.1.zip`. The ZIP has `manifest.json` at its root and excludes source artwork, README files, and Store-only images.
 
 ## Store listing
 
 - Product name: `X1Pen Connector`
 - Category: `Developer Tools`
-- Language: English (add Japanese as a localized listing)
+- Language: Japanese (English is included as an extension localization)
 - Privacy policy: `https://x1.onoda-pro.com/x1pen-connector-privacy.html`
-- Homepage: `https://x1.onoda-pro.com/`
+- Homepage: `https://x1.onoda-pro.com/x1pen`
 - Support: `https://github.com/ho-ogino/xmil-web/issues`
 
 ### English summary
@@ -111,6 +111,7 @@ The extension should show a clear error if the current tab is not X1Pen, if the 
 
 - Extension icon in ZIP: `extension/icons/icon-128.png` (128 x 128 PNG)
 - Small promo tile: `extension/store/small-promo-440x280.png` (440 x 280 PNG)
+- Marquee promo tile: `extension/store/marquee-promo-1400x560.png` (1400 x 560 PNG, optional)
 - Screenshot: `extension/store/screenshot-1280x800.png` (1280 x 800 PNG)
 
 The screenshot must show the actual X1Pen editor and connector popup without unrelated browser or desktop content.

@@ -17,6 +17,10 @@ function pngDimensions(buffer) {
   return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
 }
 
+function pngFormat(buffer) {
+  return { bitDepth: buffer[24], colorType: buffer[25] };
+}
+
 test('X1Pen Connector store package is complete and minimally scoped', async () => {
   const tempRoot = await mkdtemp(join(tmpdir(), 'x1pen-connector-package-'));
   try {
@@ -24,6 +28,11 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
     run('sh', ['scripts/package-x1pen-connector.sh', zipPath], { cwd: repoRoot });
     const files = run('unzip', ['-Z1', zipPath]).trim().split('\n').sort();
     assert.deepEqual(files, [
+      '_locales/',
+      '_locales/en/',
+      '_locales/en/messages.json',
+      '_locales/ja/',
+      '_locales/ja/messages.json',
       'icons/',
       'icons/icon-128.png',
       'icons/icon-16.png',
@@ -38,11 +47,21 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
 
     const manifest = JSON.parse(run('unzip', ['-p', zipPath, 'manifest.json']));
     assert.equal(manifest.manifest_version, 3);
-    assert.equal(manifest.version, '1.0.0');
+    assert.equal(manifest.version, '1.0.1');
+    assert.equal(manifest.default_locale, 'ja');
+    assert.equal(manifest.name, '__MSG_extensionName__');
+    assert.equal(manifest.description, '__MSG_extensionDescription__');
     assert.deepEqual(manifest.permissions, ['activeTab', 'scripting', 'storage']);
     assert.equal(manifest.host_permissions, undefined);
     assert.match(manifest.content_security_policy.extension_pages, /ws:\/\/127\.0\.0\.1:\*/);
     assert.doesNotMatch(manifest.content_security_policy.extension_pages, /https?:\/\//);
+
+    const jaMessages = JSON.parse(run('unzip', ['-p', zipPath, '_locales/ja/messages.json']));
+    const enMessages = JSON.parse(run('unzip', ['-p', zipPath, '_locales/en/messages.json']));
+    assert.match(jaMessages.extensionDescription.message, /FuzzyBASIC/);
+    assert.ok(jaMessages.extensionDescription.message.length <= 132);
+    assert.match(enMessages.extensionDescription.message, /local MCP server/);
+    assert.ok(enMessages.extensionDescription.message.length <= 132);
 
     for (const size of [16, 32, 48, 128]) {
       const icon = await readFile(join(repoRoot, `extension/icons/icon-${size}.png`));
@@ -50,6 +69,9 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
     }
     const promo = await readFile(join(repoRoot, 'extension/store/small-promo-440x280.png'));
     assert.deepEqual(pngDimensions(promo), { width: 440, height: 280 });
+    const marquee = await readFile(join(repoRoot, 'extension/store/marquee-promo-1400x560.png'));
+    assert.deepEqual(pngDimensions(marquee), { width: 1400, height: 560 });
+    assert.deepEqual(pngFormat(marquee), { bitDepth: 8, colorType: 2 });
     const screenshot = await readFile(join(repoRoot, 'extension/store/screenshot-1280x800.png'));
     assert.deepEqual(pngDimensions(screenshot), { width: 1280, height: 800 });
     assert.ok(screenshot.length > 40_000, 'Store screenshot should contain the rendered X1Pen UI');

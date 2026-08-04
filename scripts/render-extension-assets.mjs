@@ -7,6 +7,7 @@ import { chromium } from 'playwright';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const iconSource = resolve(repoRoot, 'extension/icons/icon-source.svg');
 const promoSource = resolve(repoRoot, 'extension/store/small-promo-source.svg');
+const marqueeSource = resolve(repoRoot, 'extension/store/marquee-promo-source.svg');
 const systemBrowsers = [
   process.env.CHROME_PATH,
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -18,6 +19,15 @@ const executablePath = systemBrowsers.find(existsSync);
 
 function svgDataUrl(svg) {
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+}
+
+async function renderSvg(browser, source, output, width, height) {
+  const page = await browser.newPage({ viewport: { width, height } });
+  const url = svgDataUrl(await readFile(source, 'utf8'));
+  await page.setContent(`<style>*{margin:0}html,body,img{width:${width}px;height:${height}px}</style><img src="${url}">`);
+  await page.locator('img').waitFor({ state: 'visible' });
+  await page.screenshot({ path: output });
+  await page.close();
 }
 
 const browser = await chromium.launch({ headless: true, executablePath });
@@ -34,15 +44,21 @@ try {
     await page.close();
   }
 
-  const promoPage = await browser.newPage({ viewport: { width: 440, height: 280 } });
-  const promoUrl = svgDataUrl(await readFile(promoSource, 'utf8'));
-  await promoPage.setContent(`<style>*{margin:0}html,body,img{width:440px;height:280px}</style><img src="${promoUrl}">`);
-  await promoPage.locator('img').waitFor({ state: 'visible' });
   await mkdir(resolve(repoRoot, 'extension/store'), { recursive: true });
-  await promoPage.screenshot({
-    path: resolve(repoRoot, 'extension/store/small-promo-440x280.png'),
-  });
-  await promoPage.close();
+  await renderSvg(
+    browser,
+    promoSource,
+    resolve(repoRoot, 'extension/store/small-promo-440x280.png'),
+    440,
+    280,
+  );
+  await renderSvg(
+    browser,
+    marqueeSource,
+    resolve(repoRoot, 'extension/store/marquee-promo-1400x560.png'),
+    1400,
+    560,
+  );
 } finally {
   await browser.close();
 }
