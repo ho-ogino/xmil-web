@@ -1,6 +1,6 @@
 {
   "name": "x1pen-mcp",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Local MCP server for controlling X1Pen in a user-visible Chromium tab",
   "type": "module",
   "bin": {
@@ -10,7 +10,9 @@
     "LICENSE",
     "README.md",
     "THIRD_PARTY_LICENSES.md",
+    "reference",
     "x1pen-bridge.mjs",
+    "x1pen-reference.mjs",
     "x1pen-server.mjs"
   ],
   "engines": {

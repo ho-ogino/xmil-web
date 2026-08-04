@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "referenceVersion": "2026-08-04",
+  "defaultProfiles": {
+    "fuzzybasic": "x1pen-fuzzybasic-1.2L",
+    "slang": "x1pen-slang-c9e8f53-lsx"
+  },
+  "profiles": [
+    {
+      "id": "x1pen-fuzzybasic-1.2L",
+      "language": "fuzzybasic",
+      "displayName": "X1Pen FuzzyBASIC 1.2L",
+      "runtime": "fuzzybasic_cold.v2.xmst",
+      "notes": "X1Pen tokenizer and X1-specific graphics, sound, joystick and character extensions.",
+      "sourceUrls": [
+        "https://retropc.net/ohishi/s-os/fubasic.htm"
+      ]
+    },
+    {
+      "id": "x1pen-slang-c9e8f53-lsx",
+      "language": "slang",
+      "displayName": "X1Pen SLANG c9e8f53 / LSX-Dodgers",
+      "compilerRevision": "c9e8f5315d8d44a413368045d78439a4ec8da3fc",
+      "environment": {
+        "ENV_TYPE": 1,
+        "defaultOrg": 256,
+        "runtime": "lsx-dodgers"
+      },
+      "notes": "The exact browser compiler snapshot and X1Pen-provided runtime/include library set.",
+      "sourceUrls": [
+        "https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,429 @@
+[
+  {
+    "id": "slang.program.structure",
+    "language": "slang",
+    "kind": "syntax",
+    "title": "Program structure, blocks and comments",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["MAIN", "BEGIN END", "free format", "comments", "braces"],
+    "summary": "SLANG is free-format and requires MAIN(). Blocks may use braces, brackets, parentheses, Japanese corner brackets, or BEGIN ... END;.",
+    "syntax": [
+      "MAIN() BEGIN ... END;",
+      "MAIN() { ... }",
+      "// line comment",
+      "/* block comment */",
+      "(* block comment *)"
+    ],
+    "notes": [
+      "A function name and its opening parenthesis cannot be separated by whitespace. An array name and its opening bracket cannot be separated by whitespace.",
+      "Strings and // comments cannot continue onto the next source line.",
+      "MAIN() may appear anywhere but must be defined."
+    ],
+    "examples": [
+      {
+        "title": "Minimal X1Pen SLANG program",
+        "source": "MAIN() BEGIN\n  PRINT(\"HELLO FROM X1PEN\", /);\nEND;"
+      }
+    ],
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"]
+  },
+  {
+    "id": "slang.data.types-declarations",
+    "language": "slang",
+    "kind": "syntax",
+    "title": "BYTE, WORD, FLOAT, VAR, ARRAY and CONST",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["types", "variables", "arrays", "constants", "indirect variable", "24-bit float"],
+    "summary": "WORD is the default 16-bit type, BYTE is 8-bit, and the X1Pen compiler adds 24-bit FLOAT. VAR declares variables, ARRAY allocates indexed storage, and CONST defines compile-time values.",
+    "syntax": [
+      "VAR A, BYTE B, FLOAT F;",
+      "VAR BYTE P[]:$C000;",
+      "ARRAY BYTE BUFFER[255];",
+      "ARRAY FLOAT VALUES[3]={1.0, 2.0, 3.0, 4.0};",
+      "CONST SCREEN=$D000;"
+    ],
+    "notes": [
+      "ARRAY T NAME[n] allocates indexes 0 through n, so it contains n+1 elements.",
+      "BYTE uses 1 byte in static storage. Local BYTE and WORD values occupy 2-byte argument/local slots; FLOAT occupies 3 bytes.",
+      "Integer values convert to FLOAT automatically. Convert FLOAT to an integer explicitly with FTOI.",
+      "A VAR declared with [] is indirect: its value is treated as the base address for indexed memory access."
+    ],
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"]
+  },
+  {
+    "id": "slang.functions.typed",
+    "language": "slang",
+    "kind": "syntax",
+    "title": "Functions, arguments and return types",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["function", "RETURN", "typed arguments", "FLOAT return", "local variables"],
+    "summary": "Functions can declare BYTE, WORD or FLOAT parameters and return types. WORD is the default; FLOAT functions return a 24-bit value and require explicit FTOI conversion when consumed as an integer.",
+    "syntax": [
+      "SQUARE(X) BEGIN RETURN(X*X); END;",
+      "FSQUARE:FLOAT(FLOAT X) BEGIN RETURN(X*X); END;",
+      "RETURN;",
+      "RETURN(expression);",
+      "END(expression);"
+    ],
+    "notes": [
+      "Typed functions enforce argument counts and types. Legacy untyped declarations retain looser compatibility behavior.",
+      "WORD return values use HL; FLOAT return values use AHL.",
+      "Declarations before a function block are static. Declarations inside the block are dynamic locals, limited to 240 bytes per function."
+    ],
+    "examples": [
+      {
+        "title": "Typed integer function",
+        "source": "DOUBLE(WORD X) BEGIN\n  RETURN(X*2);\nEND;\n\nMAIN() BEGIN\n  PRINT(DOUBLE(21), /);\nEND;"
+      }
+    ],
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"]
+  },
+  {
+    "id": "slang.machine.calling-convention",
+    "language": "slang",
+    "kind": "runtime",
+    "title": "MACHINE declarations and calling convention",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["external routine", "register arguments", "Z80", "HL DE BC", "machine function"],
+    "summary": "MACHINE binds a SLANG function name to an external Z80 routine. Argument count controls whether values are passed in registers or on the stack.",
+    "syntax": [
+      "MACHINE MON(0):$1F8E;",
+      "MACHINE ROUTINE(2):address;",
+      "MACHINE VARARGS():address;"
+    ],
+    "notes": [
+      "0 arguments: CALL only. 1: HL. 2: HL then DE. 3: HL, DE and BC. 4 or more: stack.",
+      "If the argument count is omitted, arguments go on the stack and HL receives the argument count.",
+      "MACHINE functions return WORD only in this compiler snapshot; a FLOAT return annotation is rejected."
+    ],
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"]
+  },
+  {
+    "id": "slang.control.flow",
+    "language": "slang",
+    "kind": "syntax",
+    "title": "IF, loops, CASE, EXIT and CONTINUE",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["IF ELSE", "FOR NEXT", "WHILE WEND", "REPEAT UNTIL", "LOOP", "CASE", "break"],
+    "summary": "SLANG supports structured conditionals and loops, CASE selection, EXIT, multi-level EXIT(n), and CONTINUE.",
+    "syntax": [
+      "IF expression [THEN] statement [ELSE statement] [ENDIF;]",
+      "FOR variable=first TO last [DO] statement [NEXT;]",
+      "FOR variable=first DOWNTO last [DO] statement [NEXT;]",
+      "WHILE expression [DO] statement [WEND;]",
+      "REPEAT statement UNTIL expression;",
+      "LOOP statement;",
+      "EXIT;  EXIT(n);  CONTINUE;"
+    ],
+    "notes": [
+      "FOR is do-while-like: its body executes before the end value is tested. A range that already passed its end can still execute once.",
+      "CASE tests clauses from top to bottom and exits after the first match. Clauses may contain a value, a range with TO, or comma-separated values.",
+      "ELSE IF may also be written ELSEIF or EF."
+    ],
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"]
+  },
+  {
+    "id": "slang.expressions.operators",
+    "language": "slang",
+    "kind": "syntax",
+    "title": "Operators and signed arithmetic",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["operator precedence", "signed operators", "dot operators", "compound assignment", "logical and or"],
+    "summary": "Ordinary integer arithmetic and comparisons are unsigned where relevant. Dot operators provide signed multiply, divide, shifts and comparisons; the X1Pen compiler also supports logical &&/|| and compound assignments.",
+    "syntax": [
+      "+ - * / MOD << >> AND OR XOR",
+      ".*. ./. .MOD. .<<. .>>. .<. .<=. .>. .>=.",
+      "== <> != < <= > >=",
+      "&& ||",
+      "+= -= *= /=",
+      "condition ? value1 : value2"
+    ],
+    "notes": [
+      "AND, OR and XOR have lower precedence than comparison operators in the historical precedence table; use parentheses for clarity.",
+      "Relation results use TRUE=1 and FALSE=0.",
+      "The ampersand address operator returns the address of a variable or array element."
+    ],
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"]
+  },
+  {
+    "id": "slang.preprocessor.includes",
+    "language": "slang",
+    "kind": "syntax",
+    "title": "Preprocessor, includes and environment constants",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["#INCLUDE", "#IF", "#ELSE", "#ENDIF", "#MODULE", "ENV_TYPE", "OS_TYPE"],
+    "summary": "Use #INCLUDE for bundled libraries and #IF for environment-dependent code. X1Pen compiles for ENV_TYPE=1, the LSX-Dodgers environment.",
+    "syntax": [
+      "#INCLUDE GRAPHF.LIB",
+      "#IF ENV_TYPE == 1",
+      "...",
+      "#ELSE",
+      "...",
+      "#ENDIF"
+    ],
+    "notes": [
+      "X1Pen sets ENV_TYPE to 1 and uses a default ORG of $0100.",
+      "The compiler supports include nesting up to 8 levels.",
+      "X1Pen bundles GRAPH.LIB, GRAPHF.LIB, SOROBAN.LIB, CHIPLIB.LIB, SPRLIB.LIB, TILELIB.LIB, TILESPR.LIB and UILIB.LIB. Other local files are not available through the browser VFS."
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md",
+      "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen.js"
+    ]
+  },
+  {
+    "id": "slang.output.print-strings",
+    "language": "slang",
+    "kind": "runtime",
+    "title": "PRINT formatting, strings and escapes",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["PRINT", "FORM$", "HEX2$", "HEX4$", "MSX$", "newline", "string escape"],
+    "summary": "PRINT accepts strings, numbers and formatting items. A slash emits a newline; string literals are zero-terminated addresses and support X1/S-OS control escapes.",
+    "syntax": [
+      "PRINT(\"VALUE=\", VALUE, /);",
+      "PRINT(HEX4$(ADDRESS), /);",
+      "PRINT(MSX$(POINTER));",
+      "'\\N'  '\\/'  '\\C'  '\\R'  '\\L'  '\\U'  '\\D'  '\\0'"
+    ],
+    "notes": [
+      "Common formatters include FORM$, DECI$, PN$, HEX2$, HEX4$, MSG$, MSX$, STR$, CHR$, SPC$, CR$ and TAB$.",
+      "The newline escape is backslash-N or backslash-slash and has value $0D. Backslash-C is clear-screen control $0C."
+    ],
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"]
+  },
+  {
+    "id": "slang.machine.system-access",
+    "language": "slang",
+    "kind": "runtime",
+    "title": "System arrays, registers and core runtime functions",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["MEM", "MEMW", "PORT", "PORTW", "SOS", "registers", "BIT SET RESET", "MEMCPY MEMSET"],
+    "summary": "SLANG exposes byte/word memory and port arrays, S-OS work arrays, Z80 register variables, and core helper routines supplied by the X1Pen runtime.",
+    "syntax": [
+      "MEM[address]  MEMW[address]",
+      "PORT[port]  PORTW[port]",
+      "SOS[index]  SOSW[index]",
+      "^A ^AF ^BC ^DE ^HL ^IX ^IY ^SP ^CARRY ^ZERO",
+      "BIT(value,n) SET(value,n) RESET(value,n)",
+      "MEMCPY(destination,source,length) MEMSET(destination,value,length)",
+      "ABS(value) SGN(value) SEX(value) RND(limit) MIN(a,b) MAX(a,b)"
+    ],
+    "notes": [
+      "CALL and GETREG exchange values through registered Z80 register variables.",
+      "@KBUFF is the address of the keyboard input buffer."
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md",
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/core.asm"
+    ]
+  },
+  {
+    "id": "slang.runtime.lsx-io-files",
+    "language": "slang",
+    "kind": "x1-extension",
+    "title": "X1Pen LSX input and file runtime",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["INKEY", "INPUT", "GETL", "GETLIN", "LINPUT", "FOPEN", "FSEEK", "FGETC", "FPUTC", "FCLOSE", "FREAD", "FWRITE"],
+    "summary": "The X1Pen LSX runtime provides keyboard/line input and LSX file operations in addition to the core SLANG functions.",
+    "syntax": [
+      "INKEY(mode)",
+      "INPUT()",
+      "GETL(address)",
+      "GETLIN(address,length)",
+      "LINPUT(address,length)",
+      "FOPEN(...) FSEEK(...) FGETC(...) FPUTC(...) FCLOSE(...) FREAD(...) FWRITE(...)"
+    ],
+    "notes": [
+      "File APIs are low-level LSX runtime bindings. Search for the exact function name, inspect compiler diagnostics, and validate against the bundled runtime before relying on an argument convention.",
+      "INKEY takes one mode argument; INPUT takes none; GETL takes one; GETLIN and LINPUT take two."
+    ],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/liblsx_input.asm",
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/liblsx_file.asm"
+    ]
+  },
+  {
+    "id": "slang.x1.pcg-definition",
+    "language": "slang",
+    "kind": "x1-extension",
+    "title": "Defining X1 PCG characters with PCGDEF and PCGDEFS",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["PCGDEF", "PCGDEFS", "programmable character generator", "BRG", "24-byte tile", "game graphics", "glyph"],
+    "summary": "The X1Pen runtime defines one PCG glyph with PCGDEF or a consecutive range with PCGDEFS. Each 8x8 glyph is a 24-byte Blue/Red/Green interleaved bitmap.",
+    "syntax": [
+      "WIDTH(40);",
+      "PCGDEF(index, patternAddress);",
+      "PCGDEFS(startIndex, patternAddress, count);",
+      "PRINT(CHR$(index));"
+    ],
+    "notes": [
+      "Call WIDTH before PCGDEF/PCGDEFS because PCG setup depends on 40- or 80-column mode.",
+      "Pattern format is 8 rows x 3 bytes. Each row is Blue, Red, Green; bit 7 is the leftmost pixel.",
+      "PCGDEFS advances the source pointer by 24 and the character index by 1 for every glyph.",
+      "Hardware registration consumes one vertical blank per glyph, approximately count/60 seconds for PCGDEFS. Load assets during initialization, not every frame.",
+      "After registration the source pattern buffer can be reused. TILELIB map and index arrays, by contrast, remain referenced during drawing.",
+      "PCG indexes are 0 through 255 and share the text character-code space."
+    ],
+    "examples": [
+      {
+        "title": "Define and display a blue PCG glyph",
+        "source": "ARRAY BYTE GLYPH[] = {\n  $3C,0,0, $7E,0,0, $DB,0,0, $FF,0,0,\n  $A5,0,0, $FF,0,0, $66,0,0, $3C,0,0\n};\n\nMAIN() BEGIN\n  WIDTH(40);\n  PCGDEFS(128, GLYPH, 1);\n  PRINT(CHR$(128), /);\nEND;"
+      }
+    ],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/libx1_pcg.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/examples/tile/README.md"
+    ]
+  },
+  {
+    "id": "slang.include.tile-sprite",
+    "language": "slang",
+    "kind": "library",
+    "title": "TILELIB, SPRLIB and TILESPR APIs",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["tile map", "sprite", "scroll", "animation", "TILE_SYNC_SPR_PAGE"],
+    "summary": "X1Pen bundles a PCG tile-map library, a software-sprite library and a helper that synchronizes their double-buffer pages.",
+    "syntax": [
+      "#INCLUDE TILELIB.LIB",
+      "TILE_INIT() TILE_FILL_MAP() TILE_SET_MAP(3 args) TILE_SET_MAPSIZE(2 args)",
+      "TILE_SET_SCROLL(2 args) TILE_SET_ANIM(1 arg) TILE_SET_ANIM_RATE(2 args) TILE_ANIM_TICK()",
+      "TILE_SET_PAGE(1 arg) TILE_SET_OFS(2 args) TILE_SET_SIZE(2 args) TILE_INVALIDATE()",
+      "#INCLUDE SPRLIB.LIB",
+      "SPR_INIT() SPR_SET_PATTERN(2 args) SPR_SET_POS(3 args) SPR_SET_SHOW(2 args) SPR_IS_ACTIVE(1 arg) SPR_UPDATE()",
+      "#INCLUDE TILESPR.LIB",
+      "TILE_SYNC_SPR_PAGE()"
+    ],
+    "notes": [
+      "Initialize each subsystem before setting maps, patterns or positions. Call animation/update functions from the program's frame loop.",
+      "TILELIB uses 8x8 PCG glyphs as tiles. Four tile indexes in TL, TR, BL, BR order form one 16x16 super-chip; the map stores one super-chip number per byte.",
+      "Recommended setup order: WIDTH(40), PCGDEFS, TILE_INIT, TILE_SET_MAP, TILE_SET_MAPSIZE, optional animation setup, then TILE_FILL_MAP.",
+      "TILE_SET_MAP(map,index,0) keeps pointers to both arrays; keep them alive. Its third argument is reserved and must be 0.",
+      "TILE_SET_SCROLL uses character units (8 pixels). TILE_SET_MAPSIZE uses super-chip units. TILE_SET_SIZE uses character units and an even width is recommended.",
+      "For animation, reserve consecutive groups of up to four PCG indexes, set the threshold with TILE_SET_ANIM, call TILE_ANIM_TICK from VSYNC_PROC, and call TILE_FILL_MAP each frame.",
+      "The signatures list parameter counts because the libraries bind their public calls with MACHINE declarations; consult the library source for argument meaning and memory layout."
+    ],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_include/TILELIB.LIB",
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_include/SPRLIB.LIB",
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_include/TILESPR.LIB"
+    ]
+  },
+  {
+    "id": "slang.include.chiplib",
+    "language": "slang",
+    "kind": "library",
+    "title": "CHIPLIB tile-chip and sprite APIs",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["CHIP_INIT", "CHIP_DRAW", "CHIP_SET_MAP", "CHIP_SET_SCROLL", "CHIP_SPR"],
+    "summary": "CHIPLIB exposes a compact tile-chip renderer, animation controls and a small sprite composition interface.",
+    "syntax": [
+      "#INCLUDE CHIPLIB.LIB",
+      "CHIP_INIT() CHIP_DRAW_VVRAM() CHIP_FILL_MAP()",
+      "CHIP_DRAW(3 args) CHIP_MASK_DRAW(3 args)",
+      "CHIP_SET_OFS(2 args) CHIP_SET_SIZE(2 args) CHIP_SET_MAP(3 args) CHIP_SET_MAPSIZE(2 args)",
+      "CHIP_SET_SCROLL(2 args) CHIP_SET_VVRAMSIZE(2 args)",
+      "CHIP_SET_ANIM(1 arg) CHIP_SET_ANIM_RATE(2 args) CHIP_ANIM_TICK()",
+      "CHIP_SPR_START() CHIP_SPR_POS(2 args) CHIP_SPR_ADD(3 args) CHIP_SPR_FLASH(1 arg)"
+    ],
+    "notes": [
+      "Call CHIP_INIT before drawing. Configure offsets, sizes, map and VVRAM dimensions before the main draw loop.",
+      "The public declarations specify argument counts; use the bundled CHIPLIB.LIB comments and validation to confirm each argument's units."
+    ],
+    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_include/CHIPLIB.LIB"]
+  },
+  {
+    "id": "slang.include.ui",
+    "language": "slang",
+    "kind": "library",
+    "title": "UILIB text UI API",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["UI_AT", "UI_SET_COLOR", "UI_PUTC", "UI_PUTS", "UI_FILL", "UI_BOX", "UI_FONT_ADDR"],
+    "summary": "UILIB provides cursor positioning, color, character/string output, fill and box operations for compact text-oriented interfaces.",
+    "syntax": [
+      "#INCLUDE UILIB.LIB",
+      "UI_AT(x,y)",
+      "UI_SET_COLOR(color)",
+      "UI_PUTC(character)",
+      "UI_PUTS(address)",
+      "UI_FILL(2 args)",
+      "UI_BOX(2 args)",
+      "UI_FONT_ADDR()"
+    ],
+    "notes": [
+      "UI_PUTS receives an address, normally a zero-terminated SLANG string literal or buffer.",
+      "The fill and box calls use compact packed arguments defined by UILIB; inspect its comments when constructing nontrivial layouts."
+    ],
+    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_include/UILIB.LIB"]
+  },
+  {
+    "id": "slang.include.graph-soroban",
+    "language": "slang",
+    "kind": "library",
+    "title": "GRAPH, GRAPHF and SOROBAN libraries",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["3D graphics", "floating point", "LINEC", "CIRCLEC", "SOROBAN", "trigonometry"],
+    "summary": "GRAPH provides the historical geometry package, GRAPHF adds FLOAT/color variants, and SOROBAN provides the older software numeric package.",
+    "syntax": [
+      "#INCLUDE GRAPH.LIB",
+      "@INIT(...) @CLS(...) @MODE(...) @PALET(...) @WINDOW(...) @LINE(...) @SPLINE(...) @BOX(...) @TRIANGLE(...) @FULL(...) @CIRCLE(...) ",
+      "#INCLUDE GRAPHF.LIB",
+      "@LINEC(...) @SPLINEC(...) @BOXC(...) @TRIANGLEC(...) @FULLC(...) @CIRCLEC(...) ",
+      "#INCLUDE SOROBAN.LIB"
+    ],
+    "notes": [
+      "GRAPH and GRAPHF are substantial packages with shared global buffers and compile-time feature switches; start from their headers and initialization routines rather than mixing calls blindly.",
+      "Prefer GRAPHF and native FLOAT for new X1Pen programs that need floating-point calculations. SOROBAN remains useful for compatibility with older SLANG sources.",
+      "SOROBAN includes single/double numeric operations, conversion, comparison, arithmetic, square root, trigonometric, exponential and logarithmic routines."
+    ],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_include/GRAPH.LIB",
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_include/GRAPHF.LIB",
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_include/SOROBAN.LIB"
+    ]
+  },
+  {
+    "id": "slang.x1pen.build-profile",
+    "language": "slang",
+    "kind": "profile",
+    "title": "X1Pen compiler and LSX-Dodgers build profile",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["compiler revision", "c9e8f53", "ENV_TYPE 1", "ORG 0100", "generated ASM", "LSX"],
+    "summary": "X1Pen uses SLANG compiler snapshot c9e8f53, compiles with ENV_TYPE=1 and default ORG=$0100, assembles the generated Z80 source, then runs it under LSX-Dodgers.",
+    "syntax": [
+      "ENV_TYPE = 1",
+      "default ORG = $0100",
+      "sourceMode = slang"
+    ],
+    "notes": [
+      "The ASM editor content is generated output in SLANG mode. Edit the SLANG source, not the generated ASM.",
+      "x1pen_validate compiles SLANG and assembles its generated output without running it.",
+      "The MCP reference profile is tied to the exact compiler commit c9e8f5315d8d44a413368045d78439a4ec8da3fc."
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/tree/c9e8f5315d8d44a413368045d78439a4ec8da3fc",
+      "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen.js"
+    ]
+  },
+  {
+    "id": "slang.limits.gotchas",
+    "language": "slang",
+    "kind": "limits",
+    "title": "Compiler limits and common mistakes",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "aliases": ["limitations", "errors", "gotchas", "array size", "whitespace", "FOR executes once"],
+    "summary": "Keep function names attached to '(', array names attached to '[', remember that array bounds are inclusive, and stay within compiler nesting and storage limits.",
+    "syntax": [
+      "CALL()     // valid",
+      "CALL ()    // invalid",
+      "ARRAY BYTE A[9];  // A[0] through A[9], ten elements"
+    ],
+    "notes": [
+      "Dynamic local area: 240 bytes per function. Argument work: up to 8 arguments. Loop nesting: 16 levels.",
+      "Maximum source line length: 255 characters. Maximum name length: 32 characters. Include nesting: 8 levels.",
+      "FOR executes its body before checking the end condition.",
+      "FLOAT-to-integer conversion is not implicit; use FTOI.",
+      "Validate frequently because included libraries consume memory and may impose initialization or buffer-address requirements not expressed by the language type system."
+    ],
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"]
+  }
+]

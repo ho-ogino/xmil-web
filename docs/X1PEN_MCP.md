@@ -22,7 +22,7 @@ CodexのMCP設定に以下を追加します。
 ```toml
 [mcp_servers.x1pen]
 command = "npx"
-args = ["-y", "x1pen-mcp@2.1.0"]
+args = ["-y", "x1pen-mcp@2.2.0"]
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
@@ -35,7 +35,7 @@ userスコープへ登録すると、任意のプロジェクトからX1Penを�
 
 ```bash
 claude mcp add --transport stdio --scope user x1pen -- \
-  npx -y x1pen-mcp@2.1.0
+  npx -y x1pen-mcp@2.2.0
 claude mcp list
 ```
 
@@ -47,7 +47,7 @@ claude mcp list
     "x1pen": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "x1pen-mcp@2.1.0"]
+      "args": ["-y", "x1pen-mcp@2.2.0"]
     }
   }
 }
@@ -79,6 +79,9 @@ claude mcp list
 | `x1pen_connection_info` | 拡張機能の接続情報を取得 |
 | `x1pen_list_sessions` | 接続済みX1Penタブを一覧表示 |
 | `x1pen_select_session` | 操作対象タブを選択 |
+| `x1pen_get_language_profile` | 同梱リファレンスと接続中X1Penの言語profileを確認 |
+| `x1pen_search_reference` | FuzzyBASIC / SLANGリファレンスを要約検索 |
+| `x1pen_get_reference` | 検索結果のIDを指定して詳細を上限付きで取得 |
 | `x1pen_get_program` | メタデータと明示指定した完全ソースを取得 |
 | `x1pen_get_source` | 1セクションを行範囲・文字数上限付きで取得 |
 | `x1pen_search_source` | 1セクションをリテラル検索し、限定した前後行を取得 |
@@ -91,6 +94,32 @@ claude mcp list
 | `x1pen_capture_screen` | 640x400のエミュレーター画面をPNG取得 |
 
 AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。`x1pen_set_program`と`x1pen_apply_edits`は取得済みの`revision`を要求し、途中で人間が編集していた場合は上書きを拒否します。
+
+### 言語リファレンス
+
+MCPパッケージには、X1Pen FuzzyBASIC 1.2LとX1Pen内蔵SLANGコンパイラに対応する構造化リファレンスが同梱されています。ブラウザー未接続でも検索できるため、プログラム作成前に仕様を確認できます。
+
+最初に`x1pen_get_language_profile`を呼ぶと、同梱profileを確認できます。X1Penへ接続済みなら、ブラウザーが報告したprofile IDとの互換性も返します。
+
+リファレンスは全件取得せず、`x1pen_search_reference`で必要な項目を検索します。応答は短い要約とstable IDだけです。
+
+```json
+{
+  "language": "slang",
+  "query": "tile sprite scroll",
+  "maxResults": 5
+}
+```
+
+必要な項目だけ`x1pen_get_reference`で取得します。1回に指定できるIDは10件までで、既定の応答上限は32 KiBです。
+
+```json
+{
+  "ids": ["slang.include.tile-sprite"]
+}
+```
+
+収録内容には、一般的な言語構文だけでなく、SLANGの正確なコンパイラrevision、`ENV_TYPE=1`のLSX-Dodgers環境、X1Pen同梱runtime/include API、FuzzyBASIC 1.2LのX1拡張を含みます。ゲーム開発で利用するPCGについては、FuzzyBASICの`PCGDEF` / `TCOLOR`、SLANGの`PCGDEF` / `PCGDEFS`、24-byte BRGパターン形式、TILELIBとの初期化順序まで独立項目として収録しています。代表サンプルは現在のX1Pen tokenizer/compilerで自動検証しています。未知のAPIや複雑な引数規約については、リファレンス確認後も`x1pen_validate`で検証してください。
 
 ### 大きなプログラムの扱い
 
