@@ -502,23 +502,80 @@ window.__X1PEN_MODE = true;
     }
 
     // ── キー注入 ──
+    // JoyKey では Enter が keyboard_inkey で落ちるため、合成キー送信中だけ実機 KEY_MODE を KB にする。
+    // 永続設定(localStorage)は触らない。重なった送信は参照カウントで全完了まで KB を維持する。
+
+    var syntheticKeyDepth = 0;
+    var syntheticKeyRestoreMode = null;
+
+    function enterSyntheticKeyboardMode(prevMode) {
+        if (!module || !module._js_set_key_mode || prevMode === 0) return false;
+        if (syntheticKeyDepth === 0) {
+            try {
+                module._js_set_key_mode(0);
+            } catch (e) {
+                return false;  // 切替失敗時は depth を増やさない
+            }
+            syntheticKeyRestoreMode = prevMode;
+        }
+        syntheticKeyDepth++;
+        return true;
+    }
+
+    function leaveSyntheticKeyboardMode(switched) {
+        if (!switched) return;
+        syntheticKeyDepth = Math.max(0, syntheticKeyDepth - 1);
+        if (syntheticKeyDepth === 0) {
+            var restoreMode = syntheticKeyRestoreMode;
+            syntheticKeyRestoreMode = null;
+            if (module && module._js_set_key_mode && restoreMode !== null) {
+                module._js_set_key_mode(restoreMode);
+            }
+        }
+    }
 
     function simulateKeys(keys, interval) {
-        var ms = interval || 100;
-        keys.forEach(function(vk, i) {
-            setTimeout(function() {
-                module._js_key_down(vk);
-                setTimeout(function() { module._js_key_up(vk); }, 80);
-            }, i * ms);
+        var ms = (interval === undefined) ? 100 : interval;
+        if (!keys || keys.length === 0) return Promise.resolve();
+
+        var prevMode = 0;
+        try {
+            if (window.XmilControls && window.XmilControls.getSettings) {
+                prevMode = window.XmilControls.getSettings().keyMode || 0;
+            }
+        } catch (e) {}
+
+        var switched = enterSyntheticKeyboardMode(prevMode);
+
+        return new Promise(function(resolve) {
+            keys.forEach(function(vk, i) {
+                var last = (i === keys.length - 1);
+                setTimeout(function() {
+                    try { module._js_key_down(vk); } catch (e) {}
+                    setTimeout(function() {
+                        try {
+                            module._js_key_up(vk);
+                        } finally {
+                            if (last) {
+                                try {
+                                    leaveSyntheticKeyboardMode(switched);
+                                } finally {
+                                    resolve();
+                                }
+                            }
+                        }
+                    }, 80);
+                }, i * ms);
+            });
         });
     }
 
     function simulateRunCommand() {
-        simulateKeys([0x52, 0x55, 0x4E, 0x0D], 100);  // R, U, N, Enter
+        return simulateKeys([0x52, 0x55, 0x4E, 0x0D], 100);  // R, U, N, Enter
     }
 
     function simulateProgCommand() {
-        simulateKeys([0x50, 0x52, 0x4F, 0x47, 0x0D], 50);  // P, R, O, G, Enter
+        return simulateKeys([0x50, 0x52, 0x4F, 0x47, 0x0D], 50);  // P, R, O, G, Enter
     }
 
     // ── RUN ──
