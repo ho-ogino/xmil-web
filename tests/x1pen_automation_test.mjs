@@ -71,7 +71,7 @@ after(async () => {
 test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async () => {
   const ready = await page.evaluate(() => window.X1PenAutomation.ready());
   assert.equal(ready.ready, true);
-  assert.equal(await page.evaluate(() => window.X1PenAutomation.version), 1);
+  assert.equal(await page.evaluate(() => window.X1PenAutomation.version), 2);
 
   const program = {
     sourceMode: 'basic+asm',
@@ -79,8 +79,18 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
     asm: '',
     slang: '',
   };
-  const loaded = await page.evaluate((value) => window.X1PenAutomation.setProgram(value), program);
-  assert.deepEqual(loaded, program);
+  const loaded = await page.evaluate((value) => {
+    const current = window.X1PenAutomation.getProgram();
+    return window.X1PenAutomation.setProgram(value, current.revision);
+  }, program);
+  assert.equal(loaded.basic, program.basic);
+  assert.equal(loaded.sourceMode, program.sourceMode);
+  assert.equal(loaded.revision, 1);
+  assert.equal(typeof loaded.instanceId, 'string');
+
+  const validation = await page.evaluate(() => window.X1PenAutomation.validate());
+  assert.equal(validation.ok, true);
+  assert.ok(validation.output.basicBytes > 0);
 
   await page.evaluate(() => window.XmilControls.setKeyMode(1));
   const result = await page.evaluate(() => window.X1PenAutomation.run());
@@ -104,10 +114,80 @@ test('automation operations are serialized and stale source modes are cleared', 
 
   assert.equal(programs.results[0].sourceMode, 'asm');
   assert.equal(programs.results[1].sourceMode, 'slang');
-  assert.deepEqual(programs.final, {
-    basic: '',
-    asm: '',
-    slang: 'main() BEGIN\nEND;',
-    sourceMode: 'slang',
+  assert.equal(programs.final.basic, '');
+  assert.equal(programs.final.asm, '');
+  assert.equal(programs.final.slang, 'main() BEGIN\nEND;');
+  assert.equal(programs.final.sourceMode, 'slang');
+  assert.ok(programs.final.revision > programs.results[0].revision);
+});
+
+test('revision conflicts prevent stale AI updates', async () => {
+  const result = await page.evaluate(async () => {
+    const stale = window.X1PenAutomation.getProgram().revision;
+    await window.X1PenAutomation.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT "HUMAN"' });
+    try {
+      await window.X1PenAutomation.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT "AI"' }, stale);
+      return null;
+    } catch (error) {
+      return error.message;
+    }
   });
+  assert.match(result, /Revision conflict/);
+});
+
+test('connection state and AI interaction lock are visible', async () => {
+  const locked = await page.evaluate(() => {
+    window.X1PenAutomation.setConnectionState(true);
+    const status = window.X1PenAutomation.setInteractionLocked(true, 'AI test');
+    return {
+      status,
+      panelInert: document.getElementById('editor-panel').inert,
+      overlay: document.getElementById('x1pen-automation-lock').textContent,
+      badgeHidden: document.getElementById('x1pen-mcp-status').classList.contains('hidden'),
+    };
+  });
+  assert.equal(locked.status.connected, true);
+  assert.equal(locked.status.interactionLocked, true);
+  assert.equal(locked.panelInert, true);
+  assert.equal(locked.overlay, 'AI test');
+  assert.equal(locked.badgeHidden, false);
+
+  const nested = await page.evaluate(() => {
+    window.X1PenAutomation.setInteractionLocked(true, 'Second AI operation');
+    window.X1PenAutomation.setInteractionLocked(false);
+    return {
+      status: window.X1PenAutomation.getStatus(),
+      panelInert: document.getElementById('editor-panel').inert,
+      runDisabled: document.getElementById('btn-run').disabled,
+    };
+  });
+  assert.equal(nested.status.interactionLocked, true, 'one completed operation must not release another operation lock');
+  assert.equal(nested.panelInert, true);
+  assert.equal(nested.runDisabled, true);
+
+  const unlocked = await page.evaluate(() => {
+    window.X1PenAutomation.setInteractionLocked(false);
+    window.X1PenAutomation.setConnectionState(false);
+    return {
+      status: window.X1PenAutomation.getStatus(),
+      panelInert: document.getElementById('editor-panel').inert,
+      hasSavedButtonState: document.getElementById('btn-run').dataset.mcpWasDisabled !== undefined,
+    };
+  });
+  assert.equal(unlocked.status.interactionLocked, false);
+  assert.equal(unlocked.panelInert, false);
+  assert.equal(unlocked.hasSavedButtonState, false);
+});
+
+test('automation validation and capture return structured results', async () => {
+  await page.evaluate(() => window.X1PenAutomation.setProgram({ sourceMode: 'asm', asm: 'ORG $100\nBOGUS A' }));
+  const validation = await page.evaluate(() => window.X1PenAutomation.validate());
+  assert.equal(validation.ok, false);
+  assert.equal(validation.diagnostics[0].kind, 'asm');
+  assert.equal(validation.diagnostics[0].line, 2);
+
+  const dataUrl = await page.evaluate(() => window.X1PenAutomation.captureScreen());
+  const png = Buffer.from(dataUrl.split(',')[1], 'base64');
+  assert.equal(png.readUInt32BE(16), 640);
+  assert.equal(png.readUInt32BE(20), 400);
 });

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>X1Pen Connector</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>X1Pen Connector</header>
+  <label for="port">Bridge port</label>
+  <input id="port" type="number" min="1" max="65535" value="43110">
+  <label for="code">Pairing code</label>
+  <input id="code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+  <div class="actions">
+    <button id="connect">Connect this tab</button>
+    <button id="disconnect" class="secondary">Disconnect</button>
+  </div>
+  <p id="status" role="status">Not connected</p>
+  <ul id="sessions"></ul>
+  <script src="popup.js"></script>
+</body>
+</html>

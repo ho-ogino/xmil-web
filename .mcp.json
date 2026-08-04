@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "x1pen": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["mcp/x1pen-server.mjs"]
+    }
+  }
+}

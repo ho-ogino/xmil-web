@@ -110,6 +110,16 @@
             white-space: nowrap;
         }
 
+        #x1pen-mcp-status {
+            padding: 2px 6px;
+            border: 1px solid #26734d;
+            border-radius: 3px;
+            color: #7dffb3;
+            background: #0a3d28;
+            font-size: 0.7em;
+            white-space: nowrap;
+        }
+
         /* ── メインレイアウト ── */
         #x1pen-main {
             display: flex;
@@ -124,6 +134,20 @@
             flex-direction: column;
             border-right: 1px solid #0f3460;
             min-width: 0;
+            position: relative;
+        }
+
+        #x1pen-automation-lock {
+            position: absolute;
+            inset: 0;
+            z-index: 80;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(13, 17, 23, 0.82);
+            color: #7dffb3;
+            font-size: 0.9em;
+            cursor: wait;
         }
 
         #editor-tabs {
@@ -566,6 +590,7 @@
 <body>
     <div id="x1pen-toolbar">
         <span class="brand">X1Pen</span>
+        <span id="x1pen-mcp-status" class="hidden">MCP Connected</span>
         <button id="btn-run" disabled title="Ctrl+Enter">&#x25B6; RUN</button>
         <button id="btn-stop" title="Escape">&#x25A0; STOP</button>
         <button id="btn-dev-reload" class="hidden" title="Reload cached X1Pen assets">Reload Assets</button>
@@ -581,6 +606,7 @@
     </div>
     <div id="x1pen-main">
         <div id="editor-panel">
+            <div id="x1pen-automation-lock" class="hidden">AI is editing...</div>
             <div id="editor-tabs">
                 <button class="editor-tab active" data-tab="basic">BASIC</button>
                 <button class="editor-tab" data-tab="asm">ASM</button>

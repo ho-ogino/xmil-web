@@ -28,6 +28,25 @@ window.__X1PEN_MODE = true;
     automationReadyPromise.catch(function() {});
     var automationOperationQueue = Promise.resolve();
     var automationPendingOperations = 0;
+    var automationRevision = 0;
+    var automationConnected = false;
+    var automationInteractionLocked = false;
+    var automationInteractionLockDepth = 0;
+    var automationInstanceId = (function() {
+        try {
+            var saved = sessionStorage.getItem('x1pen_automation_instance_id');
+            if (saved) return saved;
+            var created = crypto.randomUUID();
+            sessionStorage.setItem('x1pen_automation_instance_id', created);
+            return created;
+        } catch(e) {
+            return 'x1pen-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        }
+    })();
+
+    function markProgramChanged() {
+        automationRevision++;
+    }
 
     // ── FuzzyBASIC addrmap ──
 
@@ -364,7 +383,7 @@ window.__X1PEN_MODE = true;
         { language: 'basic',
           showLineNumbers: false,
           placeholder: '10 PRINT "HELLO WORLD"\n20 GOTO 10',
-          onChange: function(text) { try { localStorage.setItem(LS_EDITOR_BASIC, text); } catch(e) {} },
+          onChange: function(text) { markProgramChanged(); try { localStorage.setItem(LS_EDITOR_BASIC, text); } catch(e) {} },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
     );
@@ -374,7 +393,7 @@ window.__X1PEN_MODE = true;
         { language: 'asm',
           showLineNumbers: true,
           placeholder: '; Z80 Assembly\nORG 0E000h\n    LD A,042h\n    RET',
-          onChange: function(text) { lastAsmTabOrigin = 'user'; try { localStorage.setItem(LS_EDITOR_ASM, text); } catch(e) {} },
+          onChange: function(text) { markProgramChanged(); lastAsmTabOrigin = 'user'; try { localStorage.setItem(LS_EDITOR_ASM, text); } catch(e) {} },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
     );
@@ -385,7 +404,7 @@ window.__X1PEN_MODE = true;
         { language: 'slang',
           showLineNumbers: true,
           placeholder: '// SLANG program\nVAR x = 42;\nmain() BEGIN\n  PRINT(x);\nEND;',
-          onChange: function(text) { try { localStorage.setItem(LS_EDITOR_SLANG, text); } catch(e) {} },
+          onChange: function(text) { markProgramChanged(); try { localStorage.setItem(LS_EDITOR_SLANG, text); } catch(e) {} },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
     );
@@ -597,6 +616,62 @@ window.__X1PEN_MODE = true;
         return 'basic+asm';
     }
 
+    async function ensureSlangToolchain() {
+        if (!window.X1PenSlangCompiler) {
+            await new Promise(function(resolve, reject) {
+                var s = document.createElement('script');
+                s.src = 'x1pen_slang_compiler.js' + ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
+                s.onload = resolve;
+                s.onerror = function() { reject(new Error('Failed to load SLANG compiler')); };
+                document.head.appendChild(s);
+            });
+        }
+        if (window._slangRuntimeVFS) return;
+
+        var runtimeFiles = [
+            'runtime.asm', 'core.asm', 'opt.asm', 'libfloat.asm',
+            'liblsx_base.asm', 'libx1_base.asm', 'libx1_grp.asm',
+            'liblsx_input.asm', 'libx1_print.asm', 'liblsx_file.asm',
+            'libx1_pcg.asm', 'libmag.asm', 'libm8a.asm', 'libx1_psg.asm',
+            'libcompress.asm', 'libsoroban.asm', 'libx1_magic.asm', 'libx1_sgl_lsx.asm',
+        ];
+        var includeFiles = [
+            'GRAPH.LIB', 'GRAPHF.LIB', 'SOROBAN.LIB',
+            'CHIPLIB.LIB', 'SPRLIB.LIB', 'TILELIB.LIB', 'TILESPR.LIB', 'UILIB.LIB',
+        ];
+        var vfs = {};
+        var vBust = (XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '';
+        for (var ri = 0; ri < runtimeFiles.length; ri++) {
+            try {
+                var resp = await fetch('slang_runtime/' + runtimeFiles[ri] + vBust);
+                if (resp.ok) vfs[runtimeFiles[ri]] = await resp.text();
+            } catch(e) { /* optional file */ }
+        }
+        for (var ii = 0; ii < includeFiles.length; ii++) {
+            try {
+                var iresp = await fetch('slang_include/' + includeFiles[ii] + vBust);
+                if (iresp.ok) vfs[includeFiles[ii]] = await iresp.text();
+            } catch(e) { /* optional file */ }
+        }
+        window._slangRuntimeVFS = vfs;
+    }
+
+    async function getPredefinedSymbols(coldStateFile) {
+        var predefined = { OS_TYPE: 0, ENV_TYPE: 1 };
+        var versions = await loadAddrmapVersions();
+        var verName = COLD_STATE_VERSION[coldStateFile];
+        if (!versions || !verName || !versions[verName]) return predefined;
+
+        var ver = versions[verName];
+        var groups = [ver.user_hooks, ver.sound, ver.graphics];
+        for (var gi = 0; gi < groups.length; gi++) {
+            var group = groups[gi];
+            if (!group) continue;
+            for (var key in group) predefined[key] = parseInt(group[key], 16);
+        }
+        return predefined;
+    }
+
     // ── RUN ──
 
     async function onRunClick() {
@@ -623,51 +698,11 @@ window.__X1PEN_MODE = true;
         // SLANG → コンパイル → ASM に変換
         if (sourceMode === 'slang') {
             elStatus.textContent = 'Compiling SLANG...';
-            // 遅延ロード: SLANG コンパイラが未ロードなら動的ロード
-            if (!window.X1PenSlangCompiler) {
-                try {
-                    await new Promise(function(resolve, reject) {
-                        var s = document.createElement('script');
-                        s.src = 'x1pen_slang_compiler.js' + ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
-                        s.onload = resolve;
-                        s.onerror = function() { reject(new Error('Failed to load SLANG compiler')); };
-                        document.head.appendChild(s);
-                    });
-                } catch(e) {
-                    elStatus.textContent = e.message;
-                    return false;
-                }
-            }
-            // ランタイム .asm ファイルを virtualFS にロード (初回のみ fetch)
-            if (!window._slangRuntimeVFS) {
-                elStatus.textContent = 'Loading SLANG runtime...';
-                var runtimeFiles = [
-                    'runtime.asm', 'core.asm', 'opt.asm', 'libfloat.asm',
-                    'liblsx_base.asm', 'libx1_base.asm', 'libx1_grp.asm',
-                    'liblsx_input.asm', 'libx1_print.asm', 'liblsx_file.asm',
-                    'libx1_pcg.asm', 'libmag.asm', 'libm8a.asm', 'libx1_psg.asm',
-                    'libcompress.asm', 'libsoroban.asm', 'libx1_magic.asm', 'libx1_sgl_lsx.asm',
-                ];
-                var vfs = {};
-                var vBust = (XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '';
-                for (var ri = 0; ri < runtimeFiles.length; ri++) {
-                    try {
-                        var resp = await fetch('slang_runtime/' + runtimeFiles[ri] + vBust);
-                        if (resp.ok) vfs[runtimeFiles[ri]] = await resp.text();
-                    } catch(e) { /* optional file */ }
-                }
-                // インクルードファイルも読み込み
-                var includeFiles = [
-                    'GRAPH.LIB', 'GRAPHF.LIB', 'SOROBAN.LIB',
-                    'CHIPLIB.LIB', 'SPRLIB.LIB', 'TILELIB.LIB', 'TILESPR.LIB', 'UILIB.LIB',
-                ];
-                for (var ii = 0; ii < includeFiles.length; ii++) {
-                    try {
-                        var iresp = await fetch('slang_include/' + includeFiles[ii] + vBust);
-                        if (iresp.ok) vfs[includeFiles[ii]] = await iresp.text();
-                    } catch(e) { /* optional file */ }
-                }
-                window._slangRuntimeVFS = vfs;
+            try {
+                await ensureSlangToolchain();
+            } catch(e) {
+                elStatus.textContent = e.message;
+                return false;
             }
 
             // X1 環境固定 (ENV_TYPE: 0=CP/M, 1=LSX-Dodgers, 2=MSX-DOS)
@@ -691,6 +726,7 @@ window.__X1PEN_MODE = true;
             if (asmEditor) {
                 asmEditor.setValue(asmSrc, { silent: true });
                 lastAsmTabOrigin = 'slang-generated';
+                markProgramChanged();
             }
             elStatus.textContent = 'SLANG compiled (' + asmSrc.split('\n').length + ' lines)';
         }
@@ -765,24 +801,7 @@ window.__X1PEN_MODE = true;
 
         // 4. ASM アセンブル (タブに内容がある場合)
         //    addrmap から predefined symbols を構築
-        var predefined = {
-            OS_TYPE: 0,   // 0=LSX-Dodgers, 1=S-OS
-            ENV_TYPE: 1,  // 0=CP/M, 1=LSX-Dodgers(X1), 2=MSX-DOS
-        };
-        var versions = await loadAddrmapVersions();
-        var verName = COLD_STATE_VERSION[actualColdState];
-        if (versions && verName && versions[verName]) {
-            var ver = versions[verName];
-            if (ver.user_hooks) {
-                for (var k in ver.user_hooks) predefined[k] = parseInt(ver.user_hooks[k], 16);
-            }
-            if (ver.sound) {
-                for (var k in ver.sound) predefined[k] = parseInt(ver.sound[k], 16);
-            }
-            if (ver.graphics) {
-                for (var k in ver.graphics) predefined[k] = parseInt(ver.graphics[k], 16);
-            }
-        }
+        var predefined = await getPredefinedSymbols(actualColdState);
 
         var asmResult = null;
         if (asmSrc) {
@@ -1058,7 +1077,9 @@ window.__X1PEN_MODE = true;
             basic: basic,
             asm: asm,
             slang: slang,
-            sourceMode: inferSourceMode(basic.trim(), asm.trim(), slang.trim())
+            sourceMode: inferSourceMode(basic.trim(), asm.trim(), slang.trim()),
+            revision: automationRevision,
+            instanceId: automationInstanceId
         };
     }
 
@@ -1102,7 +1123,10 @@ window.__X1PEN_MODE = true;
         return { basic: basic, asm: asm, slang: slang, sourceMode: sourceMode };
     }
 
-    function setAutomationProgram(program) {
+    function setAutomationProgram(program, expectedRevision) {
+        if (expectedRevision !== undefined && expectedRevision !== automationRevision) {
+            throw new Error('Revision conflict: expected ' + expectedRevision + ', current ' + automationRevision);
+        }
         var normalized = normalizeAutomationProgram(program);
         basicEditor.setValue(normalized.basic, { silent: true });
         if (asmEditor) asmEditor.setValue(normalized.asm, { silent: true });
@@ -1110,19 +1134,150 @@ window.__X1PEN_MODE = true;
         lastAsmTabOrigin = normalized.asm ? 'user' : null;
         pendingShareRuntime = null;
         lastRunWasShared = false;
+        markProgramChanged();
         clearSymbols();
         forceResyncEditorTab(normalized.sourceMode === 'basic+asm' ? 'basic' : normalized.sourceMode);
         elStatus.textContent = 'Program loaded';
         return getAutomationProgram();
     }
 
+    function makeAutomationDiagnostic(kind, message, details) {
+        var diagnostic = {
+            kind: kind,
+            severity: (details && details.severity) || 'error',
+            message: String(message || 'Unknown error')
+        };
+        if (details && details.file) diagnostic.file = details.file;
+        if (details && Number.isFinite(details.line)) diagnostic.line = details.line;
+        if (details && Number.isFinite(details.column)) diagnostic.column = details.column;
+        return diagnostic;
+    }
+
+    async function validateAutomationProgram() {
+        var program = getAutomationProgram();
+        var diagnostics = [];
+        var asmSource = program.asm;
+        var generatedAsmLines = 0;
+        var asmBytes = 0;
+        var basicBytes = 0;
+
+        if (!program.basic.trim() && !program.asm.trim() && !program.slang.trim()) {
+            diagnostics.push(makeAutomationDiagnostic('program', 'Nothing to validate'));
+        }
+        if (program.sourceMode === 'slang' && diagnostics.length === 0) {
+            try {
+                await ensureSlangToolchain();
+                var slangEnv = { defaultOrg: 0x100, codeReadonly: false, defines: { ENV_TYPE: 1 } };
+                var slangResult = window.X1PenSlangCompiler.compile(program.slang.trim(), window._slangRuntimeVFS, slangEnv);
+                var slangErrors = slangResult.errors || [];
+                for (var si = 0; si < slangErrors.length; si++) {
+                    var slangError = slangErrors[si];
+                    var start = slangError.span && slangError.span.start;
+                    diagnostics.push(makeAutomationDiagnostic('slang', slangError.message || slangError, {
+                        severity: String(slangError.severity || 'error').toLowerCase(),
+                        file: start && start.fileName,
+                        line: start && start.line,
+                        column: start && start.column
+                    }));
+                }
+                asmSource = slangResult.asm || '';
+                generatedAsmLines = asmSource ? asmSource.split('\n').length : 0;
+            } catch(e) {
+                diagnostics.push(makeAutomationDiagnostic('slang', e.message));
+            }
+        }
+        if (asmSource.trim() && diagnostics.length === 0) {
+            var coldState = program.sourceMode === 'basic+asm' ? COLD_STATE_FILE : LSX_COLD_STATE;
+            var predefined = await getPredefinedSymbols(coldState);
+            var asmResult = window.X1PenZ80Asm.assemble(asmSource.trim(), predefined);
+            asmBytes = asmResult.bytes.length;
+            for (var ai = 0; ai < asmResult.errors.length; ai++) {
+                var asmError = asmResult.errors[ai];
+                diagnostics.push(makeAutomationDiagnostic('asm', asmError.msg, { line: asmError.line }));
+            }
+        }
+        if (program.sourceMode === 'basic+asm' && program.basic.trim() && diagnostics.length === 0) {
+            try {
+                basicBytes = window.X1PenTokenizer.tokenizeProgram(program.basic.trim()).length;
+            } catch(e) {
+                diagnostics.push(makeAutomationDiagnostic('basic', e.message));
+            }
+        }
+
+        return {
+            ok: diagnostics.length === 0,
+            sourceMode: program.sourceMode,
+            revision: automationRevision,
+            diagnostics: diagnostics,
+            output: {
+                basicBytes: basicBytes,
+                asmBytes: asmBytes,
+                generatedAsmLines: generatedAsmLines
+            }
+        };
+    }
+
     function getAutomationStatus() {
         return {
+            instanceId: automationInstanceId,
+            revision: automationRevision,
             ready: automationReadyState === 'ready',
             state: automationReadyState,
             busy: automationPendingOperations > 0,
+            connected: automationConnected,
+            interactionLocked: automationInteractionLocked,
+            title: document.title,
+            url: location.href,
             status: elStatus ? elStatus.textContent : ''
         };
+    }
+
+    function setAutomationConnectionState(connected, label) {
+        automationConnected = !!connected;
+        var badge = document.getElementById('x1pen-mcp-status');
+        if (badge) {
+            badge.textContent = label || 'MCP Connected';
+            badge.classList.toggle('hidden', !automationConnected);
+        }
+        return getAutomationStatus();
+    }
+
+    function setAutomationInteractionLocked(locked, label) {
+        var wasLocked = automationInteractionLocked;
+        if (locked) {
+            automationInteractionLockDepth++;
+        } else {
+            automationInteractionLockDepth = Math.max(0, automationInteractionLockDepth - 1);
+        }
+        automationInteractionLocked = automationInteractionLockDepth > 0;
+        var panel = document.getElementById('editor-panel');
+        var overlay = document.getElementById('x1pen-automation-lock');
+        if (!wasLocked && automationInteractionLocked && document.activeElement && document.activeElement.blur) {
+            document.activeElement.blur();
+        }
+        if (panel) panel.inert = automationInteractionLocked;
+        if (overlay) {
+            if (automationInteractionLocked && label) overlay.textContent = label;
+            if (!automationInteractionLocked) overlay.textContent = 'AI is editing...';
+            overlay.classList.toggle('hidden', !automationInteractionLocked);
+        }
+        var buttons = document.querySelectorAll('#x1pen-toolbar button');
+        buttons.forEach(function(button) {
+            if (!wasLocked && automationInteractionLocked) {
+                button.dataset.mcpWasDisabled = button.disabled ? '1' : '0';
+                button.disabled = true;
+            } else if (wasLocked && !automationInteractionLocked && button.dataset.mcpWasDisabled !== undefined) {
+                button.disabled = button.dataset.mcpWasDisabled === '1';
+                delete button.dataset.mcpWasDisabled;
+            }
+        });
+        return getAutomationStatus();
+    }
+
+    function captureAutomationScreen() {
+        var canvas = document.getElementById('canvas');
+        if (!canvas) throw new Error('X1Pen canvas not found');
+        return canvas.toDataURL('image/png');
     }
 
     function queueAutomationOperation(operation) {
@@ -1141,15 +1296,18 @@ window.__X1PEN_MODE = true;
     }
 
     window.X1PenAutomation = Object.freeze({
-        version: 1,
+        version: 2,
         ready: function() {
             return automationReadyPromise.then(getAutomationStatus);
         },
         getProgram: getAutomationProgram,
-        setProgram: function(program) {
+        setProgram: function(program, expectedRevision) {
             return queueAutomationOperation(function() {
-                return setAutomationProgram(program);
+                return setAutomationProgram(program, expectedRevision);
             });
+        },
+        validate: function() {
+            return queueAutomationOperation(validateAutomationProgram);
         },
         run: function() {
             return queueAutomationOperation(async function() {
@@ -1157,7 +1315,8 @@ window.__X1PEN_MODE = true;
                 return {
                     ok: ok,
                     status: elStatus ? elStatus.textContent : '',
-                    sourceMode: getAutomationProgram().sourceMode
+                    sourceMode: getAutomationProgram().sourceMode,
+                    revision: automationRevision
                 };
             });
         },
@@ -1167,7 +1326,10 @@ window.__X1PEN_MODE = true;
                 return getAutomationStatus();
             });
         },
-        getStatus: getAutomationStatus
+        getStatus: getAutomationStatus,
+        captureScreen: captureAutomationScreen,
+        setConnectionState: setAutomationConnectionState,
+        setInteractionLocked: setAutomationInteractionLocked
     });
 
     function showShareDialog(url) {
@@ -1552,6 +1714,7 @@ window.__X1PEN_MODE = true;
                     if (slangEditor) {
                         slangEditor.setValue(shared.slang || '', { silent: true });
                     }
+                    markProgramChanged();
                     // Share meta → pendingShareRuntime
                     if (shared.meta) {
                         var shareRelocAddrs = null;
