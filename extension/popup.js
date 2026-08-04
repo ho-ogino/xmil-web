@@ -1,0 +1,80 @@
+const portInput = document.getElementById('port');
+const codeInput = document.getElementById('code');
+const connectButton = document.getElementById('connect');
+const disconnectButton = document.getElementById('disconnect');
+const statusElement = document.getElementById('status');
+const sessionsElement = document.getElementById('sessions');
+
+loadState();
+
+connectButton.addEventListener('click', async () => {
+  setBusy(true);
+  try {
+    const response = await sendMessage({
+      type: 'connect-active-tab',
+      port: Number(portInput.value),
+      code: codeInput.value,
+    });
+    showStatus(`Connected: ${response.session.title}`);
+    await loadState();
+  } catch (error) {
+    showStatus(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+});
+
+disconnectButton.addEventListener('click', async () => {
+  setBusy(true);
+  try {
+    await sendMessage({ type: 'disconnect-active-tab' });
+    showStatus('Disconnected');
+    await loadState();
+  } catch (error) {
+    showStatus(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+});
+
+async function loadState() {
+  try {
+    const state = await sendMessage({ type: 'get-state' });
+    if (state.bridgeConfig) {
+      portInput.value = state.bridgeConfig.port;
+      codeInput.value = state.bridgeConfig.code;
+    }
+    sessionsElement.replaceChildren(...state.sessions.map((session) => {
+      const item = document.createElement('li');
+      item.textContent = `${session.active ? 'Active: ' : ''}${session.title}`;
+      return item;
+    }));
+    if (state.paired) showStatus(`${state.sessions.length} X1Pen tab(s) connected`);
+  } catch (error) {
+    showStatus(error.message, true);
+  }
+}
+
+function sendMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else if (!response?.ok) {
+        reject(new Error(response?.error || 'Extension request failed'));
+      } else {
+        resolve(response.result);
+      }
+    });
+  });
+}
+
+function showStatus(message, isError = false) {
+  statusElement.textContent = message;
+  statusElement.classList.toggle('error', isError);
+}
+
+function setBusy(busy) {
+  connectButton.disabled = busy;
+  disconnectButton.disabled = busy;
+}

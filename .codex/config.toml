@@ -1,0 +1,6 @@
+[mcp_servers.x1pen]
+command = "node"
+args = ["mcp/x1pen-server.mjs"]
+cwd = "."
+startup_timeout_sec = 30
+tool_timeout_sec = 60
