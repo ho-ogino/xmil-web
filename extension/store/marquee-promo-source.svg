@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="560" viewBox="0 0 1400 560">
+  <rect width="1400" height="560" fill="#10141b"/>
+  <rect x="1" y="1" width="1398" height="558" fill="none" stroke="#39414d" stroke-width="2"/>
+
+  <rect x="76" y="76" width="408" height="408" rx="48" fill="#171d26" stroke="#39414d" stroke-width="3"/>
+  <text x="280" y="326" text-anchor="middle" font-family="Arial, sans-serif" font-size="164" font-weight="700" fill="#e94560">X1</text>
+  <circle cx="411" cy="407" r="48" fill="#28a568" stroke="#171d26" stroke-width="14"/>
+  <path d="M389 407l15 15 30-36" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <text x="562" y="218" font-family="Arial, sans-serif" font-size="72" font-weight="700" fill="#ffffff">X1Pen Connector</text>
+  <text x="566" y="272" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#28a568">LOCAL MCP BRIDGE</text>
+  <text x="566" y="328" font-family="Arial, sans-serif" font-size="29" fill="#c3ccd7">FuzzyBASIC and SLANG development</text>
+
+  <rect x="566" y="374" width="174" height="64" rx="8" fill="#202733" stroke="#465160" stroke-width="2"/>
+  <text x="653" y="415" text-anchor="middle" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="#ffffff">AI CLIENT</text>
+  <path d="M756 406h70" fill="none" stroke="#e94560" stroke-width="4" stroke-linecap="round"/>
+  <path d="M816 396l12 10-12 10" fill="none" stroke="#e94560" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="844" y="374" width="184" height="64" rx="8" fill="#202733" stroke="#465160" stroke-width="2"/>
+  <text x="936" y="415" text-anchor="middle" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="#ffffff">LOCAL MCP</text>
+  <path d="M1044 406h70" fill="none" stroke="#e94560" stroke-width="4" stroke-linecap="round"/>
+  <path d="M1104 396l12 10-12 10" fill="none" stroke="#e94560" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="1132" y="374" width="174" height="64" rx="8" fill="#202733" stroke="#465160" stroke-width="2"/>
+  <text x="1219" y="415" text-anchor="middle" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="#ffffff">X1Pen</text>
+</svg>

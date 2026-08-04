@@ -21,6 +21,7 @@ done
 for size in 16 32 48 128; do
   cp "$repo_root/extension/icons/icon-$size.png" "$staging/icons/icon-$size.png"
 done
+cp -R "$repo_root/extension/_locales" "$staging/_locales"
 
 rm -f "$output"
 (cd "$staging" && zip -q -X -r "$output" .)

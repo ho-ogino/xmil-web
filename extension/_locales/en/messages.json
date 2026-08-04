@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "X1Pen Connector",
+    "description": "Extension name"
+  },
+  "extensionDescription": {
+    "message": "Connect the active X1Pen tab to a local MCP server for AI-assisted FuzzyBASIC and SLANG development.",
+    "description": "Chrome Web Store package summary"
+  },
+  "actionTitle": {
+    "message": "Connect X1Pen",
+    "description": "Toolbar action tooltip"
+  }
+}
