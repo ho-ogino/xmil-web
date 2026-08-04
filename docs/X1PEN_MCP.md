@@ -13,9 +13,44 @@ Node.js 20以降が必要です。通信はstdioと`127.0.0.1`だけを使用し
 
 ## セットアップ
 
+MCPサーバーはnpmパッケージとしてX1Pen本体から独立して配布します。MCPサーバーを動かすために、このリポジトリをcloneする必要はありません。予期しない自動更新を避けるため、設定ではバージョンを固定します。
+
+### Codex
+
+CodexのMCP設定に以下を追加します。
+
+```toml
+[mcp_servers.x1pen]
+command = "npx"
+args = ["-y", "x1pen-mcp@2.1.0"]
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+```
+
+Codexを再起動後、`codex mcp list`で登録を確認します。
+
+### Claude Code
+
+userスコープへ登録すると、任意のプロジェクトからX1Penを利用できます。
+
 ```bash
-npm ci
-./build.sh
+claude mcp add --transport stdio --scope user x1pen -- \
+  npx -y x1pen-mcp@2.1.0
+claude mcp list
+```
+
+プロジェクト単位で共有する場合は、対象プロジェクトの`.mcp.json`へ以下を追加します。初回起動時にプロジェクトMCPサーバーを承認してください。
+
+```json
+{
+  "mcpServers": {
+    "x1pen": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "x1pen-mcp@2.1.0"]
+    }
+  }
+}
 ```
 
 ### 拡張機能
@@ -25,25 +60,7 @@ npm ci
 3. Load unpackedを選択
 4. このリポジトリの`extension/`ディレクトリを指定
 
-PoC段階ではストア配布を行わないため、unpacked extensionとして読み込みます。
-
-### Codex
-
-リポジトリルートからCodexを起動すると`.codex/config.toml`がMCPサーバーを登録します。
-
-```bash
-codex mcp list
-codex
-```
-
-### Claude Code
-
-`.mcp.json`がプロジェクトMCPサーバーを登録します。初回起動時に承認してください。
-
-```bash
-claude mcp list
-claude
-```
+ストア公開前はunpacked extensionとして読み込みます。MCPサーバーのnpm配布とブラウザー拡張の配布は独立しており、拡張機能の更新にMCPパッケージの再公開は不要です。
 
 ## 接続
 
@@ -117,12 +134,22 @@ SLANG編集中のASMは生成物として読み取り・編集とも既定で保
 
 Share機能はユーザーが開いているX1Pen自身から実行するため、本番X1Pen上では既存のShare APIと公開URLをそのまま利用できます。
 
-## ローカル確認
+## 開発と公開
+
+このリポジトリでMCPサーバーを開発する場合は、ルートの`.codex/config.toml`と`.mcp.json`が`mcp/x1pen-server.mjs`を直接起動します。
+
+```bash
+npm ci
+./build.sh
+```
+
+### ローカル確認
 
 ```bash
 npm run test:automation
 npm run test:bridge
 npm run test:mcp
+npm run test:mcp-package
 ```
 
 MCPサーバー単体を起動すると、標準エラーにbridge portとpairing codeが表示されます。標準出力はMCP通信専用です。
@@ -130,6 +157,20 @@ MCPサーバー単体を起動すると、標準エラーにbridge portとpairin
 ```bash
 npm run mcp:x1pen
 ```
+
+`test:mcp-package`は`npm pack`で作ったtarballを一時ディレクトリへインストールし、リポジトリ外からMCPサーバーを起動してツール一覧を確認します。
+
+### npm公開
+
+パッケージ名は`x1pen-mcp`、公開単位は`mcp/`です。公開前に`mcp/package.json`のversionと変更内容を確認し、次を実行します。同じversionはnpmへ再公開できません。
+
+```bash
+npm whoami
+npm run test:mcp-package
+npm publish ./mcp
+```
+
+公開後は`npm view x1pen-mcp version`と`npx -y x1pen-mcp@<version> --version`で確認します。
 
 ## セキュリティ
 
