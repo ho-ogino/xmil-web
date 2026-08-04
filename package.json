@@ -3,16 +3,18 @@
   "name": "xmil-web",
   "description": "X millennium Web - SHARP X1 Emulator",
   "devDependencies": {
-    "esbuild": "^0.21.0"
+    "esbuild": "^0.21.0",
+    "playwright": "^1.62.1"
   },
   "dependencies": {
-    "@codemirror/state": "^6.0.0",
-    "@codemirror/view": "^6.0.0",
     "@codemirror/commands": "^6.0.0",
     "@codemirror/language": "^6.0.0",
-    "@codemirror/search": "^6.0.0"
+    "@codemirror/search": "^6.0.0",
+    "@codemirror/state": "^6.0.0",
+    "@codemirror/view": "^6.0.0"
   },
   "scripts": {
-    "build:editor": "esbuild src/x1pen_editor.js --bundle --outfile=html/x1pen_editor.bundle.js --format=iife --minify"
+    "build:editor": "esbuild src/x1pen_editor.js --bundle --outfile=html/x1pen_editor.bundle.js --format=iife --minify",
+    "test:automation": "node --test tests/x1pen_automation_test.mjs"
   }
 }
