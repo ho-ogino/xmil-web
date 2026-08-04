@@ -1,5 +1,6 @@
 const portInput = document.getElementById('port');
 const codeInput = document.getElementById('code');
+const consentInput = document.getElementById('consent');
 const connectButton = document.getElementById('connect');
 const disconnectButton = document.getElementById('disconnect');
 const statusElement = document.getElementById('status');
@@ -7,7 +8,10 @@ const sessionsElement = document.getElementById('sessions');
 
 loadState();
 
+consentInput.addEventListener('change', updateConnectButton);
+
 connectButton.addEventListener('click', async () => {
+  if (!consentInput.checked) return;
   setBusy(true);
   try {
     const response = await sendMessage({
@@ -75,6 +79,11 @@ function showStatus(message, isError = false) {
 }
 
 function setBusy(busy) {
-  connectButton.disabled = busy;
+  connectButton.dataset.busy = busy ? 'true' : 'false';
+  updateConnectButton();
   disconnectButton.disabled = busy;
+}
+
+function updateConnectButton() {
+  connectButton.disabled = connectButton.dataset.busy === 'true' || !consentInput.checked;
 }

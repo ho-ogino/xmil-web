@@ -1,0 +1,69 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { test } from 'node:test';
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+function run(command, args, options = {}) {
+  return execFileSync(command, args, { encoding: 'utf8', ...options });
+}
+
+function pngDimensions(buffer) {
+  assert.equal(buffer.subarray(1, 4).toString('ascii'), 'PNG');
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+test('X1Pen Connector store package is complete and minimally scoped', async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'x1pen-connector-package-'));
+  try {
+    const zipPath = join(tempRoot, 'connector.zip');
+    run('sh', ['scripts/package-x1pen-connector.sh', zipPath], { cwd: repoRoot });
+    const files = run('unzip', ['-Z1', zipPath]).trim().split('\n').sort();
+    assert.deepEqual(files, [
+      'icons/',
+      'icons/icon-128.png',
+      'icons/icon-16.png',
+      'icons/icon-32.png',
+      'icons/icon-48.png',
+      'manifest.json',
+      'popup.css',
+      'popup.html',
+      'popup.js',
+      'service-worker.js',
+    ]);
+
+    const manifest = JSON.parse(run('unzip', ['-p', zipPath, 'manifest.json']));
+    assert.equal(manifest.manifest_version, 3);
+    assert.equal(manifest.version, '1.0.0');
+    assert.deepEqual(manifest.permissions, ['activeTab', 'scripting', 'storage']);
+    assert.equal(manifest.host_permissions, undefined);
+    assert.match(manifest.content_security_policy.extension_pages, /ws:\/\/127\.0\.0\.1:\*/);
+    assert.doesNotMatch(manifest.content_security_policy.extension_pages, /https?:\/\//);
+
+    for (const size of [16, 32, 48, 128]) {
+      const icon = await readFile(join(repoRoot, `extension/icons/icon-${size}.png`));
+      assert.deepEqual(pngDimensions(icon), { width: size, height: size });
+    }
+    const promo = await readFile(join(repoRoot, 'extension/store/small-promo-440x280.png'));
+    assert.deepEqual(pngDimensions(promo), { width: 440, height: 280 });
+    const screenshot = await readFile(join(repoRoot, 'extension/store/screenshot-1280x800.png'));
+    assert.deepEqual(pngDimensions(screenshot), { width: 1280, height: 800 });
+    assert.ok(screenshot.length > 40_000, 'Store screenshot should contain the rendered X1Pen UI');
+
+    const privacy = await readFile(join(repoRoot, 'html/x1pen-connector-privacy.html'), 'utf8');
+    assert.match(privacy, /127\.0\.0\.1/);
+    assert.match(privacy, /program source/i);
+    assert.match(privacy, /AI provider/i);
+
+    const popup = await readFile(join(repoRoot, 'extension/popup.html'), 'utf8');
+    assert.match(popup, /id="consent" type="checkbox"/);
+    assert.match(popup, /x1pen-connector-privacy\.html/);
+    assert.match(popup, /id="connect" disabled/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});

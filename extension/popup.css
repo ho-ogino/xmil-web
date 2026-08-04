@@ -1,6 +1,6 @@
 * { box-sizing: border-box; }
 body {
-  width: 300px;
+  width: 340px;
   margin: 0;
   padding: 14px;
   background: #10141b;
@@ -26,6 +26,42 @@ input {
   border-radius: 4px;
   background: #171d26;
   color: #f0f3f6;
+}
+.disclosure {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #39414d;
+  border-radius: 4px;
+  background: #171d26;
+}
+.disclosure p {
+  margin: 0;
+  color: #b8c1cc;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 9px 0 0;
+  color: #e6edf3;
+  font-size: 12px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.consent input {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 1px 0 0;
+  accent-color: #28a568;
+}
+.privacy-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: #8fd8ff;
+  font-size: 11px;
 }
 .actions {
   display: flex;
