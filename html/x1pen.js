@@ -1218,6 +1218,16 @@ window.__X1PEN_MODE = true;
     }
 
     function getAutomationStatus() {
+        var sourceMode = inferSourceMode(
+            basicEditor ? basicEditor.getValue().trim() : '',
+            asmEditor ? asmEditor.getValue().trim() : '',
+            slangEditor ? slangEditor.getValue().trim() : ''
+        );
+        var activeLanguageProfile = sourceMode === 'slang'
+            ? { language: 'slang', id: 'x1pen-slang-c9e8f53-lsx' }
+            : (sourceMode === 'basic+asm'
+                ? { language: 'fuzzybasic', id: 'x1pen-fuzzybasic-1.2L' }
+                : null);
         return {
             instanceId: automationInstanceId,
             revision: automationRevision,
@@ -1228,7 +1238,23 @@ window.__X1PEN_MODE = true;
             interactionLocked: automationInteractionLocked,
             title: document.title,
             url: location.href,
-            status: elStatus ? elStatus.textContent : ''
+            status: elStatus ? elStatus.textContent : '',
+            sourceMode: sourceMode,
+            activeLanguageProfile: activeLanguageProfile,
+            languageProfiles: {
+                fuzzybasic: {
+                    id: 'x1pen-fuzzybasic-1.2L',
+                    version: COLD_STATE_VERSION[COLD_STATE_FILE],
+                    runtime: COLD_STATE_FILE
+                },
+                slang: {
+                    id: 'x1pen-slang-c9e8f53-lsx',
+                    compilerRevision: 'c9e8f5315d8d44a413368045d78439a4ec8da3fc',
+                    environment: 'lsx-dodgers',
+                    envType: 1,
+                    defaultOrg: 0x100
+                }
+            }
         };
     }
 

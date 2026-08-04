@@ -57,6 +57,16 @@ const fakeBridge = {
       return clone(currentProgram);
     }
     if (method === 'validate') return { ok: true, diagnostics: [] };
+    if (method === 'getStatus') {
+      return {
+        ready: true,
+        activeLanguageProfile: { language: 'fuzzybasic', id: 'x1pen-fuzzybasic-1.2L' },
+        languageProfiles: {
+          fuzzybasic: { id: 'x1pen-fuzzybasic-1.2L' },
+          slang: { id: 'x1pen-slang-c9e8f53-lsx' },
+        },
+      };
+    }
     if (method === 'captureScreen') return `data:image/png;base64,${Buffer.from('png').toString('base64')}`;
     return { ok: true };
   },
@@ -95,17 +105,51 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_apply_edits',
     'x1pen_capture_screen',
     'x1pen_connection_info',
+    'x1pen_get_language_profile',
     'x1pen_get_program',
+    'x1pen_get_reference',
     'x1pen_get_source',
     'x1pen_get_status',
     'x1pen_list_sessions',
     'x1pen_run',
+    'x1pen_search_reference',
     'x1pen_search_source',
     'x1pen_select_session',
     'x1pen_set_program',
     'x1pen_stop',
     'x1pen_validate',
   ]);
+});
+
+test('language reference tools search compact results and fetch selected details', async () => {
+  const searchResult = await client.callTool({
+    name: 'x1pen_search_reference',
+    arguments: { language: 'slang', query: 'TILE_SET_SCROLL' },
+  });
+  const search = jsonContent(searchResult);
+  assert.equal(search.totalMatches, 1);
+  assert.equal(search.matches[0].id, 'slang.include.tile-sprite');
+  assert.equal(search.matches[0].syntax, undefined);
+
+  const detailResult = await client.callTool({
+    name: 'x1pen_get_reference',
+    arguments: { ids: [search.matches[0].id] },
+  });
+  const detail = jsonContent(detailResult);
+  assert.equal(detail.entries[0].id, 'slang.include.tile-sprite');
+  assert.ok(detail.entries[0].syntax.some((line) => line.includes('TILE_SET_SCROLL')));
+  assert.equal(detail.truncated, false);
+});
+
+test('language profile reports bundled data and connected X1Pen compatibility', async () => {
+  const result = await client.callTool({ name: 'x1pen_get_language_profile', arguments: {} });
+  const profile = jsonContent(result);
+  assert.equal(profile.schemaVersion, 1);
+  assert.equal(profile.profiles.length, 2);
+  assert.equal(profile.active.id, 'x1pen-fuzzybasic-1.2L');
+  assert.equal(profile.reportedProfiles.slang.id, 'x1pen-slang-c9e8f53-lsx');
+  assert.equal(profile.compatible, true);
+  assert.equal(calls.at(-1).method, 'getStatus');
 });
 
 test('get_program defaults to metadata only and excludes generated ASM', async () => {

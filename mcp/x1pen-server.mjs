@@ -7,12 +7,19 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as z from 'zod/v4';
 import { X1PenBridge } from './x1pen-bridge.mjs';
+import {
+  getReferenceEntries,
+  getReferenceManifest,
+  searchReference,
+} from './x1pen-reference.mjs';
 
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const MAX_SOURCE_LENGTH = 512 * 1024;
 const DEFAULT_RANGE_CHARACTERS = 32 * 1024;
 const MAX_RANGE_CHARACTERS = 128 * 1024;
 const SOURCE_SECTIONS = ['basic', 'asm', 'slang'];
+const REFERENCE_LANGUAGES = ['fuzzybasic', 'slang'];
+const REFERENCE_KINDS = ['syntax', 'runtime', 'x1-extension', 'catalog', 'library', 'profile', 'limits'];
 
 function textResult(value) {
   return {
@@ -289,6 +296,61 @@ export function createX1PenMcpServer(options = {}) {
     inputSchema: { sessionId: z.string().min(1) },
     annotations: { openWorldHint: false },
   }, handleTool(async ({ sessionId }) => textResult(bridge.selectSession(sessionId))));
+
+  server.registerTool('x1pen_get_language_profile', {
+    description: 'List the bundled FuzzyBASIC and SLANG reference profiles and, when connected, compare them with the exact profiles reported by X1Pen.',
+    inputSchema: {
+      sessionId: sessionInput.sessionId,
+      includeActive: z.boolean().default(true)
+        .describe('Read profile IDs from the connected X1Pen tab when one is available'),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId, includeActive }) => {
+    const manifest = getReferenceManifest();
+    const result = { ...manifest, active: null, reportedProfiles: null, compatible: null };
+    if (!includeActive) return textResult(result);
+
+    const sessions = bridge.listSessions();
+    if (!sessionId && sessions.length === 0) {
+      result.note = 'Reference data is available offline; connect an X1Pen tab to identify its active profiles.';
+      return textResult(result);
+    }
+
+    const status = await bridge.sendCommand('getStatus', {}, sessionId);
+    if (!status || !status.languageProfiles) {
+      result.note = 'The connected X1Pen does not report language profile IDs. Update X1Pen to compare reference compatibility.';
+      return textResult(result);
+    }
+    result.active = status.activeLanguageProfile || null;
+    result.reportedProfiles = status.languageProfiles;
+    const bundledIds = new Set(manifest.profiles.map((profile) => profile.id));
+    const activeIds = Object.values(status.languageProfiles)
+      .map((profile) => profile && profile.id)
+      .filter(Boolean);
+    result.compatible = activeIds.every((id) => bundledIds.has(id));
+    return textResult(result);
+  }));
+
+  server.registerTool('x1pen_search_reference', {
+    description: 'Search the bundled X1Pen FuzzyBASIC and SLANG reference. Returns compact summaries and stable IDs; use x1pen_get_reference for selected details.',
+    inputSchema: {
+      query: z.string().min(1).max(1_024),
+      language: z.enum(REFERENCE_LANGUAGES).optional(),
+      profile: z.string().min(1).max(128).optional(),
+      kinds: z.array(z.enum(REFERENCE_KINDS)).min(1).max(REFERENCE_KINDS.length).optional(),
+      maxResults: z.number().int().min(1).max(20).default(8),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, handleTool(async (args) => textResult(searchReference(args))));
+
+  server.registerTool('x1pen_get_reference', {
+    description: 'Get complete reference entries for stable IDs returned by x1pen_search_reference, with a bounded response size.',
+    inputSchema: {
+      ids: z.array(z.string().min(1).max(128)).min(1).max(10),
+      maxCharacters: z.number().int().min(1).max(MAX_RANGE_CHARACTERS).default(DEFAULT_RANGE_CHARACTERS),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, handleTool(async (args) => textResult(getReferenceEntries(args))));
 
   server.registerTool('x1pen_get_program', {
     description: 'Get a compact program summary and explicitly selected complete sources. Defaults to metadata only; prefer get_source/search_source for large sources.',

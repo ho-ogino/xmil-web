@@ -41,7 +41,11 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
       'README.md',
       'THIRD_PARTY_LICENSES.md',
       'package.json',
+      'reference/fuzzybasic.json',
+      'reference/manifest.json',
+      'reference/slang.json',
       'x1pen-bridge.mjs',
+      'x1pen-reference.mjs',
       'x1pen-server.mjs',
     ]);
 
@@ -56,7 +60,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     const packageRoot = join(installRoot, 'node_modules', 'x1pen-mcp');
     const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
     assert.equal(manifest.name, 'x1pen-mcp');
-    assert.equal(manifest.version, '2.1.0');
+    assert.equal(manifest.version, '2.2.0');
     assert.deepEqual(manifest.bin, { 'x1pen-mcp': 'x1pen-server.mjs' });
 
     const serverPath = join(packageRoot, 'x1pen-server.mjs');
@@ -72,13 +76,21 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     await client.connect(transport);
 
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 13);
+    assert.equal(tools.tools.length, 16);
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_apply_edits'));
+    assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_search_reference'));
     const connection = await client.callTool({ name: 'x1pen_connection_info', arguments: {} });
     const info = JSON.parse(connection.content[0].text);
     assert.equal(info.host, '127.0.0.1');
     assert.ok(Number.isInteger(info.port));
     assert.match(info.pairingCode, /^\d{6}$/);
+
+    const reference = await client.callTool({
+      name: 'x1pen_search_reference',
+      arguments: { query: 'PROC LOCAL' },
+    });
+    const matches = JSON.parse(reference.content[0].text);
+    assert.equal(matches.matches[0].id, 'fuzzybasic.subroutines.proc');
   } finally {
     if (client) await client.close();
     await rm(tempRoot, { recursive: true, force: true });

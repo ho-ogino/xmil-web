@@ -148,6 +148,11 @@ test('connection state and AI interaction lock are visible', async () => {
   });
   assert.equal(locked.status.connected, true);
   assert.equal(locked.status.interactionLocked, true);
+  assert.equal(locked.status.languageProfiles.fuzzybasic.id, 'x1pen-fuzzybasic-1.2L');
+  assert.equal(locked.status.languageProfiles.slang.id, 'x1pen-slang-c9e8f53-lsx');
+  assert.equal(locked.status.languageProfiles.slang.envType, 1);
+  assert.equal(locked.status.sourceMode, 'basic+asm');
+  assert.equal(locked.status.activeLanguageProfile.id, 'x1pen-fuzzybasic-1.2L');
   assert.equal(locked.panelInert, true);
   assert.equal(locked.overlay, 'AI test');
   assert.equal(locked.badgeHidden, false);
