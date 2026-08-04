@@ -1,6 +1,7 @@
 # ビルド成果物
 build/
 dist/
+x1pen-mcp-*.tgz
 
 # ROM・バイナリ (著作権物)
 *.X1

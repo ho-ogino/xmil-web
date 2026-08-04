@@ -22,8 +22,10 @@
   "scripts": {
     "build:editor": "esbuild src/x1pen_editor.js --bundle --outfile=html/x1pen_editor.bundle.js --format=iife --minify",
     "mcp:x1pen": "node mcp/x1pen-server.mjs",
+    "pack:mcp": "npm pack ./mcp",
     "test:automation": "node --test tests/x1pen_automation_test.mjs",
     "test:bridge": "node --test tests/x1pen_bridge_test.mjs",
-    "test:mcp": "node --test tests/x1pen_mcp_test.mjs"
+    "test:mcp": "node --test tests/x1pen_mcp_test.mjs",
+    "test:mcp-package": "node --test tests/x1pen_mcp_package_test.mjs"
   }
 }

@@ -2,11 +2,13 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as z from 'zod/v4';
 import { X1PenBridge } from './x1pen-bridge.mjs';
 
+const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const MAX_SOURCE_LENGTH = 512 * 1024;
 const DEFAULT_RANGE_CHARACTERS = 32 * 1024;
 const MAX_RANGE_CHARACTERS = 128 * 1024;
@@ -269,7 +271,7 @@ function assertEditableSection(snapshot, section) {
 
 export function createX1PenMcpServer(options = {}) {
   const bridge = options.bridge || new X1PenBridge(options.bridgeOptions);
-  const server = new McpServer({ name: 'x1pen', version: '2.1.0' });
+  const server = new McpServer({ name: 'x1pen', version: PACKAGE.version });
   const sessionInput = { sessionId: z.string().optional().describe('Connected X1Pen instance ID; omit when one tab is connected') };
 
   server.registerTool('x1pen_connection_info', {
@@ -462,6 +464,14 @@ export function createX1PenMcpServer(options = {}) {
 }
 
 async function main() {
+  if (process.argv.includes('--version') || process.argv.includes('-v')) {
+    console.log(PACKAGE.version);
+    return;
+  }
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    console.log(`x1pen-mcp ${PACKAGE.version}\n\nLocal stdio MCP server and browser bridge for X1Pen.\n\nOptions:\n  -h, --help     Show this help\n  -v, --version  Show the package version`);
+    return;
+  }
   const { server, bridge } = createX1PenMcpServer();
   await bridge.start();
   let closing = false;
@@ -477,7 +487,16 @@ async function main() {
   console.error('[x1pen-mcp] server ready on stdio');
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve(process.argv[1]));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   main().catch((error) => {
     console.error('[x1pen-mcp] fatal:', error);
     process.exit(1);
