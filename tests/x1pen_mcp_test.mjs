@@ -1,31 +1,72 @@
 import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { after, before, test } from 'node:test';
+import { after, before, beforeEach, test } from 'node:test';
 import { createX1PenMcpServer } from '../mcp/x1pen-server.mjs';
 
-const program = {
+const initialProgram = {
   sourceMode: 'basic+asm',
-  basic: '10 PRINT "MCP"',
+  basic: '10 PRINT "MCP"\n20 END',
   asm: '',
   slang: '',
   revision: 3,
   instanceId: 'tab-a',
 };
 const calls = [];
+let currentProgram;
+
+function clone(value) {
+  return structuredClone(value);
+}
+
+function normalizeProgram(program) {
+  const normalized = {
+    sourceMode: program.sourceMode,
+    basic: program.basic || '',
+    asm: program.asm || '',
+    slang: program.slang || '',
+  };
+  if (normalized.sourceMode === 'slang') {
+    normalized.basic = '';
+    normalized.asm = '';
+  } else if (normalized.sourceMode === 'asm') {
+    normalized.basic = '';
+    normalized.slang = '';
+  } else {
+    normalized.slang = '';
+  }
+  return normalized;
+}
+
 const fakeBridge = {
   connectionInfo() { return { port: 43110, pairingCode: '123456', extensionConnected: true }; },
   listSessions() { return [{ sessionId: 'tab-a', title: 'X1Pen', selected: true }]; },
   selectSession(sessionId) { return { sessionId }; },
   async sendCommand(method, params, sessionId) {
-    calls.push({ method, params, sessionId });
-    if (method === 'getProgram' || method === 'setProgram') return program;
+    calls.push({ method, params: clone(params), sessionId });
+    if (method === 'getProgram') return clone(currentProgram);
+    if (method === 'setProgram') {
+      if (params.expectedRevision !== currentProgram.revision) {
+        throw new Error(`Revision conflict: expected ${params.expectedRevision}, current ${currentProgram.revision}`);
+      }
+      currentProgram = {
+        ...normalizeProgram(params.program),
+        revision: currentProgram.revision + 1,
+        instanceId: currentProgram.instanceId,
+      };
+      return clone(currentProgram);
+    }
     if (method === 'validate') return { ok: true, diagnostics: [] };
     if (method === 'captureScreen') return `data:image/png;base64,${Buffer.from('png').toString('base64')}`;
     return { ok: true };
   },
   async close() {},
 };
+
+function jsonContent(result) {
+  const item = result.content.find((entry) => entry.type === 'text');
+  return JSON.parse(item.text);
+}
 
 let server;
 let client;
@@ -38,20 +79,28 @@ before(async () => {
   await client.connect(clientTransport);
 });
 
+beforeEach(() => {
+  calls.length = 0;
+  currentProgram = clone(initialProgram);
+});
+
 after(async () => {
   if (client) await client.close();
   if (server) await server.close();
 });
 
-test('server exposes browser connection and X1Pen tools', async () => {
+test('server exposes context-efficient source tools', async () => {
   const tools = await client.listTools();
   assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
+    'x1pen_apply_edits',
     'x1pen_capture_screen',
     'x1pen_connection_info',
     'x1pen_get_program',
+    'x1pen_get_source',
     'x1pen_get_status',
     'x1pen_list_sessions',
     'x1pen_run',
+    'x1pen_search_source',
     'x1pen_select_session',
     'x1pen_set_program',
     'x1pen_stop',
@@ -59,15 +108,186 @@ test('server exposes browser connection and X1Pen tools', async () => {
   ]);
 });
 
-test('set_program forwards expected revision and source to the selected tab', async () => {
+test('get_program defaults to metadata only and excludes generated ASM', async () => {
+  const generatedAsm = Array.from({ length: 20_000 }, (_, index) => `L${index}: NOP`).join('\n');
+  currentProgram = {
+    sourceMode: 'slang',
+    basic: '',
+    asm: generatedAsm,
+    slang: 'main() BEGIN\n  PRINT("MCP");\nEND;',
+    revision: 8,
+    instanceId: 'tab-a',
+  };
+
+  const defaultResult = await client.callTool({ name: 'x1pen_get_program', arguments: {} });
+  const selected = jsonContent(defaultResult);
+  assert.equal(selected.slang, undefined);
+  assert.equal(selected.asm, undefined);
+  assert.deepEqual(selected.includedFields, []);
+  assert.equal(selected.sections.asm.generated, true);
+  assert.equal(selected.sections.asm.lineCount, 20_000);
+  assert.ok(defaultResult.content[0].text.length < 500, 'metadata-only response must stay small even with huge generated ASM');
+  assert.equal(defaultResult.structuredContent, undefined);
+
+  const slangResult = await client.callTool({
+    name: 'x1pen_get_program',
+    arguments: { fields: ['slang'] },
+  });
+  assert.equal(jsonContent(slangResult).slang, currentProgram.slang);
+
+  const omittedResult = await client.callTool({
+    name: 'x1pen_get_program',
+    arguments: { fields: ['asm'] },
+  });
+  const omitted = jsonContent(omittedResult);
+  assert.equal(omitted.asm, undefined);
+  assert.equal(omitted.omittedFields[0].field, 'asm');
+
+  const generatedResult = await client.callTool({
+    name: 'x1pen_get_program',
+    arguments: { fields: ['asm'], includeGeneratedAsm: true },
+  });
+  assert.equal(generatedResult.isError, true);
+  assert.match(generatedResult.content[0].text, /exceeding maxCharacters/);
+
+  const deliberateResult = await client.callTool({
+    name: 'x1pen_get_program',
+    arguments: { fields: ['asm'], includeGeneratedAsm: true, maxCharacters: 512 * 1024 },
+  });
+  assert.equal(jsonContent(deliberateResult).asm, generatedAsm);
+});
+
+test('get_source returns a bounded line range and protects generated ASM', async () => {
+  currentProgram.basic = Array.from({ length: 20 }, (_, index) => `${(index + 1) * 10} PRINT ${index + 1}`).join('\n');
+  const result = await client.callTool({
+    name: 'x1pen_get_source',
+    arguments: { section: 'basic', startLine: 5, lineCount: 3 },
+  });
+  const range = jsonContent(result);
+  assert.equal(range.startLine, 5);
+  assert.equal(range.endLine, 7);
+  assert.equal(range.totalLines, 20);
+  assert.equal(range.text, '50 PRINT 5\n60 PRINT 6\n70 PRINT 7');
+  assert.equal(range.nextStartLine, 8);
+  assert.equal(range.truncated, true);
+
+  currentProgram = {
+    sourceMode: 'slang', basic: '', asm: 'generated', slang: 'main() BEGIN\nEND;', revision: 4, instanceId: 'tab-a',
+  };
+  const protectedResult = await client.callTool({
+    name: 'x1pen_get_source',
+    arguments: { section: 'asm' },
+  });
+  assert.equal(protectedResult.isError, true);
+  assert.match(protectedResult.content[0].text, /generated from SLANG/);
+});
+
+test('search_source finds literal text with bounded context', async () => {
+  currentProgram.slang = [
+    'main() BEGIN',
+    '  drawPlayer(); drawPlayer();',
+    'END;',
+    '',
+    'drawPlayer() BEGIN',
+    '  PRINT("PLAYER");',
+    'END;',
+  ].join('\n');
+  currentProgram.sourceMode = 'slang';
+  currentProgram.basic = '';
+
+  const result = await client.callTool({
+    name: 'x1pen_search_source',
+    arguments: { section: 'slang', query: 'drawplayer', contextLines: 1, maxResults: 1 },
+  });
+  const search = jsonContent(result);
+  assert.equal(search.totalMatches, 3);
+  assert.equal(search.matches.length, 1);
+  assert.equal(search.matches[0].line, 2);
+  assert.equal(search.truncated, true);
+  assert.deepEqual(search.matches[0].context.map((line) => line.line), [1, 2, 3]);
+});
+
+test('set_program forwards expected revision but returns only a compact summary', async () => {
   const result = await client.callTool({
     name: 'x1pen_set_program',
-    arguments: { sourceMode: 'basic+asm', basic: program.basic, expectedRevision: 3 },
+    arguments: { sourceMode: 'basic+asm', basic: '10 PRINT "UPDATED"', expectedRevision: 3 },
   });
+  const response = jsonContent(result);
   assert.equal(result.isError, undefined);
   assert.equal(calls.at(-1).method, 'setProgram');
   assert.equal(calls.at(-1).params.expectedRevision, 3);
-  assert.equal(calls.at(-1).params.program.basic, program.basic);
+  assert.equal(calls.at(-1).params.program.basic, '10 PRINT "UPDATED"');
+  assert.equal(response.revision, 4);
+  assert.equal(response.basic, undefined);
+  assert.equal(response.sections.basic.lineCount, 1);
+});
+
+test('apply_edits updates one section and preserves the other authoring source', async () => {
+  currentProgram.asm = 'ORG $100\nRET';
+  const result = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic',
+      expectedRevision: 3,
+      edits: [
+        { startLine: 1, deleteLineCount: 1, text: '10 PRINT "START"' },
+        { startLine: 2, deleteLineCount: 1, text: '20 PRINT "EDITED"\n30 END' },
+      ],
+    },
+  });
+  const response = jsonContent(result);
+  assert.equal(response.changed, true);
+  assert.equal(response.revision, 4);
+  assert.equal(response.basic, undefined);
+  assert.equal(currentProgram.basic, '10 PRINT "START"\n20 PRINT "EDITED"\n30 END');
+  assert.equal(currentProgram.asm, 'ORG $100\nRET');
+  assert.equal(calls.at(-1).params.program.asm, 'ORG $100\nRET');
+  assert.deepEqual(response.changes, [
+    { startLine: 1, oldLineCount: 1, newLineCount: 1 },
+    { startLine: 2, oldLineCount: 1, newLineCount: 2 },
+  ]);
+});
+
+test('apply_edits rejects stale revisions and overlapping edits', async () => {
+  const stale = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic', expectedRevision: 2, edits: [{ startLine: 1, deleteLineCount: 1, text: '10 END' }],
+    },
+  });
+  assert.equal(stale.isError, true);
+  assert.match(stale.content[0].text, /Revision conflict/);
+
+  const overlapping = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic',
+      expectedRevision: 3,
+      edits: [
+        { startLine: 1, deleteLineCount: 2, text: '10 END' },
+        { startLine: 2, deleteLineCount: 1, text: '20 END' },
+      ],
+    },
+  });
+  assert.equal(overlapping.isError, true);
+  assert.match(overlapping.content[0].text, /overlap/);
+});
+
+test('apply_edits clears generated ASM when editing SLANG', async () => {
+  currentProgram = {
+    sourceMode: 'slang', basic: '', asm: 'generated asm', slang: 'main() BEGIN\nEND;', revision: 9, instanceId: 'tab-a',
+  };
+  const result = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'slang', expectedRevision: 9, edits: [{ startLine: 2, deleteLineCount: 0, text: '  PRINT("MCP");' }],
+    },
+  });
+  const response = jsonContent(result);
+  assert.equal(response.generatedAsmCleared, true);
+  assert.equal(response.sections.asm.characterCount, 0);
+  assert.equal(currentProgram.asm, '');
+  assert.equal(currentProgram.slang, 'main() BEGIN\n  PRINT("MCP");\nEND;');
 });
 
 test('capture_screen returns an MCP PNG image', async () => {
