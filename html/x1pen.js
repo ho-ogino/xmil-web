@@ -16,6 +16,19 @@ window.__X1PEN_MODE = true;
     var lastAsmSymbols = null;  // { symbols: {}, predefined: {}, sourceMode: string }
     var lastAsmTabOrigin = null; // null | 'user' | 'slang-generated'
 
+    var automationReadyState = 'loading';
+    var automationReadyResolve;
+    var automationReadyReject;
+    var automationReadyPromise = new Promise(function(resolve, reject) {
+        automationReadyResolve = resolve;
+        automationReadyReject = reject;
+    });
+    // The API exposes the rejection to clients; this handler prevents an unhandled rejection
+    // when the page is used normally without an automation client.
+    automationReadyPromise.catch(function() {});
+    var automationOperationQueue = Promise.resolve();
+    var automationPendingOperations = 0;
+
     // ── FuzzyBASIC addrmap ──
 
     var COLD_STATE_VERSION = {
@@ -578,6 +591,12 @@ window.__X1PEN_MODE = true;
         return simulateKeys([0x50, 0x52, 0x4F, 0x47, 0x0D], 50);  // P, R, O, G, Enter
     }
 
+    function inferSourceMode(basicSrc, asmSrc, slangSrc) {
+        if (slangSrc) return 'slang';
+        if (!basicSrc && asmSrc) return 'asm';
+        return 'basic+asm';
+    }
+
     // ── RUN ──
 
     async function onRunClick() {
@@ -592,12 +611,8 @@ window.__X1PEN_MODE = true;
         var sourceMode;
         if (pendingShareRuntime && pendingShareRuntime.sourceMode) {
             sourceMode = pendingShareRuntime.sourceMode;
-        } else if (slangSrc) {
-            sourceMode = 'slang';
-        } else if (!basicSrc && asmSrc) {
-            sourceMode = 'asm';
         } else {
-            sourceMode = 'basic+asm';
+            sourceMode = inferSourceMode(basicSrc, asmSrc, slangSrc);
         }
 
         if (!basicSrc && !asmSrc && !slangSrc) {
@@ -866,7 +881,7 @@ window.__X1PEN_MODE = true;
             var canvas = document.getElementById('canvas');
             if (canvas) canvas.focus();
             await new Promise(function(r) { setTimeout(r, 500); });
-            simulateProgCommand();
+            await simulateProgCommand();
             elStatus.textContent = 'LSX-Dodgers mode';
         } else {
             // FuzzyBASIC モード: BASIC 注入 + RUN キー注入
@@ -883,7 +898,7 @@ window.__X1PEN_MODE = true;
             var canvas = document.getElementById('canvas');
             if (canvas) canvas.focus();
             await new Promise(function(r) { setTimeout(r, 500); });
-            simulateRunCommand();
+            await simulateRunCommand();
         }
         return true;
     }
@@ -1032,6 +1047,128 @@ window.__X1PEN_MODE = true;
             return b.toString(16).padStart(2, '0');
         }).join('');
     }
+
+    // ── Automation API (Playwright / MCP bridge) ──
+
+    function getAutomationProgram() {
+        var basic = basicEditor ? basicEditor.getValue() : '';
+        var asm = asmEditor ? asmEditor.getValue() : '';
+        var slang = slangEditor ? slangEditor.getValue() : '';
+        return {
+            basic: basic,
+            asm: asm,
+            slang: slang,
+            sourceMode: inferSourceMode(basic.trim(), asm.trim(), slang.trim())
+        };
+    }
+
+    function normalizeAutomationProgram(program) {
+        if (!program || typeof program !== 'object' || Array.isArray(program)) {
+            throw new TypeError('program must be an object');
+        }
+
+        var basic = program.basic === undefined ? '' : program.basic;
+        var asm = program.asm === undefined ? '' : program.asm;
+        var slang = program.slang === undefined ? '' : program.slang;
+        if (typeof basic !== 'string' || typeof asm !== 'string' || typeof slang !== 'string') {
+            throw new TypeError('basic, asm and slang must be strings');
+        }
+
+        var sourceMode = program.sourceMode || inferSourceMode(basic.trim(), asm.trim(), slang.trim());
+        if (sourceMode !== 'basic+asm' && sourceMode !== 'asm' && sourceMode !== 'slang') {
+            throw new TypeError('sourceMode must be basic+asm, asm or slang');
+        }
+        if (sourceMode === 'slang' && !slang.trim()) {
+            throw new TypeError('slang source is required for sourceMode slang');
+        }
+        if (sourceMode === 'asm' && !asm.trim()) {
+            throw new TypeError('asm source is required for sourceMode asm');
+        }
+        if (sourceMode === 'basic+asm' && !basic.trim()) {
+            throw new TypeError('basic source is required for sourceMode basic+asm');
+        }
+
+        // A complete program replaces all editor state so stale sources cannot change run mode.
+        if (sourceMode === 'slang') {
+            basic = '';
+            asm = '';
+        } else if (sourceMode === 'asm') {
+            basic = '';
+            slang = '';
+        } else {
+            slang = '';
+        }
+
+        return { basic: basic, asm: asm, slang: slang, sourceMode: sourceMode };
+    }
+
+    function setAutomationProgram(program) {
+        var normalized = normalizeAutomationProgram(program);
+        basicEditor.setValue(normalized.basic, { silent: true });
+        if (asmEditor) asmEditor.setValue(normalized.asm, { silent: true });
+        if (slangEditor) slangEditor.setValue(normalized.slang, { silent: true });
+        lastAsmTabOrigin = normalized.asm ? 'user' : null;
+        pendingShareRuntime = null;
+        lastRunWasShared = false;
+        clearSymbols();
+        forceResyncEditorTab(normalized.sourceMode === 'basic+asm' ? 'basic' : normalized.sourceMode);
+        elStatus.textContent = 'Program loaded';
+        return getAutomationProgram();
+    }
+
+    function getAutomationStatus() {
+        return {
+            ready: automationReadyState === 'ready',
+            state: automationReadyState,
+            busy: automationPendingOperations > 0,
+            status: elStatus ? elStatus.textContent : ''
+        };
+    }
+
+    function queueAutomationOperation(operation) {
+        automationPendingOperations++;
+        var result = automationOperationQueue.then(function() {
+            return automationReadyPromise.then(operation);
+        });
+        automationOperationQueue = result.catch(function() {});
+        return result.then(function(value) {
+            automationPendingOperations--;
+            return value;
+        }, function(error) {
+            automationPendingOperations--;
+            throw error;
+        });
+    }
+
+    window.X1PenAutomation = Object.freeze({
+        version: 1,
+        ready: function() {
+            return automationReadyPromise.then(getAutomationStatus);
+        },
+        getProgram: getAutomationProgram,
+        setProgram: function(program) {
+            return queueAutomationOperation(function() {
+                return setAutomationProgram(program);
+            });
+        },
+        run: function() {
+            return queueAutomationOperation(async function() {
+                var ok = await onRunClick();
+                return {
+                    ok: ok,
+                    status: elStatus ? elStatus.textContent : '',
+                    sourceMode: getAutomationProgram().sourceMode
+                };
+            });
+        },
+        stop: function() {
+            return queueAutomationOperation(function() {
+                onStopClick();
+                return getAutomationStatus();
+            });
+        },
+        getStatus: getAutomationStatus
+    });
 
     function showShareDialog(url) {
         var dialog = document.getElementById('share-dialog');
@@ -1316,6 +1453,8 @@ window.__X1PEN_MODE = true;
                         window.__tabChannel = null;
                     }
                     elStatus.textContent = 'Close other tabs and reload.';
+                    automationReadyState = 'error';
+                    automationReadyReject(new Error(elStatus.textContent));
                     return;
                 }
             }
@@ -1325,6 +1464,8 @@ window.__X1PEN_MODE = true;
         var coldState = await loadRuntimeAsset(COLD_STATE_FILE);
         if (!coldState) {
             elStatus.textContent = 'Failed to load FuzzyBASIC state';
+            automationReadyState = 'error';
+            automationReadyReject(new Error(elStatus.textContent));
             return;
         }
         await loadRuntimeAsset(BOOT_DISK_FILE); // 失敗しても起動は継続
@@ -1351,6 +1492,8 @@ window.__X1PEN_MODE = true;
         // 3. コールドステート復元
         if (!restoreColdState(assetCache[COLD_STATE_FILE])) {
             elStatus.textContent = 'State restore failed';
+            automationReadyState = 'error';
+            automationReadyReject(new Error(elStatus.textContent));
             return;
         }
         // 4. フォントを現セッションに反映
@@ -1364,6 +1507,8 @@ window.__X1PEN_MODE = true;
 
         elBtnRun.disabled = false;
         elStatus.textContent = 'Ready';
+        automationReadyState = 'ready';
+        automationReadyResolve();
 
         // 共有コード読み込み (?id=xxx)
         var urlId = new URLSearchParams(location.search).get('id');
