@@ -58,6 +58,8 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
     assert.match(privacy, /127\.0\.0\.1/);
     assert.match(privacy, /program source/i);
     assert.match(privacy, /AI provider/i);
+    const buildScript = await readFile(join(repoRoot, 'build.sh'), 'utf8');
+    assert.match(buildScript, /html\/x1pen-connector-privacy\.html.*DIST_DIR/);
 
     const popup = await readFile(join(repoRoot, 'extension/popup.html'), 'utf8');
     assert.match(popup, /id="consent" type="checkbox"/);
