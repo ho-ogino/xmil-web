@@ -12,8 +12,16 @@
   <input id="port" type="number" min="1" max="65535" value="43110">
   <label for="code">Pairing code</label>
   <input id="code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+  <div class="disclosure">
+    <p>Connecting lets your local MCP server access this tab's title and URL; read and edit X1Pen source; validate and run programs; and capture status and screen images. The port and pairing code are saved locally. Your selected AI client may send requested X1Pen data to its configured AI provider.</p>
+    <label class="consent" for="consent">
+      <input id="consent" type="checkbox">
+      <span>Allow access to this X1Pen tab</span>
+    </label>
+    <a class="privacy-link" href="https://x1.onoda-pro.com/x1pen-connector-privacy.html" target="_blank" rel="noopener noreferrer">Privacy details</a>
+  </div>
   <div class="actions">
-    <button id="connect">Connect this tab</button>
+    <button id="connect" disabled>Connect this tab</button>
     <button id="disconnect" class="secondary">Disconnect</button>
   </div>
   <p id="status" role="status">Not connected</p>

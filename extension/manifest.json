@@ -1,18 +1,28 @@
 {
   "manifest_version": 3,
   "name": "X1Pen Connector",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Connect the active X1Pen tab to a local Codex or Claude Code MCP server.",
   "permissions": ["activeTab", "scripting", "storage"],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "background": {
     "service_worker": "service-worker.js",
     "type": "module"
   },
   "action": {
     "default_title": "Connect X1Pen",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self' ws://127.0.0.1:*"
   }
 }

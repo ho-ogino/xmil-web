@@ -55,12 +55,14 @@ claude mcp list
 
 ### 拡張機能
 
+Chrome Web Store版の公開後はストアからインストールする方式を推奨します。ストア審査中または拡張機能を開発する場合は、次の手順でunpacked extensionを読み込みます。
+
 1. Chromeで`chrome://extensions`、Edgeで`edge://extensions`を開く
 2. Developer modeを有効化
 3. Load unpackedを選択
 4. このリポジトリの`extension/`ディレクトリを指定
 
-ストア公開前はunpacked extensionとして読み込みます。MCPサーバーのnpm配布とブラウザー拡張の配布は独立しており、拡張機能の更新にMCPパッケージの再公開は不要です。
+MCPサーバーのnpm配布とブラウザー拡張の配布は独立しており、拡張機能の更新にMCPパッケージの再公開は不要です。Chrome Web Storeの掲載URLは初回審査通過後に本書へ追記します。
 
 ## 接続
 

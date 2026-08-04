@@ -21,10 +21,14 @@
   },
   "scripts": {
     "build:editor": "esbuild src/x1pen_editor.js --bundle --outfile=html/x1pen_editor.bundle.js --format=iife --minify",
+    "build:extension-assets": "node scripts/render-extension-assets.mjs",
+    "capture:extension-store": "node scripts/capture-x1pen-store-screenshot.mjs",
     "mcp:x1pen": "node mcp/x1pen-server.mjs",
     "pack:mcp": "npm pack ./mcp",
+    "pack:extension": "sh scripts/package-x1pen-connector.sh",
     "test:automation": "node --test tests/x1pen_automation_test.mjs",
     "test:bridge": "node --test tests/x1pen_bridge_test.mjs",
+    "test:extension-package": "node --test tests/x1pen_extension_package_test.mjs",
     "test:mcp": "node --test tests/x1pen_mcp_test.mjs tests/x1pen_reference_test.mjs",
     "test:mcp-package": "node --test tests/x1pen_mcp_package_test.mjs"
   }

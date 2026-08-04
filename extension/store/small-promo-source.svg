@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="280" viewBox="0 0 440 280">
+  <rect width="440" height="280" fill="#10141b"/>
+  <rect x="1" y="1" width="438" height="278" fill="none" stroke="#39414d" stroke-width="2"/>
+  <rect x="34" y="64" width="152" height="152" rx="24" fill="#171d26" stroke="#39414d" stroke-width="2"/>
+  <text x="110" y="159" text-anchor="middle" font-family="Arial, sans-serif" font-size="66" font-weight="700" fill="#e94560">X1</text>
+  <circle cx="160" cy="190" r="19" fill="#28a568" stroke="#171d26" stroke-width="7"/>
+  <path d="M151 190l6 6 12-14" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="216" y="119" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#ffffff">X1Pen</text>
+  <text x="216" y="151" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#ffffff">Connector</text>
+  <text x="216" y="184" font-family="Arial, sans-serif" font-size="15" fill="#aeb8c4">Local MCP bridge</text>
+</svg>
