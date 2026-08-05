@@ -22,7 +22,7 @@ CodexのMCP設定に以下を追加します。
 ```toml
 [mcp_servers.x1pen]
 command = "npx"
-args = ["-y", "x1pen-mcp@2.2.0"]
+args = ["-y", "x1pen-mcp@2.2.1"]
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
@@ -35,7 +35,7 @@ userスコープへ登録すると、任意のプロジェクトからX1Penを�
 
 ```bash
 claude mcp add --transport stdio --scope user x1pen -- \
-  npx -y x1pen-mcp@2.2.0
+  npx -y x1pen-mcp@2.2.1
 claude mcp list
 ```
 
@@ -47,7 +47,7 @@ claude mcp list
     "x1pen": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "x1pen-mcp@2.2.0"]
+      "args": ["-y", "x1pen-mcp@2.2.1"]
     }
   }
 }

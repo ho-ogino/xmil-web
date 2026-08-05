@@ -98,7 +98,7 @@ The loopback WebSocket uses `ws://127.0.0.1`. Chrome Web Store policy explicitly
 No account or paid feature is required.
 
 1. Install Node.js 20 or later.
-2. Run `npx -y x1pen-mcp@2.2.0` in a terminal. Keep it running and note the bridge port and six-digit pairing code printed to standard error.
+2. Run `npx -y x1pen-mcp@2.2.1` in a terminal. Keep it running and note the bridge port and six-digit pairing code printed to standard error.
 3. Open `https://x1.onoda-pro.com/x1pen` in Chrome and wait for the editor to become ready.
 4. Open X1Pen Connector, enter the displayed port and pairing code, review and accept the disclosure, then click `Connect this tab`.
 5. Confirm the extension badge shows `1` and X1Pen shows `MCP Connected`.

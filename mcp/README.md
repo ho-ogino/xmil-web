@@ -11,7 +11,7 @@ Add the following server to your Codex MCP configuration. Pinning the version pr
 ```toml
 [mcp_servers.x1pen]
 command = "npx"
-args = ["-y", "x1pen-mcp@2.2.0"]
+args = ["-y", "x1pen-mcp@2.2.1"]
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
@@ -22,7 +22,7 @@ Register the server at user scope to make it available from any project.
 
 ```bash
 claude mcp add --transport stdio --scope user x1pen -- \
-  npx -y x1pen-mcp@2.2.0
+  npx -y x1pen-mcp@2.2.1
 ```
 
 Use `claude mcp list` or `/mcp` to check the connection.

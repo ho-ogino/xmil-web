@@ -1,6 +1,6 @@
 {
   "name": "x1pen-mcp",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Local MCP server for controlling X1Pen in a user-visible Chromium tab",
   "type": "module",
   "bin": {
