@@ -28,7 +28,8 @@ window.__X1PEN_MODE = true;
     automationReadyPromise.catch(function() {});
     var automationOperationQueue = Promise.resolve();
     var automationPendingOperations = 0;
-    var automationPendingRuns = 0;
+    var automationQueuedRuns = 0;
+    var automationActiveRuns = 0;
     var automationRevision = 0;
     var automationConnected = false;
     var automationInteractionLocked = false;
@@ -686,6 +687,15 @@ window.__X1PEN_MODE = true;
     // ── RUN ──
 
     async function onRunClick() {
+        automationActiveRuns++;
+        try {
+            return await performRun();
+        } finally {
+            automationActiveRuns--;
+        }
+    }
+
+    async function performRun() {
         if (!module) return false;
 
         // 0. sourceMode / runMode 判定
@@ -1375,18 +1385,19 @@ window.__X1PEN_MODE = true;
 
     function callAutomationDebuggerControl(exportName, operation) {
         var debuggerModule = requireDebuggerModule();
-        if (operation === 'step' && getAutomationDebuggerState().runState !== 'paused') {
-            throw new Error('Debugger step requires the paused state');
-        }
         if (debuggerModule[exportName]() !== 1) {
             throw new Error('Debugger ' + operation + ' failed');
         }
         return getAutomationDebuggerState();
     }
 
+    function isRunSetupPending() {
+        return automationQueuedRuns > 0 || automationActiveRuns > 0;
+    }
+
     function runAutomationDebuggerControl(exportName, operation) {
         return automationReadyPromise.then(function() {
-            if (automationPendingRuns > 0) {
+            if (isRunSetupPending()) {
                 throw new Error('Debugger ' + operation + ' is unavailable while run setup is pending');
             }
             return callAutomationDebuggerControl(exportName, operation);
@@ -1454,14 +1465,14 @@ window.__X1PEN_MODE = true;
         }
     }
 
+    // afterSequence must be the sequence returned by resume(), not the one
+    // from the preceding stopped state, so it identifies a later stop.
     function waitForAutomationDebuggerPause(options) {
         options = options || {};
         if (typeof options !== 'object' || Array.isArray(options)) {
             throw new TypeError('options must be an object');
         }
         var hasAfterSequence = options.afterSequence !== undefined;
-        // Pass the sequence returned by resume(), not the sequence from the
-        // preceding stopped state. This distinguishes a later stop transition.
         if (hasAfterSequence && (!Number.isInteger(options.afterSequence) ||
             options.afterSequence < 0 || options.afterSequence > 0xFFFFFFFF)) {
             throw new TypeError('afterSequence must be an unsigned 32-bit integer');
@@ -1524,7 +1535,15 @@ window.__X1PEN_MODE = true;
             return runAutomationDebuggerControl('_js_debug_resume', 'resume');
         },
         step: function() {
-            return runAutomationDebuggerControl('_js_debug_step', 'step');
+            return automationReadyPromise.then(function() {
+                if (isRunSetupPending()) {
+                    throw new Error('Debugger step is unavailable while run setup is pending');
+                }
+                if (getAutomationDebuggerState().runState !== 'paused') {
+                    throw new Error('Debugger step requires the paused state');
+                }
+                return callAutomationDebuggerControl('_js_debug_step', 'step');
+            });
         },
         setBreakpoints: function(addresses) {
             return queueAutomationOperation(function() {
@@ -1662,7 +1681,9 @@ window.__X1PEN_MODE = true;
             return queueAutomationOperation(validateAutomationProgram);
         },
         run: function() {
-            automationPendingRuns++;
+            // Reserve the debugger guard before the operation queue advances;
+            // onRunClick separately covers UI, shortcut and Share-triggered runs.
+            automationQueuedRuns++;
             var result = queueAutomationOperation(async function() {
                 var ok = await onRunClick();
                 return {
@@ -1673,10 +1694,10 @@ window.__X1PEN_MODE = true;
                 };
             });
             return result.then(function(value) {
-                automationPendingRuns--;
+                automationQueuedRuns--;
                 return value;
             }, function(error) {
-                automationPendingRuns--;
+                automationQueuedRuns--;
                 throw error;
             });
         },

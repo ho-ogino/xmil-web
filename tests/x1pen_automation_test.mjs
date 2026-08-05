@@ -446,4 +446,35 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
   assert.match(rerun.runningStepError, /requires the paused state/);
   assert.equal(rerun.pausedAfterRun.runState, 'paused');
   assert.equal(rerun.queuedBreakpoints.breakpointCount, 1);
+
+  const manualRun = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    document.getElementById('btn-run').click();
+
+    const controlErrors = [];
+    for (const control of ['pause', 'resume', 'step']) {
+      try {
+        await api.debugger[control]();
+        controlErrors.push(null);
+      } catch (error) {
+        controlErrors.push(error.message);
+      }
+    }
+
+    const deadline = Date.now() + 5000;
+    let paused;
+    while (!paused && Date.now() < deadline) {
+      try {
+        paused = await api.debugger.pause();
+      } catch (error) {
+        if (!/run setup is pending/.test(error.message)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    if (!paused) throw new Error('Manual Run did not finish setup');
+    await api.debugger.resume();
+    return { controlErrors, paused };
+  });
+  assert.deepEqual(manualRun.controlErrors.map((message) => /run setup is pending/.test(message)), [true, true, true]);
+  assert.equal(manualRun.paused.runState, 'paused');
 });
