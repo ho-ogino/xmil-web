@@ -27,6 +27,9 @@
 #include "X1_SASI.H"
 #include "FDD_D88.H"
 #include "FDD_2D.H"
+#include "debugger_core.h"
+
+BYTE __fastcall Z80_RDMEM(WORD adrs);
 
 // web_sound.cpp で定義されているサウンドパラメータ (dsounds.h より)
 extern WORD  ds_rate;
@@ -94,7 +97,7 @@ static double g_audio_acc      = 0.0;  // サンプル端数の蓄積
 
 // メインループのコールバック（Emscriptenから毎フレーム呼ばれる）
 void main_loop() {
-    if (!g_running) {
+    if (!g_running || debugger_is_paused()) {
         return;
     }
 
@@ -124,6 +127,11 @@ void main_loop() {
     mouse_callback();
 
     x1r_exec();
+
+    if (debugger_is_paused()) {
+        Platform_Audio_Stop();
+        return;
+    }
 
     // AudioWorklet へのバッチ転送（SPN フォールバック時は xmilFlushAudio が未定義で no-op）
     EM_ASM({ if (window.xmilFlushAudio) window.xmilFlushAudio(); });
@@ -179,7 +187,7 @@ void xmil_term() {
 void xmil_start() {
     if (g_running) return;
     g_running = TRUE;
-    Platform_Audio_Play();
+    if (!debugger_is_paused()) Platform_Audio_Play();
 }
 
 // エミュレータの停止
@@ -471,7 +479,12 @@ int js_emm_take_dirty_slots(void) {
 
 EMSCRIPTEN_KEEPALIVE
 int js_load_state(const BYTE *data, int size) {
-    return load_full_state(data, size);
+    int result = load_full_state(data, size);
+    if (result >= 0) {
+        x1r_reset_frame_execution();
+        debugger_on_machine_reset(z80w_get_pc());
+    }
+    return result;
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -482,6 +495,100 @@ const char* js_get_load_warnings(void) {
 EMSCRIPTEN_KEEPALIVE
 BYTE* js_get_main_ram(void) {
     return mMAIN;
+}
+
+// ---- Z80 debugger core ----
+
+EMSCRIPTEN_KEEPALIVE
+int js_debug_pause(void) {
+    debugger_pause(z80w_get_pc());
+    if (g_running) Platform_Audio_Stop();
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int js_debug_resume(void) {
+    debugger_resume(z80w_get_pc());
+    if (g_running) Platform_Audio_Play();
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int js_debug_step(void) {
+    if (!debugger_begin_step(z80w_get_pc())) return 0;
+    Platform_Audio_Stop();
+    x1r_exec();
+    return debugger_is_paused() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int js_debug_replace_breakpoints(const uint16_t *addresses, int count) {
+    return debugger_replace_breakpoints(addresses, count) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int js_debug_read_memory(int address, BYTE *output, int length) {
+    if (!output || address < 0 || length <= 0 || length > 4096 ||
+        address > 0x10000 - length) {
+        return -1;
+    }
+
+    for (int i = 0; i < length; i++) {
+        output[i] = Z80_RDMEM((WORD)(address + i));
+    }
+    return length;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int js_debug_get_state(uint32_t *output, int word_capacity) {
+    if (!output) return -1;
+    if (word_capacity < DEBUGGER_STATE_WORDS) return -DEBUGGER_STATE_WORDS;
+
+    DebuggerStatus status = debugger_get_status();
+    Z80DebugRegisters registers;
+    z80w_get_debug_registers(&registers);
+
+    int mapping = DEBUGGER_MEMORY_MAIN;
+    int bank = -1;
+    if (x1flg.ROM_TYPE >= 2 && !(lastmem & 0x10)) {
+        mapping = DEBUGGER_MEMORY_BANK;
+        bank = lastmem & 15;
+    } else if (x1flg.ROM_SW) {
+        mapping = DEBUGGER_MEMORY_BIOS;
+    }
+
+    output[DEBUGGER_STATE_VERSION] = 1;
+    output[DEBUGGER_STATE_WORD_COUNT] = DEBUGGER_STATE_WORDS;
+    output[DEBUGGER_STATE_SEQUENCE] = status.sequence;
+    output[DEBUGGER_STATE_RUN_STATE] = status.state;
+    output[DEBUGGER_STATE_STOP_REASON] = status.stop_reason;
+    output[DEBUGGER_STATE_STOP_ADDRESS] = status.stop_address;
+    output[DEBUGGER_STATE_BREAKPOINT_COUNT] = status.breakpoint_count;
+    output[DEBUGGER_STATE_EMULATOR_RUNNING] = g_running ? 1 : 0;
+    output[DEBUGGER_STATE_AF] = registers.af;
+    output[DEBUGGER_STATE_BC] = registers.bc;
+    output[DEBUGGER_STATE_DE] = registers.de;
+    output[DEBUGGER_STATE_HL] = registers.hl;
+    output[DEBUGGER_STATE_IX] = registers.ix;
+    output[DEBUGGER_STATE_IY] = registers.iy;
+    output[DEBUGGER_STATE_PC] = registers.pc;
+    output[DEBUGGER_STATE_SP] = registers.sp;
+    output[DEBUGGER_STATE_AF2] = registers.af2;
+    output[DEBUGGER_STATE_BC2] = registers.bc2;
+    output[DEBUGGER_STATE_DE2] = registers.de2;
+    output[DEBUGGER_STATE_HL2] = registers.hl2;
+    output[DEBUGGER_STATE_I] = registers.i;
+    output[DEBUGGER_STATE_R] = registers.r;
+    output[DEBUGGER_STATE_IM] = registers.im;
+    output[DEBUGGER_STATE_IFF1] = registers.iff1;
+    output[DEBUGGER_STATE_IFF2] = registers.iff2;
+    output[DEBUGGER_STATE_CYCLES] = registers.cycles;
+    output[DEBUGGER_STATE_LOW_MEMORY_MAPPING] = mapping;
+    output[DEBUGGER_STATE_LOW_MEMORY_BANK] = (uint32_t)bank;
+    output[DEBUGGER_STATE_ROM_TYPE] = x1flg.ROM_TYPE;
+    output[DEBUGGER_STATE_ROM_SWITCH] = x1flg.ROM_SW;
+    output[DEBUGGER_STATE_LASTMEM] = lastmem;
+    return DEBUGGER_STATE_WORDS;
 }
 
 #ifdef __cplusplus

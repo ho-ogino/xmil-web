@@ -15,6 +15,7 @@
 #include "X1_DMA.H"
 #include "X1_DMAM.H"
 #include "x1_irq.h"
+#include "debugger_core.h"
 
 // X1 memory and I/O functions (will be linked from X1 code)
 BYTE __fastcall Z80_RDMEM(WORD adrs);
@@ -30,6 +31,14 @@ extern unsigned short BreakICount;
 static z80_t g_cpu;
 static uint64_t g_pins = 0;
 static int g_cycles = 0;
+
+// chips overlaps the next M1 fetch with completion of the previous opcode.
+// At z80_opdone(), g_cpu.pc already points past the opcode being fetched, while
+// the address pins identify the instruction a debugger must display and match.
+static inline uint16_t current_instruction_address() {
+    if (z80_opdone(&g_cpu)) return (uint16_t)Z80_GET_ADDR(g_pins);
+    return g_cpu.pc;
+}
 
 
 // Z80 registers structure (for compatibility with original code)
@@ -198,6 +207,10 @@ void Z80_Execute(void) {
     // chips z80.h samples INT at instruction boundaries and enters IORQ+M1
     // when IFF1 is set. Vector fetch happens in handle_tick() at that time.
     do {
+        if (debugger_should_stop_before_instruction(current_instruction_address())) {
+            sync_registers_from_chips();
+            return;
+        }
         if ((dma.DMA_CMND & 3) && dma.DMA_ENBL) {
             x1_dma();
         }
@@ -209,9 +222,40 @@ void Z80_Execute(void) {
         } while (!z80_opdone(&g_cpu));
         add_z80_icount((WORD)inst_cycles);
         g_cycles += inst_cycles;
+        if (debugger_after_instruction(current_instruction_address())) {
+            sync_registers_from_chips();
+            return;
+        }
     } while (Z80_ICount < BreakICount);
 
     sync_registers_from_chips();
+}
+
+uint16_t z80w_get_pc() {
+    return current_instruction_address();
+}
+
+void z80w_get_debug_registers(Z80DebugRegisters *registers) {
+    if (!registers) return;
+
+    registers->af = (uint16_t)((g_cpu.a << 8) | g_cpu.f);
+    registers->bc = (uint16_t)((g_cpu.b << 8) | g_cpu.c);
+    registers->de = (uint16_t)((g_cpu.d << 8) | g_cpu.e);
+    registers->hl = (uint16_t)((g_cpu.h << 8) | g_cpu.l);
+    registers->ix = g_cpu.ix;
+    registers->iy = g_cpu.iy;
+    registers->pc = current_instruction_address();
+    registers->sp = g_cpu.sp;
+    registers->af2 = g_cpu.af2;
+    registers->bc2 = g_cpu.bc2;
+    registers->de2 = g_cpu.de2;
+    registers->hl2 = g_cpu.hl2;
+    registers->i = g_cpu.i;
+    registers->r = g_cpu.r;
+    registers->im = g_cpu.im;
+    registers->iff1 = g_cpu.iff1 ? 1 : 0;
+    registers->iff2 = g_cpu.iff2 ? 1 : 0;
+    registers->cycles = (uint32_t)g_cycles;
 }
 
 // Execute one Z80 instruction (T_TUNE mode)

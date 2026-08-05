@@ -67,6 +67,9 @@ void x1r_init(void);
 void x1r_term(void);
 
 void x1r_exec(void);
+#if T_TUNE
+void x1r_reset_frame_execution(void);
+#endif
 
 X1_IOR x1_dipsw_r(WORD port);
 
@@ -94,4 +97,3 @@ void makecaption(BYTE flg, WORKCLOCK_T *workclock);
 
 #define	DIP_RESOLUTE	1
 #define	DIP_BOOTMEDIA	4
-
