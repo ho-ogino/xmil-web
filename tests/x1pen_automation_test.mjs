@@ -173,6 +173,33 @@ test('automation operations are serialized and stale source modes are cleared', 
   assert.ok(programs.final.revision > programs.results[0].revision);
 });
 
+test('automation program updates persist across page reloads', { timeout: 60_000 }, async () => {
+  const basic = '10 PRINT "PERSISTED BY MCP"';
+  const stored = await page.evaluate(async (source) => {
+    localStorage.setItem('x1pen_editor_asm', 'STALE ASM');
+    localStorage.setItem('x1pen_editor_slang', 'STALE SLANG');
+    await window.X1PenAutomation.setProgram({
+      sourceMode: 'basic+asm',
+      basic: source,
+      asm: '',
+    });
+    return {
+      basic: localStorage.getItem('x1pen_editor'),
+      asm: localStorage.getItem('x1pen_editor_asm'),
+      slang: localStorage.getItem('x1pen_editor_slang'),
+    };
+  }, basic);
+  assert.deepEqual(stored, { basic, asm: '', slang: '' });
+
+  await page.reload();
+  await page.evaluate(() => window.X1PenAutomation.ready());
+  const restored = await page.evaluate(() => window.X1PenAutomation.getProgram());
+  assert.equal(restored.basic, basic);
+  assert.equal(restored.asm, '');
+  assert.equal(restored.slang, '');
+  assert.equal(restored.sourceMode, 'basic+asm');
+});
+
 test('revision conflicts prevent stale AI updates', async () => {
   const result = await page.evaluate(async () => {
     const stale = window.X1PenAutomation.getProgram().revision;

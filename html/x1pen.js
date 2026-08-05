@@ -343,6 +343,17 @@ window.__X1PEN_MODE = true;
 
     var LS_EDITOR_BASIC = 'x1pen_editor';
     var LS_EDITOR_ASM   = 'x1pen_editor_asm';
+    var LS_EDITOR_SLANG = 'x1pen_editor_slang';
+
+    function persistEditorSources(basic, asm, slang) {
+        try {
+            localStorage.setItem(LS_EDITOR_BASIC, basic);
+            localStorage.setItem(LS_EDITOR_ASM, asm);
+            localStorage.setItem(LS_EDITOR_SLANG, slang);
+        } catch(e) {
+            console.warn('[x1pen] Failed to persist editor sources:', e);
+        }
+    }
 
     var elBtnRun    = document.getElementById('btn-run');
     var elBtnStop   = document.getElementById('btn-stop');
@@ -398,7 +409,6 @@ window.__X1PEN_MODE = true;
           onBlur:  pauseCallbacks.onBlur }
     );
 
-    var LS_EDITOR_SLANG = 'x1pen_editor_slang';
     var slangEditor = window.X1PenEditor.create(
         document.getElementById('slang-editor-container'),
         { language: 'slang',
@@ -1131,6 +1141,7 @@ window.__X1PEN_MODE = true;
         basicEditor.setValue(normalized.basic, { silent: true });
         if (asmEditor) asmEditor.setValue(normalized.asm, { silent: true });
         if (slangEditor) slangEditor.setValue(normalized.slang, { silent: true });
+        persistEditorSources(normalized.basic, normalized.asm, normalized.slang);
         lastAsmTabOrigin = normalized.asm ? 'user' : null;
         pendingShareRuntime = null;
         lastRunWasShared = false;
