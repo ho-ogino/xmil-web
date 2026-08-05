@@ -71,9 +71,22 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   const ready = await page.evaluate(() => window.X1PenAutomation.ready());
   assert.equal(ready.ready, true);
   assert.equal(await page.evaluate(() => window.X1PenAutomation.version), 2);
+  assert.equal(ready.capabilities.debugger.available, true);
   assert.equal(ready.capabilities.debugger.version, 1);
   assert.equal(ready.capabilities.debugger.addressSpaceSize, 0x10000);
   assert.equal(ready.capabilities.debugger.maxReadLength, 4096);
+
+  const unavailableCapability = await page.evaluate(() => {
+    const module = window.Module;
+    const saved = module._js_debug_step;
+    module._js_debug_step = null;
+    try {
+      return window.X1PenAutomation.getStatus().capabilities.debugger.available;
+    } finally {
+      module._js_debug_step = saved;
+    }
+  });
+  assert.equal(unavailableCapability, false);
 
   const program = {
     sourceMode: 'basic+asm',
@@ -276,7 +289,7 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
 
   const initial = await page.evaluate(async () => {
     const debuggerApi = window.X1PenAutomation.debugger;
-    debuggerApi.setBreakpoints([]);
+    await debuggerApi.setBreakpoints([]);
     await window.X1PenAutomation.setProgram({
       sourceMode: 'asm',
       asm: 'ORG 0100h\nNOP\nINC A\nJP 0100h',
@@ -290,15 +303,19 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
   assert.equal(initial.run.ok, true);
 
   await page.waitForFunction(({ address, bytes }) => {
-    const memory = window.X1PenAutomation.debugger.readMemory(address, bytes.length);
-    return bytes.every((value, index) => memory.bytes[index] === value);
+    try {
+      const memory = window.X1PenAutomation.debugger.readMemory(address, bytes.length);
+      return bytes.every((value, index) => memory.bytes[index] === value);
+    } catch {
+      return false;
+    }
   }, { address: programAddress, bytes: expectedBytes });
 
   const stopped = await page.evaluate(async (address) => {
     const debuggerApi = window.X1PenAutomation.debugger;
-    debuggerApi.pause();
-    const configured = debuggerApi.setBreakpoints([address, address]);
-    const running = debuggerApi.resume();
+    await debuggerApi.pause();
+    const configured = await debuggerApi.setBreakpoints([address, address]);
+    const running = await debuggerApi.resume();
     const state = await debuggerApi.waitForPause({
       afterSequence: running.sequence,
       stopReason: 'breakpoint',
@@ -326,9 +343,9 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
   assert.deepEqual(stopped.memory.bytes, expectedBytes);
   const accumulatorBeforeFirst = stopped.state.registers.a;
 
-  const stepped = await page.evaluate(() => {
+  const stepped = await page.evaluate(async () => {
     const debuggerApi = window.X1PenAutomation.debugger;
-    return [debuggerApi.step(), debuggerApi.step(), debuggerApi.step()];
+    return [await debuggerApi.step(), await debuggerApi.step(), await debuggerApi.step()];
   });
   assert.equal(stepped[0].stopReason, 'step');
   assert.equal(stepped[0].registers.pc, programAddress + 1);
@@ -341,7 +358,7 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
   const resumedBreakpoint = await page.evaluate(async () => {
     const debuggerApi = window.X1PenAutomation.debugger;
     const before = debuggerApi.getState();
-    const running = debuggerApi.resume();
+    const running = await debuggerApi.resume();
     const stoppedAgain = await debuggerApi.waitForPause({
       afterSequence: running.sequence,
       stopReason: 'breakpoint',
@@ -354,8 +371,8 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
 
   const manualState = await page.evaluate(async () => {
     const debuggerApi = window.X1PenAutomation.debugger;
-    debuggerApi.setBreakpoints([]);
-    debuggerApi.resume();
+    await debuggerApi.setBreakpoints([]);
+    await debuggerApi.resume();
     await new Promise((resolve) => setTimeout(resolve, 30));
     return debuggerApi.pause();
   });
@@ -363,7 +380,7 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
   assert.equal(manualState.stopReason, 'manual');
   assert.equal(manualState.breakpointCount, 0);
 
-  const validationErrors = await page.evaluate(async () => {
+  const validation = await page.evaluate(async () => {
     const debuggerApi = window.X1PenAutomation.debugger;
     const errors = [];
     for (const operation of [
@@ -378,19 +395,55 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
         errors.push(error.message);
       }
     }
-    return errors;
+    const module = window.Module;
+    const ptr = module._malloc(2);
+    try {
+      return {
+        errors,
+        rawInvalidRead: module._js_debug_read_memory(0xFFFF, ptr, 2),
+      };
+    } finally {
+      module._free(ptr);
+    }
   });
-  assert.match(validationErrors[0], /range exceeds/);
-  assert.match(validationErrors[1], /0 to 65535/);
-  assert.match(validationErrors[2], /Timed out/);
+  assert.match(validation.errors[0], /64KB address space/);
+  assert.match(validation.errors[1], /0 to 65535/);
+  assert.match(validation.errors[2], /Timed out/);
+  assert.equal(validation.rawInvalidRead, -1);
 
   const rerun = await page.evaluate(async () => {
     const api = window.X1PenAutomation;
     const before = api.debugger.getState();
-    const result = await api.run();
-    return { before, result, after: api.debugger.getState() };
+    const runPromise = api.run();
+    const breakpointPromise = api.debugger.setBreakpoints([0x2345]);
+    const controlErrors = [];
+    for (const control of ['pause', 'resume', 'step']) {
+      try {
+        await api.debugger[control]();
+        controlErrors.push(null);
+      } catch (error) {
+        controlErrors.push(error.message);
+      }
+    }
+    const result = await runPromise;
+    const queuedBreakpoints = await breakpointPromise;
+    const after = api.debugger.getState();
+    let runningStepError = null;
+    try {
+      await api.debugger.step();
+    } catch (error) {
+      runningStepError = error.message;
+    }
+    const pausedAfterRun = await api.debugger.pause();
+    await api.debugger.setBreakpoints([]);
+    await api.debugger.resume();
+    return { before, result, after, controlErrors, runningStepError, pausedAfterRun, queuedBreakpoints };
   });
   assert.equal(rerun.before.runState, 'paused');
   assert.equal(rerun.result.ok, true);
   assert.equal(rerun.after.runState, 'running', 'Run must resume a paused debugger session');
+  assert.deepEqual(rerun.controlErrors.map((message) => /run setup is pending/.test(message)), [true, true, true]);
+  assert.match(rerun.runningStepError, /requires the paused state/);
+  assert.equal(rerun.pausedAfterRun.runState, 'paused');
+  assert.equal(rerun.queuedBreakpoints.breakpointCount, 1);
 });

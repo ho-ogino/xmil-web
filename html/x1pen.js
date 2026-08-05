@@ -28,6 +28,7 @@ window.__X1PEN_MODE = true;
     automationReadyPromise.catch(function() {});
     var automationOperationQueue = Promise.resolve();
     var automationPendingOperations = 0;
+    var automationPendingRuns = 0;
     var automationRevision = 0;
     var automationConnected = false;
     var automationInteractionLocked = false;
@@ -1273,8 +1274,15 @@ window.__X1PEN_MODE = true;
     var DEBUGGER_MEMORY_MAPPING_NAMES = ['main', 'bios', 'bank'];
     var DEBUGGER_MAX_READ_LENGTH = 4096;
 
+    function isDebuggerModuleAvailable() {
+        return !!(module && module.wasmMemory && module._malloc && module._free &&
+            module._js_debug_get_state && module._js_debug_pause && module._js_debug_resume &&
+            module._js_debug_step && module._js_debug_replace_breakpoints &&
+            module._js_debug_read_memory);
+    }
+
     function requireDebuggerModule() {
-        if (!module || !module._js_debug_get_state || !module.wasmMemory) {
+        if (!isDebuggerModuleAvailable()) {
             throw new Error('X1Pen debugger is not ready');
         }
         return module;
@@ -1320,6 +1328,7 @@ window.__X1PEN_MODE = true;
         decodeDebuggerPair(registers.hl2, 'h2', 'l2', registers);
 
         var mappingCode = state[word.LOW_MEMORY_MAPPING];
+        var mappingName = debuggerEnumName(DEBUGGER_MEMORY_MAPPING_NAMES, mappingCode);
         return {
             version: state[word.VERSION],
             sequence: state[word.SEQUENCE],
@@ -1333,9 +1342,9 @@ window.__X1PEN_MODE = true;
             registers: registers,
             cycles: state[word.CYCLES],
             memory: {
-                lowMapping: debuggerEnumName(DEBUGGER_MEMORY_MAPPING_NAMES, mappingCode),
+                lowMapping: mappingName,
                 lowMappingCode: mappingCode,
-                lowBank: mappingCode === 2 ? state[word.LOW_MEMORY_BANK] : null,
+                lowBank: mappingName === 'bank' ? state[word.LOW_MEMORY_BANK] : null,
                 romType: state[word.ROM_TYPE],
                 romSwitch: state[word.ROM_SWITCH] !== 0,
                 lastmem: state[word.LASTMEM]
@@ -1366,10 +1375,22 @@ window.__X1PEN_MODE = true;
 
     function callAutomationDebuggerControl(exportName, operation) {
         var debuggerModule = requireDebuggerModule();
-        if (!debuggerModule[exportName] || debuggerModule[exportName]() !== 1) {
+        if (operation === 'step' && getAutomationDebuggerState().runState !== 'paused') {
+            throw new Error('Debugger step requires the paused state');
+        }
+        if (debuggerModule[exportName]() !== 1) {
             throw new Error('Debugger ' + operation + ' failed');
         }
         return getAutomationDebuggerState();
+    }
+
+    function runAutomationDebuggerControl(exportName, operation) {
+        return automationReadyPromise.then(function() {
+            if (automationPendingRuns > 0) {
+                throw new Error('Debugger ' + operation + ' is unavailable while run setup is pending');
+            }
+            return callAutomationDebuggerControl(exportName, operation);
+        });
     }
 
     function normalizeDebuggerAddress(value, name) {
@@ -1415,7 +1436,7 @@ window.__X1PEN_MODE = true;
         if (!Number.isInteger(length) || length < 1 || length > DEBUGGER_MAX_READ_LENGTH) {
             throw new TypeError('length must be an integer from 1 to ' + DEBUGGER_MAX_READ_LENGTH);
         }
-        if (address + length > 0x10000) throw new RangeError('memory range exceeds 65535');
+        if (address + length > 0x10000) throw new RangeError('memory range exceeds the 64KB address space');
 
         var debuggerModule = requireDebuggerModule();
         var ptr = debuggerModule._malloc(length);
@@ -1439,6 +1460,8 @@ window.__X1PEN_MODE = true;
             throw new TypeError('options must be an object');
         }
         var hasAfterSequence = options.afterSequence !== undefined;
+        // Pass the sequence returned by resume(), not the sequence from the
+        // preceding stopped state. This distinguishes a later stop transition.
         if (hasAfterSequence && (!Number.isInteger(options.afterSequence) ||
             options.afterSequence < 0 || options.afterSequence > 0xFFFFFFFF)) {
             throw new TypeError('afterSequence must be an unsigned 32-bit integer');
@@ -1463,43 +1486,51 @@ window.__X1PEN_MODE = true;
                 (options.stopReason === undefined || state.stopReason === options.stopReason) &&
                 (options.address === undefined || state.stopAddress === options.address);
         };
-        var deadline = Date.now() + timeoutMs;
-        return new Promise(function(resolve, reject) {
-            var poll = function() {
-                var state;
-                try {
-                    state = getAutomationDebuggerState();
-                } catch(e) {
-                    reject(e);
-                    return;
-                }
-                if (matches(state)) {
-                    resolve(state);
-                    return;
-                }
-                if (Date.now() >= deadline) {
-                    reject(new Error('Timed out waiting for debugger pause'));
-                    return;
-                }
-                setTimeout(poll, pollIntervalMs);
-            };
-            poll();
+        return automationReadyPromise.then(function() {
+            var deadline = Date.now() + timeoutMs;
+            return new Promise(function(resolve, reject) {
+                var poll = function() {
+                    var state;
+                    try {
+                        state = getAutomationDebuggerState();
+                    } catch(e) {
+                        reject(e);
+                        return;
+                    }
+                    if (matches(state)) {
+                        resolve(state);
+                        return;
+                    }
+                    if (Date.now() >= deadline) {
+                        reject(new Error('Timed out waiting for debugger pause'));
+                        return;
+                    }
+                    setTimeout(poll, pollIntervalMs);
+                };
+                poll();
+            });
         });
     }
 
+    // Call X1PenAutomation.ready() before the synchronous observation methods
+    // getState() and readMemory(). Async debugger methods wait for readiness.
     var automationDebuggerApi = Object.freeze({
         version: 1,
         getState: getAutomationDebuggerState,
         pause: function() {
-            return callAutomationDebuggerControl('_js_debug_pause', 'pause');
+            return runAutomationDebuggerControl('_js_debug_pause', 'pause');
         },
         resume: function() {
-            return callAutomationDebuggerControl('_js_debug_resume', 'resume');
+            return runAutomationDebuggerControl('_js_debug_resume', 'resume');
         },
         step: function() {
-            return callAutomationDebuggerControl('_js_debug_step', 'step');
+            return runAutomationDebuggerControl('_js_debug_step', 'step');
         },
-        setBreakpoints: setAutomationDebuggerBreakpoints,
+        setBreakpoints: function(addresses) {
+            return queueAutomationOperation(function() {
+                return setAutomationDebuggerBreakpoints(addresses);
+            });
+        },
         readMemory: readAutomationDebuggerMemory,
         waitForPause: waitForAutomationDebuggerPause
     });
@@ -1530,6 +1561,7 @@ window.__X1PEN_MODE = true;
             activeLanguageProfile: activeLanguageProfile,
             capabilities: {
                 debugger: {
+                    available: isDebuggerModuleAvailable(),
                     version: automationDebuggerApi.version,
                     addressSpaceSize: 0x10000,
                     maxReadLength: DEBUGGER_MAX_READ_LENGTH
@@ -1630,7 +1662,8 @@ window.__X1PEN_MODE = true;
             return queueAutomationOperation(validateAutomationProgram);
         },
         run: function() {
-            return queueAutomationOperation(async function() {
+            automationPendingRuns++;
+            var result = queueAutomationOperation(async function() {
                 var ok = await onRunClick();
                 return {
                     ok: ok,
@@ -1638,6 +1671,13 @@ window.__X1PEN_MODE = true;
                     sourceMode: getAutomationProgram().sourceMode,
                     revision: automationRevision
                 };
+            });
+            return result.then(function(value) {
+                automationPendingRuns--;
+                return value;
+            }, function(error) {
+                automationPendingRuns--;
+                throw error;
             });
         },
         stop: function() {
