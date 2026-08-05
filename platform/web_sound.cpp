@@ -15,6 +15,7 @@
 #include "x1.h"
 #include "dsounds.h"
 #include "opm.h"
+#include "platform_audio.h"
 
 //----------------------------------------------------------------------------
 // PCM グローバル変数 (DSOUNDS.CPP の代替)
@@ -103,6 +104,10 @@ static void web_ds_streammakes(DWORD N) {
     INX1F_resetsamplepos();               // pcmmakepos を 0 にリセット
     memset(pcmbuffer, 0, N * PCMMUL);    // OPM/PSG は加算なのでゼロクリア必須
     INX1F_makesample(N);                  // pcmbuffer[0..N*4-1] に INT16 ステレオ書き込み
+
+    // Single-step still advances sound-chip state, but paused audio must not
+    // accumulate stale PCM that would be played after debugger resume.
+    if (!Platform_Audio_IsPlaying()) return;
 
     // JS リングバッファに INT16 ステレオデータを書き込む
     // オーバーフロー保護: 書き込み可能なスペースを超えた分は破棄する

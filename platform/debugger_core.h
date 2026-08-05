@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+// C++-only debugger core interface. JavaScript calls the js_debug_* wrappers
+// exported from platform_main.cpp rather than these functions directly.
+
 enum DebuggerRunState {
     DEBUGGER_RUNNING = 0,
     DEBUGGER_PAUSED = 1
@@ -56,26 +59,10 @@ enum DebuggerStateWord {
     DEBUGGER_STATE_WORDS
 };
 
-struct Z80DebugRegisters {
-    uint16_t af;
-    uint16_t bc;
-    uint16_t de;
-    uint16_t hl;
-    uint16_t ix;
-    uint16_t iy;
-    uint16_t pc;
-    uint16_t sp;
-    uint16_t af2;
-    uint16_t bc2;
-    uint16_t de2;
-    uint16_t hl2;
-    uint8_t i;
-    uint8_t r;
-    uint8_t im;
-    uint8_t iff1;
-    uint8_t iff2;
-    uint32_t cycles;
-};
+// DEBUGGER_STATE_SEQUENCE changes on control/configuration transitions as well
+// as stops. Consumers must compare RUN_STATE and STOP_REASON when detecting a
+// new stop. CYCLES wraps modulo 2^32. LOW_MEMORY_BANK is UINT32_MAX unless
+// LOW_MEMORY_MAPPING is BANK.
 
 struct DebuggerStatus {
     uint32_t sequence;
@@ -84,6 +71,23 @@ struct DebuggerStatus {
     uint16_t stop_address;
     uint32_t breakpoint_count;
 };
+
+enum DebuggerFastFlag {
+    DEBUGGER_FAST_BEFORE_INSTRUCTION = 1,
+    DEBUGGER_FAST_AFTER_INSTRUCTION = 2
+};
+
+// Read-only outside debugger_core.cpp. These inline checks keep the normal CPU
+// hot path to one load and branch while no debugger operation is armed.
+extern uint8_t debugger_fast_flags;
+
+static inline bool debugger_before_instruction_armed() {
+    return (debugger_fast_flags & DEBUGGER_FAST_BEFORE_INSTRUCTION) != 0;
+}
+
+static inline bool debugger_after_instruction_armed() {
+    return (debugger_fast_flags & DEBUGGER_FAST_AFTER_INSTRUCTION) != 0;
+}
 
 bool debugger_is_paused();
 void debugger_pause(uint16_t pc);
@@ -94,8 +98,5 @@ bool debugger_after_instruction(uint16_t pc);
 bool debugger_replace_breakpoints(const uint16_t *addresses, int count);
 void debugger_on_machine_reset(uint16_t pc);
 DebuggerStatus debugger_get_status();
-
-uint16_t z80w_get_pc();
-void z80w_get_debug_registers(Z80DebugRegisters *registers);
 
 #endif

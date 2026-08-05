@@ -38,6 +38,7 @@
 #include	"fdd_mtr.h"
 #include	"state_save.h"
 #include	"debugger_core.h"
+#include	"z80_debug.h"
 #endif
 
 	X1_FLAG		x1flg = {250, 0, 1, 1, 0};
@@ -774,7 +775,6 @@ int x1_save_state(BYTE *buf, int maxlen)
 int x1_load_state(const BYTE *buf, int len)
 {
 	int pos = 0;
-	frame_active = 0;
 
 	/* scalar statics */
 	SS_READ_U16(buf, pos, v_cnt);

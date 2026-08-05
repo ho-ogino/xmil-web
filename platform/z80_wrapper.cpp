@@ -16,6 +16,7 @@
 #include "X1_DMAM.H"
 #include "x1_irq.h"
 #include "debugger_core.h"
+#include "z80_debug.h"
 
 // X1 memory and I/O functions (will be linked from X1 code)
 BYTE __fastcall Z80_RDMEM(WORD adrs);
@@ -30,7 +31,9 @@ extern unsigned short BreakICount;
 // Z80 CPU state
 static z80_t g_cpu;
 static uint64_t g_pins = 0;
-static int g_cycles = 0;
+// Exposed debugger cycle counter. Unsigned overflow intentionally wraps modulo
+// 2^32, preserving the existing four-byte save-state field.
+static uint32_t g_cycles = 0;
 
 // chips overlaps the next M1 fetch with completion of the previous opcode.
 // At z80_opdone(), g_cpu.pc already points past the opcode being fetched, while
@@ -207,7 +210,8 @@ void Z80_Execute(void) {
     // chips z80.h samples INT at instruction boundaries and enters IORQ+M1
     // when IFF1 is set. Vector fetch happens in handle_tick() at that time.
     do {
-        if (debugger_should_stop_before_instruction(current_instruction_address())) {
+        if (debugger_before_instruction_armed() &&
+            debugger_should_stop_before_instruction(current_instruction_address())) {
             sync_registers_from_chips();
             return;
         }
@@ -222,7 +226,8 @@ void Z80_Execute(void) {
         } while (!z80_opdone(&g_cpu));
         add_z80_icount((WORD)inst_cycles);
         g_cycles += inst_cycles;
-        if (debugger_after_instruction(current_instruction_address())) {
+        if (debugger_after_instruction_armed() &&
+            debugger_after_instruction(current_instruction_address())) {
             sync_registers_from_chips();
             return;
         }
@@ -255,11 +260,16 @@ void z80w_get_debug_registers(Z80DebugRegisters *registers) {
     registers->im = g_cpu.im;
     registers->iff1 = g_cpu.iff1 ? 1 : 0;
     registers->iff2 = g_cpu.iff2 ? 1 : 0;
-    registers->cycles = (uint32_t)g_cycles;
+    registers->cycles = g_cycles;
 }
 
 // Execute one Z80 instruction (T_TUNE mode)
 void Z80_ExecuteOne(void) {
+    if (debugger_before_instruction_armed() &&
+        debugger_should_stop_before_instruction(current_instruction_address())) {
+        sync_registers_from_chips();
+        return;
+    }
     int inst_cycles = 0;
     do {
         g_pins = z80_tick(&g_cpu, g_pins);
@@ -270,6 +280,9 @@ void Z80_ExecuteOne(void) {
     g_cycles += inst_cycles;
     // Match original T_TUNE path: execute DMA service after one instruction.
     x1_dma();
+    if (debugger_after_instruction_armed()) {
+        debugger_after_instruction(current_instruction_address());
+    }
     sync_registers_from_chips();
 }
 
@@ -350,7 +363,7 @@ int z80w_save_state(BYTE *buf, int maxlen) {
 
     // wrapper globals
     SS_WRITE_U64(buf, pos, g_pins);
-    SS_WRITE_I32(buf, pos, g_cycles);
+    SS_WRITE_U32(buf, pos, g_cycles);
     SS_WRITE_U16(buf, pos, Z80_ICount);
 
     return pos;
@@ -399,7 +412,7 @@ int z80w_load_state(const BYTE *buf, int len) {
 
     // wrapper globals
     SS_READ_U64(buf, pos, g_pins);
-    SS_READ_I32(buf, pos, g_cycles);
+    SS_READ_U32(buf, pos, g_cycles);
     SS_READ_U16(buf, pos, Z80_ICount);
 
     // sync the compatibility R struct from restored chips state

@@ -11,6 +11,18 @@ static uint16_t g_stop_address = 0;
 static bool g_step_requested = false;
 static bool g_skip_breakpoint_once = false;
 static uint16_t g_skip_breakpoint_address = 0;
+uint8_t debugger_fast_flags = 0;
+
+static void refresh_fast_flags() {
+    debugger_fast_flags = 0;
+    if (g_state == DEBUGGER_PAUSED || g_breakpoint_count > 0 ||
+        g_skip_breakpoint_once) {
+        debugger_fast_flags |= DEBUGGER_FAST_BEFORE_INSTRUCTION;
+    }
+    if (g_step_requested) {
+        debugger_fast_flags |= DEBUGGER_FAST_AFTER_INSTRUCTION;
+    }
+}
 
 static bool has_breakpoint(uint16_t address) {
     return (g_breakpoints[address >> 3] & (uint8_t)(1u << (address & 7))) != 0;
@@ -22,6 +34,7 @@ static void set_paused(DebuggerStopReason reason, uint16_t address) {
     g_stop_address = address;
     g_step_requested = false;
     g_sequence++;
+    refresh_fast_flags();
 }
 
 bool debugger_is_paused() {
@@ -36,14 +49,16 @@ void debugger_pause(uint16_t pc) {
 
 void debugger_resume(uint16_t pc) {
     if (g_state == DEBUGGER_RUNNING) return;
-    g_skip_breakpoint_once =
-        g_stop_reason == DEBUGGER_STOP_BREAKPOINT && g_stop_address == pc;
+    // Continue always executes the instruction at the current PC once. This
+    // also covers stepping or manually pausing on an armed breakpoint.
+    g_skip_breakpoint_once = true;
     g_skip_breakpoint_address = pc;
     g_step_requested = false;
     g_state = DEBUGGER_RUNNING;
     g_stop_reason = DEBUGGER_STOP_NONE;
     g_stop_address = pc;
     g_sequence++;
+    refresh_fast_flags();
 }
 
 bool debugger_begin_step(uint16_t pc) {
@@ -55,15 +70,18 @@ bool debugger_begin_step(uint16_t pc) {
     g_stop_reason = DEBUGGER_STOP_NONE;
     g_stop_address = pc;
     g_sequence++;
+    refresh_fast_flags();
     return true;
 }
 
 bool debugger_should_stop_before_instruction(uint16_t pc) {
     if (g_state == DEBUGGER_PAUSED) return true;
 
-    if (g_skip_breakpoint_once && g_skip_breakpoint_address == pc) {
+    if (g_skip_breakpoint_once) {
+        bool skip = g_skip_breakpoint_address == pc;
         g_skip_breakpoint_once = false;
-        return false;
+        refresh_fast_flags();
+        if (skip) return false;
     }
 
     if (!has_breakpoint(pc)) return false;
@@ -79,7 +97,7 @@ bool debugger_after_instruction(uint16_t pc) {
 }
 
 bool debugger_replace_breakpoints(const uint16_t *addresses, int count) {
-    if (count < 0 || count > 0x10000 || (count > 0 && addresses == 0)) {
+    if (count < 0 || count > 0x10000 || (count > 0 && addresses == nullptr)) {
         return false;
     }
 
@@ -95,6 +113,7 @@ bool debugger_replace_breakpoints(const uint16_t *addresses, int count) {
         }
     }
     g_sequence++;
+    refresh_fast_flags();
     return true;
 }
 
@@ -106,6 +125,7 @@ void debugger_on_machine_reset(uint16_t pc) {
         ? DEBUGGER_STOP_MANUAL
         : DEBUGGER_STOP_NONE;
     g_sequence++;
+    refresh_fast_flags();
 }
 
 DebuggerStatus debugger_get_status() {

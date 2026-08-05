@@ -28,6 +28,7 @@
 #include "FDD_D88.H"
 #include "FDD_2D.H"
 #include "debugger_core.h"
+#include "z80_debug.h"
 
 BYTE __fastcall Z80_RDMEM(WORD adrs);
 
@@ -539,6 +540,9 @@ int js_debug_read_memory(int address, BYTE *output, int length) {
     return length;
 }
 
+// Fixed uint32_t ABI described by DebuggerStateWord. Returns the word count on
+// success, -1 for a null output pointer, or -DEBUGGER_STATE_WORDS when the
+// supplied capacity is too small.
 EMSCRIPTEN_KEEPALIVE
 int js_debug_get_state(uint32_t *output, int word_capacity) {
     if (!output) return -1;
