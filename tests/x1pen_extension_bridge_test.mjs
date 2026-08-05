@@ -9,6 +9,7 @@ afterEach(() => {
 function createAutomationApi() {
   const locks = [];
   const calls = [];
+  const timeline = [];
   let pendingReads = 2;
   let pauseAttempts = 0;
   let pc = 0x0100;
@@ -29,7 +30,10 @@ function createAutomationApi() {
       },
     }),
     getProgram: () => ({ revision: 1 }),
-    setInteractionLocked: (locked, label) => locks.push({ locked, label }),
+    setInteractionLocked: (locked, label) => {
+      locks.push({ locked, label });
+      timeline.push(locked ? 'lock:on' : 'lock:off');
+    },
     debugger: {
       getState: () => state(),
       pause: async () => {
@@ -39,6 +43,7 @@ function createAutomationApi() {
           error.code = 'RUN_PENDING';
           throw error;
         }
+        timeline.push('pause:done');
         return state();
       },
       resume: async () => state({ sequence: 11, runState: 'running', stopReason: 'none' }),
@@ -52,11 +57,11 @@ function createAutomationApi() {
       waitForPause: async (options) => ({ ...state(), options }),
     },
   };
-  return { api, calls, locks };
+  return { api, calls, locks, timeline };
 }
 
 test('page bridge allowlists debugger operations and retries Run setup races', async () => {
-  const { api, calls, locks } = createAutomationApi();
+  const { api, calls, locks, timeline } = createAutomationApi();
   globalThis.window = { X1PenAutomation: api };
 
   assert.deepEqual(await invokeX1PenInPage('getProgram', {}), { revision: 1 });
@@ -67,11 +72,22 @@ test('page bridge allowlists debugger operations and retries Run setup races', a
     { locked: true, label: 'AI is pausing the debugger...' },
     { locked: false, label: undefined },
   ]);
+  assert.deepEqual(timeline, ['lock:on', 'pause:done', 'lock:off']);
 
   const stepped = await invokeX1PenInPage('debuggerStep', { count: 3 });
   assert.equal(stepped.stepsExecuted, 3);
   assert.equal(stepped.registers.pc, 0x0103);
   assert.equal(calls.filter((call) => call === 'step').length, 3);
+
+  let failingStep = 0;
+  api.debugger.step = async () => {
+    if (++failingStep === 3) throw new Error('CPU step failed');
+    return { runState: 'paused' };
+  };
+  await assert.rejects(
+    invokeX1PenInPage('debuggerStep', { count: 5 }),
+    /failed after 2 of 5 instructions: CPU step failed/,
+  );
 
   const breakpoints = await invokeX1PenInPage('debuggerSetBreakpoints', { addresses: [0x100, 0x120] });
   assert.equal(breakpoints.breakpointCount, 2);

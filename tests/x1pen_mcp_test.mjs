@@ -436,10 +436,10 @@ test('debugger tools route controls and return named state', async () => {
 test('debugger memory reads are bounded and compact', async () => {
   const result = await client.callTool({
     name: 'x1pen_debug_read_memory',
-    arguments: { address: 0x0100, length: 4 },
+    arguments: { address: 0x01AB, length: 4 },
   });
   const memory = jsonContent(result);
-  assert.deepEqual(memory, { address: 0x0100, endAddress: 0x0103, length: 4, hex: '00010203' });
+  assert.deepEqual(memory, { address: 0x01AB, endAddress: 0x01AE, length: 4, hex: 'ABACADAE' });
   assert.equal(memory.bytes, undefined);
 
   const invalid = await client.callTool({

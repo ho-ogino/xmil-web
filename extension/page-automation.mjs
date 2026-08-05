@@ -46,30 +46,36 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
   if (shouldLock) api.setInteractionLocked(true, lockLabels[requestedMethod]);
   try {
     if (requestedMethod === 'getProgram') return api.getProgram();
-    if (requestedMethod === 'setProgram') return api.setProgram(requestedParams.program, requestedParams.expectedRevision);
-    if (requestedMethod === 'validate') return api.validate();
+    if (requestedMethod === 'setProgram') return await api.setProgram(requestedParams.program, requestedParams.expectedRevision);
+    if (requestedMethod === 'validate') return await api.validate();
     if (requestedMethod === 'run') {
       const result = await api.run();
       if (requestedParams.waitMs > 0) await new Promise((resolve) => setTimeout(resolve, requestedParams.waitMs));
       return { ...result, state: api.getStatus() };
     }
-    if (requestedMethod === 'stop') return api.stop();
+    if (requestedMethod === 'stop') return await api.stop();
     if (requestedMethod === 'getStatus') return api.getStatus();
     if (requestedMethod === 'captureScreen') return api.captureScreen();
     if (requestedMethod === 'debuggerGetState') return requireDebugger().getState();
-    if (requestedMethod === 'debuggerPause') return runDebuggerControl('pause');
-    if (requestedMethod === 'debuggerResume') return runDebuggerControl('resume');
+    if (requestedMethod === 'debuggerPause') return await runDebuggerControl('pause');
+    if (requestedMethod === 'debuggerResume') return await runDebuggerControl('resume');
     if (requestedMethod === 'debuggerStep') {
       const count = requestedParams.count === undefined ? 1 : requestedParams.count;
       if (!Number.isInteger(count) || count < 1 || count > 100) {
         throw new Error('Debugger step count must be an integer from 1 to 100');
       }
       let state;
-      for (let index = 0; index < count; index++) state = await runDebuggerControl('step');
+      for (let index = 0; index < count; index++) {
+        try {
+          state = await runDebuggerControl('step');
+        } catch (error) {
+          throw new Error(`Debugger step failed after ${index} of ${count} instructions: ${error?.message || String(error)}`);
+        }
+      }
       return { ...state, stepsExecuted: count };
     }
     if (requestedMethod === 'debuggerSetBreakpoints') {
-      return requireDebugger().setBreakpoints(requestedParams.addresses);
+      return await requireDebugger().setBreakpoints(requestedParams.addresses);
     }
     if (requestedMethod === 'debuggerReadMemory') {
       return requireDebugger().readMemory(requestedParams.address, requestedParams.length);

@@ -538,7 +538,7 @@ export function createX1PenMcpServer(options = {}) {
   )));
 
   server.registerTool('x1pen_debug_set_breakpoints', {
-    description: 'Atomically replace all Z80 PC breakpoints. Pass an empty array to clear them.',
+    description: 'Atomically replace up to 1024 Z80 PC breakpoints. Pass an empty array to clear them.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       addresses: z.array(z.number().int().min(0).max(0xFFFF)).max(DEBUGGER_MAX_BREAKPOINTS),
