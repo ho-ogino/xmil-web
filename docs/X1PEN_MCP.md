@@ -22,7 +22,7 @@ CodexのMCP設定に以下を追加します。
 ```toml
 [mcp_servers.x1pen]
 command = "npx"
-args = ["-y", "x1pen-mcp@2.2.1"]
+args = ["-y", "x1pen-mcp@2.3.0"]
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
@@ -35,7 +35,7 @@ userスコープへ登録すると、任意のプロジェクトからX1Penを�
 
 ```bash
 claude mcp add --transport stdio --scope user x1pen -- \
-  npx -y x1pen-mcp@2.2.1
+  npx -y x1pen-mcp@2.3.0
 claude mcp list
 ```
 
@@ -47,7 +47,7 @@ claude mcp list
     "x1pen": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "x1pen-mcp@2.2.1"]
+      "args": ["-y", "x1pen-mcp@2.3.0"]
     }
   }
 }
@@ -94,6 +94,13 @@ MCPサーバーのnpm配布とブラウザー拡張の配布は独立してお�
 | `x1pen_stop` | ESCを送信して停止 |
 | `x1pen_get_status` | 接続、ロック、実行状態を取得 |
 | `x1pen_capture_screen` | 640x400のエミュレーター画面をPNG取得 |
+| `x1pen_debug_get_state` | Z80の停止理由、レジスタ、メモリマッピングを取得 |
+| `x1pen_debug_pause` | Run準備完了後にZ80を一時停止 |
+| `x1pen_debug_resume` | Z80実行を再開 |
+| `x1pen_debug_step` | 停止位置から1〜100命令をステップ実行 |
+| `x1pen_debug_set_breakpoints` | PCブレークポイントを一括置換・解除 |
+| `x1pen_debug_read_memory` | 現在の64KBアドレス空間を範囲指定して16進取得 |
+| `x1pen_debug_wait_for_pause` | 条件に一致する停止まで待機 |
 
 AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。`x1pen_set_program`と`x1pen_apply_edits`は取得済みの`revision`を要求し、途中で人間が編集していた場合は上書きを拒否します。
 
@@ -162,6 +169,29 @@ MCPパッケージには、X1Pen FuzzyBASIC 1.2LとX1Pen内蔵SLANGコンパイ�
 ```
 
 SLANG編集中のASMは生成物として読み取り・編集とも既定で保護されます。SLANGへ編集を適用すると古い生成ASMは破棄され、次回の検証・実行時に再生成されます。
+
+### Z80デバッグ
+
+デバッガは命令アドレス単位の停止、再開、ステップ、PCブレークポイント、レジスタ参照、現在のメモリマッピングに従った読み取りを提供します。現時点ではZ80レベルの機能であり、SLANGソース行との対応付け、逆アセンブル表示、ウォッチポイントは含みません。
+
+典型的な手順は次のとおりです。
+
+1. `x1pen_debug_set_breakpoints`で停止したいPCアドレスを設定
+2. `x1pen_run`または`x1pen_debug_resume`で実行
+3. `x1pen_debug_wait_for_pause`でブレークポイント停止を待機
+4. `x1pen_debug_get_state`と`x1pen_debug_read_memory`で状態を調査
+5. `x1pen_debug_step`で必要な命令数だけ進める
+
+`x1pen_debug_resume`後の新しい停止を待つ場合、`afterSequence`には停止前の値ではなく、`x1pen_debug_resume`が返した`sequence`を指定します。`x1pen_debug_read_memory`は既定64 byte、最大4096 byteで、モデルのコンテキスト消費を抑えるためバイト配列ではなく連続した大文字16進文字列を返します。
+
+```json
+{
+  "address": 256,
+  "length": 32
+}
+```
+
+Runボタン、Ctrl+Enter、Share自動実行、MCPの`x1pen_run`による実行準備中は、pause/resume/stepが準備完了まで拡張ブリッジ内で待機します。人間とAIが同じX1Penを操作しても、起動用キー注入の途中へデバッガ操作が割り込まないための制約です。
 
 Share機能はユーザーが開いているX1Pen自身から実行するため、本番X1Pen上では既存のShare APIと公開URLをそのまま利用できます。
 

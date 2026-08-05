@@ -14,6 +14,22 @@ const initialProgram = {
 };
 const calls = [];
 let currentProgram;
+let debuggerState;
+
+const initialDebuggerState = {
+  version: 1,
+  sequence: 10,
+  runState: 'paused',
+  runStateCode: 1,
+  stopReason: 'manual',
+  stopReasonCode: 1,
+  stopAddress: 0x0100,
+  breakpointCount: 0,
+  emulatorRunning: true,
+  registers: { pc: 0x0100, sp: 0xF000, af: 0, bc: 0, de: 0, hl: 0 },
+  cycles: 1234,
+  memory: { lowMapping: 'main', lowMappingCode: 0, lowBank: null },
+};
 
 function clone(value) {
   return structuredClone(value);
@@ -68,6 +84,37 @@ const fakeBridge = {
       };
     }
     if (method === 'captureScreen') return `data:image/png;base64,${Buffer.from('png').toString('base64')}`;
+    if (method === 'debuggerGetState') return clone(debuggerState);
+    if (method === 'debuggerPause') {
+      debuggerState = { ...debuggerState, sequence: debuggerState.sequence + 1, runState: 'paused', stopReason: 'manual' };
+      return clone(debuggerState);
+    }
+    if (method === 'debuggerResume') {
+      debuggerState = { ...debuggerState, sequence: debuggerState.sequence + 1, runState: 'running', stopReason: 'none' };
+      return clone(debuggerState);
+    }
+    if (method === 'debuggerStep') {
+      debuggerState = {
+        ...debuggerState,
+        sequence: debuggerState.sequence + params.count,
+        runState: 'paused',
+        stopReason: 'step',
+        registers: { ...debuggerState.registers, pc: debuggerState.registers.pc + params.count },
+      };
+      return { ...clone(debuggerState), stepsExecuted: params.count };
+    }
+    if (method === 'debuggerSetBreakpoints') {
+      debuggerState = { ...debuggerState, breakpointCount: new Set(params.addresses).size };
+      return clone(debuggerState);
+    }
+    if (method === 'debuggerReadMemory') {
+      return {
+        address: params.address,
+        length: params.length,
+        bytes: Array.from({ length: params.length }, (_, index) => (params.address + index) & 0xFF),
+      };
+    }
+    if (method === 'debuggerWaitForPause') return clone(debuggerState);
     return { ok: true };
   },
   async close() {},
@@ -92,6 +139,7 @@ before(async () => {
 beforeEach(() => {
   calls.length = 0;
   currentProgram = clone(initialProgram);
+  debuggerState = clone(initialDebuggerState);
 });
 
 after(async () => {
@@ -105,6 +153,13 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_apply_edits',
     'x1pen_capture_screen',
     'x1pen_connection_info',
+    'x1pen_debug_get_state',
+    'x1pen_debug_pause',
+    'x1pen_debug_read_memory',
+    'x1pen_debug_resume',
+    'x1pen_debug_set_breakpoints',
+    'x1pen_debug_step',
+    'x1pen_debug_wait_for_pause',
     'x1pen_get_language_profile',
     'x1pen_get_program',
     'x1pen_get_reference',
@@ -339,4 +394,58 @@ test('capture_screen returns an MCP PNG image', async () => {
   const image = result.content.find((item) => item.type === 'image');
   assert.equal(image.mimeType, 'image/png');
   assert.equal(Buffer.from(image.data, 'base64').toString(), 'png');
+});
+
+test('debugger tools route controls and return named state', async () => {
+  const state = jsonContent(await client.callTool({ name: 'x1pen_debug_get_state', arguments: {} }));
+  assert.equal(state.runState, 'paused');
+  assert.equal(state.registers.pc, 0x0100);
+
+  const breakpoints = jsonContent(await client.callTool({
+    name: 'x1pen_debug_set_breakpoints',
+    arguments: { addresses: [0x0100, 0x0100, 0x0120] },
+  }));
+  assert.equal(breakpoints.breakpointCount, 2);
+  assert.deepEqual(calls.at(-1).params.addresses, [0x0100, 0x0100, 0x0120]);
+
+  const resumed = jsonContent(await client.callTool({ name: 'x1pen_debug_resume', arguments: {} }));
+  assert.equal(resumed.runState, 'running');
+  const paused = jsonContent(await client.callTool({ name: 'x1pen_debug_pause', arguments: {} }));
+  assert.equal(paused.stopReason, 'manual');
+
+  const stepped = jsonContent(await client.callTool({
+    name: 'x1pen_debug_step',
+    arguments: { count: 3 },
+  }));
+  assert.equal(stepped.stepsExecuted, 3);
+  assert.equal(stepped.registers.pc, 0x0103);
+  assert.deepEqual(calls.at(-1).params, { count: 3 });
+
+  await client.callTool({
+    name: 'x1pen_debug_wait_for_pause',
+    arguments: { afterSequence: resumed.sequence, stopReason: 'step', address: 0x0103, timeoutMs: 250 },
+  });
+  assert.deepEqual(calls.at(-1).params, {
+    afterSequence: resumed.sequence,
+    stopReason: 'step',
+    address: 0x0103,
+    timeoutMs: 250,
+  });
+});
+
+test('debugger memory reads are bounded and compact', async () => {
+  const result = await client.callTool({
+    name: 'x1pen_debug_read_memory',
+    arguments: { address: 0x0100, length: 4 },
+  });
+  const memory = jsonContent(result);
+  assert.deepEqual(memory, { address: 0x0100, endAddress: 0x0103, length: 4, hex: '00010203' });
+  assert.equal(memory.bytes, undefined);
+
+  const invalid = await client.callTool({
+    name: 'x1pen_debug_read_memory',
+    arguments: { address: 0xFFFF, length: 2 },
+  });
+  assert.equal(invalid.isError, true);
+  assert.match(invalid.content[0].text, /64KB address space/);
 });

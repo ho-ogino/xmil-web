@@ -60,7 +60,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     const packageRoot = join(installRoot, 'node_modules', 'x1pen-mcp');
     const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
     assert.equal(manifest.name, 'x1pen-mcp');
-    assert.equal(manifest.version, '2.2.1');
+    assert.equal(manifest.version, '2.3.0');
     assert.deepEqual(manifest.bin, { 'x1pen-mcp': 'x1pen-server.mjs' });
 
     const serverPath = join(packageRoot, 'x1pen-server.mjs');
@@ -76,8 +76,9 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     await client.connect(transport);
 
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 16);
+    assert.equal(tools.tools.length, 23);
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_apply_edits'));
+    assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_debug_get_state'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_search_reference'));
     const connection = await client.callTool({ name: 'x1pen_connection_info', arguments: {} });
     const info = JSON.parse(connection.content[0].text);

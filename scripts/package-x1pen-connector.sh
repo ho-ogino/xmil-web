@@ -15,7 +15,7 @@ staging=$(mktemp -d "${TMPDIR:-/tmp}/x1pen-connector.XXXXXX")
 trap 'rm -rf "$staging"' EXIT HUP INT TERM
 
 mkdir -p "$staging/icons" "$(dirname -- "$output")"
-for file in manifest.json popup.html popup.css popup.js service-worker.js; do
+for file in manifest.json popup.html popup.css popup.js service-worker.js page-automation.mjs; do
   cp "$repo_root/extension/$file" "$staging/$file"
 done
 for size in 16 32 48 128; do
