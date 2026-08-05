@@ -249,6 +249,50 @@ test('automation validation and capture return structured results', async () => 
   assert.equal(png.readUInt32BE(20), 400);
 });
 
+test('focus loss releases physical keys before automation command injection', { timeout: 60_000 }, async () => {
+  const markerAddress = 0x4000;
+  const marker = [0x12, 0x34, 0x56, 0x78];
+  await page.evaluate(async () => {
+    await window.X1PenAutomation.setProgram({
+      sourceMode: 'asm',
+      asm: [
+        'ORG 0100h',
+        'LD A,012h',
+        'LD (04000h),A',
+        'LD A,034h',
+        'LD (04001h),A',
+        'LD A,056h',
+        'LD (04002h),A',
+        'LD A,078h',
+        'LD (04003h),A',
+        'LOOP:',
+        'JP LOOP',
+      ].join('\n'),
+    });
+    document.getElementById('canvas').focus();
+  });
+
+  await page.keyboard.down('Alt');
+  try {
+    await page.evaluate(() => window.dispatchEvent(new FocusEvent('blur')));
+    const result = await page.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(result.ok, true);
+    await page.waitForFunction(({ address, bytes }) => {
+      const module = window.Module;
+      const ptr = module._malloc(bytes.length);
+      try {
+        if (module._js_debug_read_memory(address, ptr, bytes.length) !== bytes.length) return false;
+        const memory = new Uint8Array(module.wasmMemory.buffer, ptr, bytes.length);
+        return bytes.every((value, index) => memory[index] === value);
+      } finally {
+        module._free(ptr);
+      }
+    }, { address: markerAddress, bytes: marker });
+  } finally {
+    await page.keyboard.up('Alt');
+  }
+});
+
 test('Z80 debugger pauses, steps, resumes, and reads mapped memory', { timeout: 60_000 }, async () => {
   const programAddress = 0x0100;
   const expectedBytes = [0x00, 0x3C, 0xC3, 0x00, 0x01]; // NOP; INC A; JP 0100h
