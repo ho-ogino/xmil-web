@@ -903,6 +903,9 @@ window.__X1PEN_MODE = true;
         }
 
         // 9. モード別のエミュレータ開始
+        // A previous debugger session may have left the machine paused. A new
+        // Run always starts execution while preserving configured breakpoints.
+        if (module._js_debug_resume) module._js_debug_resume();
         if (isLsxMode) {
             // LSX-Dodgers モード: コマンドプロンプトから PROG を実行
             console.log('[x1pen] starting emulator (LSX-Dodgers mode)');
@@ -1231,6 +1234,276 @@ window.__X1PEN_MODE = true;
         };
     }
 
+    var DEBUGGER_STATE_WORD = Object.freeze({
+        VERSION: 0,
+        WORD_COUNT: 1,
+        SEQUENCE: 2,
+        RUN_STATE: 3,
+        STOP_REASON: 4,
+        STOP_ADDRESS: 5,
+        BREAKPOINT_COUNT: 6,
+        EMULATOR_RUNNING: 7,
+        AF: 8,
+        BC: 9,
+        DE: 10,
+        HL: 11,
+        IX: 12,
+        IY: 13,
+        PC: 14,
+        SP: 15,
+        AF2: 16,
+        BC2: 17,
+        DE2: 18,
+        HL2: 19,
+        I: 20,
+        R: 21,
+        IM: 22,
+        IFF1: 23,
+        IFF2: 24,
+        CYCLES: 25,
+        LOW_MEMORY_MAPPING: 26,
+        LOW_MEMORY_BANK: 27,
+        ROM_TYPE: 28,
+        ROM_SWITCH: 29,
+        LASTMEM: 30,
+        WORDS: 31
+    });
+    var DEBUGGER_RUN_STATE_NAMES = ['running', 'paused'];
+    var DEBUGGER_STOP_REASON_NAMES = ['none', 'manual', 'breakpoint', 'step'];
+    var DEBUGGER_MEMORY_MAPPING_NAMES = ['main', 'bios', 'bank'];
+    var DEBUGGER_MAX_READ_LENGTH = 4096;
+
+    function requireDebuggerModule() {
+        if (!module || !module._js_debug_get_state || !module.wasmMemory) {
+            throw new Error('X1Pen debugger is not ready');
+        }
+        return module;
+    }
+
+    function debuggerEnumName(names, value) {
+        return names[value] === undefined ? 'unknown' : names[value];
+    }
+
+    function decodeDebuggerPair(value, highName, lowName, target) {
+        target[highName] = (value >>> 8) & 0xFF;
+        target[lowName] = value & 0xFF;
+    }
+
+    function decodeDebuggerState(state) {
+        var word = DEBUGGER_STATE_WORD;
+        var registers = {
+            af: state[word.AF],
+            bc: state[word.BC],
+            de: state[word.DE],
+            hl: state[word.HL],
+            ix: state[word.IX],
+            iy: state[word.IY],
+            pc: state[word.PC],
+            sp: state[word.SP],
+            af2: state[word.AF2],
+            bc2: state[word.BC2],
+            de2: state[word.DE2],
+            hl2: state[word.HL2],
+            i: state[word.I],
+            r: state[word.R],
+            im: state[word.IM],
+            iff1: state[word.IFF1] !== 0,
+            iff2: state[word.IFF2] !== 0
+        };
+        decodeDebuggerPair(registers.af, 'a', 'f', registers);
+        decodeDebuggerPair(registers.bc, 'b', 'c', registers);
+        decodeDebuggerPair(registers.de, 'd', 'e', registers);
+        decodeDebuggerPair(registers.hl, 'h', 'l', registers);
+        decodeDebuggerPair(registers.af2, 'a2', 'f2', registers);
+        decodeDebuggerPair(registers.bc2, 'b2', 'c2', registers);
+        decodeDebuggerPair(registers.de2, 'd2', 'e2', registers);
+        decodeDebuggerPair(registers.hl2, 'h2', 'l2', registers);
+
+        var mappingCode = state[word.LOW_MEMORY_MAPPING];
+        return {
+            version: state[word.VERSION],
+            sequence: state[word.SEQUENCE],
+            runState: debuggerEnumName(DEBUGGER_RUN_STATE_NAMES, state[word.RUN_STATE]),
+            runStateCode: state[word.RUN_STATE],
+            stopReason: debuggerEnumName(DEBUGGER_STOP_REASON_NAMES, state[word.STOP_REASON]),
+            stopReasonCode: state[word.STOP_REASON],
+            stopAddress: state[word.STOP_ADDRESS],
+            breakpointCount: state[word.BREAKPOINT_COUNT],
+            emulatorRunning: state[word.EMULATOR_RUNNING] !== 0,
+            registers: registers,
+            cycles: state[word.CYCLES],
+            memory: {
+                lowMapping: debuggerEnumName(DEBUGGER_MEMORY_MAPPING_NAMES, mappingCode),
+                lowMappingCode: mappingCode,
+                lowBank: mappingCode === 2 ? state[word.LOW_MEMORY_BANK] : null,
+                romType: state[word.ROM_TYPE],
+                romSwitch: state[word.ROM_SWITCH] !== 0,
+                lastmem: state[word.LASTMEM]
+            }
+        };
+    }
+
+    function getAutomationDebuggerState() {
+        var debuggerModule = requireDebuggerModule();
+        var wordCount = DEBUGGER_STATE_WORD.WORDS;
+        var ptr = debuggerModule._malloc(wordCount * 4);
+        if (!ptr) throw new Error('Failed to allocate debugger state buffer');
+        try {
+            var result = debuggerModule._js_debug_get_state(ptr, wordCount);
+            if (result !== wordCount) {
+                throw new Error('Unsupported debugger state ABI: ' + result);
+            }
+            var raw = Array.from(new Uint32Array(debuggerModule.wasmMemory.buffer, ptr, wordCount));
+            if (raw[DEBUGGER_STATE_WORD.VERSION] !== 1 ||
+                raw[DEBUGGER_STATE_WORD.WORD_COUNT] !== wordCount) {
+                throw new Error('Unsupported debugger state version: ' + raw[DEBUGGER_STATE_WORD.VERSION]);
+            }
+            return decodeDebuggerState(raw);
+        } finally {
+            debuggerModule._free(ptr);
+        }
+    }
+
+    function callAutomationDebuggerControl(exportName, operation) {
+        var debuggerModule = requireDebuggerModule();
+        if (!debuggerModule[exportName] || debuggerModule[exportName]() !== 1) {
+            throw new Error('Debugger ' + operation + ' failed');
+        }
+        return getAutomationDebuggerState();
+    }
+
+    function normalizeDebuggerAddress(value, name) {
+        if (!Number.isInteger(value) || value < 0 || value > 0xFFFF) {
+            throw new TypeError((name || 'address') + ' must be an integer from 0 to 65535');
+        }
+        return value;
+    }
+
+    function setAutomationDebuggerBreakpoints(addresses) {
+        if (!Array.isArray(addresses)) throw new TypeError('addresses must be an array');
+        var normalized = [];
+        var seen = new Set();
+        for (var i = 0; i < addresses.length; i++) {
+            var address = normalizeDebuggerAddress(addresses[i], 'addresses[' + i + ']');
+            if (!seen.has(address)) {
+                seen.add(address);
+                normalized.push(address);
+            }
+        }
+        normalized.sort(function(left, right) { return left - right; });
+
+        var debuggerModule = requireDebuggerModule();
+        var ptr = 0;
+        try {
+            if (normalized.length > 0) {
+                ptr = debuggerModule._malloc(normalized.length * 2);
+                if (!ptr) throw new Error('Failed to allocate debugger breakpoint buffer');
+                new Uint16Array(debuggerModule.wasmMemory.buffer, ptr, normalized.length).set(normalized);
+            }
+            if (!debuggerModule._js_debug_replace_breakpoints ||
+                debuggerModule._js_debug_replace_breakpoints(ptr, normalized.length) !== 1) {
+                throw new Error('Failed to replace debugger breakpoints');
+            }
+        } finally {
+            if (ptr) debuggerModule._free(ptr);
+        }
+        return getAutomationDebuggerState();
+    }
+
+    function readAutomationDebuggerMemory(address, length) {
+        address = normalizeDebuggerAddress(address);
+        if (!Number.isInteger(length) || length < 1 || length > DEBUGGER_MAX_READ_LENGTH) {
+            throw new TypeError('length must be an integer from 1 to ' + DEBUGGER_MAX_READ_LENGTH);
+        }
+        if (address + length > 0x10000) throw new RangeError('memory range exceeds 65535');
+
+        var debuggerModule = requireDebuggerModule();
+        var ptr = debuggerModule._malloc(length);
+        if (!ptr) throw new Error('Failed to allocate debugger memory buffer');
+        try {
+            var result = debuggerModule._js_debug_read_memory(address, ptr, length);
+            if (result !== length) throw new Error('Debugger memory read failed: ' + result);
+            return {
+                address: address,
+                length: length,
+                bytes: Array.from(new Uint8Array(debuggerModule.wasmMemory.buffer, ptr, length))
+            };
+        } finally {
+            debuggerModule._free(ptr);
+        }
+    }
+
+    function waitForAutomationDebuggerPause(options) {
+        options = options || {};
+        if (typeof options !== 'object' || Array.isArray(options)) {
+            throw new TypeError('options must be an object');
+        }
+        var hasAfterSequence = options.afterSequence !== undefined;
+        if (hasAfterSequence && (!Number.isInteger(options.afterSequence) ||
+            options.afterSequence < 0 || options.afterSequence > 0xFFFFFFFF)) {
+            throw new TypeError('afterSequence must be an unsigned 32-bit integer');
+        }
+        if (options.stopReason !== undefined &&
+            DEBUGGER_STOP_REASON_NAMES.indexOf(options.stopReason) < 0) {
+            throw new TypeError('stopReason must be none, manual, breakpoint or step');
+        }
+        if (options.address !== undefined) normalizeDebuggerAddress(options.address);
+        var timeoutMs = options.timeoutMs === undefined ? 5000 : options.timeoutMs;
+        var pollIntervalMs = options.pollIntervalMs === undefined ? 16 : options.pollIntervalMs;
+        if (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 60000) {
+            throw new TypeError('timeoutMs must be from 0 to 60000');
+        }
+        if (!Number.isFinite(pollIntervalMs) || pollIntervalMs < 1 || pollIntervalMs > 1000) {
+            throw new TypeError('pollIntervalMs must be from 1 to 1000');
+        }
+
+        var matches = function(state) {
+            return state.runState === 'paused' &&
+                (!hasAfterSequence || state.sequence !== options.afterSequence) &&
+                (options.stopReason === undefined || state.stopReason === options.stopReason) &&
+                (options.address === undefined || state.stopAddress === options.address);
+        };
+        var deadline = Date.now() + timeoutMs;
+        return new Promise(function(resolve, reject) {
+            var poll = function() {
+                var state;
+                try {
+                    state = getAutomationDebuggerState();
+                } catch(e) {
+                    reject(e);
+                    return;
+                }
+                if (matches(state)) {
+                    resolve(state);
+                    return;
+                }
+                if (Date.now() >= deadline) {
+                    reject(new Error('Timed out waiting for debugger pause'));
+                    return;
+                }
+                setTimeout(poll, pollIntervalMs);
+            };
+            poll();
+        });
+    }
+
+    var automationDebuggerApi = Object.freeze({
+        version: 1,
+        getState: getAutomationDebuggerState,
+        pause: function() {
+            return callAutomationDebuggerControl('_js_debug_pause', 'pause');
+        },
+        resume: function() {
+            return callAutomationDebuggerControl('_js_debug_resume', 'resume');
+        },
+        step: function() {
+            return callAutomationDebuggerControl('_js_debug_step', 'step');
+        },
+        setBreakpoints: setAutomationDebuggerBreakpoints,
+        readMemory: readAutomationDebuggerMemory,
+        waitForPause: waitForAutomationDebuggerPause
+    });
+
     function getAutomationStatus() {
         var sourceMode = inferSourceMode(
             basicEditor ? basicEditor.getValue().trim() : '',
@@ -1255,6 +1528,13 @@ window.__X1PEN_MODE = true;
             status: elStatus ? elStatus.textContent : '',
             sourceMode: sourceMode,
             activeLanguageProfile: activeLanguageProfile,
+            capabilities: {
+                debugger: {
+                    version: automationDebuggerApi.version,
+                    addressSpaceSize: 0x10000,
+                    maxReadLength: DEBUGGER_MAX_READ_LENGTH
+                }
+            },
             languageProfiles: {
                 fuzzybasic: {
                     id: 'x1pen-fuzzybasic-1.2L',
@@ -1366,6 +1646,7 @@ window.__X1PEN_MODE = true;
                 return getAutomationStatus();
             });
         },
+        debugger: automationDebuggerApi,
         getStatus: getAutomationStatus,
         captureScreen: captureAutomationScreen,
         setConnectionState: setAutomationConnectionState,
