@@ -15,6 +15,24 @@ const mimeTypes = {
   '.json': 'application/json; charset=utf-8',
   '.wasm': 'application/wasm',
 };
+const DBG = Object.freeze({
+  VERSION: 0,
+  WORD_COUNT: 1,
+  SEQUENCE: 2,
+  RUN_STATE: 3,
+  STOP_REASON: 4,
+  STOP_ADDRESS: 5,
+  BREAKPOINT_COUNT: 6,
+  EMULATOR_RUNNING: 7,
+  AF: 8,
+  PC: 14,
+  CYCLES: 25,
+  LOW_MEMORY_MAPPING: 26,
+  LOW_MEMORY_BANK: 27,
+  WORDS: 31,
+});
+const DBG_STATE = Object.freeze({ RUNNING: 0, PAUSED: 1 });
+const DBG_STOP = Object.freeze({ NONE: 0, MANUAL: 1, BREAKPOINT: 2, STEP: 3 });
 
 let server;
 let browser;
@@ -52,6 +70,40 @@ async function launchChromium() {
     if (process.platform !== 'darwin') throw error;
     return chromium.launch({ channel: 'chrome', headless: true });
   }
+}
+
+async function readDebuggerState() {
+  return page.evaluate((words) => {
+    const module = window.Module;
+    const ptr = module._malloc(words * 4);
+    try {
+      return {
+        result: module._js_debug_get_state(ptr, words),
+        state: Array.from(new Uint32Array(module.wasmMemory.buffer, ptr, words)),
+      };
+    } finally {
+      module._free(ptr);
+    }
+  }, DBG.WORDS);
+}
+
+async function waitForDebuggerStop(reason, address, minimumSequence = 0, previousCycles = null) {
+  await page.waitForFunction(({ dbg, reason: expectedReason, address: expectedAddress,
+    minimumSequence: minSequence, previousCycles: oldCycles }) => {
+    const module = window.Module;
+    const ptr = module._malloc(dbg.WORDS * 4);
+    try {
+      if (module._js_debug_get_state(ptr, dbg.WORDS) !== dbg.WORDS) return false;
+      const state = new Uint32Array(module.wasmMemory.buffer, ptr, dbg.WORDS);
+      return state[dbg.RUN_STATE] === 1 &&
+        state[dbg.STOP_REASON] === expectedReason &&
+        state[dbg.PC] === expectedAddress &&
+        state[dbg.SEQUENCE] > minSequence &&
+        (oldCycles === null || state[dbg.CYCLES] !== oldCycles);
+    } finally {
+      module._free(ptr);
+    }
+  }, { dbg: DBG, reason, address, minimumSequence, previousCycles });
 }
 
 before(async () => {
@@ -195,4 +247,132 @@ test('automation validation and capture return structured results', async () => 
   const png = Buffer.from(dataUrl.split(',')[1], 'base64');
   assert.equal(png.readUInt32BE(16), 640);
   assert.equal(png.readUInt32BE(20), 400);
+});
+
+test('Z80 debugger pauses, steps, resumes, and reads mapped memory', { timeout: 60_000 }, async () => {
+  const programAddress = 0x0100;
+  const expectedBytes = [0x00, 0x3C, 0xC3, 0x00, 0x01]; // NOP; INC A; JP 0100h
+
+  const initial = await page.evaluate(async () => {
+    const module = window.Module;
+    if (module._js_debug_replace_breakpoints(0, 0) !== 1) {
+      throw new Error('failed to clear breakpoints');
+    }
+
+    await window.X1PenAutomation.setProgram({
+      sourceMode: 'asm',
+      asm: 'ORG 0100h\nNOP\nINC A\nJP 0100h',
+    });
+    return window.X1PenAutomation.run();
+  });
+  assert.equal(initial.ok, true);
+
+  await page.waitForFunction(({ address, bytes }) => {
+    const module = window.Module;
+    const ptr = module._malloc(bytes.length);
+    try {
+      if (module._js_debug_read_memory(address, ptr, bytes.length) !== bytes.length) return false;
+      const memory = new Uint8Array(module.wasmMemory.buffer, ptr, bytes.length);
+      return bytes.every((value, index) => memory[index] === value);
+    } finally {
+      module._free(ptr);
+    }
+  }, { address: programAddress, bytes: expectedBytes });
+
+  const sequenceBeforeBreakpoint = (await readDebuggerState()).state[DBG.SEQUENCE];
+  await page.evaluate((address) => {
+    const module = window.Module;
+    module._js_debug_pause();
+    const ptr = module._malloc(2);
+    try {
+      new Uint16Array(module.wasmMemory.buffer, ptr, 1)[0] = address;
+      if (module._js_debug_replace_breakpoints(ptr, 1) !== 1) {
+        throw new Error('failed to set breakpoint');
+      }
+    } finally {
+      module._free(ptr);
+    }
+    module._js_debug_resume();
+  }, programAddress);
+  await waitForDebuggerStop(DBG_STOP.BREAKPOINT, programAddress, sequenceBeforeBreakpoint);
+
+  const stopped = await page.evaluate(({ address, length, words }) => {
+    const module = window.Module;
+    const statePtr = module._malloc(words * 4);
+    const memoryPtr = module._malloc(length);
+    try {
+      const stateResult = module._js_debug_get_state(statePtr, words);
+      const memoryResult = module._js_debug_read_memory(address, memoryPtr, length);
+      return {
+        stateResult,
+        state: Array.from(new Uint32Array(module.wasmMemory.buffer, statePtr, words)),
+        memoryResult,
+        memory: Array.from(new Uint8Array(module.wasmMemory.buffer, memoryPtr, length)),
+        invalidRead: module._js_debug_read_memory(0xFFFF, memoryPtr, 2),
+      };
+    } finally {
+      module._free(memoryPtr);
+      module._free(statePtr);
+    }
+  }, { address: programAddress, length: expectedBytes.length, words: DBG.WORDS });
+
+  assert.equal(stopped.stateResult, DBG.WORDS);
+  assert.equal(stopped.state[DBG.VERSION], 1, 'debug state ABI version');
+  assert.equal(stopped.state[DBG.WORD_COUNT], DBG.WORDS);
+  assert.equal(stopped.state[DBG.RUN_STATE], DBG_STATE.PAUSED);
+  assert.equal(stopped.state[DBG.STOP_REASON], DBG_STOP.BREAKPOINT);
+  assert.equal(stopped.state[DBG.STOP_ADDRESS], programAddress);
+  assert.equal(stopped.state[DBG.BREAKPOINT_COUNT], 1);
+  assert.equal(stopped.state[DBG.PC], programAddress);
+  assert.deepEqual(stopped.memory, expectedBytes);
+  assert.equal(stopped.memoryResult, expectedBytes.length);
+  assert.equal(stopped.invalidRead, -1);
+  const accumulatorBeforeFirst = stopped.state[DBG.AF] >>> 8;
+
+  const afterFirstStep = await page.evaluate(() => {
+    const module = window.Module;
+    if (module._js_debug_step() !== 1) throw new Error('step failed');
+    return 1;
+  });
+  assert.equal(afterFirstStep, 1);
+  const firstState = (await readDebuggerState()).state;
+  assert.equal(firstState[DBG.STOP_REASON], DBG_STOP.STEP);
+  assert.equal(firstState[DBG.PC], programAddress + 1);
+  assert.equal(firstState[DBG.AF] >>> 8, accumulatorBeforeFirst);
+
+  assert.equal(await page.evaluate(() => window.Module._js_debug_step()), 1);
+  const secondState = (await readDebuggerState()).state;
+  assert.equal(secondState[DBG.PC], programAddress + 2);
+  assert.equal(secondState[DBG.AF] >>> 8, (accumulatorBeforeFirst + 1) & 0xFF);
+
+  assert.equal(await page.evaluate(() => window.Module._js_debug_step()), 1);
+  const landedOnBreakpoint = (await readDebuggerState()).state;
+  assert.equal(landedOnBreakpoint[DBG.STOP_REASON], DBG_STOP.STEP);
+  assert.equal(landedOnBreakpoint[DBG.PC], programAddress);
+
+  const sequenceBeforeResume = landedOnBreakpoint[DBG.SEQUENCE];
+  const cyclesBeforeResume = landedOnBreakpoint[DBG.CYCLES];
+  await page.evaluate(() => window.Module._js_debug_resume());
+  await waitForDebuggerStop(
+    DBG_STOP.BREAKPOINT,
+    programAddress,
+    sequenceBeforeResume,
+    cyclesBeforeResume,
+  );
+
+  const manualStop = await page.evaluate(async () => {
+    const module = window.Module;
+    module._js_debug_replace_breakpoints(0, 0);
+    module._js_debug_resume();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    module._js_debug_pause();
+    return true;
+  });
+  assert.equal(manualStop, true);
+  const manualState = (await readDebuggerState()).state;
+  assert.equal(manualState[DBG.RUN_STATE], DBG_STATE.PAUSED);
+  assert.equal(manualState[DBG.STOP_REASON], DBG_STOP.MANUAL);
+  assert.equal(manualState[DBG.BREAKPOINT_COUNT], 0);
+
+  await page.evaluate(() => window.Module._js_debug_resume());
 });

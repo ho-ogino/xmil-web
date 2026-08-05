@@ -19,6 +19,7 @@ void Platform_Audio_UnlockBuffer(int bytes_written);
 void Platform_Audio_Play(void);
 void Platform_Audio_Stop(void);
 void Platform_Audio_Pause(BOOL pause);
+BOOL Platform_Audio_IsPlaying(void);
 
 // ボリューム制御（0-100）
 void Platform_Audio_SetVolume(int volume);

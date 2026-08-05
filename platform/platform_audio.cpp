@@ -141,6 +141,10 @@ void Platform_Audio_Pause(BOOL pause) {
     g_audio.playing = !pause;
 }
 
+BOOL Platform_Audio_IsPlaying(void) {
+    return g_audio.playing;
+}
+
 void Platform_Audio_SetVolume(int volume) {
     // Web Audio APIでボリューム制御
     EM_ASM({

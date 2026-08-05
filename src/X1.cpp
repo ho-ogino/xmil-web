@@ -37,6 +37,8 @@
 #include	"drawinfo.h"
 #include	"fdd_mtr.h"
 #include	"state_save.h"
+#include	"debugger_core.h"
+#include	"z80_debug.h"
 #endif
 
 	X1_FLAG		x1flg = {250, 0, 1, 1, 0};
@@ -66,6 +68,7 @@ static void x1_V_SYNC_event_callback(int param);
 	static EVENT	DISP_event = EVENT_VALUE("DISPLAY",0,NULL,0);
 	EV_TIME		H_SYNC_interval;
 	static BYTE V_SYNC_done; /* V-BLANK FOUND FLAG */
+	static BYTE frame_active;
 
 static void x1_1msec_event(int param);
 	static EVENT scpu_event = EVENT_VALUE("subCPU,SIO",TIME_IN_MSEC(1),x1_1msec_event,0);
@@ -256,6 +259,8 @@ BYTE reset_x1(BYTE ROM_TYPE, BYTE SOUND_SW, BYTE DIP_SW) {
 
 	Z80_Reset();
 #if T_TUNE
+	debugger_on_machine_reset(z80w_get_pc());
+	x1r_reset_frame_execution();
 	/* setup event timers */
 	event_init(1);
 	event_setup_cpu(0,4000000L,&Z80_ICount);
@@ -377,52 +382,62 @@ void x1r_init(void) {
 
 
 #if T_TUNE
+void x1r_reset_frame_execution(void) {
+	frame_active = 0;
+}
+
 void x1r_exec(void) {
 
 extern	BYTE	disp_flashscreen;
 
-	TRACE_START();
+	if (!frame_active) {
+		TRACE_START();
 
-	/* set CPU speed */
-	event_setup_cpu(0, 1000000L * xmilcfg.CPU8MHz,&Z80_ICount);
+		/* set CPU speed */
+		event_setup_cpu(0, 1000000L * xmilcfg.CPU8MHz,&Z80_ICount);
 
-	xmilcfg.DISPSYNC &= 1;
+		xmilcfg.DISPSYNC &= 1;
 
-	if(xmilcfg.DISPSYNC ==1)
-	{
-		/* set display update event */
-		if(disp_flashscreen)
-		{	/* V-BLANK */
-			DISP_event.callback = x1_DISP_callback;
-			DISP_event.interval = 0;
-			event_set(&DISP_event, H_SYNC_interval*crtc.CRT_YL);
-			v_cnt = crtc.CRT_YL;
+		if(xmilcfg.DISPSYNC ==1)
+		{
+			/* set display update event */
+			if(disp_flashscreen)
+			{	/* V-BLANK */
+				DISP_event.callback = x1_DISP_callback;
+				DISP_event.interval = 0;
+				event_set(&DISP_event, H_SYNC_interval*crtc.CRT_YL);
+				v_cnt = crtc.CRT_YL;
+			}
+			else
+			{	/* H-SYNC */
+				DISP_event.callback = x1_DISP_raster_callback;
+				DISP_event.interval = H_SYNC_interval;
+				event_set(&DISP_event ,H_SYNC_interval);
+				v_cnt = 0;
+			}
 		}
 		else
-		{	/* H-SYNC */
-			DISP_event.callback = x1_DISP_raster_callback;
-			DISP_event.interval = H_SYNC_interval;
-			event_set(&DISP_event ,H_SYNC_interval);
-			v_cnt = 0;
+		{	/* V-SYNC */
+			DISP_event.callback = x1_DISP_callback;
+			DISP_event.interval = 0;
+			event_set(&DISP_event, event_timeleft(&V_SYNC_event));
+			v_cnt = 266;
 		}
-	}
-	else
-	{	/* V-SYNC */
-		DISP_event.callback = x1_DISP_callback;
-		DISP_event.interval = 0;
-		event_set(&DISP_event, event_timeleft(&V_SYNC_event));
-		v_cnt = 266;
+
+		V_SYNC_done = 0;
+		frame_active = 1;
 	}
 
-	/* execute */
-	V_SYNC_done = 0;
-	do
+	/* Execute until V-SYNC or a debugger stop. event_update() must run even
+	 * on a stop so the scheduler commits the completed instruction cycles. */
+	while(!V_SYNC_done)
 	{
 		/* run for next event */
 		Z80_Execute();
 		/* event update */
 		event_update();
-	}while(!V_SYNC_done);
+		if (debugger_is_paused() && !V_SYNC_done) return;
+	}
 
 	// if display update was not done , finish here
 	if(event_enabled(&DISP_event))
@@ -433,6 +448,7 @@ extern	BYTE	disp_flashscreen;
 
 	/* sound update of this frame */
 	x1_sound_update_frame();
+	frame_active = 0;
 
 	if (++flame >= 60) {
 		flame = 0;
