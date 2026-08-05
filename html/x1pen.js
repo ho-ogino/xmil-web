@@ -1137,10 +1137,13 @@ window.__X1PEN_MODE = true;
         if (expectedRevision !== undefined && expectedRevision !== automationRevision) {
             throw new Error('Revision conflict: expected ' + expectedRevision + ', current ' + automationRevision);
         }
+        if (!basicEditor || !asmEditor || !slangEditor) {
+            throw new Error('X1Pen editors are not ready');
+        }
         var normalized = normalizeAutomationProgram(program);
         basicEditor.setValue(normalized.basic, { silent: true });
-        if (asmEditor) asmEditor.setValue(normalized.asm, { silent: true });
-        if (slangEditor) slangEditor.setValue(normalized.slang, { silent: true });
+        asmEditor.setValue(normalized.asm, { silent: true });
+        slangEditor.setValue(normalized.slang, { silent: true });
         persistEditorSources(normalized.basic, normalized.asm, normalized.slang);
         lastAsmTabOrigin = normalized.asm ? 'user' : null;
         pendingShareRuntime = null;

@@ -180,7 +180,7 @@ static EM_BOOL keyboard_callback(int eventType, const EmscriptenKeyboardEvent* e
     return TRUE;
 }
 
-static void release_all_keys(void) {
+static void release_all_keyboard_keys(void) {
     winkeyreleaseall106();
 }
 
@@ -188,7 +188,7 @@ static EM_BOOL blur_callback(int eventType, const EmscriptenFocusEvent* e, void*
     (void)eventType;
     (void)e;
     (void)userData;
-    release_all_keys();
+    release_all_keyboard_keys();
     return FALSE;
 }
 
@@ -197,7 +197,7 @@ static EM_BOOL visibility_callback(int eventType,
                                    void* userData) {
     (void)eventType;
     (void)userData;
-    if (e->hidden) release_all_keys();
+    if (e->hidden) release_all_keyboard_keys();
     return FALSE;
 }
 
@@ -244,9 +244,9 @@ BOOL Platform_Input_Init(void) {
     // キーボードイベントリスナーの登録
     emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, NULL, TRUE, keyboard_callback);
     emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, NULL, TRUE, keyboard_callback);
-    // Alt+Tabなどではkeyupがブラウザへ戻らないため、フォーカス喪失時に
-    // エミュレータ内の押下状態をまとめて解放する。
-    emscripten_set_blur_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, NULL, TRUE, blur_callback);
+    // Alt+Tabなどではkeyupがブラウザへ戻らないため、ウィンドウ自体の
+    // フォーカス喪失時に押下状態を解放する。ページ内要素のblurは拾わない。
+    emscripten_set_blur_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, NULL, FALSE, blur_callback);
     emscripten_set_visibilitychange_callback(NULL, TRUE, visibility_callback);
 
     // マウスイベントリスナーの登録（Pointer Lock 中の取りこぼし防止のため document レベル）
