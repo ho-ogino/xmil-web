@@ -1,3 +1,5 @@
+import { invokeX1PenInPage } from './page-automation.mjs';
+
 const connectedTabs = new Map();
 let bridgeConfig = null;
 let socket = null;
@@ -175,39 +177,7 @@ async function invokeX1Pen(tabId, method, params) {
     target: { tabId },
     world: 'MAIN',
     args: [method, params],
-    func: async (requestedMethod, requestedParams) => {
-      const api = window.X1PenAutomation;
-      if (!api || api.version < 2) throw new Error('This tab does not provide X1Pen Automation API v2');
-      if (requestedMethod === 'probe') return api.ready();
-      if (requestedMethod === 'connection') {
-        return api.setConnectionState(requestedParams.connected, requestedParams.connected ? 'MCP Connected' : '');
-      }
-
-      const lockLabels = {
-        setProgram: 'AI is updating the program...',
-        validate: 'AI is validating the program...',
-        run: 'AI is running the program...',
-        stop: 'AI is stopping the program...',
-      };
-      const shouldLock = Object.prototype.hasOwnProperty.call(lockLabels, requestedMethod);
-      if (shouldLock) api.setInteractionLocked(true, lockLabels[requestedMethod]);
-      try {
-        if (requestedMethod === 'getProgram') return api.getProgram();
-        if (requestedMethod === 'setProgram') return api.setProgram(requestedParams.program, requestedParams.expectedRevision);
-        if (requestedMethod === 'validate') return api.validate();
-        if (requestedMethod === 'run') {
-          const result = await api.run();
-          if (requestedParams.waitMs > 0) await new Promise((resolve) => setTimeout(resolve, requestedParams.waitMs));
-          return { ...result, state: api.getStatus() };
-        }
-        if (requestedMethod === 'stop') return api.stop();
-        if (requestedMethod === 'getStatus') return api.getStatus();
-        if (requestedMethod === 'captureScreen') return api.captureScreen();
-        throw new Error(`Unsupported X1Pen method: ${requestedMethod}`);
-      } finally {
-        if (shouldLock) api.setInteractionLocked(false);
-      }
-    },
+    func: invokeX1PenInPage,
   });
   if (!results.length) throw new Error('X1Pen tab did not return a result');
   return results[0].result;

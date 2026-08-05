@@ -39,6 +39,7 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
       'icons/icon-32.png',
       'icons/icon-48.png',
       'manifest.json',
+      'page-automation.mjs',
       'popup.css',
       'popup.html',
       'popup.js',
@@ -47,7 +48,7 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
 
     const manifest = JSON.parse(run('unzip', ['-p', zipPath, 'manifest.json']));
     assert.equal(manifest.manifest_version, 3);
-    assert.equal(manifest.version, '1.0.1');
+    assert.equal(manifest.version, '1.1.0');
     assert.equal(manifest.default_locale, 'ja');
     assert.equal(manifest.name, '__MSG_extensionName__');
     assert.equal(manifest.description, '__MSG_extensionDescription__');
@@ -79,12 +80,14 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
     const privacy = await readFile(join(repoRoot, 'html/x1pen-connector-privacy.html'), 'utf8');
     assert.match(privacy, /127\.0\.0\.1/);
     assert.match(privacy, /program source/i);
+    assert.match(privacy, /debugger state/i);
     assert.match(privacy, /AI provider/i);
     const buildScript = await readFile(join(repoRoot, 'build.sh'), 'utf8');
     assert.match(buildScript, /html\/x1pen-connector-privacy\.html.*DIST_DIR/);
 
     const popup = await readFile(join(repoRoot, 'extension/popup.html'), 'utf8');
     assert.match(popup, /id="consent" type="checkbox"/);
+    assert.match(popup, /debug programs/);
     assert.match(popup, /x1pen-connector-privacy\.html/);
     assert.match(popup, /id="connect" disabled/);
   } finally {

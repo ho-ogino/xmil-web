@@ -1,6 +1,6 @@
 # x1pen-mcp
 
-`x1pen-mcp` is a local MCP server that lets Codex and Claude Code edit, validate, run, and inspect programs in the X1Pen tab already open in Chrome or Edge. It also includes bounded, offline-searchable references for X1Pen FuzzyBASIC and SLANG.
+`x1pen-mcp` is a local MCP server that lets Codex and Claude Code edit, validate, run, inspect, and Z80-debug programs in the X1Pen tab already open in Chrome or Edge. It also includes bounded, offline-searchable references for X1Pen FuzzyBASIC and SLANG.
 
 The server communicates only through stdio and `127.0.0.1`. It requires Node.js 20 or later. Browser-control tools require the X1Pen Connector extension; the bundled reference tools do not.
 
@@ -11,7 +11,7 @@ Add the following server to your Codex MCP configuration. Pinning the version pr
 ```toml
 [mcp_servers.x1pen]
 command = "npx"
-args = ["-y", "x1pen-mcp@2.2.1"]
+args = ["-y", "x1pen-mcp@2.3.0"]
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
@@ -22,7 +22,7 @@ Register the server at user scope to make it available from any project.
 
 ```bash
 claude mcp add --transport stdio --scope user x1pen -- \
-  npx -y x1pen-mcp@2.2.1
+  npx -y x1pen-mcp@2.3.0
 ```
 
 Use `claude mcp list` or `/mcp` to check the connection.
@@ -35,6 +35,10 @@ Use `claude mcp list` or `/mcp` to check the connection.
 4. Select **Connect this tab** on the X1Pen tab.
 
 The pairing code changes whenever the MCP server process restarts. One browser extension connection can be paired with one running MCP server at a time.
+
+## Z80 debugger
+
+The debugger tools expose named CPU state, pause/resume, bounded multi-step execution, atomic PC breakpoint replacement, compact hexadecimal memory reads, and filtered pause waiting. They operate only through the allowlisted X1Pen Automation API; arbitrary JavaScript and raw WASM access are not exposed.
 
 ## Language reference
 

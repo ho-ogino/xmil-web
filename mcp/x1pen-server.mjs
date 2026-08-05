@@ -20,6 +20,9 @@ const MAX_RANGE_CHARACTERS = 128 * 1024;
 const SOURCE_SECTIONS = ['basic', 'asm', 'slang'];
 const REFERENCE_LANGUAGES = ['fuzzybasic', 'slang'];
 const REFERENCE_KINDS = ['syntax', 'runtime', 'x1-extension', 'catalog', 'library', 'profile', 'limits'];
+const DEBUGGER_STOP_REASONS = ['none', 'manual', 'breakpoint', 'step'];
+const DEBUGGER_MAX_READ_LENGTH = 4096;
+const DEBUGGER_MAX_BREAKPOINTS = 1024;
 
 function textResult(value) {
   return {
@@ -276,6 +279,20 @@ function assertEditableSection(snapshot, section) {
   }
 }
 
+function compactDebuggerMemory(value) {
+  if (!value || !Number.isInteger(value.address) || !Number.isInteger(value.length) ||
+      !Array.isArray(value.bytes) || value.bytes.length !== value.length ||
+      value.bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 0xFF)) {
+    throw new Error('X1Pen returned an invalid debugger memory response');
+  }
+  return {
+    address: value.address,
+    endAddress: value.address + value.length - 1,
+    length: value.length,
+    hex: value.bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('').toUpperCase(),
+  };
+}
+
 export function createX1PenMcpServer(options = {}) {
   const bridge = options.bridge || new X1PenBridge(options.bridgeOptions);
   const server = new McpServer({ name: 'x1pen', version: PACKAGE.version });
@@ -484,6 +501,80 @@ export function createX1PenMcpServer(options = {}) {
     inputSchema: sessionInput,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, handleTool(async ({ sessionId }) => textResult(await bridge.sendCommand('validate', {}, sessionId))));
+
+  server.registerTool('x1pen_debug_get_state', {
+    description: 'Get the Z80 debugger run state, stop reason, registers, cycles and current memory mapping.',
+    inputSchema: sessionInput,
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId }) => textResult(
+    await bridge.sendCommand('debuggerGetState', {}, sessionId),
+  )));
+
+  server.registerTool('x1pen_debug_pause', {
+    description: 'Pause Z80 execution after any in-progress X1Pen Run setup finishes.',
+    inputSchema: sessionInput,
+    annotations: { openWorldHint: false },
+  }, handleTool(async ({ sessionId }) => textResult(
+    await bridge.sendCommand('debuggerPause', {}, sessionId),
+  )));
+
+  server.registerTool('x1pen_debug_resume', {
+    description: 'Resume Z80 execution. Pass the returned sequence to x1pen_debug_wait_for_pause when waiting for a later stop.',
+    inputSchema: sessionInput,
+    annotations: { destructiveHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId }) => textResult(
+    await bridge.sendCommand('debuggerResume', {}, sessionId),
+  )));
+
+  server.registerTool('x1pen_debug_step', {
+    description: 'Execute one or more Z80 instructions from a paused state and return only the final state.',
+    inputSchema: {
+      sessionId: sessionInput.sessionId,
+      count: z.number().int().min(1).max(100).default(1),
+    },
+    annotations: { destructiveHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId, count }) => textResult(
+    await bridge.sendCommand('debuggerStep', { count }, sessionId),
+  )));
+
+  server.registerTool('x1pen_debug_set_breakpoints', {
+    description: 'Atomically replace up to 1024 Z80 PC breakpoints. Pass an empty array to clear them.',
+    inputSchema: {
+      sessionId: sessionInput.sessionId,
+      addresses: z.array(z.number().int().min(0).max(0xFFFF)).max(DEBUGGER_MAX_BREAKPOINTS),
+    },
+    annotations: { destructiveHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId, addresses }) => textResult(
+    await bridge.sendCommand('debuggerSetBreakpoints', { addresses }, sessionId),
+  )));
+
+  server.registerTool('x1pen_debug_read_memory', {
+    description: 'Read a bounded range from the current Z80 address space as a compact uppercase hexadecimal string.',
+    inputSchema: {
+      sessionId: sessionInput.sessionId,
+      address: z.number().int().min(0).max(0xFFFF),
+      length: z.number().int().min(1).max(DEBUGGER_MAX_READ_LENGTH).default(64),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId, address, length }) => {
+    if (address + length > 0x10000) throw new Error('Memory range exceeds the 64KB address space');
+    const memory = await bridge.sendCommand('debuggerReadMemory', { address, length }, sessionId);
+    return textResult(compactDebuggerMemory(memory));
+  }));
+
+  server.registerTool('x1pen_debug_wait_for_pause', {
+    description: 'Wait for a matching debugger pause. afterSequence must be the sequence returned by x1pen_debug_resume, not an earlier stopped state.',
+    inputSchema: {
+      sessionId: sessionInput.sessionId,
+      afterSequence: z.number().int().min(0).max(0xFFFFFFFF).optional(),
+      stopReason: z.enum(DEBUGGER_STOP_REASONS).optional(),
+      address: z.number().int().min(0).max(0xFFFF).optional(),
+      timeoutMs: z.number().int().min(0).max(50_000).default(5_000),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId, ...options }) => textResult(
+    await bridge.sendCommand('debuggerWaitForPause', options, sessionId),
+  )));
 
   server.registerTool('x1pen_run', {
     description: 'Build and run the current program in the connected user-visible X1Pen tab.',

@@ -1395,10 +1395,16 @@ window.__X1PEN_MODE = true;
         return automationQueuedRuns > 0 || automationActiveRuns > 0;
     }
 
+    function createDebuggerRunPendingError(operation) {
+        var error = new Error('Debugger ' + operation + ' is unavailable while run setup is pending');
+        error.code = 'RUN_PENDING';
+        return error;
+    }
+
     function runAutomationDebuggerControl(exportName, operation) {
         return automationReadyPromise.then(function() {
             if (isRunSetupPending()) {
-                throw new Error('Debugger ' + operation + ' is unavailable while run setup is pending');
+                throw createDebuggerRunPendingError(operation);
             }
             return callAutomationDebuggerControl(exportName, operation);
         });
@@ -1537,7 +1543,7 @@ window.__X1PEN_MODE = true;
         step: function() {
             return automationReadyPromise.then(function() {
                 if (isRunSetupPending()) {
-                    throw new Error('Debugger step is unavailable while run setup is pending');
+                    throw createDebuggerRunPendingError('step');
                 }
                 if (getAutomationDebuggerState().runState !== 'paused') {
                     throw new Error('Debugger step requires the paused state');
@@ -1583,7 +1589,8 @@ window.__X1PEN_MODE = true;
                     available: isDebuggerModuleAvailable(),
                     version: automationDebuggerApi.version,
                     addressSpaceSize: 0x10000,
-                    maxReadLength: DEBUGGER_MAX_READ_LENGTH
+                    maxReadLength: DEBUGGER_MAX_READ_LENGTH,
+                    runPending: isRunSetupPending()
                 }
             },
             languageProfiles: {
