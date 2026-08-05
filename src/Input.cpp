@@ -103,6 +103,24 @@ void winkeyinit106(void) {
 	keylog_printf("WINKEY INIT");
 }
 
+void winkeyreleaseall106(void) {
+
+	BOOL pressed = KEY_HIT;
+	for (unsigned int i = 0; i < sizeof(KEY_TBL); i++) {
+		if (KEY_TBL[i]) {
+			pressed = TRUE;
+			break;
+		}
+	}
+	if (!pressed) return;
+
+	ZeroMemory(KEY_TBL, sizeof(KEY_TBL));
+	KEY_INT = 1;
+	KEY_HIT = 0;
+	KEY_CHR = 0;
+	keylog_printf("WINKEY RELEASE ALL");
+}
+
 
 void winkeydown106(WPARAM wParam, LPARAM lParam) {
 

@@ -173,6 +173,33 @@ test('automation operations are serialized and stale source modes are cleared', 
   assert.ok(programs.final.revision > programs.results[0].revision);
 });
 
+test('automation program updates persist across page reloads', { timeout: 60_000 }, async () => {
+  const basic = '10 PRINT "PERSISTED BY MCP"';
+  const stored = await page.evaluate(async (source) => {
+    localStorage.setItem('x1pen_editor_asm', 'STALE ASM');
+    localStorage.setItem('x1pen_editor_slang', 'STALE SLANG');
+    await window.X1PenAutomation.setProgram({
+      sourceMode: 'basic+asm',
+      basic: source,
+      asm: '',
+    });
+    return {
+      basic: localStorage.getItem('x1pen_editor'),
+      asm: localStorage.getItem('x1pen_editor_asm'),
+      slang: localStorage.getItem('x1pen_editor_slang'),
+    };
+  }, basic);
+  assert.deepEqual(stored, { basic, asm: '', slang: '' });
+
+  await page.reload();
+  await page.evaluate(() => window.X1PenAutomation.ready());
+  const restored = await page.evaluate(() => window.X1PenAutomation.getProgram());
+  assert.equal(restored.basic, basic);
+  assert.equal(restored.asm, '');
+  assert.equal(restored.slang, '');
+  assert.equal(restored.sourceMode, 'basic+asm');
+});
+
 test('revision conflicts prevent stale AI updates', async () => {
   const result = await page.evaluate(async () => {
     const stale = window.X1PenAutomation.getProgram().revision;
@@ -247,6 +274,50 @@ test('automation validation and capture return structured results', async () => 
   const png = Buffer.from(dataUrl.split(',')[1], 'base64');
   assert.equal(png.readUInt32BE(16), 640);
   assert.equal(png.readUInt32BE(20), 400);
+});
+
+test('focus loss releases physical keys before automation command injection', { timeout: 60_000 }, async () => {
+  const markerAddress = 0x4000;
+  const marker = [0x12, 0x34, 0x56, 0x78];
+  await page.evaluate(async () => {
+    await window.X1PenAutomation.setProgram({
+      sourceMode: 'asm',
+      asm: [
+        'ORG 0100h',
+        'LD A,012h',
+        'LD (04000h),A',
+        'LD A,034h',
+        'LD (04001h),A',
+        'LD A,056h',
+        'LD (04002h),A',
+        'LD A,078h',
+        'LD (04003h),A',
+        'LOOP:',
+        'JP LOOP',
+      ].join('\n'),
+    });
+    document.getElementById('canvas').focus();
+  });
+
+  await page.keyboard.down('Alt');
+  try {
+    await page.evaluate(() => window.dispatchEvent(new FocusEvent('blur')));
+    const result = await page.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(result.ok, true);
+    await page.waitForFunction(({ address, bytes }) => {
+      const module = window.Module;
+      const ptr = module._malloc(bytes.length);
+      try {
+        if (module._js_debug_read_memory(address, ptr, bytes.length) !== bytes.length) return false;
+        const memory = new Uint8Array(module.wasmMemory.buffer, ptr, bytes.length);
+        return bytes.every((value, index) => memory[index] === value);
+      } finally {
+        module._free(ptr);
+      }
+    }, { address: markerAddress, bytes: marker });
+  } finally {
+    await page.keyboard.up('Alt');
+  }
 });
 
 test('Z80 debugger pauses, steps, resumes, and reads mapped memory', { timeout: 60_000 }, async () => {
