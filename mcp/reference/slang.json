@@ -36,7 +36,7 @@
     "title": "BYTE, WORD, FLOAT, VAR, ARRAY and CONST",
     "profiles": ["x1pen-slang-c9e8f53-lsx"],
     "symbols": ["BYTE", "WORD", "FLOAT", "VAR", "ARRAY", "CONST"],
-    "aliases": ["types", "variables", "arrays", "constants", "indirect variable", "24-bit float", "データ型", "変数", "配列", "定数", "間接変数", "浮動小数点"],
+    "aliases": ["types", "variables", "arrays", "constants", "indirect variable", "24-bit float", "multidimensional array", "データ型", "変数", "配列", "2次元配列", "多次元配列", "定数", "間接変数", "浮動小数点"],
     "summary": "WORD is the default 16-bit type, BYTE is 8-bit, and the X1Pen compiler adds 24-bit FLOAT. VAR declares variables, ARRAY allocates indexed storage, and CONST defines compile-time values.",
     "syntax": [
       "VAR A, BYTE B, FLOAT F;",
@@ -61,7 +61,7 @@
     "title": "Functions, arguments and return types",
     "profiles": ["x1pen-slang-c9e8f53-lsx"],
     "symbols": ["MAIN", "RETURN", "BYTE", "WORD", "FLOAT", "END"],
-    "aliases": ["function", "RETURN", "typed arguments", "FLOAT return", "local variables", "関数", "サブルーチン", "引数", "戻り値", "ローカル変数"],
+    "aliases": ["function", "RETURN", "typed arguments", "FLOAT return", "local variables", "recursion", "recursive function", "関数", "サブルーチン", "再帰", "再帰関数", "引数", "戻り値", "ローカル変数"],
     "summary": "Functions can declare BYTE, WORD or FLOAT parameters and return types. WORD is the default; FLOAT functions return a 24-bit value and require explicit FTOI conversion when consumed as an integer.",
     "syntax": [
       "SQUARE(X) BEGIN RETURN(X*X); END;",
@@ -428,7 +428,7 @@
     "title": "Native 24-bit FLOAT runtime",
     "profiles": ["x1pen-slang-c9e8f53-lsx"],
     "symbols": ["FLOAT", "ITOF", "UTOF", "FTOI", "FABS", "FACOS", "FACOSH", "FASIN", "FASINH", "FATAN", "FATANH", "FCOS", "FCOSH", "FEXP", "FLOG", "FLOG2", "FLOG10", "FLOGY", "FPOW", "FPOW2", "FPOW10", "FRAND", "FSIN", "FSINH", "FSQRT", "FTAN", "FTANH", "FL$"],
-    "aliases": ["floating point", "24-bit float", "math functions", "trigonometry", "square root", "浮動小数点", "浮動小数点関数", "実数", "三角関数", "平方根", "対数", "べき乗"],
+    "aliases": ["floating point", "24-bit float", "math functions", "type conversion", "trigonometry", "square root", "浮動小数点", "浮動小数点関数", "型変換", "実数", "三角関数", "平方根", "対数", "べき乗"],
     "summary": "X1Pen SLANG has a native 24-bit FLOAT type and bundled conversion, trigonometric, logarithmic, power and random-number functions.",
     "syntax": [
       "VAR FLOAT VALUE;",

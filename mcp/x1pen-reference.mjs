@@ -72,13 +72,40 @@ export function getReferenceManifest() {
 export function searchReference({ language, query, profile, kinds, maxResults = 8 }) {
   const normalizedQuery = normalize(query);
   const queryTokens = [...new Set(normalizedQuery.split(/\s+/).filter(Boolean))];
-  if (queryTokens.length === 0) throw new Error('query must contain searchable characters');
-
   const allowedKinds = kinds ? new Set(kinds) : null;
   const candidates = ENTRIES
     .filter((entry) => (!language || entry.language === language)
       && matchesProfile(entry, profile)
       && (!allowedKinds || allowedKinds.has(entry.kind)));
+
+  // Punctuation-only operators are intentionally removed by normalize() so
+  // they cannot change ordinary token boundaries. Match those symbols exactly
+  // against the raw query instead, preferring a dedicated entry to a catalog.
+  if (queryTokens.length === 0) {
+    const rawQuery = String(query || '').trim();
+    const symbolMatches = candidates
+      .filter((entry) => (entry.symbols || []).includes(rawQuery))
+      .sort((left, right) => Number(left.kind === 'catalog') - Number(right.kind === 'catalog')
+        || left.id.localeCompare(right.id));
+    if (symbolMatches.length === 0) throw new Error('query must contain searchable characters');
+    return {
+      query,
+      matchMode: 'symbol',
+      ...(language ? { language } : {}),
+      ...(profile ? { profile } : {}),
+      totalMatches: symbolMatches.length,
+      matches: symbolMatches.slice(0, maxResults).map((entry) => ({
+        id: entry.id,
+        language: entry.language,
+        kind: entry.kind,
+        title: entry.title,
+        summary: entry.summary,
+        score: entry.kind === 'catalog' ? 119 : 120,
+      })),
+      truncated: symbolMatches.length > maxResults,
+    };
+  }
+
   const score = (requireAllTokens) => candidates
     .map((entry) => ({ entry, score: scoreEntry(entry, normalizedQuery, queryTokens, requireAllTokens) }))
     .filter(({ score }) => score > 0)

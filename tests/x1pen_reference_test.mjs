@@ -84,6 +84,21 @@ test('reference search finds exact symbols and falls back to partial terms', () 
   assert.equal(partial.matches[0].id, 'fuzzybasic.memory.arrays');
 });
 
+test('reference search matches punctuation-only symbols without changing token normalization', () => {
+  for (const [language, query, expectedId] of [
+    ['slang', '!=', 'slang.expressions.operators'],
+    ['slang', '<<', 'slang.expressions.operators'],
+    ['slang', '<>', 'slang.expressions.operators'],
+    ['fuzzybasic', '<=', 'fuzzybasic.values.operators'],
+    ['fuzzybasic', '>=', 'fuzzybasic.values.operators'],
+  ]) {
+    const result = searchReference({ language, query, maxResults: 3 });
+    assert.equal(result.matchMode, 'symbol', query);
+    assert.equal(result.matches[0]?.id, expectedId, query);
+  }
+  assert.throws(() => searchReference({ query: '   ' }), /searchable characters/);
+});
+
 test('representative Japanese and English queries reach dedicated FuzzyBASIC entries', () => {
   const cases = new Map([
     ['PSG 音を鳴らす', 'fuzzybasic.x1.sound'],
@@ -239,10 +254,13 @@ test('SLANG catalogs cover the exact runtime and include files loaded by X1Pen',
   const entries = validateReferenceData().entries;
   const runtimeCatalog = new Set(entries.find((entry) => entry.id === 'slang.runtime.catalog').symbols);
   const includeCatalog = new Set(entries.find((entry) => entry.id === 'slang.includes.catalog').symbols);
+  const runtimeImplementation = new Set();
+  const includeImplementation = new Set();
 
   for (const filename of extractVfsFiles(x1penSource, 'runtimeFiles')) {
     const source = readFileSync(join(repoRoot, 'assets/slang_runtime', filename), 'utf8');
     for (const match of source.matchAll(/^; @(?:name|alias) (\S+)/gm)) {
+      runtimeImplementation.add(match[1]);
       assert.ok(runtimeCatalog.has(match[1]), `${match[1]} from ${filename} must be in the runtime catalog`);
     }
   }
@@ -250,9 +268,21 @@ test('SLANG catalogs cover the exact runtime and include files loaded by X1Pen',
   for (const filename of extractVfsFiles(x1penSource, 'includeFiles')) {
     const source = readFileSync(join(repoRoot, 'assets/slang_include', filename), 'utf8');
     for (const symbol of extractSlangIncludeSymbols(source)) {
+      includeImplementation.add(symbol);
       assert.ok(includeCatalog.has(symbol), `${symbol} from ${filename} must be in the include catalog`);
     }
   }
+
+  assert.deepEqual(
+    [...runtimeCatalog].filter((symbol) => !runtimeImplementation.has(symbol)),
+    [],
+    'runtime catalog must not include symbols outside the loaded VFS files',
+  );
+  assert.deepEqual(
+    [...includeCatalog].filter((symbol) => !includeImplementation.has(symbol)),
+    [],
+    'include catalog must not include symbols outside the loaded VFS files',
+  );
 });
 
 test('LSX-Dodgers-specific file limitations are documented', () => {
