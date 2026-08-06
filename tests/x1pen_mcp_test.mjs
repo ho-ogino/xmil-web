@@ -182,7 +182,7 @@ test('language reference tools search compact results and fetch selected details
     arguments: { language: 'slang', query: 'TILE_SET_SCROLL' },
   });
   const search = jsonContent(searchResult);
-  assert.equal(search.totalMatches, 1);
+  assert.ok(search.totalMatches >= 1);
   assert.equal(search.matches[0].id, 'slang.include.tile-sprite');
   assert.equal(search.matches[0].syntax, undefined);
 
@@ -194,6 +194,14 @@ test('language reference tools search compact results and fetch selected details
   assert.equal(detail.entries[0].id, 'slang.include.tile-sprite');
   assert.ok(detail.entries[0].syntax.some((line) => line.includes('TILE_SET_SCROLL')));
   assert.equal(detail.truncated, false);
+
+  const symbolResult = await client.callTool({
+    name: 'x1pen_search_reference',
+    arguments: { language: 'slang', query: '!=' },
+  });
+  const symbolSearch = jsonContent(symbolResult);
+  assert.equal(symbolSearch.matchMode, 'symbol');
+  assert.equal(symbolSearch.matches[0].id, 'slang.expressions.operators');
 });
 
 test('language profile reports bundled data and connected X1Pen compatibility', async () => {

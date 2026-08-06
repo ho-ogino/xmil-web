@@ -1,0 +1,59 @@
+[
+  {
+    "id": "slang.compiler.catalog",
+    "language": "slang",
+    "kind": "catalog",
+    "title": "Accepted X1Pen SLANG compiler vocabulary",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "symbols": [
+      "AND", "ARRAY", "ASM", "BEGIN", "BYTE", "CASE", "CHR$", "CODE", "CONST", "CONTINUE", "CPL", "CR$", "DECI$", "DO", "DOWNTO", "EF", "ELIF", "ELSE", "ELSEIF", "END", "ENDIF", "EXIT", "FL$", "FLOAT", "FOR", "FORM$", "GOTO", "HEX2$", "HEX4$", "HIGH", "IF", "LOOP", "LOW", "MACHINE", "MOD", "MSG$", "MSX$", "NEXT", "NOT", "OF", "OFFSET", "OR", "ORG", "OTHERS", "PN$", "PRINT", "REPEAT", "RETURN", "SPC$", "STR$", "TAB$", "THEN", "TO", "UNTIL", "VAR", "WEND", "WHILE", "WORD", "WORK", "XOR", "MAIN", "#INCLUDE", "#IF", "#ELSE", "#END", "#ENDIF", "#ASM", "#MODULE"
+    ],
+    "aliases": ["reserved words", "compiler keywords", "string functions", "予約語", "言語要素", "文字列関数"],
+    "summary": "This catalog records the keywords, string-format functions and preprocessor directives accepted by the exact X1Pen browser compiler snapshot.",
+    "syntax": ["Search an exact compiler word, then fetch the related dedicated entry for its contract."],
+    "notes": [
+      "The catalog is generated from concepts represented in html/x1pen_slang_compiler.js and checked against its KEYWORDS and STRING_FUNCS tables.",
+      "Prefer dedicated syntax entries; this exhaustive index is intentionally low-detail."
+    ],
+    "relatedIds": ["slang.program.structure", "slang.data.types-declarations", "slang.control.flow", "slang.preprocessor.includes"],
+    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_slang_compiler.js"]
+  },
+  {
+    "id": "slang.runtime.catalog",
+    "language": "slang",
+    "kind": "catalog",
+    "title": "Bundled X1Pen SLANG runtime symbol catalog",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "symbols": [
+      "ABS", "ADECI", "ANDHLDE", "AT_VRCALC", "BEEP", "BFILL", "BIT", "CALL", "CALLMAGIC", "CPLHL", "CRDISP", "CSR", "CTRL0B", "CTRL0C", "CTRL0D", "DIVHLDE", "DIVHLDE8", "FABS", "FACOS", "FACOSH", "FASIN", "FASINH", "FATAN", "FATANH", "FCLOSE", "FCOS", "FCOSH", "FEXP", "FGETC", "FLOG", "FLOG10", "FLOG2", "FLOGY", "FOPEN", "FPOW", "FPOW10", "FPOW2", "FPUTC", "FRAND", "FREAD", "FREADWRITE", "FSEEK", "FSIN", "FSINH", "FSQRT", "FTAN", "FTANH", "FTOI", "FWORK", "FWRITE", "GETKY_DOINIT", "GETL", "GETLIN", "GETREG", "GRCLS", "GRDISP", "GRPSETUP", "INKEY", "INPUT", "ITOF", "LINE", "LINECOMMON", "LINPUT", "LOCATE", "LSHIFTHLDE", "LSXCALLS", "LSXFILE", "LZEEE_DECODE", "LZEE_DECODE", "LZE_DECODE", "M8ALOAD", "MAGBASE", "MAGICBASE", "MAGLOAD", "MAX", "MEMCPY", "MEMSET", "MIN", "MODHLDE", "MPRNT", "MSGET", "MSINIT", "MULHLDE", "NEGHL", "NOTHL", "OPEQHL", "OPGEHLDE", "OPGTHLDE", "OPLEHLDE", "OPLTHLDE", "OPNEQHL", "OPSGEHLDE", "OPSGTHLDE", "OPSLEHLDE", "OPSLTHLDE", "ORHLDE", "P10", "P10to5", "P10toN", "PAINT", "PAINT1", "PAINT2", "PCGDEF", "PCGDEFS", "PCHR", "PCR", "PCR1", "PCRONE", "PFLOAT", "PHEX", "PHEX2", "PHEX4", "PMSG", "PMSX", "PMSX1", "PRMODE", "PRT", "PSG_BASE", "PSG_END", "PSG_INIT", "PSG_PAUSE", "PSG_PLAY", "PSG_PROC", "PSG_RESUME", "PSG_SFX", "PSG_STOP", "PSIGN", "PSPC", "PSTR", "PSTR2", "PTAB", "RBIT", "RCALL", "RESET", "RND", "RSET", "RSHIFTHLDE", "SASC", "SCREEN", "SDIVHLDE", "SET", "SETUPCTC", "SET_PAINTBUF", "SEX", "SGL_DEFPAT", "SGL_FPSMODE", "SGL_INIT", "SGL_PRINT", "SGL_PRINT2", "SGL_SPRCREATE", "SGL_SPRDESTROY", "SGL_SPRDISP", "SGL_SPRMOVE", "SGL_SPRPAT", "SGL_SPRSET", "SGL_VSYNC", "SGN", "SLANGINIT", "SLSHIFTHLDE", "SMODHLDE", "SOROBAN", "SOROBANWORK", "SRAND", "SRSHIFTHLDE", "STOP", "STRLEN", "UTOF", "VSYNC", "VSYNC1", "VSYNC_CHECK", "VTOS", "WIDTH", "X1SGLBASE", "X1SGLINCLUDE", "X1WORK", "XLINE", "XORHLDE", "ZX0_DECODE", "f24_common_str", "f24add", "f24amean", "f24bg", "f24cmp", "f24div", "f24div2", "f24div_pow2", "f24geomean", "f24inv", "f24mod1", "f24mul", "f24mul2", "f24mul3", "f24neg", "f24pow10_LUT", "f24sqr", "f24sub", "f24toa", "formatstr", "i16tof24", "lLOC1", "mul16", "sASC", "sBOOT", "sBRKEY", "sCAP", "sCSR", "sCTRL", "sFGETL", "sFLGET", "sGETKY", "sGETL", "sHEX", "sHLHEX", "sINKBF", "sINKEY", "sKYBFC", "sLOC", "sLPRNT", "sLPTOF", "sLPTON", "sLTNL", "sMPRNT", "sMSG", "sMSX", "sNL", "sPAUSE", "sPCLR", "sPRINT", "sPRINTS", "sPRNT0", "sSCRN", "sSYSTEM", "sWIDCH", "sWORK", "sZPRINT", "sqrt16", "u16tof24", "z80rand"
+    ],
+    "aliases": ["runtime functions", "runtime metadata", "internal helpers", "ランタイム関数", "内部関数", "実行時ライブラリ"],
+    "summary": "This catalog mirrors every @name and @alias loaded from the runtime ASM files in the X1Pen VFS, including implementation helpers and user-facing calls.",
+    "syntax": ["Search an exact runtime symbol, then prefer a related user-facing entry when one exists."],
+    "notes": [
+      "Presence here means the compiler can resolve the symbol; it does not mean the function is a stable or recommended application API.",
+      "Names such as f24*, s* and support bases are usually implementation dependencies. Generate calls from the dedicated entries instead."
+    ],
+    "relatedIds": ["slang.machine.system-access", "slang.runtime.float", "slang.runtime.lsx-io-files", "slang.x1.display-graphics", "slang.x1.psg", "slang.x1.sgl"],
+    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/tree/main/assets/slang_runtime"]
+  },
+  {
+    "id": "slang.includes.catalog",
+    "language": "slang",
+    "kind": "catalog",
+    "title": "Bundled X1Pen SLANG include API catalog",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "symbols": [
+      "@ABS", "@ADD", "@ATN", "@BOX", "@BOXC", "@CBOX", "@CFULL", "@CINT", "@CIRCLE", "@CIRCLEC", "@CLINE", "@CLS", "@CMP", "@COLDRAW", "@COLDRAWT", "@COS", "@CPOLY", "@CRTKN", "@CVDBL", "@CVFTI", "@CVFTS", "@CVFTU", "@CVITF", "@CVSNG", "@CVSTF", "@CVUTF", "@DIV", "@DOUBLE", "@EXP", "@FIX", "@FLASH", "@FRAC", "@FUKUGEN", "@FULL", "@FULLC", "@GRAD", "@IATN", "@ICOS", "@IDIV", "@INIT", "@INT", "@ISIN", "@KYU", "@LINE", "@LINEC", "@LOG", "@MAGIC", "@MASK", "@MOD", "@MODE", "@MOVE", "@MUL", "@NEG", "@PAI", "@PALET", "@PLINE", "@PLINIT", "@PLOT", "@POW", "@RAD", "@ROAD", "@SCTL", "@SETOD", "@SETWD", "@SGN", "@SIN", "@SINGLE", "@SPLINE", "@SPLINEC", "@SQR", "@SUB", "@SWAP", "@TAN", "@TLINE", "@TRIANGLE", "@TRIANGLEC", "@WAVE", "@WINDOW", "CHIP_ANIM_TICK", "CHIP_DRAW", "CHIP_DRAW_VVRAM", "CHIP_FILL_MAP", "CHIP_INIT", "CHIP_MASK_DRAW", "CHIP_SET_ANIM", "CHIP_SET_ANIM_RATE", "CHIP_SET_MAP", "CHIP_SET_MAPSIZE", "CHIP_SET_OFS", "CHIP_SET_SCROLL", "CHIP_SET_SIZE", "CHIP_SET_VVRAMSIZE", "CHIP_SPR_ADD", "CHIP_SPR_FLASH", "CHIP_SPR_POS", "CHIP_SPR_START", "SPR_INIT", "SPR_IS_ACTIVE", "SPR_SET_PATTERN", "SPR_SET_POS", "SPR_SET_SHOW", "SPR_UPDATE", "TILE_ANIM_TICK", "TILE_FILL_MAP", "TILE_INIT", "TILE_INVALIDATE", "TILE_SET_ANIM", "TILE_SET_ANIM_RATE", "TILE_SET_MAP", "TILE_SET_MAPSIZE", "TILE_SET_OFS", "TILE_SET_PAGE", "TILE_SET_SCROLL", "TILE_SET_SIZE", "TILE_SYNC_SPR_PAGE", "UI_AT", "UI_BOX", "UI_FILL", "UI_FONT_ADDR", "UI_PUTC", "UI_PUTS", "UI_SET_COLOR", "_LSXCLS"
+    ],
+    "aliases": ["include APIs", "library functions", "public MACHINE declarations", "同梱ライブラリ", "インクルードAPI", "公開関数"],
+    "summary": "This catalog records function definitions and MACHINE declarations exposed by all eight include files bundled in the X1Pen browser VFS.",
+    "syntax": ["#INCLUDE filename.LIB"],
+    "notes": [
+      "Compile-time switches can remove some GRAPH, GRAPHF or SOROBAN functions from a particular build.",
+      "Prefer the dedicated library entries for setup order, argument meaning and lifetime constraints."
+    ],
+    "relatedIds": ["slang.include.tile-sprite", "slang.include.chiplib", "slang.include.ui", "slang.include.graph-soroban", "slang.include.soroban"],
+    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/tree/main/assets/slang_include"]
+  }
+]
