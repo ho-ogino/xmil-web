@@ -22,7 +22,7 @@ CodexのMCP設定に以下を追加します。
 ```toml
 [mcp_servers.x1pen]
 command = "npx"
-args = ["-y", "x1pen-mcp@2.3.0"]
+args = ["-y", "x1pen-mcp@2.4.0"]
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
@@ -35,7 +35,7 @@ userスコープへ登録すると、任意のプロジェクトからX1Penを�
 
 ```bash
 claude mcp add --transport stdio --scope user x1pen -- \
-  npx -y x1pen-mcp@2.3.0
+  npx -y x1pen-mcp@2.4.0
 claude mcp list
 ```
 
@@ -47,7 +47,7 @@ claude mcp list
     "x1pen": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "x1pen-mcp@2.3.0"]
+      "args": ["-y", "x1pen-mcp@2.4.0"]
     }
   }
 }
@@ -106,16 +106,28 @@ AIによる更新、検証、実行、停止中はエディターとツールバ
 
 ### 言語リファレンス
 
-MCPパッケージには、X1Pen FuzzyBASIC 1.2LとX1Pen内蔵SLANGコンパイラに対応する構造化リファレンスが同梱されています。ブラウザー未接続でも検索できるため、プログラム作成前に仕様を確認できます。
+MCPパッケージには、X1Pen FuzzyBASIC 1.2L（X1 / LSX-Dodgers版）とX1Pen内蔵SLANGコンパイラに対応する構造化リファレンスが同梱されています。ブラウザー未接続でも検索できるため、プログラム作成前に仕様を確認できます。MCP初期化時にも「一般的なBASIC、C、別バージョンのSLANGから仕様を推測しない」ことと、生成前のリファレンス検索、生成後の検証をクライアントへ通知します。
+
+schema v2の`symbols`と`relatedIds`による詳細な索引は、現時点ではFuzzyBASICへ適用しています。SLANG側はIssue #65の次PRで同じ形式へ移行します。
 
 最初に`x1pen_get_language_profile`を呼ぶと、同梱profileを確認できます。X1Penへ接続済みなら、ブラウザーが報告したprofile IDとの互換性も返します。
 
-リファレンスは全件取得せず、`x1pen_search_reference`で必要な項目を検索します。応答は短い要約とstable IDだけです。
+リファレンスは全件取得せず、`x1pen_search_reference`で必要な項目を検索します。応答は短い要約とstable IDだけです。全検索語を含む項目がない場合のみ部分一致へ切り替わり、`matchMode: "partial"`が返ります。
 
 ```json
 {
   "language": "slang",
   "query": "tile sprite scroll",
+  "maxResults": 5
+}
+```
+
+FuzzyBASICの固有構文は記号や日本語でも検索できます。
+
+```json
+{
+  "language": "fuzzybasic",
+  "query": "メモリ配列 A%[I]",
   "maxResults": 5
 }
 ```
@@ -128,7 +140,9 @@ MCPパッケージには、X1Pen FuzzyBASIC 1.2LとX1Pen内蔵SLANGコンパイ�
 }
 ```
 
-収録内容には、一般的な言語構文だけでなく、SLANGの正確なコンパイラrevision、`ENV_TYPE=1`のLSX-Dodgers環境、X1Pen同梱runtime/include API、FuzzyBASIC 1.2LのX1拡張を含みます。ゲーム開発で利用するPCGについては、FuzzyBASICの`PCGDEF` / `TCOLOR`、SLANGの`PCGDEF` / `PCGDEFS`、24-byte BRGパターン形式、TILELIBとの初期化順序まで独立項目として収録しています。代表サンプルは現在のX1Pen tokenizer/compilerで自動検証しています。未知のAPIや複雑な引数規約については、リファレンス確認後も`x1pen_validate`で検証してください。
+FuzzyBASICについては、メモリ／I/O配列、16bit値と変数制約、PROC/FUNC、スタック、機械語連携、LSX-Dodgersファイル処理、X1のグラフィック・PCG・PSG・JOYまで収録しています。一般言語構文は原典を参照しますが、OS、ファイル、コンソール、メモリ配置、X1拡張の挙動はLSX-Dodgers移植ソースを優先しています。全トークナイザ予約語がリファレンスの`symbols`でカバーされることと、代表サンプルが現在のX1Pen tokenizerで処理できることを自動検証しています。
+
+SLANGについては、正確なコンパイラrevision、`ENV_TYPE=1`のLSX-Dodgers環境、X1Pen同梱runtime/include APIを収録しています。ゲーム開発で利用するPCGについては、FuzzyBASICの`PCGDEF` / `TCOLOR`、SLANGの`PCGDEF` / `PCGDEFS`、24-byte BRGパターン形式、TILELIBとの初期化順序まで独立項目として収録しています。未知のAPIや複雑な引数規約については、リファレンス確認後も`x1pen_validate`で検証してください。
 
 ### 大きなプログラムの扱い
 

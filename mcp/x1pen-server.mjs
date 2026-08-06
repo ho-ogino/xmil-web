@@ -23,6 +23,12 @@ const REFERENCE_KINDS = ['syntax', 'runtime', 'x1-extension', 'catalog', 'librar
 const DEBUGGER_STOP_REASONS = ['none', 'manual', 'breakpoint', 'step'];
 const DEBUGGER_MAX_READ_LENGTH = 4096;
 const DEBUGGER_MAX_BREAKPOINTS = 1024;
+const SERVER_INSTRUCTIONS = [
+  'X1Pen FuzzyBASIC and X1Pen SLANG are nonstandard languages. Do not infer syntax or APIs from ordinary BASIC, C, or another SLANG release.',
+  'Before writing or substantially editing a program, call x1pen_get_language_profile, search the bundled reference with x1pen_search_reference, and fetch only the needed IDs with x1pen_get_reference.',
+  'After editing, call x1pen_validate. Run and inspect the visible emulator when behavior must be confirmed.',
+  'Prefer bounded source and reference tools so generated ASM and unrelated manual sections do not consume context.',
+].join(' ');
 
 function textResult(value) {
   return {
@@ -295,7 +301,10 @@ function compactDebuggerMemory(value) {
 
 export function createX1PenMcpServer(options = {}) {
   const bridge = options.bridge || new X1PenBridge(options.bridgeOptions);
-  const server = new McpServer({ name: 'x1pen', version: PACKAGE.version });
+  const server = new McpServer(
+    { name: 'x1pen', version: PACKAGE.version },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
   const sessionInput = { sessionId: z.string().optional().describe('Connected X1Pen instance ID; omit when one tab is connected') };
 
   server.registerTool('x1pen_connection_info', {
@@ -315,7 +324,7 @@ export function createX1PenMcpServer(options = {}) {
   }, handleTool(async ({ sessionId }) => textResult(bridge.selectSession(sessionId))));
 
   server.registerTool('x1pen_get_language_profile', {
-    description: 'List the bundled FuzzyBASIC and SLANG reference profiles and, when connected, compare them with the exact profiles reported by X1Pen.',
+    description: 'Call before generating nontrivial code. Lists the bundled nonstandard FuzzyBASIC and SLANG profiles and, when connected, compares them with the exact profiles reported by X1Pen.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       includeActive: z.boolean().default(true)
@@ -349,7 +358,7 @@ export function createX1PenMcpServer(options = {}) {
   }));
 
   server.registerTool('x1pen_search_reference', {
-    description: 'Search the bundled X1Pen FuzzyBASIC and SLANG reference. Returns compact summaries and stable IDs; use x1pen_get_reference for selected details.',
+    description: 'Search the bundled X1Pen-specific FuzzyBASIC and SLANG reference before assuming syntax or APIs. Returns compact summaries and stable IDs; use x1pen_get_reference for selected details.',
     inputSchema: {
       query: z.string().min(1).max(1_024),
       language: z.enum(REFERENCE_LANGUAGES).optional(),
@@ -361,7 +370,7 @@ export function createX1PenMcpServer(options = {}) {
   }, handleTool(async (args) => textResult(searchReference(args))));
 
   server.registerTool('x1pen_get_reference', {
-    description: 'Get complete reference entries for stable IDs returned by x1pen_search_reference, with a bounded response size.',
+    description: 'Get complete X1Pen-specific reference entries for stable IDs returned by x1pen_search_reference, with a bounded response size.',
     inputSchema: {
       ids: z.array(z.string().min(1).max(128)).min(1).max(10),
       maxCharacters: z.number().int().min(1).max(MAX_RANGE_CHARACTERS).default(DEFAULT_RANGE_CHARACTERS),

@@ -16,7 +16,7 @@ function normalize(value) {
   return String(value || '')
     .normalize('NFKC')
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}_$@^]+/gu, ' ')
+    .replace(/[^\p{L}\p{N}_$@^%[\]()]+/gu, ' ')
     .trim();
 }
 
@@ -25,6 +25,7 @@ function searchableText(entry) {
     entry.id,
     entry.kind,
     entry.title,
+    ...(entry.symbols || []),
     ...(entry.aliases || []),
     entry.summary,
     ...(entry.syntax || []),
@@ -32,22 +33,30 @@ function searchableText(entry) {
   ].join(' '));
 }
 
-function scoreEntry(entry, normalizedQuery, queryTokens) {
+function scoreEntry(entry, normalizedQuery, queryTokens, requireAllTokens) {
   const title = normalize(entry.title);
+  const symbols = (entry.symbols || []).map(normalize);
   const aliases = (entry.aliases || []).map(normalize);
   const text = searchableText(entry);
-  if (!queryTokens.every((token) => text.includes(token))) return 0;
+  const matchedTokens = queryTokens.filter((token) => text.includes(token));
+  if (matchedTokens.length === 0 || (requireAllTokens && matchedTokens.length !== queryTokens.length)) return 0;
 
-  let score = queryTokens.length * 10;
+  let score = matchedTokens.length * 10;
+  if (symbols.includes(normalizedQuery)) score += 110;
   if (title === normalizedQuery) score += 100;
   if (aliases.includes(normalizedQuery)) score += 90;
+  if (symbols.some((symbol) => symbol.includes(normalizedQuery))) score += 60;
   if (title.includes(normalizedQuery)) score += 50;
   if (aliases.some((alias) => alias.includes(normalizedQuery))) score += 40;
   if (normalize(entry.id).includes(normalizedQuery)) score += 30;
-  for (const token of queryTokens) {
+  for (const token of matchedTokens) {
+    if (symbols.some((symbol) => symbol.includes(token))) score += 10;
     if (title.includes(token)) score += 8;
     if (aliases.some((alias) => alias.includes(token))) score += 6;
   }
+  // The catalog is an exhaustive fallback index. Prefer a smaller dedicated
+  // entry when both contain the same keyword so clients fetch useful detail.
+  if (entry.kind === 'catalog') score -= 1;
   return score;
 }
 
@@ -65,16 +74,24 @@ export function searchReference({ language, query, profile, kinds, maxResults = 
   if (queryTokens.length === 0) throw new Error('query must contain searchable characters');
 
   const allowedKinds = kinds ? new Set(kinds) : null;
-  const scored = ENTRIES
+  const candidates = ENTRIES
     .filter((entry) => (!language || entry.language === language)
       && matchesProfile(entry, profile)
-      && (!allowedKinds || allowedKinds.has(entry.kind)))
-    .map((entry) => ({ entry, score: scoreEntry(entry, normalizedQuery, queryTokens) }))
+      && (!allowedKinds || allowedKinds.has(entry.kind)));
+  const score = (requireAllTokens) => candidates
+    .map((entry) => ({ entry, score: scoreEntry(entry, normalizedQuery, queryTokens, requireAllTokens) }))
     .filter(({ score }) => score > 0)
     .sort((left, right) => right.score - left.score || left.entry.id.localeCompare(right.entry.id));
+  let matchMode = 'all';
+  let scored = score(true);
+  if (scored.length === 0) {
+    matchMode = 'partial';
+    scored = score(false);
+  }
 
   return {
     query,
+    matchMode,
     ...(language ? { language } : {}),
     ...(profile ? { profile } : {}),
     totalMatches: scored.length,
@@ -129,6 +146,19 @@ export function validateReferenceData() {
       for (const profile of entry.profiles) {
         if (!profileIds.has(profile)) errors.push(`${entry.id}: unknown profile ${profile}`);
       }
+    }
+    if (entry.language === 'fuzzybasic' && (!Array.isArray(entry.symbols) || entry.symbols.length === 0)) {
+      errors.push(`${entry.id}: FuzzyBASIC entries must declare symbols`);
+    }
+    for (const field of ['symbols', 'aliases', 'relatedIds', 'sourceUrls']) {
+      if (entry[field] !== undefined && (!Array.isArray(entry[field])
+          || entry[field].some((value) => typeof value !== 'string' || value.length === 0))) {
+        errors.push(`${entry.id}: ${field} must contain non-empty strings`);
+      }
+    }
+    for (const relatedId of entry.relatedIds || []) {
+      if (relatedId === entry.id) errors.push(`${entry.id}: relatedIds must not include itself`);
+      else if (!ENTRY_BY_ID.has(relatedId)) errors.push(`${entry.id}: unknown related ID ${relatedId}`);
     }
   }
   return { manifest: MANIFEST, entries: ENTRIES, errors };

@@ -11,7 +11,7 @@ Add the following server to your Codex MCP configuration. Pinning the version pr
 ```toml
 [mcp_servers.x1pen]
 command = "npx"
-args = ["-y", "x1pen-mcp@2.3.0"]
+args = ["-y", "x1pen-mcp@2.4.0"]
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
@@ -22,7 +22,7 @@ Register the server at user scope to make it available from any project.
 
 ```bash
 claude mcp add --transport stdio --scope user x1pen -- \
-  npx -y x1pen-mcp@2.3.0
+  npx -y x1pen-mcp@2.4.0
 ```
 
 Use `claude mcp list` or `/mcp` to check the connection.
@@ -49,5 +49,7 @@ The reference tools work before browser pairing because the data is bundled in t
 - `x1pen_get_reference` returns full details only for selected IDs, with a response-size limit.
 
 Search first and fetch only the entries needed for the current program. This avoids putting a complete language manual into the model context.
+
+The server initialization instructions tell MCP clients not to infer these nonstandard languages from ordinary BASIC, C, or another SLANG release. FuzzyBASIC coverage includes direct indexed memory/I/O arrays, LSX-Dodgers-specific file limitations, machine-code integration, PCG, PSG sound, and joystick input. Exact keywords and syntax symbols are searchable in English or Japanese, and an unsuccessful all-term search falls back to partial matches explicitly marked with `matchMode: "partial"`.
 
 See the [complete setup and tool documentation](https://github.com/ho-ogino/xmil-web/blob/main/docs/X1PEN_MCP.md) for details.

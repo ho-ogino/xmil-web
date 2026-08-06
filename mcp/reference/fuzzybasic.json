@@ -5,18 +5,20 @@
     "kind": "syntax",
     "title": "Program lines, statements, comments and labels",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["line number", "label", "comment", "statement separator"],
-    "summary": "X1Pen accepts numbered FuzzyBASIC program lines. Separate multiple statements with a colon, use an apostrophe for a comment, and write a label between backslashes.",
+    "symbols": ["line number", ":", "'", "\\label\\"],
+    "aliases": ["program line", "statement separator", "comment", "label", "行番号", "コメント", "ラベル"],
+    "summary": "A stored program uses decimal line numbers from 1 through 65535, colon-separated statements, apostrophe comments, and labels enclosed by backslashes.",
     "syntax": [
       "10 PRINT \"HELLO\"",
       "20 A=1:PRINT A",
-      "100 \\DRAW\\ PRINT \"DRAW\"",
+      "100 \\DRAW\\:PRINT \"DRAW\"",
       "110 ' comment"
     ],
     "notes": [
-      "Lines without a decimal line number from 1 through 65535 are ignored by the X1Pen tokenizer.",
-      "Labels improve readability but are resolved by searching program text and can be slower than line-number targets.",
-      "A period can abbreviate a keyword after enough leading characters to select it, but full spellings are safer for generated code."
+      "X1Pen ignores source lines that do not begin with a decimal line number from 1 through 65535.",
+      "Keywords are case-insensitive. X1Pen tokenizes editor source directly instead of using the interpreter's line editor.",
+      "Labels are searched from the beginning of program text. The first duplicate wins, and labels are slower than numeric targets.",
+      "A period can abbreviate a keyword after enough leading characters to select it, but generated code should use full spellings."
     ],
     "examples": [
       {
@@ -24,46 +26,113 @@
         "source": "10 PRINT \"HELLO FROM X1PEN\"\n20 END"
       }
     ],
-    "sourceUrls": ["https://retropc.net/ohishi/s-os/fubasic.htm"]
+    "relatedIds": ["fuzzybasic.program.direct-commands", "fuzzybasic.control.conditionals", "fuzzybasic.keywords.catalog"],
+    "sourceUrls": [
+      "https://retropc.net/ohishi/s-os/fubasic.htm",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM"
+    ]
+  },
+  {
+    "id": "fuzzybasic.values.numbers-variables",
+    "language": "fuzzybasic",
+    "kind": "syntax",
+    "title": "Unsigned 16-bit values, constants and variables",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["$", "&H", "&B", "AF", "BC", "DE", "HL", "VS", "LET"],
+    "aliases": ["integer", "hexadecimal", "binary", "two's complement", "variable name", "16ビット", "変数", "定数"],
+    "summary": "FuzzyBASIC evaluates integer expressions as unsigned 16-bit values without overflow checks; negative values use two's-complement representation.",
+    "syntax": [
+      "A=65535",
+      "ADDRESS=$B000",
+      "MASK=&B11110000",
+      "MINUSONE=-1"
+    ],
+    "notes": [
+      "Decimal constants wrap modulo 65536. Hex constants use $ or &H; binary constants use &B or &.",
+      "A quoted constant contains zero to two characters and evaluates to a 16-bit character-code value; FuzzyBASIC does not provide ordinary string variables.",
+      "Variable names may be long but only the first two characters are significant, case-insensitively. At most 127 variables are available.",
+      "Single-letter A through Z variables are faster and are the only variables accepted as LOCAL values.",
+      "AF, BC, DE and HL exchange values with Z80 registers in CALL@ and USR@. VS is the variable-stack pointer and must not be reused casually."
+    ],
+    "relatedIds": ["fuzzybasic.values.operators", "fuzzybasic.machine.calls", "fuzzybasic.stack.variable"],
+    "sourceUrls": [
+      "https://retropc.net/ohishi/s-os/fubasic.htm",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM"
+    ]
   },
   {
     "id": "fuzzybasic.values.operators",
     "language": "fuzzybasic",
     "kind": "syntax",
-    "title": "Integer values, variables and operators",
+    "title": "Arithmetic, comparison and logical operators",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["arithmetic", "comparison", "bitwise", "AND OR XOR", "hex binary"],
-    "summary": "FuzzyBASIC is integer-oriented and exposes arithmetic, comparison and bit operations close to the Z80 machine.",
+    "symbols": ["+", "-", "*", "/", "=", "<>", "><", "<", ">", "<=", ">=", "AND", "OR", "XOR"],
+    "aliases": ["operator precedence", "comparison", "bitwise", "演算子", "比較", "論理演算"],
+    "summary": "FuzzyBASIC provides unsigned arithmetic, comparisons returning 1 or 0, and bitwise AND, OR and XOR.",
     "syntax": [
       "A=B+C*D",
       "IF A>=10 THEN PRINT A",
-      "A=B AND C",
-      "A=HIGH(W):B=LOW(W)"
+      "MASK=(A AND $FF) OR $20"
     ],
     "notes": [
-      "Useful numeric and bit functions include HIGH, LOW, NOT, BIT, SET, RESET, ROTL, ROTR, ROTLD, ROTRD, MULH, MOD and PARITY.",
-      "The tokenizer accepts case-insensitive keywords. Use explicit parentheses when mixing arithmetic, comparison and AND/OR/XOR."
+      "Precedence is unary minus, multiply/divide, add/subtract, comparisons, then logical operators.",
+      "Use explicit parentheses when combining arithmetic, comparisons and logical operations."
     ],
+    "relatedIds": ["fuzzybasic.values.numbers-variables", "fuzzybasic.functions.math-bit"],
+    "sourceUrls": ["https://retropc.net/ohishi/s-os/fubasic.htm"]
+  },
+  {
+    "id": "fuzzybasic.memory.arrays",
+    "language": "fuzzybasic",
+    "kind": "syntax",
+    "title": "Indexed memory and I/O arrays",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["A[I]", "A(I)", "A%[I]", "A%(I)"],
+    "aliases": ["memory array", "I/O array", "RAM array", "indexed addressing", "byte array", "word array", "メモリ配列", "I/O配列", "配列"],
+    "summary": "FuzzyBASIC arrays are direct indexed memory or I/O access, not DIM-allocated containers: a variable holds the base address and the expression supplies the index.",
+    "syntax": [
+      "BASE[I]       byte memory at BASE+I",
+      "BASE(I)       word memory at BASE+I*2, little-endian",
+      "PORT%[I]      byte I/O at PORT+I",
+      "PORT%(I)      word I/O at PORT+I and PORT+I+1"
+    ],
+    "notes": [
+      "Assigning BASE[I] is equivalent to POKE BASE+I,value; reading it is equivalent to PEEK(BASE+I).",
+      "BASE(I) accesses the low byte at BASE+I*2 and high byte at BASE+I*2+1.",
+      "The percent sign selects I/O space. PORT%(I) accesses the lower-numbered then higher-numbered ports.",
+      "No DIM statement or allocation occurs. Reserve RAM explicitly with LIMIT or use an address known to be free in the active memory layout.",
+      "The base may be any variable name, but only its first two characters are significant."
+    ],
+    "examples": [
+      {
+        "title": "Fill and read a byte memory buffer",
+        "source": "10 LIMIT $8FFF\n20 BA=$9000\n30 FOR I=0 TO 7\n40 BA[I]=I*16\n50 PRINT BA[I]\n60 NEXT I\n70 END"
+      }
+    ],
+    "relatedIds": ["fuzzybasic.machine.memory-io", "fuzzybasic.memory.layout-limit"],
     "sourceUrls": ["https://retropc.net/ohishi/s-os/fubasic.htm"]
   },
   {
     "id": "fuzzybasic.control.conditionals",
     "language": "fuzzybasic",
     "kind": "syntax",
-    "title": "IF statements and branching",
+    "title": "IF, ON and direct branching",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["IF THEN ELSE END IF", "GOTO", "GOSUB", "ON"],
-    "summary": "Use IF/THEN/ELSE for conditional execution, including block IF terminated by END IF. GOTO, GOSUB and ON provide direct branching.",
+    "symbols": ["IF", "THEN", "ELSE", "END IF", "ON", "GOTO", "GOSUB", "RETURN"],
+    "aliases": ["conditional", "block IF", "branch", "分岐", "条件分岐"],
+    "summary": "Use single-line or block IF, ON dispatch, and expression- or label-based GOTO/GOSUB branching.",
     "syntax": [
       "IF condition THEN statement",
-      "IF condition THEN ... ELSE ... END IF",
-      "GOTO line-or-label",
-      "GOSUB line-or-label"
+      "IF condition\nTHEN ...\nELSE ...\nEND IF",
+      "ON expression GOTO target1,target2,...",
+      "GOSUB line-or-label:RETURN"
     ],
     "notes": [
-      "When leaving a block IF or loop with GOTO, account for the interpreter's nesting stacks; an unmatched stack frame can remain active.",
-      "RETURN returns from GOSUB. RET PROC and RET FUNC belong to PROC and FUNC calls instead."
+      "For block IF, IF, THEN, ELSE and END IF must begin their lines and each IF must have one matching END IF.",
+      "RETURN may include a line or label target after reducing the GOSUB nesting level.",
+      "Jumping out of structured constructs can leave interpreter nesting state active; prefer their matching terminators."
     ],
+    "relatedIds": ["fuzzybasic.control.loops", "fuzzybasic.subroutines.proc"],
     "sourceUrls": ["https://retropc.net/ohishi/s-os/fubasic.htm"]
   },
   {
@@ -72,17 +141,20 @@
     "kind": "syntax",
     "title": "FOR, REPEAT and WHILE loops",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["FOR NEXT", "REPEAT UNTIL", "WHILE WEND", "loop stack"],
+    "symbols": ["FOR", "TO", "STEP", "NEXT", "REPEAT", "UNTIL", "WHILE", "WEND", "NEST"],
+    "aliases": ["loop", "FOR NEXT", "REPEAT UNTIL", "WHILE WEND", "ループ", "繰り返し"],
     "summary": "FuzzyBASIC provides counted FOR/NEXT loops, post-test REPEAT/UNTIL loops and pre-test WHILE/WEND loops.",
     "syntax": [
-      "FOR I=1 TO 10: ... :NEXT I",
-      "FOR I=10 TO 1 STEP -1: ... :NEXT I",
-      "REPEAT: ... :UNTIL condition",
-      "WHILE condition: ... :WEND"
+      "FOR I=1 TO 10 STEP 1:...:NEXT I",
+      "REPEAT:...:UNTIL condition",
+      "WHILE condition\n...\nWEND",
+      "NEST(levelType)"
     ],
     "notes": [
       "FOR is generally fastest, followed by REPEAT and WHILE.",
-      "Do not jump out of a loop casually: loop state is kept on interpreter stacks. In particular WEND always returns to its WHILE."
+      "A REPEAT body runs at least once. A WHILE body can run zero times, and WHILE/WEND must be paired at line starts.",
+      "Do not use GOTO to escape casually: nesting records remain. WEND always returns to its WHILE.",
+      "NEST(0..4) reports nesting for GOSUB/PROC/FUNC, FOR, REPEAT, WHILE and block IF respectively."
     ],
     "examples": [
       {
@@ -90,6 +162,7 @@
         "source": "10 FOR I=1 TO 5\n20 PRINT I\n30 NEXT I\n40 END"
       }
     ],
+    "relatedIds": ["fuzzybasic.control.conditionals", "fuzzybasic.stack.variable"],
     "sourceUrls": ["https://retropc.net/ohishi/s-os/fubasic.htm"]
   },
   {
@@ -98,18 +171,30 @@
     "kind": "syntax",
     "title": "PROC, LOCAL and RET PROC",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["procedure", "local variables", "RETPROC", "variable stack"],
-    "summary": "PROC calls a subroutine after saving the variables selected by LOCAL, optionally assigns up to six argument values, and RET PROC restores those variables before returning.",
+    "symbols": ["LOCAL", "PROC", "RET PROC"],
+    "aliases": ["procedure", "subroutine", "local variables", "RETPROC", "プロシージャ", "サブルーチン", "手続き", "局所変数"],
+    "summary": "PROC saves six consecutive single-letter variables beginning with the variable selected by LOCAL, assigns up to six arguments to them, calls a target, and RET PROC restores them.",
     "syntax": [
-      "LOCAL A,B,C,D,E,F",
-      "PROC target,arg1,arg2",
+      "LOCAL \"A\"        selects A through F",
+      "PROC target[,arg1,...,arg6]",
       "RET PROC"
     ],
     "notes": [
-      "Each PROC call uses 12 bytes of variable-stack storage for six saved variables.",
-      "Use only LOCAL-selected variables inside a procedure when you want isolation from the caller."
+      "LOCAL takes a quoted one-letter name from A through U. That variable and the next five letters become the six locals; for example LOCAL \"C\" selects C through H.",
+      "Each PROC call consumes 12 bytes on the variable stack in addition to its control-flow nesting record.",
+      "Use only the selected locals inside reusable procedures when caller variables must be preserved."
     ],
-    "sourceUrls": ["https://retropc.net/ohishi/s-os/fubasic.htm"]
+    "examples": [
+      {
+        "title": "Procedure with one local argument",
+        "source": "10 LOCAL \"A\"\n20 PROC 100,42\n30 END\n100 PRINT A\n110 RET PROC"
+      }
+    ],
+    "relatedIds": ["fuzzybasic.subroutines.func", "fuzzybasic.stack.variable"],
+    "sourceUrls": [
+      "https://retropc.net/ohishi/s-os/fubasic.htm",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM"
+    ]
   },
   {
     "id": "fuzzybasic.subroutines.func",
@@ -117,65 +202,348 @@
     "kind": "syntax",
     "title": "FUNC and RET FUNC",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["function", "RETFUNC", "recursive function"],
-    "summary": "FUNC is the expression-valued counterpart of PROC. It saves LOCAL variables, calls a subroutine, and RET FUNC returns the specified value.",
+    "symbols": ["FUNC", "RET FUNC"],
+    "aliases": ["function", "RETFUNC", "recursive function", "関数", "再帰"],
+    "summary": "FUNC is the expression-valued counterpart of PROC; it saves LOCAL variables and RET FUNC returns a value.",
     "syntax": [
-      "A=FUNC(target,arg1,arg2)",
+      "A=FUNC(target[,arg1,...,arg6])",
       "RET FUNC expression"
     ],
     "notes": [
-      "FUNC uses both the variable stack and the Z80 stack; complex expressions and recursion require adequate stack space.",
-      "VSTACK changes the boundary between the variable stack and machine stack."
+      "FUNC uses the variable stack and also uses the Z80 machine stack according to expression complexity.",
+      "Deep recursion requires deliberate VSTACK and memory planning. Breaking inside FUNC can make CONT unreliable."
     ],
+    "relatedIds": ["fuzzybasic.subroutines.proc", "fuzzybasic.stack.variable", "fuzzybasic.program.debug-control"],
+    "sourceUrls": ["https://retropc.net/ohishi/s-os/fubasic.htm"]
+  },
+  {
+    "id": "fuzzybasic.stack.variable",
+    "language": "fuzzybasic",
+    "kind": "runtime",
+    "title": "Variable stack and machine stack",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["PUSH", "PULL", "POP", "TOP", "VSTACK", "VSADR", "VEADR", "MSP"],
+    "aliases": ["variable stack", "machine stack", "stack pointer", "変数スタック", "マシンスタック"],
+    "summary": "The variable stack stores user values and PROC/FUNC locals; VSTACK controls its boundary with the Z80 machine stack.",
+    "syntax": [
+      "PUSH value1[,value2,...]",
+      "PULL variable1[,variable2,...]",
+      "A=TOP:B=POP",
+      "VSTACK startAddress,endAddress"
+    ],
+    "notes": [
+      "PUSH adds values, PULL restores into variables, TOP reads without removing, and POP reads while removing.",
+      "PROC and FUNC consume 12 variable-stack bytes per call. FUNC additionally consumes machine-stack space.",
+      "VSTACK uses addresses from startAddress through endAddress-1 for the variable stack and resets its pointer. VSADR, VEADR and MSP expose stack addresses.",
+      "Moving boundaries incorrectly can corrupt program text or machine state."
+    ],
+    "relatedIds": ["fuzzybasic.subroutines.proc", "fuzzybasic.subroutines.func", "fuzzybasic.memory.layout-limit"],
+    "sourceUrls": [
+      "https://retropc.net/ohishi/s-os/fubasic.htm",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM"
+    ]
+  },
+  {
+    "id": "fuzzybasic.machine.calls",
+    "language": "fuzzybasic",
+    "kind": "runtime",
+    "title": "Calling Z80 routines and extension hooks",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["CALL", "CALL@", "USR", "USR@", "USR^A", "USR^B", "USR^C", "USR^D", "USR^E", "USR^F", "USR^G", "USR^H", "FN^A", "FN^B", "FN^C", "FN^D", "FN^E", "FN^F", "FN^G", "FN^H", "PR^A", "PR^B"],
+    "aliases": ["machine language", "Z80 call", "register call", "extension statement", "機械語", "拡張命令"],
+    "summary": "CALL and USR invoke arbitrary Z80 addresses; @ variants exchange AF/BC/DE/HL register variables, while USR^, FN^ and PR^ names call installed extension hooks.",
+    "syntax": [
+      "CALL address",
+      "CALL@ address",
+      "result=USR(address[,argument])",
+      "result=USR@(address)",
+      "USR^A arguments",
+      "result=FN^A(arguments)"
+    ],
+    "notes": [
+      "USR returns the routine's HL value. With a second argument, USR passes it in HL.",
+      "CALL@ and USR@ exchange AF, BC, DE and HL through same-named FuzzyBASIC variables.",
+      "USR^A through USR^H, FN^A through FN^H, and PR^A/PR^B require jump-table installation. They are not predefined application APIs.",
+      "Confirm the active binary's register, stack and memory contract before calling machine code."
+    ],
+    "relatedIds": ["fuzzybasic.values.numbers-variables", "fuzzybasic.machine.memory-io"],
     "sourceUrls": ["https://retropc.net/ohishi/s-os/fubasic.htm"]
   },
   {
     "id": "fuzzybasic.machine.memory-io",
     "language": "fuzzybasic",
     "kind": "runtime",
-    "title": "Memory, I/O and block transfer",
+    "title": "Memory, I/O, block transfer and bit access",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["PEEK POKE", "WPEEK WPOKE", "INP OUT", "WINP WOUT", "LDIR LDDR TRANS", "USR"],
-    "summary": "Read and write byte or word memory and I/O directly, call machine-language routines, and use native block-transfer statements for efficient data movement.",
+    "symbols": ["PEEK", "WPEEK", "POKE", "WPOKE", "INP", "WINP", "OUT", "WOUT", "LDIR", "LDDR", "TRANS", "INC", "DEC", "WINC", "WDEC", "SWAP", "SET", "RESET", "BIT", "MEM"],
+    "aliases": ["RAM", "port I/O", "block copy", "bit operation", "メモリ操作", "ポート", "ブロック転送"],
+    "summary": "Read and write byte or little-endian word memory and I/O, mutate memory values, and copy blocks using native Z80-oriented operations.",
     "syntax": [
       "A=PEEK(address):POKE address,value",
       "W=WPEEK(address):WPOKE address,value",
       "A=INP(port):OUT port,value",
-      "W=WINP(port):WOUT port,value",
       "LDIR source,destination,length",
-      "A=USR(address)"
+      "SET address,bit:RESET address,bit"
     ],
     "notes": [
-      "LDIR and LDDR mirror the corresponding Z80 transfer directions. TRANS chooses a direction from the source and destination addresses.",
-      "CALL, CALL@, USR, USR@ and USR^A through USR^H are low-level interfaces; confirm register and memory conventions before use."
+      "WPEEK/WPOKE and WINP/WOUT use low byte first, then high byte at the next address or port.",
+      "INC/DEC modify a memory byte; WINC/WDEC modify a little-endian word. SWAP exchanges two words.",
+      "LDIR copies upward and LDDR downward. TRANS chooses direction from source and destination to support overlap.",
+      "MEM writes a sequence of expression values as bytes starting at an address."
     ],
+    "relatedIds": ["fuzzybasic.memory.arrays", "fuzzybasic.memory.layout-limit", "fuzzybasic.functions.memory-text"],
     "sourceUrls": ["https://retropc.net/ohishi/s-os/fubasic.htm"]
   },
   {
-    "id": "fuzzybasic.x1.graphics",
+    "id": "fuzzybasic.memory.layout-limit",
+    "language": "fuzzybasic",
+    "kind": "limits",
+    "title": "LIMIT and memory allocation boundaries",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["LIMIT", "MAX", "SIZE", "TXBEGIN", "TXEND", "LINADR", "ADR"],
+    "aliases": ["memory map", "reserve memory", "free area", "buffer address", "メモリマップ", "メモリ確保", "空き領域"],
+    "summary": "LIMIT lowers the top of FuzzyBASIC's free/text area so machine code, PCG patterns, sound data or memory arrays can occupy a protected address range.",
+    "syntax": [
+      "LIMIT highestBasicAddress",
+      "MAX",
+      "SIZE",
+      "TXBEGIN",
+      "TXEND"
+    ],
+    "notes": [
+      "After LIMIT $8FFF, addresses from $9000 upward can be reserved for application data if they do not collide with runtime binaries or the OS.",
+      "MAX reports the free-area upper limit and SIZE reports remaining text bytes. TXBEGIN/TXEND expose program-text boundaries.",
+      "X1Pen commonly loads PROGRAM.BIN at an ASM ORG. Keep LIMIT below that ORG before BLOAD.",
+      "The LSX-Dodgers X1 layout and optional MAGIC/PSG binaries consume high memory; calculate all ranges explicitly."
+    ],
+    "relatedIds": ["fuzzybasic.memory.arrays", "fuzzybasic.system.introspection", "fuzzybasic.x1.pcg-definition", "fuzzybasic.x1.sound"],
+    "sourceUrls": [
+      "https://retropc.net/ohishi/s-os/fubasic.htm",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/disk/README.txt"
+    ]
+  },
+  {
+    "id": "fuzzybasic.functions.math-bit",
+    "language": "fuzzybasic",
+    "kind": "runtime",
+    "title": "Math, bit and conversion functions",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["MOD", "MULH", "ZERO", "SQU", "SQR", "SUM", "LOG", "MAX", "MIN", "RND", "RANDOMIZE", "HIGH", "LOW", "EX", "NOT", "MIRROR", "ROTL", "ROTR", "ROTLD", "ROTRD", "PARITY", "COS", "SIN", "PAI"],
+    "aliases": ["math function", "bit function", "random", "random number", "rotate", "trigonometry", "数学関数", "ビット関数", "乱数"],
+    "summary": "FuzzyBASIC supplies integer arithmetic helpers, byte extraction, bit reversal and rotation, pseudo-random values, and X1 graphics-oriented trigonometric helpers.",
+    "syntax": [
+      "A=MOD(X,Y):H=MULH(X,Y)",
+      "HI=HIGH(W):LO=LOW(W)",
+      "A=ROTL(A):B=PARITY(A)",
+      "RANDOMIZE:R=RND(limit)"
+    ],
+    "notes": [
+      "All results remain 16-bit integer values. Check the reference before assuming floating-point or signed behavior.",
+      "COS, SIN and PAI were added with the X1 graphics implementation and use that package's integer angle/scale conventions."
+    ],
+    "relatedIds": ["fuzzybasic.values.operators", "fuzzybasic.x1.graphics-magic"],
+    "sourceUrls": [
+      "https://retropc.net/ohishi/s-os/fubasic.htm",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM"
+    ]
+  },
+  {
+    "id": "fuzzybasic.functions.memory-text",
+    "language": "fuzzybasic",
+    "kind": "runtime",
+    "title": "Memory-based text and output functions",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["LEN", "CP", "CP$", "INSTR", "INSTR$", "CHARA", "CHR$", "LEFT$", "RIGHT$", "MSG", "MSX", "SPC", "STRING", "STR", "HEX@", "BIN@", "MIRROR@", "TAB", "HEX2", "HEX4", "DECI", "PN", "BIN", "BINL"],
+    "aliases": ["string", "string operation", "text memory", "print function", "formatted output", "文字列", "文字列操作", "文字列関数", "表示形式"],
+    "summary": "FuzzyBASIC has no ordinary string variables; its text helpers compare or scan zero-terminated memory and its PRINT functions render values or memory content.",
+    "syntax": [
+      "N=LEN(address[,terminator])",
+      "OK=CP$(address,\"TEXT\")",
+      "POS=INSTR$(address,\"TEXT\")",
+      "STR address,value[@]",
+      "HEX@ address,value[@]",
+      "BIN@ address,value[@]",
+      "MIRROR@ address",
+      "PRINT CHR$(code);HEX4(value);MSG(address)"
+    ],
+    "notes": [
+      "CP and INSTR compare memory ranges; CP$ and INSTR$ compare against a literal source string.",
+      "STR, HEX@ and BIN@ store decimal, hexadecimal or binary text at an address. A trailing @ appends a zero terminator.",
+      "MIRROR@ reverses the bytes before the zero terminator in a memory string in place.",
+      "CHR$, LEFT$, RIGHT$, MSG, MSX, SPC, STRING, TAB, HEX2, HEX4, DECI, PN, BIN and BINL are PRINT output functions rather than allocated string values.",
+      "Quoted constants outside these output contexts evaluate to a zero-, one- or two-character integer value."
+    ],
+    "relatedIds": ["fuzzybasic.values.numbers-variables", "fuzzybasic.io.console", "fuzzybasic.machine.memory-io"],
+    "sourceUrls": ["https://retropc.net/ohishi/s-os/fubasic.htm"]
+  },
+  {
+    "id": "fuzzybasic.io.console",
+    "language": "fuzzybasic",
+    "kind": "runtime",
+    "title": "Console input, output and cursor control",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["INPUT", "LINPUT", "PRINT", "PRMODE", "CLS", "CURSOR", "LOCATE", "WIDTH", "GET", "INKEY", "FLASH", "CURX", "CURY", "KEY0", "BEEP"],
+    "aliases": ["keyboard", "screen", "clear screen", "cursor", "print", "input", "キー入力", "画面", "画面表示", "画面クリア", "カーソル"],
+    "summary": "INPUT and LINPUT read values, PRINT supports dedicated output functions, and cursor/screen statements control the LSX-Dodgers text console on X1.",
+    "syntax": [
+      "INPUT [\"prompt\",]variable1[,variable2,...]",
+      "PRINT expression[;output-function...]",
+      "LOCATE x,y",
+      "WIDTH 40"
+    ],
+    "notes": [
+      "GET returns 0 when no key is held and otherwise returns a key code. INKEY waits for one key; FLASH waits with a blinking cursor.",
+      "Set WIDTH to the intended 40- or 80-column mode before X1 PCG setup.",
+      "KEY0 \"text\" preloads the line-input buffer so the next LINPUT can consume that text without interactive entry."
+    ],
+    "relatedIds": ["fuzzybasic.functions.memory-text", "fuzzybasic.x1.input", "fuzzybasic.x1.pcg-definition", "fuzzybasic.text.x1-characters"],
+    "sourceUrls": [
+      "https://retropc.net/ohishi/s-os/fubasic.htm",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/SOSCALL.ASM"
+    ]
+  },
+  {
+    "id": "fuzzybasic.program.direct-commands",
+    "language": "fuzzybasic",
+    "kind": "runtime",
+    "title": "Editing and direct execution commands",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["AUTO", "APPEND", "BOOT", "BYE", "CHECK", "CONT", "DELETE", "EDIT", "ERMODE", "LIST", "LIST*", "LMODE", "LOAD", "MERGE", "MON", "NEW", "RECOVER", "RENUM", "RUN", "SAVE", "SEARCH", "TEXT", "VLIST", "COLD"],
+    "aliases": ["editor command", "direct mode", "program management", "ダイレクトコマンド", "編集コマンド"],
+    "summary": "Direct commands load, save, list, renumber, edit and execute FuzzyBASIC program text; they are not statements intended for stored program flow.",
+    "syntax": [
+      "RUN [line-or-label]",
+      "LIST [range]",
+      "SEARCH target",
+      "RENUM [start[,increment]]",
+      "BYE",
+      "BOOT"
+    ],
+    "notes": [
+      "X1Pen source editing normally replaces direct editor commands: edit the source pane, validate, and use x1pen_run.",
+      "RENUM does not rewrite expression-valued branch targets, which is another reason to use labels during development.",
+      "In the LSX-Dodgers port, BYE and MON return to the LSX command shell; BOOT restores the boot vector and restarts the system. These are session-control commands, not normal program statements."
+    ],
+    "relatedIds": ["fuzzybasic.program.structure", "fuzzybasic.files.lsx"],
+    "sourceUrls": ["https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM"]
+  },
+  {
+    "id": "fuzzybasic.files.lsx",
+    "language": "fuzzybasic",
+    "kind": "runtime",
+    "title": "LSX-Dodgers drives, files and binary loading",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["BLOAD", "BSAVE", "CHAIN", "DEVICE", "DEVI", "DEVO", "DIR", "FILES", "DSK", "FRESET", "FSET", "KILL", "RENAME"],
+    "aliases": ["file I/O", "open file", "binary file", "device", "LSX-Dodgers", "BDOS", "disk", "ファイル", "ファイル入出力", "ファイルを開く", "ドライブ", "BLOAD"],
+    "summary": "The X1Pen profile implements FuzzyBASIC file commands on LSX-Dodgers BDOS for directory operations, binary loading/saving and program chaining.",
+    "syntax": [
+      "BLOAD \"PROGRAM.BIN\",address",
+      "BSAVE \"DATA.BIN\",start,end",
+      "DEVICE \"A:\"",
+      "DIR [drive]"
+    ],
+    "notes": [
+      "LSX-Dodgers drive letters and FCB-style filenames are used. DSK returns the current drive letter code.",
+      "FSET and FRESET are retained tokens but are no-ops in the current LSX implementation because file protection is not implemented.",
+      "DEVI and DEVO reach low-level absolute disk access whose port source marks the record/sector conversion as unsafe. Do not generate them for ordinary X1Pen programs.",
+      "X1Pen BASIC+ASM programs commonly BLOAD PROGRAM.BIN at the ASM ORG; reserve that range with LIMIT.",
+      "Do not apply historical platform disk layouts or fixed work addresses to this LSX-Dodgers profile."
+    ],
+    "relatedIds": ["fuzzybasic.memory.layout-limit", "fuzzybasic.x1.pcg-definition", "fuzzybasic.x1.sound"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/SOSDISK.ASM"
+    ]
+  },
+  {
+    "id": "fuzzybasic.program.debug-control",
+    "language": "fuzzybasic",
+    "kind": "runtime",
+    "title": "STOP, break handling and delays",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["STOP", "STON", "STOFF", "BRON", "BROFF", "PAUSE", "WAIT", "CLR", "CLEAR", "END"],
+    "aliases": ["break", "debug", "delay", "停止", "デバッグ", "ブレーク禁止"],
+    "summary": "STOP can be enabled or disabled independently, BRON/BROFF control user breaks around fragile machine state, and PAUSE/WAIT provide delays.",
+    "syntax": [
+      "STON:STOP",
+      "STOFF",
+      "BROFF:CALL address:BRON",
+      "PAUSE",
+      "WAIT value",
+      "CLR",
+      "END"
+    ],
+    "notes": [
+      "STOFF lets debug STOP statements remain in source without halting; STON enables them again.",
+      "CLR and CLEAR are synonyms that clear variables, the variable stack and structured-control nesting state without deleting program text.",
+      "END terminates program execution and returns to FuzzyBASIC direct mode.",
+      "Use BROFF/BRON around bank switching or FUNC internals where an asynchronous break would leave unrecoverable state.",
+      "The MCP Z80 debugger is separate from FuzzyBASIC STOP and operates at machine-instruction level."
+    ],
+    "relatedIds": ["fuzzybasic.subroutines.func", "fuzzybasic.machine.calls"],
+    "sourceUrls": ["https://retropc.net/ohishi/s-os/fubasic.htm"]
+  },
+  {
+    "id": "fuzzybasic.system.introspection",
+    "language": "fuzzybasic",
+    "kind": "runtime",
+    "title": "Interpreter and system introspection",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["ADR", "CODE", "TABLE", "LINADR", "NOW", "SIZE", "MAX", "VERSION", "TXBEGIN", "TXEND", "VSADR", "VEADR", "MSP", "VAL"],
+    "aliases": ["intermediate code", "program text", "address", "system function", "中間コード", "システム関数"],
+    "summary": "System functions expose variable addresses, token codes, program-text addresses, stack boundaries, current line and interpreter limits.",
+    "syntax": [
+      "A=ADR(variable)",
+      "TOKEN=CODE(keyword)",
+      "NAME=TABLE(token)",
+      "LINEADDRESS=LINADR(line)"
+    ],
+    "notes": [
+      "CODE expects the complete reserved-word spelling through its opening parenthesis when the keyword is a function, for example CODE(FUNC().",
+      "TABLE returns a pointer to the zero-terminated reserved-word spelling, not an allocated string.",
+      "VERSION returns a compatibility value from the LSX port and must not be used to identify the LSX-Dodgers release.",
+      "VAL evaluates one tokenized expression stored at a memory address. Invalid text or addresses can corrupt interpreter state."
+    ],
+    "relatedIds": ["fuzzybasic.memory.layout-limit", "fuzzybasic.machine.memory-io"],
+    "sourceUrls": [
+      "https://retropc.net/ohishi/s-os/fubasic.htm",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/SOSCALL.ASM"
+    ]
+  },
+  {
+    "id": "fuzzybasic.x1.graphics-magic",
     "language": "fuzzybasic",
     "kind": "x1-extension",
-    "title": "X1 graphics extensions",
+    "title": "X1 graphics and MAGIC package statements",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["TILE", "TRIANGLE", "MAGIC", "COLOR", "PCGDEF", "TCOLOR", "LINE", "BOX", "CIRCLE", "PALET"],
-    "summary": "X1Pen 1.2L adds X1-oriented tile, triangle, MAGIC, color and PCG operations alongside FuzzyBASIC's graphics commands.",
+    "symbols": ["GRAPH", "LINE", "BOX", "CIRCLE", "DOT", "POINT", "PALET", "SPLINE", "WINDOW", "@PAINT", "@AINT", "TILE", "TRIANGLE", "MAGIC", "COLOR"],
+    "aliases": ["graphics", "draw line", "MAGIC.BIN", "paint", "triangle", "tile pattern", "グラフィック", "描画", "線を描く", "線描画", "図形描画", "タイル"],
+    "summary": "The X1 profile integrates graphics statements with the external MAGIC package, including lines, filled shapes, paint, palettes, tile patterns and draw modes.",
     "syntax": [
+      "GRAPH [mode]",
       "LINE ...",
       "BOX ...",
       "CIRCLE ...",
-      "PALET ...",
-      "TILE ...",
-      "TRIANGLE ...",
-      "MAGIC ...",
-      "COLOR ...",
-      "PCGDEF ...",
-      "TCOLOR ..."
+      "TILE pattern",
+      "COLOR mode,color"
     ],
     "notes": [
-      "These extensions are X1Pen profile features and are not guaranteed by the historical generic FuzzyBASIC documentation.",
-      "Search for the individual keyword, then validate the program in X1Pen because graphics arguments depend on the selected screen and runtime state."
+      "Load the matching MAGIC.BIN at its configured address before using statements implemented by that package.",
+      "Coordinates, draw modes and optional connected-point syntax follow the bundled X1 MAGIC implementation and are not interchangeable with another BASIC's graphics syntax.",
+      "MAGIC.BIN normally occupies $B000-$C28C in the documented 1.2L distribution. Reserve it with LIMIT and avoid overlap with PCG, ASM and sound data.",
+      "For unfamiliar graphics argument forms, inspect a known sample and call x1pen_validate; do not infer syntax from another X1 BASIC."
     ],
-    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_tokenizer.js"]
+    "examples": [
+      {
+        "title": "Enable graphics and draw a line",
+        "source": "10 GRAPH 1\n20 LINE (0,0)-(100,50)\n30 END"
+      }
+    ],
+    "relatedIds": ["fuzzybasic.memory.layout-limit", "fuzzybasic.x1.pcg-definition"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/assets/MAGIC.BIN"
+    ]
   },
   {
     "id": "fuzzybasic.x1.pcg-definition",
@@ -183,8 +551,9 @@
     "kind": "x1-extension",
     "title": "Defining X1 PCG characters with PCGDEF",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["PCGDEF", "TCOLOR", "programmable character generator", "character pattern", "BRG planes", "game graphics"],
-    "summary": "PCGDEF copies one 8x8 X1 programmable character from a 24-byte BRG pattern, and TCOLOR selects the text/PCG attribute used when printing it.",
+    "symbols": ["PCGDEF", "TCOLOR"],
+    "aliases": ["programmable character generator", "character pattern", "BRG planes", "24-byte glyph", "game graphics", "PCG", "キャラクタ定義"],
+    "summary": "PCGDEF registers one 8x8 X1 programmable character from a 24-byte BRG pattern, and TCOLOR selects its text attribute.",
     "syntax": [
       "WIDTH 40",
       "PCGDEF characterCode,address",
@@ -192,82 +561,138 @@
       "PRINT CHR$(characterCode)"
     ],
     "notes": [
-      "Set WIDTH before defining PCG characters; the runtime prepares a non-displayed text area according to 40- or 80-column mode.",
-      "One character is 24 bytes: 8 rows, with three bytes per row in Blue, Red, Green order. Bit 7 is the leftmost pixel.",
-      "PCGDEF waits for vertical blank while writing the hardware. Define assets during setup rather than in the per-frame game loop.",
-      "In X1Pen BASIC+ASM mode, put pattern bytes at an ASM ORG, load PROGRAM.BIN at that address, then pass the same address to PCGDEF.",
-      "Increment the pattern address by 24 for each consecutive character. Character codes share the text character-code space."
+      "Set WIDTH before defining PCG characters; initialization differs between 40- and 80-column display modes.",
+      "One glyph is 24 bytes: eight rows with Blue, Red and Green bytes for each row. Bit 7 is the leftmost pixel.",
+      "PCGDEF waits for vertical blank while writing hardware. Define assets during setup rather than each game frame.",
+      "TCOLOR values 0-7 select text colors without PCG. Add $20 to enable PCG display, for example $27 for white PCG.",
+      "In BASIC+ASM mode, place pattern bytes at an ASM ORG, reserve the range with LIMIT, BLOAD PROGRAM.BIN at that address, then pass it to PCGDEF.",
+      "Advance the source address by 24 for each additional character."
     ],
     "examples": [
       {
         "title": "Load and display one PCG character",
-        "source": "10 LIMIT &HAFFF\n20 BLOAD \"PROGRAM.BIN\",&HB000\n30 WIDTH 40\n40 TCOLOR $27\n50 PCGDEF 128,$B000\n60 PRINT CHR$(128)\n70 TCOLOR 7\n80 END",
+        "source": "10 LIMIT $AFFF\n20 BLOAD \"PROGRAM.BIN\",$B000\n30 WIDTH 40\n40 TCOLOR $27\n50 PCGDEF 128,$B000\n60 PRINT CHR$(128)\n70 TCOLOR 7\n80 END",
         "asmSource": "ORG $B000\n; 8 rows, each Blue/Red/Green\nDB %00111100,0,0\nDB %01111110,0,0\nDB %11011011,0,0\nDB %11111111,0,0\nDB %10100101,0,0\nDB %11111111,0,0\nDB %01100110,0,0\nDB %00111100,0,0"
       }
     ],
+    "relatedIds": ["fuzzybasic.memory.layout-limit", "fuzzybasic.functions.memory-text", "fuzzybasic.x1.graphics-magic"],
     "sourceUrls": [
-      "https://github.com/ho-ogino/FuzzyBASIC/blob/main/src/pcgdef.asm",
-      "https://github.com/ho-ogino/FuzzyBASIC/blob/main/assets/PCG_LSX.BAS"
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/pcgdef.asm",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/disk/README.txt"
     ]
   },
   {
-    "id": "fuzzybasic.x1.sound-input",
+    "id": "fuzzybasic.x1.sound",
     "language": "fuzzybasic",
     "kind": "x1-extension",
-    "title": "Sound, joystick and keyboard input",
+    "title": "Arkos Tracker PSG playback with SOUND",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["SOUND", "JOY", "INKEY", "GET", "BEEP"],
-    "summary": "Use SOUND and BEEP for audio, JOY for joystick state, and INKEY/GET for keyboard-oriented input in the X1Pen profile.",
+    "symbols": ["SOUND"],
+    "aliases": ["PSG", "Arkos Tracker", "AKM", "AKG", "BGM", "SFX", "music", "play sound", "効果音", "音を鳴らす", "音楽", "サウンド"],
+    "summary": "SOUND controls an Arkos Tracker 3 AKM or AKG driver loaded at $C300, including BGM and three-channel sound effects.",
     "syntax": [
-      "SOUND ...",
-      "A=JOY(port)",
-      "A=INKEY",
-      "A=GET",
-      "BEEP value"
+      "SOUND 0             shut down",
+      "SOUND 1             initialize",
+      "SOUND 2,address     play BGM",
+      "SOUND 3             stop BGM",
+      "SOUND 4             pause BGM",
+      "SOUND 5             resume BGM",
+      "SOUND 6,address     initialize SFX table",
+      "SOUND 7,number,channel",
+      "SOUND 8,channel"
     ],
     "notes": [
-      "JOY is an X1Pen 1.2L extension token.",
-      "Interactive input is visible in the emulator canvas; MCP screen capture can inspect output but does not replace program input handling."
+      "BLOAD PSGAKM.BIN or PSGAKG.BIN at $C300 before SOUND 1. Calling SOUND 1 without a valid driver can execute invalid machine code.",
+      "Commands 2 through 8 require SOUND 1 first. SFX channels are 0 through 2 and SFX numbering starts at 1.",
+      "On a standard X1 without CTC, playback advances while the BASIC program executes and stops during direct-input wait. CTC-equipped systems update by interrupt.",
+      "The documented 1.2L layout places MAGIC at $B000-$C28C and the sound driver from $C300 upward; reserve non-overlapping BGM/SFX data below the LSX-Dodgers TPA limit $D705."
     ],
-    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_tokenizer.js"]
+    "examples": [
+      {
+        "title": "Load a driver and play AKM music",
+        "source": "10 LIMIT $AFFF\n20 BLOAD \"PSGAKM.BIN\",$C300\n30 BLOAD \"BGM.AKM\",$B000\n40 SOUND 1\n50 SOUND 2,$B000\n60 WAIT 300\n70 SOUND 3\n80 SOUND 0\n90 END"
+      }
+    ],
+    "relatedIds": ["fuzzybasic.files.lsx", "fuzzybasic.memory.layout-limit"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/disk/README.txt",
+      "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM"
+    ]
+  },
+  {
+    "id": "fuzzybasic.x1.input",
+    "language": "fuzzybasic",
+    "kind": "x1-extension",
+    "title": "X1 joystick input with JOY",
+    "profiles": ["x1pen-fuzzybasic-1.2L"],
+    "symbols": ["JOY"],
+    "aliases": ["joystick", "controller", "PSG port", "ジョイスティック", "ゲーム入力"],
+    "summary": "JOY reads the X1 joystick value from PSG register 14 or 15 while protecting access from concurrent sound updates.",
+    "syntax": [
+      "J1=JOY(0)",
+      "J2=JOY(1)"
+    ],
+    "notes": [
+      "Argument 0 selects joystick port 1 and argument 1 selects port 2; other values are rejected.",
+      "The returned value is the raw X1/PSG joystick byte. Interpret active levels and direction/button bits according to the X1 hardware contract.",
+      "JOY temporarily disables interrupts so it can coexist with the SOUND driver."
+    ],
+    "examples": [
+      {
+        "title": "Display joystick port 1 state",
+        "source": "10 J=JOY(0)\n20 PRINT J\n30 GOTO 10"
+      }
+    ],
+    "relatedIds": ["fuzzybasic.io.console", "fuzzybasic.x1.sound"],
+    "sourceUrls": ["https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM"]
   },
   {
     "id": "fuzzybasic.text.x1-characters",
     "language": "fuzzybasic",
     "kind": "x1-extension",
-    "title": "X1 character conversion and escapes",
+    "title": "X1 character conversion and source escapes",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["unicode", "katakana", "hiragana", "escape", "named escape", "xNN"],
-    "summary": "The X1Pen tokenizer converts supported Unicode characters to X1 codes and accepts explicit hexadecimal or named escapes for characters that are difficult to enter directly.",
+    "symbols": ["\\xNN", "\\{name}"],
+    "aliases": ["Unicode", "katakana", "hiragana", "named escape", "character code", "文字コード", "エスケープ"],
+    "summary": "The X1Pen tokenizer converts supported Unicode characters to X1 codes and accepts explicit hexadecimal or named escapes for difficult characters.",
     "syntax": [
       "\\xNN",
       "\\{name}"
     ],
     "notes": [
-      "Unsupported non-ASCII input produces a tokenizer error that identifies the Unicode code point.",
-      "Use x1pen_validate after introducing Japanese text or control-character escapes."
+      "Unsupported non-ASCII input produces a tokenizer error identifying the Unicode code point.",
+      "Use x1pen_validate after introducing Japanese text, graphics characters or control-character escapes."
     ],
+    "examples": [
+      {
+        "title": "Print a box with named X1 character escapes",
+        "source": "10 PRINT \"\\{box_tl}\\{box_h}\\{box_tr}\"\n20 END"
+      }
+    ],
+    "relatedIds": ["fuzzybasic.functions.memory-text", "fuzzybasic.io.console"],
     "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_tokenizer.js"]
   },
   {
     "id": "fuzzybasic.keywords.catalog",
     "language": "fuzzybasic",
     "kind": "catalog",
-    "title": "Accepted X1Pen FuzzyBASIC keywords",
+    "title": "Accepted X1Pen FuzzyBASIC tokenizer vocabulary",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
-    "aliases": ["reserved words", "commands", "statements", "functions", "keyword list"],
-    "summary": "The X1Pen tokenizer's accepted vocabulary includes editor commands, control flow, file operations, machine-level operations, graphics, sound and conversion functions.",
+    "symbols": [
+      "AUTO", "ADR", "AND", "APPEND", "BEEP", "BIN", "BIN@", "BINL", "BIT", "BLOAD", "BOOT", "BOX", "BROFF", "BRON", "BSAVE", "BYE", "CONT", "CALL@", "CALL", "CHAIN", "CHARA", "CHECK", "CHR$", "CIRCLE", "CLR", "CLEAR", "CLS", "CODE", "COLD", "CP", "CP$", "@PAINT", "CURSOR", "CURX", "CURY", "DIR", "DECI", "DEC", "DELETE", "DEVICE", "DEVI", "DEVO", "DOT", "DSK", "EDIT", "ELSE", "END IF", "END", "ERMODE", "EX", "FOR", "FILES", "FLASH", "FRESET", "FSET", "FUNC", "FN^A", "FN^B", "FN^C", "FN^D", "FN^E", "FN^F", "FN^G", "FN^H", "GOTO", "GOSUB", "GET", "GRAPH", "HEX2", "HEX4", "HEX@", "HIGH", "INPUT", "IF", "INC", "INKEY", "INP", "INSTR", "INSTR$", "KEY0", "KILL", "LDIR", "LDDR", "LEN", "LEFT$", "LET", "LIMIT", "LINADR", "LINPUT", "LINE", "LMODE", "LOAD", "LOCATE", "LOCAL", "LOG", "LOW", "MERGE", "MAX", "MEM", "MIN", "MIRROR", "MIRROR@", "MOD", "MON", "MSG", "MSP", "MSX", "MULH", "NEXT", "NEST", "NEW", "NOT", "NOW", "OUT", "ON", "OR", "PRINT", "PAUSE", "PARITY", "@AINT", "PALET", "PEEK", "PN", "POKE", "POP", "POINT", "PR^A", "PR^B", "PRMODE", "PROC", "PULL", "PUSH", "RUN", "RANDOMIZE", "RETURN", "RECOVER", "RENUM", "RENAME", "REPEAT", "RESET", "RET FUNC", "RET PROC", "RIGHT$", "RND", "ROTL", "ROTR", "ROTLD", "ROTRD", "STEP", "SAVE", "SEARCH", "SET", "SIZE", "SPC", "SPLINE", "SQR", "SQU", "STOP", "STOFF", "STON", "STRING", "STR", "SUM", "SWAP", "THEN", "TABLE", "TAB", "TEXT", "TOP", "TO", "TRANS", "TXBEGIN", "TXEND", "UNTIL", "USR", "USR@", "USR^A", "USR^B", "USR^C", "USR^D", "USR^E", "USR^F", "USR^G", "USR^H", "VLIST", "VAL", "VERSION", "VEADR", "VSADR", "VSTACK", "WHILE", "WAIT", "WDEC", "WEND", "WIDTH", "WINC", "WINP", "WINDOW", "WOUT", "WPEEK", "WPOKE", "XOR", "ZERO", "COS", "SIN", "PAI", "TILE", "TRIANGLE", "MAGIC", "COLOR", "PCGDEF", "TCOLOR", "SOUND", "JOY"
+    ],
+    "aliases": ["reserved words", "commands", "statements", "functions", "keyword list", "予約語", "命令一覧", "関数一覧"],
+    "summary": "This catalog records every reserved word accepted by the current X1Pen tokenizer; dedicated entries explain the practical language and X1-specific groups.",
     "syntax": [
-      "Control: IF THEN ELSE END IF FOR TO STEP NEXT REPEAT UNTIL WHILE WEND ON GOTO GOSUB RETURN",
-      "Procedures: LOCAL PROC RET PROC FUNC RET FUNC PUSH PULL POP VSTACK",
-      "Memory/I-O: PEEK WPEEK POKE WPOKE INP WINP OUT WOUT LDIR LDDR TRANS USR USR@",
-      "Graphics/audio: GRAPH LINE BOX CIRCLE PALET SPLINE TILE TRIANGLE MAGIC COLOR PCGDEF TCOLOR SOUND JOY",
-      "Strings/output: PRINT CHR$ LEFT$ RIGHT$ MSG MSX SPC STRING STR TAB HEX2 HEX4 DECI PN"
+      "Search an exact keyword or a Japanese/English concept, then fetch the dedicated result IDs.",
+      "Use full keyword spellings in generated programs."
     ],
     "notes": [
-      "This catalog summarizes the exact tokenizer table; it is not a claim that every keyword behaves identically on every historical FuzzyBASIC build.",
-      "For an individual keyword not covered by a dedicated entry, consult the linked manual and verify it with x1pen_validate."
+      "Tokenizer acceptance does not imply that a command is valid in stored program context or safe without its required runtime binary.",
+      "The catalog is checked automatically against html/x1pen_tokenizer.js so newly accepted tokens cannot silently remain undocumented.",
+      "For details, prefer a related dedicated entry over treating this list as a syntax definition."
     ],
+    "relatedIds": ["fuzzybasic.program.structure", "fuzzybasic.memory.arrays", "fuzzybasic.x1.graphics-magic", "fuzzybasic.x1.pcg-definition", "fuzzybasic.x1.sound"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_tokenizer.js",
       "https://retropc.net/ohishi/s-os/fubasic.htm"
