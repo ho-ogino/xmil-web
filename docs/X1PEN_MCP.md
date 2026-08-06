@@ -108,6 +108,8 @@ AIによる更新、検証、実行、停止中はエディターとツールバ
 
 MCPパッケージには、X1Pen FuzzyBASIC 1.2L（X1 / LSX-Dodgers版）とX1Pen内蔵SLANGコンパイラに対応する構造化リファレンスが同梱されています。ブラウザー未接続でも検索できるため、プログラム作成前に仕様を確認できます。MCP初期化時にも「一般的なBASIC、C、別バージョンのSLANGから仕様を推測しない」ことと、生成前のリファレンス検索、生成後の検証をクライアントへ通知します。
 
+schema v2の`symbols`と`relatedIds`による詳細な索引は、現時点ではFuzzyBASICへ適用しています。SLANG側はIssue #65の次PRで同じ形式へ移行します。
+
 最初に`x1pen_get_language_profile`を呼ぶと、同梱profileを確認できます。X1Penへ接続済みなら、ブラウザーが報告したprofile IDとの互換性も返します。
 
 リファレンスは全件取得せず、`x1pen_search_reference`で必要な項目を検索します。応答は短い要約とstable IDだけです。全検索語を含む項目がない場合のみ部分一致へ切り替わり、`matchMode: "partial"`が返ります。

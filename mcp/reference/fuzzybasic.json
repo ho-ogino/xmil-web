@@ -26,7 +26,7 @@
         "source": "10 PRINT \"HELLO FROM X1PEN\"\n20 END"
       }
     ],
-    "relatedIds": ["fuzzybasic.program.direct-commands", "fuzzybasic.control.conditionals"],
+    "relatedIds": ["fuzzybasic.program.direct-commands", "fuzzybasic.control.conditionals", "fuzzybasic.keywords.catalog"],
     "sourceUrls": [
       "https://retropc.net/ohishi/s-os/fubasic.htm",
       "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM"
@@ -172,7 +172,7 @@
     "title": "PROC, LOCAL and RET PROC",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
     "symbols": ["LOCAL", "PROC", "RET PROC"],
-    "aliases": ["procedure", "local variables", "RETPROC", "プロシージャ", "局所変数"],
+    "aliases": ["procedure", "subroutine", "local variables", "RETPROC", "プロシージャ", "サブルーチン", "手続き", "局所変数"],
     "summary": "PROC saves six consecutive single-letter variables beginning with the variable selected by LOCAL, assigns up to six arguments to them, calls a target, and RET PROC restores them.",
     "syntax": [
       "LOCAL \"A\"        selects A through F",
@@ -316,7 +316,7 @@
       "X1Pen commonly loads PROGRAM.BIN at an ASM ORG. Keep LIMIT below that ORG before BLOAD.",
       "The LSX-Dodgers X1 layout and optional MAGIC/PSG binaries consume high memory; calculate all ranges explicitly."
     ],
-    "relatedIds": ["fuzzybasic.memory.arrays", "fuzzybasic.x1.pcg-definition", "fuzzybasic.x1.sound"],
+    "relatedIds": ["fuzzybasic.memory.arrays", "fuzzybasic.system.introspection", "fuzzybasic.x1.pcg-definition", "fuzzybasic.x1.sound"],
     "sourceUrls": [
       "https://retropc.net/ohishi/s-os/fubasic.htm",
       "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/disk/README.txt"
@@ -329,7 +329,7 @@
     "title": "Math, bit and conversion functions",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
     "symbols": ["MOD", "MULH", "ZERO", "SQU", "SQR", "SUM", "LOG", "MAX", "MIN", "RND", "RANDOMIZE", "HIGH", "LOW", "EX", "NOT", "MIRROR", "ROTL", "ROTR", "ROTLD", "ROTRD", "PARITY", "COS", "SIN", "PAI"],
-    "aliases": ["math function", "bit function", "random", "rotate", "trigonometry", "数学関数", "ビット関数", "乱数"],
+    "aliases": ["math function", "bit function", "random", "random number", "rotate", "trigonometry", "数学関数", "ビット関数", "乱数"],
     "summary": "FuzzyBASIC supplies integer arithmetic helpers, byte extraction, bit reversal and rotation, pseudo-random values, and X1 graphics-oriented trigonometric helpers.",
     "syntax": [
       "A=MOD(X,Y):H=MULH(X,Y)",
@@ -354,7 +354,7 @@
     "title": "Memory-based text and output functions",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
     "symbols": ["LEN", "CP", "CP$", "INSTR", "INSTR$", "CHARA", "CHR$", "LEFT$", "RIGHT$", "MSG", "MSX", "SPC", "STRING", "STR", "HEX@", "BIN@", "MIRROR@", "TAB", "HEX2", "HEX4", "DECI", "PN", "BIN", "BINL"],
-    "aliases": ["string", "text memory", "print function", "formatted output", "文字列", "文字列関数", "表示形式"],
+    "aliases": ["string", "string operation", "text memory", "print function", "formatted output", "文字列", "文字列操作", "文字列関数", "表示形式"],
     "summary": "FuzzyBASIC has no ordinary string variables; its text helpers compare or scan zero-terminated memory and its PRINT functions render values or memory content.",
     "syntax": [
       "N=LEN(address[,terminator])",
@@ -383,7 +383,7 @@
     "title": "Console input, output and cursor control",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
     "symbols": ["INPUT", "LINPUT", "PRINT", "PRMODE", "CLS", "CURSOR", "LOCATE", "WIDTH", "GET", "INKEY", "FLASH", "CURX", "CURY", "KEY0", "BEEP"],
-    "aliases": ["keyboard", "screen", "cursor", "print", "input", "キー入力", "画面表示", "カーソル"],
+    "aliases": ["keyboard", "screen", "clear screen", "cursor", "print", "input", "キー入力", "画面", "画面表示", "画面クリア", "カーソル"],
     "summary": "INPUT and LINPUT read values, PRINT supports dedicated output functions, and cursor/screen statements control the LSX-Dodgers text console on X1.",
     "syntax": [
       "INPUT [\"prompt\",]variable1[,variable2,...]",
@@ -396,7 +396,7 @@
       "Set WIDTH to the intended 40- or 80-column mode before X1 PCG setup.",
       "KEY0 \"text\" preloads the line-input buffer so the next LINPUT can consume that text without interactive entry."
     ],
-    "relatedIds": ["fuzzybasic.functions.memory-text", "fuzzybasic.x1.input", "fuzzybasic.x1.pcg-definition"],
+    "relatedIds": ["fuzzybasic.functions.memory-text", "fuzzybasic.x1.input", "fuzzybasic.x1.pcg-definition", "fuzzybasic.text.x1-characters"],
     "sourceUrls": [
       "https://retropc.net/ohishi/s-os/fubasic.htm",
       "https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/SOSCALL.ASM"
@@ -434,7 +434,7 @@
     "title": "LSX-Dodgers drives, files and binary loading",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
     "symbols": ["BLOAD", "BSAVE", "CHAIN", "DEVICE", "DEVI", "DEVO", "DIR", "FILES", "DSK", "FRESET", "FSET", "KILL", "RENAME"],
-    "aliases": ["file I/O", "binary file", "device", "LSX-Dodgers", "BDOS", "disk", "ファイル", "ドライブ", "BLOAD"],
+    "aliases": ["file I/O", "open file", "binary file", "device", "LSX-Dodgers", "BDOS", "disk", "ファイル", "ファイル入出力", "ファイルを開く", "ドライブ", "BLOAD"],
     "summary": "The X1Pen profile implements FuzzyBASIC file commands on LSX-Dodgers BDOS for directory operations, binary loading/saving and program chaining.",
     "syntax": [
       "BLOAD \"PROGRAM.BIN\",address",
@@ -517,7 +517,7 @@
     "title": "X1 graphics and MAGIC package statements",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
     "symbols": ["GRAPH", "LINE", "BOX", "CIRCLE", "DOT", "POINT", "PALET", "SPLINE", "WINDOW", "@PAINT", "@AINT", "TILE", "TRIANGLE", "MAGIC", "COLOR"],
-    "aliases": ["graphics", "MAGIC.BIN", "paint", "triangle", "tile pattern", "グラフィック", "描画", "タイル"],
+    "aliases": ["graphics", "draw line", "MAGIC.BIN", "paint", "triangle", "tile pattern", "グラフィック", "描画", "線を描く", "線描画", "図形描画", "タイル"],
     "summary": "The X1 profile integrates graphics statements with the external MAGIC package, including lines, filled shapes, paint, palettes, tile patterns and draw modes.",
     "syntax": [
       "GRAPH [mode]",
@@ -532,6 +532,12 @@
       "Coordinates, draw modes and optional connected-point syntax follow the bundled X1 MAGIC implementation and are not interchangeable with another BASIC's graphics syntax.",
       "MAGIC.BIN normally occupies $B000-$C28C in the documented 1.2L distribution. Reserve it with LIMIT and avoid overlap with PCG, ASM and sound data.",
       "For unfamiliar graphics argument forms, inspect a known sample and call x1pen_validate; do not infer syntax from another X1 BASIC."
+    ],
+    "examples": [
+      {
+        "title": "Enable graphics and draw a line",
+        "source": "10 GRAPH 1\n20 LINE (0,0)-(100,50)\n30 END"
+      }
     ],
     "relatedIds": ["fuzzybasic.memory.layout-limit", "fuzzybasic.x1.pcg-definition"],
     "sourceUrls": [
@@ -582,7 +588,7 @@
     "title": "Arkos Tracker PSG playback with SOUND",
     "profiles": ["x1pen-fuzzybasic-1.2L"],
     "symbols": ["SOUND"],
-    "aliases": ["PSG", "Arkos Tracker", "AKM", "AKG", "BGM", "SFX", "music", "効果音", "音楽", "サウンド"],
+    "aliases": ["PSG", "Arkos Tracker", "AKM", "AKG", "BGM", "SFX", "music", "play sound", "効果音", "音を鳴らす", "音楽", "サウンド"],
     "summary": "SOUND controls an Arkos Tracker 3 AKM or AKG driver loaded at $C300, including BGM and three-channel sound effects.",
     "syntax": [
       "SOUND 0             shut down",
@@ -600,6 +606,12 @@
       "Commands 2 through 8 require SOUND 1 first. SFX channels are 0 through 2 and SFX numbering starts at 1.",
       "On a standard X1 without CTC, playback advances while the BASIC program executes and stops during direct-input wait. CTC-equipped systems update by interrupt.",
       "The documented 1.2L layout places MAGIC at $B000-$C28C and the sound driver from $C300 upward; reserve non-overlapping BGM/SFX data below the LSX-Dodgers TPA limit $D705."
+    ],
+    "examples": [
+      {
+        "title": "Load a driver and play AKM music",
+        "source": "10 LIMIT $AFFF\n20 BLOAD \"PSGAKM.BIN\",$C300\n30 BLOAD \"BGM.AKM\",$B000\n40 SOUND 1\n50 SOUND 2,$B000\n60 WAIT 300\n70 SOUND 3\n80 SOUND 0\n90 END"
+      }
     ],
     "relatedIds": ["fuzzybasic.files.lsx", "fuzzybasic.memory.layout-limit"],
     "sourceUrls": [
@@ -625,6 +637,12 @@
       "The returned value is the raw X1/PSG joystick byte. Interpret active levels and direction/button bits according to the X1 hardware contract.",
       "JOY temporarily disables interrupts so it can coexist with the SOUND driver."
     ],
+    "examples": [
+      {
+        "title": "Display joystick port 1 state",
+        "source": "10 J=JOY(0)\n20 PRINT J\n30 GOTO 10"
+      }
+    ],
     "relatedIds": ["fuzzybasic.io.console", "fuzzybasic.x1.sound"],
     "sourceUrls": ["https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM"]
   },
@@ -644,6 +662,12 @@
     "notes": [
       "Unsupported non-ASCII input produces a tokenizer error identifying the Unicode code point.",
       "Use x1pen_validate after introducing Japanese text, graphics characters or control-character escapes."
+    ],
+    "examples": [
+      {
+        "title": "Print a box with named X1 character escapes",
+        "source": "10 PRINT \"\\{box_tl}\\{box_h}\\{box_tr}\"\n20 END"
+      }
     ],
     "relatedIds": ["fuzzybasic.functions.memory-text", "fuzzybasic.io.console"],
     "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_tokenizer.js"]

@@ -54,6 +54,9 @@ function scoreEntry(entry, normalizedQuery, queryTokens, requireAllTokens) {
     if (title.includes(token)) score += 8;
     if (aliases.some((alias) => alias.includes(token))) score += 6;
   }
+  // The catalog is an exhaustive fallback index. Prefer a smaller dedicated
+  // entry when both contain the same keyword so clients fetch useful detail.
+  if (entry.kind === 'catalog') score -= 1;
   return score;
 }
 

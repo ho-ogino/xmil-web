@@ -63,6 +63,39 @@ test('reference search finds exact symbols and falls back to partial terms', () 
   assert.equal(partial.matches[0].id, 'fuzzybasic.memory.arrays');
 });
 
+test('representative Japanese and English queries reach dedicated FuzzyBASIC entries', () => {
+  const cases = new Map([
+    ['PSG 音を鳴らす', 'fuzzybasic.x1.sound'],
+    ['play sound', 'fuzzybasic.x1.sound'],
+    ['ジョイスティック', 'fuzzybasic.x1.input'],
+    ['open file', 'fuzzybasic.files.lsx'],
+    ['配列', 'fuzzybasic.memory.arrays'],
+    ['乱数', 'fuzzybasic.functions.math-bit'],
+    ['random number', 'fuzzybasic.functions.math-bit'],
+    ['サブルーチン', 'fuzzybasic.subroutines.proc'],
+    ['線を描く', 'fuzzybasic.x1.graphics-magic'],
+    ['draw line', 'fuzzybasic.x1.graphics-magic'],
+    ['ファイルを開く', 'fuzzybasic.files.lsx'],
+    ['文字列操作', 'fuzzybasic.functions.memory-text'],
+    ['画面クリア', 'fuzzybasic.io.console'],
+  ]);
+
+  for (const [query, expectedId] of cases) {
+    const result = searchReference({ language: 'fuzzybasic', query, maxResults: 3 });
+    assert.equal(result.matches[0]?.id, expectedId, query);
+  }
+});
+
+test('dedicated entries rank above the exhaustive keyword catalog', () => {
+  for (const [query, expectedId] of [
+    ['CIRCLE', 'fuzzybasic.x1.graphics-magic'],
+    ['PEEK POKE', 'fuzzybasic.machine.memory-io'],
+  ]) {
+    const result = searchReference({ language: 'fuzzybasic', query, maxResults: 3 });
+    assert.equal(result.matches[0]?.id, expectedId, query);
+  }
+});
+
 test('reference detail output honors maxCharacters', () => {
   const result = getReferenceEntries({
     ids: ['slang.program.structure', 'slang.include.graph-soroban'],
@@ -79,11 +112,26 @@ test('bundled FuzzyBASIC examples are accepted by the X1Pen tokenizer', () => {
   const examples = entries
     .filter((entry) => entry.language === 'fuzzybasic')
     .flatMap((entry) => entry.examples || []);
-  assert.ok(examples.length >= 2);
+  assert.ok(examples.length >= 9);
   for (const example of examples) {
     const bytes = tokenizer.tokenizeProgram(example.source);
     assert.ok(bytes.length > 2, `${example.title} must produce program bytes`);
   }
+});
+
+test('every FuzzyBASIC reference entry is reachable through relatedIds', () => {
+  const entries = validateReferenceData().entries
+    .filter((entry) => entry.language === 'fuzzybasic');
+  const incoming = new Map(entries.map((entry) => [entry.id, 0]));
+  for (const entry of entries) {
+    for (const relatedId of entry.relatedIds || []) {
+      if (incoming.has(relatedId)) incoming.set(relatedId, incoming.get(relatedId) + 1);
+    }
+  }
+  assert.deepEqual(
+    [...incoming].filter(([, count]) => count === 0).map(([id]) => id),
+    [],
+  );
 });
 
 test('every X1Pen FuzzyBASIC tokenizer keyword is covered by symbols', () => {
