@@ -28,7 +28,7 @@
         "defaultOrg": 256,
         "runtime": "lsx-dodgers"
       },
-      "notes": "The exact browser compiler snapshot and X1Pen-provided runtime/include library set.",
+      "notes": "The exact browser compiler snapshot and the runtime/include files loaded by the X1Pen VFS. Schema v2 indexes compiler vocabulary, runtime metadata symbols and bundled include APIs, with dedicated entries for supported application-facing contracts.",
       "sourceUrls": [
         "https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"
       ]

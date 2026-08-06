@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -19,22 +19,43 @@ function loadBrowserGlobal(filename, exportName) {
 }
 
 function loadSlangVfs() {
+  const x1penSource = readFileSync(join(repoRoot, 'html/x1pen.js'), 'utf8');
   const vfs = {};
-  for (const directory of ['assets/slang_runtime', 'assets/slang_include']) {
-    for (const filename of readdirSync(join(repoRoot, directory))) {
-      if (/\.(?:asm|lib)$/i.test(filename)) {
-        vfs[filename] = readFileSync(join(repoRoot, directory, filename), 'utf8');
-      }
+  for (const [variable, directory] of [
+    ['runtimeFiles', 'assets/slang_runtime'],
+    ['includeFiles', 'assets/slang_include'],
+  ]) {
+    for (const filename of extractVfsFiles(x1penSource, variable)) {
+      vfs[filename] = readFileSync(join(repoRoot, directory, filename), 'utf8');
     }
   }
   return vfs;
+}
+
+function extractVfsFiles(source, variable) {
+  const block = source.match(new RegExp(`var ${variable} = \\[([\\s\\S]*?)\\n\\s*\\];`));
+  assert.ok(block, `${variable} must be present in x1pen.js`);
+  return [...block[1].matchAll(/'([^']+)'/g)].map((match) => match[1]);
+}
+
+function extractSlangIncludeSymbols(source) {
+  const symbols = new Set();
+  for (const block of source.matchAll(/^MACHINE\b([\s\S]*?);/gmi)) {
+    for (const match of block[1].matchAll(/([@A-Za-z_][@A-Za-z0-9_$^]*)\s*\(/g)) {
+      symbols.add(match[1]);
+    }
+  }
+  for (const match of source.matchAll(/^([@A-Za-z_][@A-Za-z0-9_$^]*)\s*(?::(?:BYTE|WORD|FLOAT))?\s*\([^;\n]*\)/gmi)) {
+    symbols.add(match[1]);
+  }
+  return symbols;
 }
 
 test('reference data has unique IDs and known profiles', () => {
   const validation = validateReferenceData();
   assert.deepEqual(validation.errors, []);
   assert.equal(validation.manifest.schemaVersion, 2);
-  assert.ok(validation.entries.length >= 40);
+  assert.ok(validation.entries.length >= 50);
 });
 
 test('reference search is deterministic, filtered and summary-only', () => {
@@ -86,12 +107,38 @@ test('representative Japanese and English queries reach dedicated FuzzyBASIC ent
   }
 });
 
+test('representative Japanese and English queries reach dedicated SLANG entries', () => {
+  const cases = new Map([
+    ['浮動小数点関数', 'slang.runtime.float'],
+    ['square root', 'slang.runtime.float'],
+    ['マシン語', 'slang.machine.calling-convention'],
+    ['メモリ配列', 'slang.machine.system-access'],
+    ['ファイルを読む', 'slang.runtime.lsx-io-files'],
+    ['open file', 'slang.runtime.lsx-io-files'],
+    ['音を鳴らす', 'slang.x1.psg'],
+    ['play sound', 'slang.x1.psg'],
+    ['タイルマップ', 'slang.include.tile-sprite'],
+    ['線を描く', 'slang.include.graph-soroban'],
+    ['圧縮データ', 'slang.x1.assets-compression'],
+    ['垂直同期', 'slang.x1.timing'],
+    ['ゲームライブラリ', 'slang.x1.sgl'],
+  ]);
+
+  for (const [query, expectedId] of cases) {
+    const result = searchReference({ language: 'slang', query, maxResults: 3 });
+    assert.equal(result.matches[0]?.id, expectedId, query);
+  }
+});
+
 test('dedicated entries rank above the exhaustive keyword catalog', () => {
-  for (const [query, expectedId] of [
-    ['CIRCLE', 'fuzzybasic.x1.graphics-magic'],
-    ['PEEK POKE', 'fuzzybasic.machine.memory-io'],
+  for (const [language, query, expectedId] of [
+    ['fuzzybasic', 'CIRCLE', 'fuzzybasic.x1.graphics-magic'],
+    ['fuzzybasic', 'PEEK POKE', 'fuzzybasic.machine.memory-io'],
+    ['slang', 'PSG_INIT', 'slang.x1.psg'],
+    ['slang', 'TILE_SET_SCROLL', 'slang.include.tile-sprite'],
+    ['slang', 'FSQRT', 'slang.runtime.float'],
   ]) {
-    const result = searchReference({ language: 'fuzzybasic', query, maxResults: 3 });
+    const result = searchReference({ language, query, maxResults: 3 });
     assert.equal(result.matches[0]?.id, expectedId, query);
   }
 });
@@ -134,6 +181,21 @@ test('every FuzzyBASIC reference entry is reachable through relatedIds', () => {
   );
 });
 
+test('every SLANG reference entry is reachable through relatedIds', () => {
+  const entries = validateReferenceData().entries
+    .filter((entry) => entry.language === 'slang');
+  const incoming = new Map(entries.map((entry) => [entry.id, 0]));
+  for (const entry of entries) {
+    for (const relatedId of entry.relatedIds || []) {
+      if (incoming.has(relatedId)) incoming.set(relatedId, incoming.get(relatedId) + 1);
+    }
+  }
+  assert.deepEqual(
+    [...incoming].filter(([, count]) => count === 0).map(([id]) => id),
+    [],
+  );
+});
+
 test('every X1Pen FuzzyBASIC tokenizer keyword is covered by symbols', () => {
   const tokenizerSource = readFileSync(join(repoRoot, 'html/x1pen_tokenizer.js'), 'utf8');
   const table = tokenizerSource.match(/var RSVTBL = \[([\s\S]*?)\n\s*\];/);
@@ -149,6 +211,47 @@ test('every X1Pen FuzzyBASIC tokenizer keyword is covered by symbols', () => {
     .flatMap((entry) => entry.symbols));
   for (const keyword of new Set(keywords)) {
     assert.ok(documented.has(keyword), `${keyword} must be covered by a dedicated FuzzyBASIC entry`);
+  }
+});
+
+test('every X1Pen SLANG compiler keyword is covered by a dedicated entry', () => {
+  const compilerSource = readFileSync(join(repoRoot, 'html/x1pen_slang_compiler.js'), 'utf8');
+  const keywordBlock = compilerSource.match(/var kw = \{([\s\S]*?)\n\s*\};/);
+  const stringBlock = compilerSource.match(/var STRING_FUNCS = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(keywordBlock, 'SLANG keyword table must be present');
+  assert.ok(stringBlock, 'SLANG string function table must be present');
+  const keywords = [...keywordBlock[1].matchAll(/\b([A-Z][A-Z0-9]*)\s*:/g)]
+    .map((match) => match[1]);
+  const stringFunctions = [...stringBlock[1].matchAll(/'([^']+)'/g)]
+    .map((match) => match[1]);
+  assert.ok(keywords.length >= 45);
+
+  const documented = new Set(validateReferenceData().entries
+    .filter((entry) => entry.language === 'slang' && entry.kind !== 'catalog')
+    .flatMap((entry) => entry.symbols));
+  for (const symbol of new Set([...keywords, ...stringFunctions])) {
+    assert.ok(documented.has(symbol), `${symbol} must be covered by a dedicated SLANG entry`);
+  }
+});
+
+test('SLANG catalogs cover the exact runtime and include files loaded by X1Pen', () => {
+  const x1penSource = readFileSync(join(repoRoot, 'html/x1pen.js'), 'utf8');
+  const entries = validateReferenceData().entries;
+  const runtimeCatalog = new Set(entries.find((entry) => entry.id === 'slang.runtime.catalog').symbols);
+  const includeCatalog = new Set(entries.find((entry) => entry.id === 'slang.includes.catalog').symbols);
+
+  for (const filename of extractVfsFiles(x1penSource, 'runtimeFiles')) {
+    const source = readFileSync(join(repoRoot, 'assets/slang_runtime', filename), 'utf8');
+    for (const match of source.matchAll(/^; @(?:name|alias) (\S+)/gm)) {
+      assert.ok(runtimeCatalog.has(match[1]), `${match[1]} from ${filename} must be in the runtime catalog`);
+    }
+  }
+
+  for (const filename of extractVfsFiles(x1penSource, 'includeFiles')) {
+    const source = readFileSync(join(repoRoot, 'assets/slang_include', filename), 'utf8');
+    for (const symbol of extractSlangIncludeSymbols(source)) {
+      assert.ok(includeCatalog.has(symbol), `${symbol} from ${filename} must be in the include catalog`);
+    }
   }
 });
 
@@ -181,7 +284,7 @@ test('bundled SLANG examples compile with the exact X1Pen compiler and VFS', () 
   const examples = entries
     .filter((entry) => entry.language === 'slang')
     .flatMap((entry) => entry.examples || []);
-  assert.ok(examples.length >= 2);
+  assert.ok(examples.length >= 6);
   for (const example of examples) {
     const result = compiler.compile(example.source, vfs, {
       defaultOrg: 0x100,
@@ -200,16 +303,25 @@ test('documented include API names exist in the bundled libraries', () => {
     'TILELIB.LIB': ['TILE_INIT', 'TILE_SET_SCROLL', 'TILE_INVALIDATE'],
     'TILESPR.LIB': ['TILE_SYNC_SPR_PAGE'],
     'UILIB.LIB': ['UI_AT', 'UI_PUTS', 'UI_BOX'],
+    'GRAPH.LIB': ['@INIT', '@LINE', '@CIRCLE'],
+    'GRAPHF.LIB': ['@LINEC', '@TRIANGLEC', '@CIRCLEC'],
+    'SOROBAN.LIB': ['@SINGLE', '@ADD', '@SQR'],
   };
   const documented = JSON.stringify(getReferenceEntries({
-    ids: ['slang.include.tile-sprite', 'slang.include.chiplib', 'slang.include.ui'],
+    ids: [
+      'slang.include.tile-sprite',
+      'slang.include.chiplib',
+      'slang.include.ui',
+      'slang.include.graph-soroban',
+      'slang.include.soroban',
+    ],
     maxCharacters: 32 * 1024,
   }).entries);
 
   for (const [filename, names] of Object.entries(selectedApis)) {
     const source = readFileSync(join(repoRoot, 'assets/slang_include', filename), 'utf8');
     for (const name of names) {
-      assert.match(source, new RegExp(`\\b${name}\\b`), `${name} must exist in ${filename}`);
+      assert.ok(source.includes(name), `${name} must exist in ${filename}`);
       assert.ok(documented.includes(name), `${name} must be covered by the reference`);
     }
   }

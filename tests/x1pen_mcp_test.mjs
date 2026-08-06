@@ -182,7 +182,7 @@ test('language reference tools search compact results and fetch selected details
     arguments: { language: 'slang', query: 'TILE_SET_SCROLL' },
   });
   const search = jsonContent(searchResult);
-  assert.equal(search.totalMatches, 1);
+  assert.ok(search.totalMatches >= 1);
   assert.equal(search.matches[0].id, 'slang.include.tile-sprite');
   assert.equal(search.matches[0].syntax, undefined);
 

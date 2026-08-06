@@ -5,6 +5,7 @@ const MANIFEST = readJson('manifest.json');
 const ENTRIES = Object.freeze([
   ...readJson('fuzzybasic.json'),
   ...readJson('slang.json'),
+  ...readJson('slang-catalogs.json'),
 ]);
 const ENTRY_BY_ID = new Map(ENTRIES.map((entry) => [entry.id, entry]));
 
@@ -147,8 +148,8 @@ export function validateReferenceData() {
         if (!profileIds.has(profile)) errors.push(`${entry.id}: unknown profile ${profile}`);
       }
     }
-    if (entry.language === 'fuzzybasic' && (!Array.isArray(entry.symbols) || entry.symbols.length === 0)) {
-      errors.push(`${entry.id}: FuzzyBASIC entries must declare symbols`);
+    if (!Array.isArray(entry.symbols) || entry.symbols.length === 0) {
+      errors.push(`${entry.id}: schema v2 entries must declare symbols`);
     }
     for (const field of ['symbols', 'aliases', 'relatedIds', 'sourceUrls']) {
       if (entry[field] !== undefined && (!Array.isArray(entry[field])
