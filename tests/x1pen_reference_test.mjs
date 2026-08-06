@@ -33,8 +33,8 @@ function loadSlangVfs() {
 test('reference data has unique IDs and known profiles', () => {
   const validation = validateReferenceData();
   assert.deepEqual(validation.errors, []);
-  assert.equal(validation.manifest.schemaVersion, 1);
-  assert.ok(validation.entries.length >= 25);
+  assert.equal(validation.manifest.schemaVersion, 2);
+  assert.ok(validation.entries.length >= 40);
 });
 
 test('reference search is deterministic, filtered and summary-only', () => {
@@ -42,8 +42,25 @@ test('reference search is deterministic, filtered and summary-only', () => {
   const second = searchReference({ language: 'slang', query: 'FLOAT return', maxResults: 3 });
   assert.deepEqual(first, second);
   assert.ok(first.matches.length > 0);
+  assert.equal(first.matchMode, 'all');
   assert.ok(first.matches.every((match) => match.language === 'slang'));
   assert.ok(first.matches.every((match) => match.syntax === undefined));
+});
+
+test('reference search finds exact symbols and falls back to partial terms', () => {
+  for (const query of ['A%[I]', 'memory array', 'メモリ配列']) {
+    const result = searchReference({ language: 'fuzzybasic', query, maxResults: 3 });
+    assert.equal(result.matchMode, 'all');
+    assert.equal(result.matches[0].id, 'fuzzybasic.memory.arrays');
+  }
+
+  const partial = searchReference({
+    language: 'fuzzybasic',
+    query: 'memory array term-that-does-not-exist',
+    maxResults: 3,
+  });
+  assert.equal(partial.matchMode, 'partial');
+  assert.equal(partial.matches[0].id, 'fuzzybasic.memory.arrays');
 });
 
 test('reference detail output honors maxCharacters', () => {
@@ -67,6 +84,46 @@ test('bundled FuzzyBASIC examples are accepted by the X1Pen tokenizer', () => {
     const bytes = tokenizer.tokenizeProgram(example.source);
     assert.ok(bytes.length > 2, `${example.title} must produce program bytes`);
   }
+});
+
+test('every X1Pen FuzzyBASIC tokenizer keyword is covered by symbols', () => {
+  const tokenizerSource = readFileSync(join(repoRoot, 'html/x1pen_tokenizer.js'), 'utf8');
+  const table = tokenizerSource.match(/var RSVTBL = \[([\s\S]*?)\n\s*\];/);
+  assert.ok(table, 'RSVTBL must be present');
+  const keywords = [...table[1].matchAll(/\[0x[\dA-F]+,\s*0x[\dA-F]+,\s*'([^']+)'\]/g)]
+    .map((match) => match[1].trim().replace(/\($/, ''));
+  assert.ok(keywords.length >= 200);
+
+  const { entries } = validateReferenceData();
+  const documented = new Set(entries
+    .filter((entry) => entry.language === 'fuzzybasic'
+      && entry.id !== 'fuzzybasic.keywords.catalog')
+    .flatMap((entry) => entry.symbols));
+  for (const keyword of new Set(keywords)) {
+    assert.ok(documented.has(keyword), `${keyword} must be covered by a dedicated FuzzyBASIC entry`);
+  }
+});
+
+test('LSX-Dodgers-specific file limitations are documented', () => {
+  const result = getReferenceEntries({
+    ids: ['fuzzybasic.files.lsx'],
+    maxCharacters: 8 * 1024,
+  });
+  const entry = result.entries[0];
+  assert.match(entry.summary, /LSX-Dodgers/);
+  assert.match(entry.notes.join(' '), /FSET and FRESET.*no-ops/);
+  assert.match(entry.notes.join(' '), /DEVI and DEVO.*unsafe/);
+});
+
+test('FuzzyBASIC LOCAL and VSTACK syntax follows the LSX implementation', () => {
+  const result = getReferenceEntries({
+    ids: ['fuzzybasic.subroutines.proc', 'fuzzybasic.stack.variable'],
+    maxCharacters: 16 * 1024,
+  });
+  const [proc, stack] = result.entries;
+  assert.ok(proc.syntax.some((syntax) => syntax.startsWith('LOCAL "A"')));
+  assert.ok(proc.notes.some((note) => /LOCAL "C" selects C through H/.test(note)));
+  assert.ok(stack.syntax.includes('VSTACK startAddress,endAddress'));
 });
 
 test('bundled SLANG examples compile with the exact X1Pen compiler and VFS', () => {

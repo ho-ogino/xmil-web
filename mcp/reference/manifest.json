@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "referenceVersion": "2026-08-04",
+  "schemaVersion": 2,
+  "referenceVersion": "2026-08-07",
   "defaultProfiles": {
     "fuzzybasic": "x1pen-fuzzybasic-1.2L",
     "slang": "x1pen-slang-c9e8f53-lsx"
@@ -11,9 +11,11 @@
       "language": "fuzzybasic",
       "displayName": "X1Pen FuzzyBASIC 1.2L",
       "runtime": "fuzzybasic_cold.v2.xmst",
-      "notes": "X1Pen tokenizer and X1-specific graphics, sound, joystick and character extensions.",
+      "environment": "SHARP X1 / LSX-Dodgers",
+      "notes": "The LSX-Dodgers build of FuzzyBASIC 1.2L with X1Pen tokenizer and X1-specific graphics, sound, joystick and character extensions. Platform behavior is documented from the LSX port itself.",
       "sourceUrls": [
-        "https://retropc.net/ohishi/s-os/fubasic.htm"
+        "https://retropc.net/ohishi/s-os/fubasic.htm",
+        "https://github.com/ho-ogino/FuzzyBASIC/tree/69aaa029bfc80fbb57406994176c63d7f213f04f"
       ]
     },
     {

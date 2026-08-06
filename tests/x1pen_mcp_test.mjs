@@ -199,9 +199,10 @@ test('language reference tools search compact results and fetch selected details
 test('language profile reports bundled data and connected X1Pen compatibility', async () => {
   const result = await client.callTool({ name: 'x1pen_get_language_profile', arguments: {} });
   const profile = jsonContent(result);
-  assert.equal(profile.schemaVersion, 1);
+  assert.equal(profile.schemaVersion, 2);
   assert.equal(profile.profiles.length, 2);
   assert.equal(profile.active.id, 'x1pen-fuzzybasic-1.2L');
+  assert.equal(profile.profiles[0].environment, 'SHARP X1 / LSX-Dodgers');
   assert.equal(profile.reportedProfiles.slang.id, 'x1pen-slang-c9e8f53-lsx');
   assert.equal(profile.compatible, true);
   assert.equal(calls.at(-1).method, 'getStatus');
