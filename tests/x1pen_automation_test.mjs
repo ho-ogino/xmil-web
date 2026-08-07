@@ -78,6 +78,26 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   assert.equal(ready.capabilities.debugger.runPending, false);
   assert.equal(ready.capabilities.debugger.vram.available, true);
   assert.deepEqual(ready.capabilities.debugger.vram.regions, ['text', 'attribute', 'kanji', 'graphics']);
+  assert.deepEqual(ready.capabilities.debugger.vram.regionSizes, {
+    text: 0x0800,
+    attribute: 0x0800,
+    kanji: 0x0800,
+    graphics: 0x4000,
+  });
+  assert.deepEqual(ready.capabilities.debugger.vram.modelDependentRegions, ['kanji']);
+  assert.deepEqual(ready.capabilities.debugger.vram.availableRegions, ['text', 'attribute', 'graphics']);
+
+  const turboRegions = await page.evaluate(() => {
+    const module = window.Module;
+    const saved = module._js_get_rom_type;
+    module._js_get_rom_type = () => 2;
+    try {
+      return window.X1PenAutomation.getStatus().capabilities.debugger.vram.availableRegions;
+    } finally {
+      module._js_get_rom_type = saved;
+    }
+  });
+  assert.deepEqual(turboRegions, ['text', 'attribute', 'kanji', 'graphics']);
 
   const unavailableCapability = await page.evaluate(() => {
     const module = window.Module;
@@ -99,12 +119,13 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
       return {
         debugger: window.X1PenAutomation.getStatus().capabilities.debugger.available,
         vram: window.X1PenAutomation.getStatus().capabilities.debugger.vram.available,
+        availableRegions: window.X1PenAutomation.getStatus().capabilities.debugger.vram.availableRegions,
       };
     } finally {
       module._js_debug_read_vram = saved;
     }
   });
-  assert.deepEqual(unavailableVramCapability, { debugger: true, vram: false });
+  assert.deepEqual(unavailableVramCapability, { debugger: true, vram: false, availableRegions: [] });
 
   const program = {
     sourceMode: 'basic+asm',

@@ -1345,6 +1345,16 @@ window.__X1PEN_MODE = true;
         return module;
     }
 
+    function getAvailableDebuggerVramRegions() {
+        if (!isDebuggerVramModuleAvailable()) return [];
+        var regions = ['text', 'attribute'];
+        if (module._js_get_rom_type && module._js_get_rom_type() >= 2) {
+            regions.push('kanji');
+        }
+        regions.push('graphics');
+        return regions;
+    }
+
     function debuggerEnumName(names, value) {
         return names[value] === undefined ? 'unknown' : names[value];
     }
@@ -1837,6 +1847,14 @@ window.__X1PEN_MODE = true;
                         maxReadLength: DEBUGGER_MAX_READ_LENGTH,
                         maxWriteLength: DEBUGGER_MAX_READ_LENGTH,
                         regions: ['text', 'attribute', 'kanji', 'graphics'],
+                        regionSizes: {
+                            text: DEBUGGER_VRAM_REGION_SIZES.text,
+                            attribute: DEBUGGER_VRAM_REGION_SIZES.attribute,
+                            kanji: DEBUGGER_VRAM_REGION_SIZES.kanji,
+                            graphics: DEBUGGER_VRAM_REGION_SIZES.graphics
+                        },
+                        modelDependentRegions: ['kanji'],
+                        availableRegions: getAvailableDebuggerVramRegions(),
                         graphicsPlanes: ['blue', 'red', 'green']
                     }
                 }
