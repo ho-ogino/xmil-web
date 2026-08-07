@@ -22,6 +22,7 @@
 #include "x1.h"       // mMAIN, mBANK, GRP_RAM, TXT_RAM
 #include "X1_PCG.H"   // pcg (電源ON時のPCGクリア用)
 #include "X1_CRTC.H"  // crtc_cold_reset() (電源ON時のパレットリセット用)
+#include "X1_VRAM.H"
 #include "state_save.h"
 #include "X1_EMM.H"
 #include "X1_SASI.H"
@@ -538,6 +539,47 @@ int js_debug_read_memory(int address, BYTE *output, int length) {
         output[i] = Z80_RDMEM((WORD)(address + i));
     }
     return length;
+}
+
+// Fixed uint32_t ABI described by DebuggerVideoStateWord. Returns the word
+// count on success, -1 for a null pointer, or -DEBUGGER_VIDEO_STATE_WORDS when
+// the supplied capacity is too small.
+EMSCRIPTEN_KEEPALIVE
+int js_debug_get_video_state(uint32_t *output, int word_capacity) {
+    if (!output) return -1;
+    if (word_capacity < DEBUGGER_VIDEO_STATE_WORDS) return -DEBUGGER_VIDEO_STATE_WORDS;
+
+    output[DEBUGGER_VIDEO_STATE_VERSION] = 1;
+    output[DEBUGGER_VIDEO_STATE_WORD_COUNT] = DEBUGGER_VIDEO_STATE_WORDS;
+    output[DEBUGGER_VIDEO_STATE_ROM_TYPE] = x1flg.ROM_TYPE;
+    output[DEBUGGER_VIDEO_STATE_SCREEN_BITS] = crtc.SCRN_BITS;
+    output[DEBUGGER_VIDEO_STATE_DISPLAY_BANK] =
+        (crtc.SCRN_BITS & SCRN_DISPVRAM) ? 1 : 0;
+    output[DEBUGGER_VIDEO_STATE_ACCESS_BANK] =
+        (crtc.SCRN_BITS & SCRN_ACCESSVRAM) ? 1 : 0;
+    output[DEBUGGER_VIDEO_STATE_TEXT_COLUMNS] = crtc.TXT_XL;
+    output[DEBUGGER_VIDEO_STATE_TEXT_ROWS] = crtc.TXT_YL;
+    output[DEBUGGER_VIDEO_STATE_GRAPHICS_WIDTH] = crtc.GRP_XL;
+    output[DEBUGGER_VIDEO_STATE_GRAPHICS_HEIGHT] = crtc.GRP_YL;
+    output[DEBUGGER_VIDEO_STATE_DISPLAY_PAGE] = crtc.DISP_PAGE;
+    return DEBUGGER_VIDEO_STATE_WORDS;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int js_debug_read_vram(int region, int bank_selector, int plane, int offset,
+    BYTE *output, int length, int *resolved_bank) {
+    if (length > 4096) return X1_DEBUG_VRAM_ERROR_INVALID;
+    return x1_debug_read_vram(region, bank_selector, plane, offset,
+        output, length, resolved_bank);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int js_debug_write_vram(int region, int bank_selector, int plane, int offset,
+    const BYTE *input, int length, int *resolved_bank) {
+    if (!debugger_is_paused()) return X1_DEBUG_VRAM_ERROR_NOT_PAUSED;
+    if (length > 4096) return X1_DEBUG_VRAM_ERROR_INVALID;
+    return x1_debug_write_vram(region, bank_selector, plane, offset,
+        input, length, resolved_bank);
 }
 
 // Fixed uint32_t ABI described by DebuggerStateWord. Returns the word count on

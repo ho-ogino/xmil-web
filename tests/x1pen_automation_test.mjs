@@ -72,10 +72,32 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   assert.equal(ready.ready, true);
   assert.equal(await page.evaluate(() => window.X1PenAutomation.version), 2);
   assert.equal(ready.capabilities.debugger.available, true);
-  assert.equal(ready.capabilities.debugger.version, 1);
+  assert.equal(ready.capabilities.debugger.version, 2);
   assert.equal(ready.capabilities.debugger.addressSpaceSize, 0x10000);
   assert.equal(ready.capabilities.debugger.maxReadLength, 4096);
   assert.equal(ready.capabilities.debugger.runPending, false);
+  assert.equal(ready.capabilities.debugger.vram.available, true);
+  assert.deepEqual(ready.capabilities.debugger.vram.regions, ['text', 'attribute', 'kanji', 'graphics']);
+  assert.deepEqual(ready.capabilities.debugger.vram.regionSizes, {
+    text: 0x0800,
+    attribute: 0x0800,
+    kanji: 0x0800,
+    graphics: 0x4000,
+  });
+  assert.deepEqual(ready.capabilities.debugger.vram.modelDependentRegions, ['kanji']);
+  assert.deepEqual(ready.capabilities.debugger.vram.availableRegions, ['text', 'attribute', 'graphics']);
+
+  const turboRegions = await page.evaluate(() => {
+    const module = window.Module;
+    const saved = module._js_get_rom_type;
+    module._js_get_rom_type = () => 2;
+    try {
+      return window.X1PenAutomation.getStatus().capabilities.debugger.vram.availableRegions;
+    } finally {
+      module._js_get_rom_type = saved;
+    }
+  });
+  assert.deepEqual(turboRegions, ['text', 'attribute', 'kanji', 'graphics']);
 
   const unavailableCapability = await page.evaluate(() => {
     const module = window.Module;
@@ -88,6 +110,22 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
     }
   });
   assert.equal(unavailableCapability, false);
+
+  const unavailableVramCapability = await page.evaluate(() => {
+    const module = window.Module;
+    const saved = module._js_debug_read_vram;
+    module._js_debug_read_vram = null;
+    try {
+      return {
+        debugger: window.X1PenAutomation.getStatus().capabilities.debugger.available,
+        vram: window.X1PenAutomation.getStatus().capabilities.debugger.vram.available,
+        availableRegions: window.X1PenAutomation.getStatus().capabilities.debugger.vram.availableRegions,
+      };
+    } finally {
+      module._js_debug_read_vram = saved;
+    }
+  });
+  assert.deepEqual(unavailableVramCapability, { debugger: true, vram: false, availableRegions: [] });
 
   const program = {
     sourceMode: 'basic+asm',
@@ -284,6 +322,174 @@ test('focus loss releases physical keys before automation command injection', { 
   }
 });
 
+test('debugger adapter maps logical VRAM without using side-effecting I/O reads', { timeout: 60_000 }, async () => {
+  const run = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([]);
+    await api.setProgram({
+      sourceMode: 'asm',
+      asm: [
+        'ORG 0100h',
+        'LD BC,04000h',
+        'IN A,(C)',
+        'LD BC,04000h',
+        'LD A,011h',
+        'OUT (C),A',
+        'LD BC,08001h',
+        'LD A,022h',
+        'OUT (C),A',
+        'LD BC,0C002h',
+        'LD A,033h',
+        'OUT (C),A',
+        'LD BC,02004h',
+        'LD A,044h',
+        'OUT (C),A',
+        'LOOP:',
+        'JP LOOP',
+      ].join('\n'),
+    });
+    return api.run();
+  });
+  assert.equal(run.ok, true);
+
+  await page.waitForFunction(() => {
+    try {
+      const debuggerApi = window.X1PenAutomation.debugger;
+      return debuggerApi.readVram({ region: 'graphics', bank: 'access', plane: 'blue', offset: 0, length: 1 }).bytes[0] === 0x11 &&
+        debuggerApi.readVram({ region: 'graphics', bank: 'display', plane: 'red', offset: 1, length: 1 }).bytes[0] === 0x22 &&
+        debuggerApi.readVram({ region: 'graphics', bank: 0, plane: 'green', offset: 2, length: 1 }).bytes[0] === 0x33 &&
+        debuggerApi.readVram({ region: 'attribute', offset: 4, length: 1 }).bytes[0] === 0x44;
+    } catch {
+      return false;
+    }
+  });
+
+  const initial = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    await api.debugger.pause();
+    return {
+      version: api.debugger.version,
+      video: api.debugger.getVideoState(),
+      blue: api.debugger.readVram({ region: 'graphics', bank: 'access', plane: 'blue', offset: 0, length: 1 }),
+      red: api.debugger.readVram({ region: 'graphics', bank: 'display', plane: 'red', offset: 1, length: 1 }),
+      green: api.debugger.readVram({ region: 'graphics', bank: 0, plane: 'green', offset: 2, length: 1 }),
+      attribute: api.debugger.readVram({ region: 'attribute', offset: 4, length: 1 }),
+    };
+  });
+  assert.equal(initial.version, 2);
+  assert.equal(initial.video.model, 'x1');
+  assert.equal(initial.video.displayBank, 0);
+  assert.equal(initial.video.accessBank, 0);
+  assert.equal(initial.video.graphics.banks, 1);
+  assert.equal(initial.video.graphics.planeSize, 0x4000);
+  assert.deepEqual(initial.blue.bytes, [0x11]);
+  assert.equal(initial.blue.bank, 0);
+  assert.equal(initial.blue.bankSelector, 'access');
+  assert.deepEqual(initial.red.bytes, [0x22]);
+  assert.equal(initial.red.bank, 0);
+  assert.deepEqual(initial.green.bytes, [0x33]);
+  assert.deepEqual(initial.attribute.bytes, [0x44]);
+
+  const cpuReads = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    await api.setProgram({
+      sourceMode: 'asm',
+      asm: [
+        'ORG 0100h',
+        'LOOP:',
+        'LD BC,04003h',
+        'IN A,(C)',
+        'LD (05000h),A',
+        'LD BC,02006h',
+        'IN A,(C)',
+        'LD (05001h),A',
+        'JP LOOP',
+      ].join('\n'),
+    });
+    const run = await api.run();
+    return { run };
+  });
+  assert.equal(cpuReads.run.ok, true);
+
+  const written = await page.evaluate(async () => {
+    const debuggerApi = window.X1PenAutomation.debugger;
+    await debuggerApi.pause();
+    const graphics = await debuggerApi.writeVram({
+      region: 'graphics', bank: 'access', plane: 'blue', offset: 3, bytes: [0x5A],
+    });
+    const attribute = await debuggerApi.writeVram({
+      region: 'attribute', offset: 6, bytes: [0x06],
+    });
+    const result = {
+      graphics,
+      attribute,
+      graphicsRead: debuggerApi.readVram({
+        region: 'graphics', bank: 0, plane: 'blue', offset: 3, length: 1,
+      }),
+      attributeRead: debuggerApi.readVram({ region: 'attribute', offset: 6, length: 1 }),
+    };
+    await debuggerApi.resume();
+    return result;
+  });
+  assert.equal(written.graphics.bank, 0);
+  assert.equal(written.graphics.bytesWritten, 1);
+  assert.equal(written.graphics.redrawPending, true);
+  assert.equal(written.attribute.bytesWritten, 1);
+  assert.deepEqual(written.graphicsRead.bytes, [0x5A]);
+  assert.deepEqual(written.attributeRead.bytes, [0x06]);
+
+  await page.waitForFunction(() => {
+    const memory = window.X1PenAutomation.debugger.readMemory(0x5000, 2);
+    return memory.bytes[0] === 0x5A && memory.bytes[1] === 0x06;
+  });
+
+  const errors = await page.evaluate(async () => {
+    const debuggerApi = window.X1PenAutomation.debugger;
+    const capture = async (operation) => {
+      try {
+        await operation();
+        return null;
+      } catch (error) {
+        return { message: error.message, code: error.code };
+      }
+    };
+    const runningWrite = await capture(() => debuggerApi.writeVram({
+      region: 'graphics', bank: 0, plane: 'blue', offset: 0, bytes: [0],
+    }));
+    await debuggerApi.pause();
+    const kanji = await capture(() => debuggerApi.readVram({ region: 'kanji', offset: 0, length: 1 }));
+    const bank1 = await capture(() => debuggerApi.readVram({
+      region: 'graphics', bank: 1, plane: 'blue', offset: 0, length: 1,
+    }));
+    const range = await capture(() => debuggerApi.readVram({
+      region: 'attribute', offset: 0x07FF, length: 2,
+    }));
+    const module = window.Module;
+    const dataPtr = module._malloc(1);
+    const bankPtr = module._malloc(4);
+    let rawInvalidRead;
+    let rawOversizedRead;
+    let rawShortVideoState;
+    try {
+      rawInvalidRead = module._js_debug_read_vram(3, 0, 0, 0x4000, dataPtr, 1, bankPtr);
+      rawOversizedRead = module._js_debug_read_vram(3, 0, 0, 0, dataPtr, 4097, bankPtr);
+      rawShortVideoState = module._js_debug_get_video_state(bankPtr, 1);
+    } finally {
+      module._free(dataPtr);
+      module._free(bankPtr);
+    }
+    await debuggerApi.resume();
+    return { runningWrite, kanji, bank1, range, rawInvalidRead, rawOversizedRead, rawShortVideoState };
+  });
+  assert.equal(errors.runningWrite.code, 'DEBUGGER_NOT_PAUSED');
+  assert.equal(errors.kanji.code, 'DEBUGGER_VRAM_UNSUPPORTED');
+  assert.equal(errors.bank1.code, 'DEBUGGER_VRAM_UNSUPPORTED');
+  assert.match(errors.range.message, /exceeds the attribute region/);
+  assert.equal(errors.rawInvalidRead, -1);
+  assert.equal(errors.rawOversizedRead, -1);
+  assert.equal(errors.rawShortVideoState, -11);
+});
+
 test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeout: 60_000 }, async () => {
   const programAddress = 0x0100;
   const expectedBytes = [0x00, 0x3C, 0xC3, 0x00, 0x01]; // NOP; INC A; JP 0100h
@@ -300,7 +506,7 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
       run: await window.X1PenAutomation.run(),
     };
   });
-  assert.equal(initial.debuggerVersion, 1);
+  assert.equal(initial.debuggerVersion, 2);
   assert.equal(initial.run.ok, true);
 
   await page.waitForFunction(({ address, bytes }) => {

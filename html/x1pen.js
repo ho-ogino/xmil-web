@@ -1283,6 +1283,41 @@ window.__X1PEN_MODE = true;
     var DEBUGGER_STOP_REASON_NAMES = ['none', 'manual', 'breakpoint', 'step'];
     var DEBUGGER_MEMORY_MAPPING_NAMES = ['main', 'bios', 'bank'];
     var DEBUGGER_MAX_READ_LENGTH = 4096;
+    var DEBUGGER_VIDEO_STATE_WORD = Object.freeze({
+        VERSION: 0,
+        WORD_COUNT: 1,
+        ROM_TYPE: 2,
+        SCREEN_BITS: 3,
+        DISPLAY_BANK: 4,
+        ACCESS_BANK: 5,
+        TEXT_COLUMNS: 6,
+        TEXT_ROWS: 7,
+        GRAPHICS_WIDTH: 8,
+        GRAPHICS_HEIGHT: 9,
+        DISPLAY_PAGE: 10,
+        WORDS: 11
+    });
+    var DEBUGGER_VRAM_REGION_CODES = Object.freeze({
+        text: 0,
+        attribute: 1,
+        kanji: 2,
+        graphics: 3
+    });
+    var DEBUGGER_VRAM_REGION_SIZES = Object.freeze({
+        text: 0x0800,
+        attribute: 0x0800,
+        kanji: 0x0800,
+        graphics: 0x4000
+    });
+    var DEBUGGER_VRAM_BANK_CODES = Object.freeze({
+        display: 2,
+        access: 3
+    });
+    var DEBUGGER_VRAM_PLANE_CODES = Object.freeze({
+        blue: 0,
+        red: 1,
+        green: 2
+    });
 
     function isDebuggerModuleAvailable() {
         return !!(module && module.wasmMemory && module._malloc && module._free &&
@@ -1291,11 +1326,33 @@ window.__X1PEN_MODE = true;
             module._js_debug_read_memory);
     }
 
+    function isDebuggerVramModuleAvailable() {
+        return !!(isDebuggerModuleAvailable() && module._js_debug_get_video_state &&
+            module._js_debug_read_vram && module._js_debug_write_vram);
+    }
+
     function requireDebuggerModule() {
         if (!isDebuggerModuleAvailable()) {
             throw new Error('X1Pen debugger is not ready');
         }
         return module;
+    }
+
+    function requireDebuggerVramModule() {
+        if (!isDebuggerVramModuleAvailable()) {
+            throw new Error('X1Pen VRAM debugger is not ready');
+        }
+        return module;
+    }
+
+    function getAvailableDebuggerVramRegions() {
+        if (!isDebuggerVramModuleAvailable()) return [];
+        var regions = ['text', 'attribute'];
+        if (module._js_get_rom_type && module._js_get_rom_type() >= 2) {
+            regions.push('kanji');
+        }
+        regions.push('graphics');
+        return regions;
     }
 
     function debuggerEnumName(names, value) {
@@ -1471,6 +1528,190 @@ window.__X1PEN_MODE = true;
         }
     }
 
+    function getAutomationDebuggerVideoState() {
+        var debuggerModule = requireDebuggerVramModule();
+        var word = DEBUGGER_VIDEO_STATE_WORD;
+        var ptr = debuggerModule._malloc(word.WORDS * 4);
+        if (!ptr) throw new Error('Failed to allocate debugger video state buffer');
+        try {
+            var result = debuggerModule._js_debug_get_video_state(ptr, word.WORDS);
+            if (result !== word.WORDS) {
+                throw new Error('Unsupported debugger video state ABI: ' + result);
+            }
+            var state = Array.from(new Uint32Array(
+                debuggerModule.wasmMemory.buffer, ptr, word.WORDS));
+            if (state[word.VERSION] !== 1 || state[word.WORD_COUNT] !== word.WORDS) {
+                throw new Error('Unsupported debugger video state version: ' + state[word.VERSION]);
+            }
+            var romType = state[word.ROM_TYPE];
+            var modelNames = ['', 'x1', 'x1turbo', 'x1turboZ'];
+            return {
+                version: state[word.VERSION],
+                model: modelNames[romType] || 'unknown',
+                romType: romType,
+                screenBits: state[word.SCREEN_BITS],
+                displayBank: state[word.DISPLAY_BANK],
+                accessBank: state[word.ACCESS_BANK],
+                text: {
+                    columns: state[word.TEXT_COLUMNS],
+                    rows: state[word.TEXT_ROWS],
+                    displayPage: state[word.DISPLAY_PAGE],
+                    regionSize: 0x0800,
+                    kanjiAvailable: romType >= 2
+                },
+                graphics: {
+                    width: state[word.GRAPHICS_WIDTH],
+                    height: state[word.GRAPHICS_HEIGHT],
+                    banks: romType >= 2 ? 2 : 1,
+                    planes: ['blue', 'red', 'green'],
+                    planeSize: 0x4000
+                }
+            };
+        } finally {
+            debuggerModule._free(ptr);
+        }
+    }
+
+    function normalizeDebuggerVramRequest(options, length) {
+        if (!options || typeof options !== 'object' || Array.isArray(options)) {
+            throw new TypeError('VRAM options must be an object');
+        }
+        var region = options.region;
+        if (!Object.prototype.hasOwnProperty.call(DEBUGGER_VRAM_REGION_CODES, region)) {
+            throw new TypeError('region must be text, attribute, kanji or graphics');
+        }
+        var offset = options.offset;
+        var size = DEBUGGER_VRAM_REGION_SIZES[region];
+        if (!Number.isInteger(offset) || offset < 0 || offset >= size) {
+            throw new TypeError('offset must be an integer from 0 to ' + (size - 1));
+        }
+        if (!Number.isInteger(length) || length < 1 || length > DEBUGGER_MAX_READ_LENGTH) {
+            throw new TypeError('length must be an integer from 1 to ' + DEBUGGER_MAX_READ_LENGTH);
+        }
+        if (offset + length > size) throw new RangeError('VRAM range exceeds the ' + region + ' region');
+
+        var bankSelector = 0;
+        var planeCode = 0;
+        if (region === 'graphics') {
+            if (options.bank === 0 || options.bank === 1) {
+                bankSelector = options.bank;
+            } else if (typeof options.bank === 'string' &&
+                Object.prototype.hasOwnProperty.call(DEBUGGER_VRAM_BANK_CODES, options.bank)) {
+                bankSelector = DEBUGGER_VRAM_BANK_CODES[options.bank];
+            } else {
+                throw new TypeError('graphics bank must be 0, 1, display or access');
+            }
+            if (!Object.prototype.hasOwnProperty.call(DEBUGGER_VRAM_PLANE_CODES, options.plane)) {
+                throw new TypeError('graphics plane must be blue, red or green');
+            }
+            planeCode = DEBUGGER_VRAM_PLANE_CODES[options.plane];
+        } else if (options.bank !== undefined || options.plane !== undefined) {
+            throw new TypeError('bank and plane are only valid for graphics VRAM');
+        }
+        return {
+            region: region,
+            regionCode: DEBUGGER_VRAM_REGION_CODES[region],
+            bankSelector: bankSelector,
+            bank: region === 'graphics' ? options.bank : undefined,
+            plane: region === 'graphics' ? options.plane : undefined,
+            planeCode: planeCode,
+            offset: offset,
+            length: length
+        };
+    }
+
+    function createDebuggerVramError(operation, result) {
+        var error;
+        if (result === -2) {
+            error = new Error('Debugger VRAM ' + operation + ' is unsupported by the current X1 model');
+            error.code = 'DEBUGGER_VRAM_UNSUPPORTED';
+        } else if (result === -3) {
+            error = new Error('Debugger VRAM ' + operation + ' requires the paused state');
+            error.code = 'DEBUGGER_NOT_PAUSED';
+        } else {
+            error = new Error('Debugger VRAM ' + operation + ' failed: ' + result);
+            error.code = 'DEBUGGER_VRAM_INVALID';
+        }
+        return error;
+    }
+
+    function debuggerVramResult(request, resolvedBank, bytes) {
+        var result = {
+            region: request.region,
+            offset: request.offset,
+            length: request.length
+        };
+        if (request.region === 'graphics') {
+            result.bankSelector = request.bank;
+            result.bank = resolvedBank;
+            result.plane = request.plane;
+        }
+        if (bytes) result.bytes = bytes;
+        return result;
+    }
+
+    function readAutomationDebuggerVram(options) {
+        var request = normalizeDebuggerVramRequest(options, options && options.length);
+        var debuggerModule = requireDebuggerVramModule();
+        var dataPtr = debuggerModule._malloc(request.length);
+        var bankPtr = debuggerModule._malloc(4);
+        if (!dataPtr || !bankPtr) {
+            if (dataPtr) debuggerModule._free(dataPtr);
+            if (bankPtr) debuggerModule._free(bankPtr);
+            throw new Error('Failed to allocate debugger VRAM buffer');
+        }
+        try {
+            var result = debuggerModule._js_debug_read_vram(
+                request.regionCode, request.bankSelector, request.planeCode,
+                request.offset, dataPtr, request.length, bankPtr);
+            if (result !== request.length) throw createDebuggerVramError('read', result);
+            var resolvedBank = new Int32Array(debuggerModule.wasmMemory.buffer, bankPtr, 1)[0];
+            var bytes = Array.from(new Uint8Array(
+                debuggerModule.wasmMemory.buffer, dataPtr, request.length));
+            return debuggerVramResult(request, resolvedBank, bytes);
+        } finally {
+            debuggerModule._free(dataPtr);
+            debuggerModule._free(bankPtr);
+        }
+    }
+
+    function writeAutomationDebuggerVram(options) {
+        var source = options && options.bytes;
+        if (!Array.isArray(source) && !(source instanceof Uint8Array)) {
+            throw new TypeError('bytes must be an array or Uint8Array');
+        }
+        var bytes = Array.from(source);
+        for (var i = 0; i < bytes.length; i++) {
+            if (!Number.isInteger(bytes[i]) || bytes[i] < 0 || bytes[i] > 0xFF) {
+                throw new TypeError('bytes[' + i + '] must be an integer from 0 to 255');
+            }
+        }
+        var request = normalizeDebuggerVramRequest(options, bytes.length);
+        var debuggerModule = requireDebuggerVramModule();
+        var dataPtr = debuggerModule._malloc(request.length);
+        var bankPtr = debuggerModule._malloc(4);
+        if (!dataPtr || !bankPtr) {
+            if (dataPtr) debuggerModule._free(dataPtr);
+            if (bankPtr) debuggerModule._free(bankPtr);
+            throw new Error('Failed to allocate debugger VRAM buffer');
+        }
+        try {
+            new Uint8Array(debuggerModule.wasmMemory.buffer, dataPtr, request.length).set(bytes);
+            var result = debuggerModule._js_debug_write_vram(
+                request.regionCode, request.bankSelector, request.planeCode,
+                request.offset, dataPtr, request.length, bankPtr);
+            if (result !== request.length) throw createDebuggerVramError('write', result);
+            var resolvedBank = new Int32Array(debuggerModule.wasmMemory.buffer, bankPtr, 1)[0];
+            var response = debuggerVramResult(request, resolvedBank);
+            response.bytesWritten = request.length;
+            response.redrawPending = true;
+            return response;
+        } finally {
+            debuggerModule._free(dataPtr);
+            debuggerModule._free(bankPtr);
+        }
+    }
+
     // afterSequence must be the sequence returned by resume(), not the one
     // from the preceding stopped state, so it identifies a later stop.
     function waitForAutomationDebuggerPause(options) {
@@ -1529,11 +1770,12 @@ window.__X1PEN_MODE = true;
         });
     }
 
-    // Call X1PenAutomation.ready() before the synchronous observation methods
-    // getState() and readMemory(). Async debugger methods wait for readiness.
+    // Call X1PenAutomation.ready() before synchronous observation methods.
+    // Async debugger methods wait for readiness.
     var automationDebuggerApi = Object.freeze({
-        version: 1,
+        version: 2,
         getState: getAutomationDebuggerState,
+        getVideoState: getAutomationDebuggerVideoState,
         pause: function() {
             return runAutomationDebuggerControl('_js_debug_pause', 'pause');
         },
@@ -1557,6 +1799,15 @@ window.__X1PEN_MODE = true;
             });
         },
         readMemory: readAutomationDebuggerMemory,
+        readVram: readAutomationDebuggerVram,
+        writeVram: function(options) {
+            return queueAutomationOperation(function() {
+                if (getAutomationDebuggerState().runState !== 'paused') {
+                    throw createDebuggerVramError('write', -3);
+                }
+                return writeAutomationDebuggerVram(options);
+            });
+        },
         waitForPause: waitForAutomationDebuggerPause
     });
 
@@ -1590,7 +1841,22 @@ window.__X1PEN_MODE = true;
                     version: automationDebuggerApi.version,
                     addressSpaceSize: 0x10000,
                     maxReadLength: DEBUGGER_MAX_READ_LENGTH,
-                    runPending: isRunSetupPending()
+                    runPending: isRunSetupPending(),
+                    vram: {
+                        available: isDebuggerVramModuleAvailable(),
+                        maxReadLength: DEBUGGER_MAX_READ_LENGTH,
+                        maxWriteLength: DEBUGGER_MAX_READ_LENGTH,
+                        regions: ['text', 'attribute', 'kanji', 'graphics'],
+                        regionSizes: {
+                            text: DEBUGGER_VRAM_REGION_SIZES.text,
+                            attribute: DEBUGGER_VRAM_REGION_SIZES.attribute,
+                            kanji: DEBUGGER_VRAM_REGION_SIZES.kanji,
+                            graphics: DEBUGGER_VRAM_REGION_SIZES.graphics
+                        },
+                        modelDependentRegions: ['kanji'],
+                        availableRegions: getAvailableDebuggerVramRegions(),
+                        graphicsPlanes: ['blue', 'red', 'green']
+                    }
                 }
             },
             languageProfiles: {

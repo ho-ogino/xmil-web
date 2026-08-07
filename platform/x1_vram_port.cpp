@@ -56,7 +56,8 @@ void init_vram(void) {
     curupdt = UPDATE_VRAM0;
 }
 
-// Text VRAM write (port 0x3000-0x3FFF)
+// Text VRAM write (attribute 0x2000-0x27FF, ANK 0x3000-0x37FF,
+// Kanji 0x3800-0x3FFF). Attribute RAM is mirrored at 0x2800-0x2FFF.
 X1_IOW x1_txt_w(WORD port, BYTE value) {
     WORD addr = port & 0x7FF;
     BYTE high = (port >> 8) & 0xFF;
@@ -65,7 +66,7 @@ X1_IOW x1_txt_w(WORD port, BYTE value) {
 
     // Determine which RAM area to write to
     if (high < 0x30) {
-        // Attribute RAM (0x2800-0x2FFF)
+        // Attribute RAM (canonical 0x2000-0x27FF, mirror 0x2800-0x2FFF)
         offset = addr + TEXT_ATR;
 
         // Check for blink attribute
@@ -117,7 +118,7 @@ X1_IOW x1_txt_w(WORD port, BYTE value) {
     }
 }
 
-// Text VRAM read (port 0x3000-0x3FFF)
+// Text VRAM read; address ranges match x1_txt_w above.
 X1_IOR x1_txt_r(WORD port) {
     WORD addr = port & 0x7FF;
     BYTE high = (port >> 8) & 0xFF;
@@ -220,6 +221,110 @@ X1_IOW x1_grp_w(WORD port, BYTE value) {
 X1_IOR x1_grp_r(WORD port) {
     WORD grp_off = rol16(port, 5);
     return curvram[grp_off];
+}
+
+static int resolve_debug_vram_bank(int selector, int *resolved_bank) {
+    int bank;
+    switch (selector) {
+    case X1_DEBUG_VRAM_BANK0:
+    case X1_DEBUG_VRAM_BANK1:
+        bank = selector;
+        break;
+    case X1_DEBUG_VRAM_DISPLAY_BANK:
+        bank = (crtc.SCRN_BITS & SCRN_DISPVRAM) ? 1 : 0;
+        break;
+    case X1_DEBUG_VRAM_ACCESS_BANK:
+        bank = (crtc.SCRN_BITS & SCRN_ACCESSVRAM) ? 1 : 0;
+        break;
+    default:
+        return X1_DEBUG_VRAM_ERROR_INVALID;
+    }
+    if (bank == 1 && x1flg.ROM_TYPE < 2) {
+        return X1_DEBUG_VRAM_ERROR_UNSUPPORTED;
+    }
+    if (resolved_bank) *resolved_bank = bank;
+    return 0;
+}
+
+static int validate_debug_vram_range(int region, int offset, int length) {
+    if (offset < 0 || length <= 0) return X1_DEBUG_VRAM_ERROR_INVALID;
+    int size = (region == X1_DEBUG_VRAM_GRAPHICS) ? 0x4000 : 0x0800;
+    if (region < X1_DEBUG_VRAM_TEXT || region > X1_DEBUG_VRAM_GRAPHICS ||
+        offset > size - length) {
+        return X1_DEBUG_VRAM_ERROR_INVALID;
+    }
+    if (region == X1_DEBUG_VRAM_KANJI && x1flg.ROM_TYPE < 2) {
+        return X1_DEBUG_VRAM_ERROR_UNSUPPORTED;
+    }
+    return 0;
+}
+
+static BYTE *debug_graphics_vram_byte(int bank, int plane, int offset) {
+    static const WORD plane_ports[] = { 0x4000, 0x8000, 0xC000 };
+    WORD port = (WORD)(plane_ports[plane] | offset);
+    return &GRP_RAM[(bank == 1 ? GRAM_BANK1 : GRAM_BANK0) + rol16(port, 5)];
+}
+
+int x1_debug_read_vram(int region, int bank_selector, int plane, int offset,
+    BYTE *output, int length, int *resolved_bank) {
+    if (!output) return X1_DEBUG_VRAM_ERROR_INVALID;
+    int result = validate_debug_vram_range(region, offset, length);
+    if (result != 0) return result;
+
+    if (region != X1_DEBUG_VRAM_GRAPHICS) {
+        static const int text_bases[] = { TEXT_ANK, TEXT_ATR, TEXT_KNJ };
+        if (resolved_bank) *resolved_bank = -1;
+        memcpy(output, &TXT_RAM[text_bases[region] + offset], (size_t)length);
+        return length;
+    }
+
+    if (plane < X1_DEBUG_VRAM_BLUE || plane > X1_DEBUG_VRAM_GREEN) {
+        return X1_DEBUG_VRAM_ERROR_INVALID;
+    }
+    int bank = 0;
+    result = resolve_debug_vram_bank(bank_selector, &bank);
+    if (result != 0) return result;
+    if (resolved_bank) *resolved_bank = bank;
+    for (int i = 0; i < length; i++) {
+        output[i] = *debug_graphics_vram_byte(bank, plane, offset + i);
+    }
+    return length;
+}
+
+int x1_debug_write_vram(int region, int bank_selector, int plane, int offset,
+    const BYTE *input, int length, int *resolved_bank) {
+    if (!input) return X1_DEBUG_VRAM_ERROR_INVALID;
+    int result = validate_debug_vram_range(region, offset, length);
+    if (result != 0) return result;
+
+    if (region != X1_DEBUG_VRAM_GRAPHICS) {
+        static const WORD text_ports[] = { 0x3000, 0x2000, 0x3800 };
+        if (resolved_bank) *resolved_bank = -1;
+        for (int i = 0; i < length; i++) {
+            x1_txt_w((WORD)(text_ports[region] + offset + i), input[i]);
+        }
+        return length;
+    }
+
+    if (plane < X1_DEBUG_VRAM_BLUE || plane > X1_DEBUG_VRAM_GREEN) {
+        return X1_DEBUG_VRAM_ERROR_INVALID;
+    }
+    int bank = 0;
+    result = resolve_debug_vram_bank(bank_selector, &bank);
+    if (result != 0) return result;
+    if (resolved_bank) *resolved_bank = bank;
+
+    BYTE update_flag = bank == 1 ? UPDATE_VRAM1 : UPDATE_VRAM0;
+    for (int i = 0; i < length; i++) {
+        int logical_offset = offset + i;
+        BYTE *target = debug_graphics_vram_byte(bank, plane, logical_offset);
+        if (*target != input[i]) {
+            *target = input[i];
+            updatetmp[logical_offset & updatemsk] |= update_flag;
+            scrnflash = 1;
+        }
+    }
+    return length;
 }
 
 /* ---- state save/load ---- */
