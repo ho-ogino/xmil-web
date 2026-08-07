@@ -230,16 +230,23 @@ test('language reference tools search compact results and fetch selected details
   const symbolSearch = jsonContent(symbolResult);
   assert.equal(symbolSearch.matchMode, 'symbol');
   assert.equal(symbolSearch.matches[0].id, 'slang.expressions.operators');
+
+  const hardwareResult = await client.callTool({
+    name: 'x1pen_search_reference',
+    arguments: { language: 'x1', query: 'I/O空間 VRAM' },
+  });
+  assert.equal(jsonContent(hardwareResult).matches[0].id, 'x1.architecture.address-spaces');
 });
 
 test('language profile reports bundled data and connected X1Pen compatibility', async () => {
   const result = await client.callTool({ name: 'x1pen_get_language_profile', arguments: {} });
   const profile = jsonContent(result);
   assert.equal(profile.schemaVersion, 2);
-  assert.equal(profile.profiles.length, 2);
+  assert.equal(profile.profiles.length, 3);
   assert.equal(profile.active.id, 'x1pen-fuzzybasic-1.2L');
   assert.equal(profile.profiles[0].environment, 'SHARP X1 / LSX-Dodgers');
   assert.equal(profile.reportedProfiles.slang.id, 'x1pen-slang-c9e8f53-lsx');
+  assert.equal(profile.defaultProfiles.x1, 'x1-hardware-xmillennium-web');
   assert.equal(profile.compatible, true);
   assert.equal(calls.at(-1).method, 'getStatus');
 });

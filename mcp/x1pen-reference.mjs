@@ -6,6 +6,7 @@ const ENTRIES = Object.freeze([
   ...readJson('fuzzybasic.json'),
   ...readJson('slang.json'),
   ...readJson('slang-catalogs.json'),
+  ...readJson('x1-hardware.json'),
 ]);
 const ENTRY_BY_ID = new Map(ENTRIES.map((entry) => [entry.id, entry]));
 

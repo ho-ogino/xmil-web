@@ -145,6 +145,28 @@ test('representative Japanese and English queries reach dedicated SLANG entries'
   }
 });
 
+test('representative Japanese and English queries reach dedicated X1 hardware entries', () => {
+  const cases = new Map([
+    ['I/O空間 VRAM', 'x1.architecture.address-spaces'],
+    ['CPU memory versus video memory', 'x1.architecture.address-spaces'],
+    ['バンクメモリ', 'x1.memory.cpu-banking'],
+    ['turbo low memory bank', 'x1.memory.cpu-banking'],
+    ['属性VRAM', 'x1.video.text-vram'],
+    ['kanji VRAM mirror', 'x1.video.text-vram'],
+    ['色プレーン', 'x1.video.graphics-vram'],
+    ['simultaneous access', 'x1.video.graphics-vram'],
+    ['表示バンク アクセスバンク', 'x1.video.screen-control'],
+    ['screen control CRTC', 'x1.video.screen-control'],
+    ['PCG パレット', 'x1.video.pcg-palette'],
+    ['programmable character palette', 'x1.video.pcg-palette'],
+  ]);
+
+  for (const [query, expectedId] of cases) {
+    const result = searchReference({ language: 'x1', query, maxResults: 3 });
+    assert.equal(result.matches[0]?.id, expectedId, query);
+  }
+});
+
 test('dedicated entries rank above the exhaustive keyword catalog', () => {
   for (const [language, query, expectedId] of [
     ['fuzzybasic', 'CIRCLE', 'fuzzybasic.x1.graphics-magic'],
@@ -209,6 +231,76 @@ test('every SLANG reference entry is reachable through relatedIds', () => {
     [...incoming].filter(([, count]) => count === 0).map(([id]) => id),
     [],
   );
+});
+
+test('every X1 hardware reference entry is reachable through relatedIds', () => {
+  const entries = validateReferenceData().entries
+    .filter((entry) => entry.language === 'x1');
+  const incoming = new Map(entries.map((entry) => [entry.id, 0]));
+  for (const entry of entries) {
+    for (const relatedId of entry.relatedIds || []) {
+      if (incoming.has(relatedId)) incoming.set(relatedId, incoming.get(relatedId) + 1);
+    }
+  }
+  assert.deepEqual(
+    [...incoming].filter(([, count]) => count === 0).map(([id]) => id),
+    [],
+  );
+});
+
+test('X1 hardware reference matches emulator memory and VRAM constants', () => {
+  const x1Header = readFileSync(join(repoRoot, 'src/X1.H'), 'utf8');
+  const crtcHeader = readFileSync(join(repoRoot, 'src/X1_CRTC.H'), 'utf8');
+  const ioSource = readFileSync(join(repoRoot, 'src/X1_IO.CPP'), 'utf8');
+  const vramSource = readFileSync(join(repoRoot, 'platform/x1_vram_port.cpp'), 'utf8');
+  const details = JSON.stringify(getReferenceEntries({
+    ids: [
+      'x1.architecture.address-spaces',
+      'x1.memory.cpu-banking',
+      'x1.video.text-vram',
+      'x1.video.graphics-vram',
+      'x1.video.screen-control',
+    ],
+    maxCharacters: 64 * 1024,
+  }).entries);
+
+  assert.match(x1Header, /mBANK\[16\]\[0x8000\]/);
+  assert.match(x1Header, /GRAM_BANK1\s+0x10000/);
+  assert.match(ioSource, /ROM_TYPE >= 2.*hi == 0x0b/s);
+  assert.match(ioSource, /if \(s8255\.IO_MODE\).*x1_grp_w2/s);
+  assert.match(ioSource, /BYTE __fastcall Z80_In[\s\S]*?s8255\.IO_MODE = 0;/);
+  assert.match(vramSource, /text_ports\[\] = \{ 0x3000, 0x2000, 0x3800 \}/);
+  assert.match(vramSource, /plane_ports\[\] = \{ 0x4000, 0x8000, 0xC000 \}/);
+  for (const [name, value] of [
+    ['SCRN_DISPVRAM', '0x08'],
+    ['SCRN_ACCESSVRAM', '0x10'],
+    ['SCRN_PCGMODE', '0x20'],
+  ]) {
+    assert.match(crtcHeader, new RegExp(`#define\\s+${name}\\s+${value}`));
+  }
+  for (const fact of [
+    '2000H-27FFH', '2800H-2FFFH', '3000H-37FFH', '3800H-3FFFH',
+    '4000H-7FFFH', '8000H-BFFFH', 'C000H-FFFFH',
+    'B+R+G', 'R+G', 'B+G', 'B+R', '0B00H-0BFFH',
+  ]) {
+    assert.ok(details.includes(fact), `${fact} must remain documented`);
+  }
+});
+
+test('every X1 hardware example assembles with the bundled Z80 assembler', () => {
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const entries = validateReferenceData().entries
+    .filter((entry) => entry.language === 'x1');
+  assert.ok(entries.length >= 6);
+  for (const entry of entries) {
+    assert.ok(entry.examples?.length > 0, `${entry.id} must include an example`);
+    for (const example of entry.examples) {
+      const result = assembler.assemble(example.source);
+      assert.equal(result.errors.length, 0,
+        `${entry.id}: ${example.title}: ${JSON.stringify(result.errors)}`);
+      assert.ok(result.bytes.length > 0, `${entry.id}: ${example.title} must produce bytes`);
+    }
+  }
 });
 
 test('every X1Pen FuzzyBASIC tokenizer keyword is covered by symbols', () => {
