@@ -287,6 +287,22 @@ test('X1 hardware reference matches emulator memory and VRAM constants', () => {
   }
 });
 
+test('every X1 hardware example assembles with the bundled Z80 assembler', () => {
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const entries = validateReferenceData().entries
+    .filter((entry) => entry.language === 'x1');
+  assert.ok(entries.length >= 6);
+  for (const entry of entries) {
+    assert.ok(entry.examples?.length > 0, `${entry.id} must include an example`);
+    for (const example of entry.examples) {
+      const result = assembler.assemble(example.source);
+      assert.equal(result.errors.length, 0,
+        `${entry.id}: ${example.title}: ${JSON.stringify(result.errors)}`);
+      assert.ok(result.bytes.length > 0, `${entry.id}: ${example.title} must produce bytes`);
+    }
+  }
+});
+
 test('every X1Pen FuzzyBASIC tokenizer keyword is covered by symbols', () => {
   const tokenizerSource = readFileSync(join(repoRoot, 'html/x1pen_tokenizer.js'), 'utf8');
   const table = tokenizerSource.match(/var RSVTBL = \[([\s\S]*?)\n\s*\];/);

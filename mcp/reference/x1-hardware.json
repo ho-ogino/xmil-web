@@ -22,6 +22,12 @@
       "A general debugger IN/OUT API is intentionally not exposed: device reads can acknowledge interrupts, consume data or change modes. VRAM debugger reads use a side-effect-free physical view.",
       "On this X1 implementation, every ordinary IN clears graphics simultaneous-access mode. A debugger VRAM read does not call Z80_In and therefore does not clear it."
     ],
+    "examples": [
+      {
+        "title": "Read and write a 16-bit X1 I/O port through BC",
+        "source": "ORG 0100H\nLD BC,04000H\nIN A,(C)\nOUT (C),A\nRET"
+      }
+    ],
     "relatedIds": ["x1.memory.cpu-banking", "x1.video.text-vram", "x1.video.graphics-vram", "x1.video.screen-control"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_IO.CPP",
@@ -52,6 +58,12 @@
       "Graphics bank 0/1 is unrelated to these CPU-memory pages. Select graphics banks only through screen control or the VRAM debugger bank parameter.",
       "EMM is a separate I/O peripheral and is not the X1turbo low-memory bank mechanism. This initial hardware profile does not document EMM ports."
     ],
+    "examples": [
+      {
+        "title": "Write turbo bank-RAM page 2 from stable high memory",
+        "source": "ORG 8000H\nLD BC,00B00H\nLD A,02H\nOUT (C),A\nLD HL,0000H\nLD (HL),05AH\nLD A,010H\nOUT (C),A\nRET"
+      }
+    ],
     "relatedIds": ["x1.architecture.address-spaces", "x1.video.graphics-vram", "x1.video.screen-control"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_IO.CPP",
@@ -81,6 +93,12 @@
       "On original X1, hardware reads and writes at 3800H-3FFFH mirror ANK text VRAM. Software can use this behavior to distinguish X1 from turbo models.",
       "The debugger deliberately rejects region kanji on original X1 so clients do not mistake the mirror for an independent region. Read region text to observe the underlying ANK data.",
       "Writing through the debugger applies the emulator's normal text dirty, blink and double-size handling and is allowed only while paused."
+    ],
+    "examples": [
+      {
+        "title": "Put a white A in the first text cell",
+        "source": "ORG 0100H\nLD BC,01A02H\nIN A,(C)\nLD BC,03000H\nLD A,041H\nOUT (C),A\nLD BC,02000H\nLD A,07H\nOUT (C),A\nRET"
+      }
     ],
     "relatedIds": ["x1.architecture.address-spaces", "x1.video.pcg-palette", "x1.video.screen-control", "x1.video.graphics-vram"],
     "sourceUrls": [
@@ -115,6 +133,12 @@
       "PPI port C at 1A02H controls the simultaneous-access trigger. A bit-5 falling edge enters the mode; subsequent OUT instructions write the plane combinations shown above instead of ordinary I/O devices.",
       "Any ordinary IN clears simultaneous-access mode. x1pen_debug_read_vram does not perform IN and therefore does not disturb the mode.",
       "Pause before a multi-byte dump when a consistent snapshot matters. Debugger writes are paused-only and mark changed graphics bytes for a later display frame."
+    ],
+    "examples": [
+      {
+        "title": "Write one byte to the blue graphics plane",
+        "source": "ORG 0100H\nLD BC,01A02H\nIN A,(C)\nLD BC,04000H\nLD A,080H\nOUT (C),A\nRET"
+      }
     ],
     "relatedIds": ["x1.architecture.address-spaces", "x1.video.screen-control", "x1.video.text-vram", "x1.video.pcg-palette"],
     "sourceUrls": [
@@ -153,6 +177,12 @@
       "Do not recompute the current dimensions from screenBits alone; CRTC registers and the 40/80-column PPI state also contribute.",
       "The MCP VRAM display/access selectors are resolved inside the same WASM call as the copy, avoiding a bank-change race within the single-threaded emulator call."
     ],
+    "examples": [
+      {
+        "title": "Toggle the displayed graphics bank on X1turbo/Z",
+        "source": "ORG 0100H\nLD BC,01FD0H\nIN A,(C)\nXOR 08H\nOUT (C),A\nRET"
+      }
+    ],
     "relatedIds": ["x1.video.graphics-vram", "x1.video.text-vram", "x1.video.pcg-palette", "x1.architecture.address-spaces"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_CRTC.H",
@@ -186,6 +216,12 @@
       "Direct PCG port programming is timing- and mode-sensitive. For FuzzyBASIC or SLANG, prefer the bundled PCG helpers documented by those language profiles unless hardware-level control is required.",
       "The 1000H/1100H/1200H groups are base blue/red/green palette controls. X1turboZ extended palettes add further modes and ports not covered by this initial reference.",
       "PCG RAM is not exposed by the current VRAM debugger regions. text and attribute regions let a debugger inspect which character and PCG attribute a cell uses."
+    ],
+    "examples": [
+      {
+        "title": "Set the base blue palette component",
+        "source": "ORG 0100H\nLD BC,01000H\nLD A,0FFH\nOUT (C),A\nRET"
+      }
     ],
     "relatedIds": ["x1.video.text-vram", "x1.video.screen-control", "x1.video.graphics-vram", "x1.architecture.address-spaces"],
     "sourceUrls": [
