@@ -9,7 +9,7 @@ npm run test:extension-package
 npm run pack:extension
 ```
 
-Upload `dist/x1pen-connector-1.1.0.zip`. The ZIP has `manifest.json` at its root and excludes source artwork, README files, and Store-only images.
+Upload `dist/x1pen-connector-1.1.1.zip`. The ZIP has `manifest.json` at its root and excludes source artwork, README files, and Store-only images.
 
 ## Store listing
 

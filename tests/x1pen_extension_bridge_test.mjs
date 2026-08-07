@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { invokeX1PenInPage } from '../extension/page-automation.mjs';
+import { createUpdateCoordinator } from '../extension/update-coordinator.mjs';
 
 afterEach(() => {
   delete globalThis.window;
@@ -105,4 +106,52 @@ test('page bridge rejects debugger calls when capability is unavailable', async 
   api.getStatus = () => ({ capabilities: { debugger: { available: false, runPending: false } } });
   globalThis.window = { X1PenAutomation: api };
   await assert.rejects(invokeX1PenInPage('debuggerGetState', {}), /does not provide the debugger API/);
+});
+
+test('extension update waits for active operations before disconnecting and reloading', async () => {
+  const scheduled = [];
+  const timeline = [];
+  let finishOperation;
+  const operationGate = new Promise((resolve) => { finishOperation = resolve; });
+  const coordinator = createUpdateCoordinator({
+    prepare: async () => { timeline.push('prepare'); },
+    reload: () => { timeline.push('reload'); },
+    schedule: (callback) => scheduled.push(callback),
+  });
+
+  const operation = coordinator.run(async () => {
+    timeline.push('operation:start');
+    await operationGate;
+    timeline.push('operation:end');
+  });
+  coordinator.requestUpdate();
+  coordinator.requestUpdate();
+  assert.equal(coordinator.isUpdatePending(), true);
+  assert.equal(scheduled.length, 1);
+
+  await scheduled.shift()();
+  assert.deepEqual(timeline, ['operation:start']);
+
+  finishOperation();
+  await operation;
+  assert.equal(scheduled.length, 1);
+  await scheduled.shift()();
+  assert.deepEqual(timeline, ['operation:start', 'operation:end', 'prepare', 'reload']);
+});
+
+test('extension update reloads even when disconnect cleanup fails', async () => {
+  const scheduled = [];
+  const errors = [];
+  let reloads = 0;
+  const coordinator = createUpdateCoordinator({
+    prepare: async () => { throw new Error('disconnect failed'); },
+    reload: () => { reloads++; },
+    schedule: (callback) => scheduled.push(callback),
+    onError: (error) => errors.push(error.message),
+  });
+
+  coordinator.requestUpdate();
+  await scheduled.shift()();
+  assert.deepEqual(errors, ['disconnect failed']);
+  assert.equal(reloads, 1);
 });

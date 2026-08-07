@@ -44,11 +44,12 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
       'popup.html',
       'popup.js',
       'service-worker.js',
+      'update-coordinator.mjs',
     ]);
 
     const manifest = JSON.parse(run('unzip', ['-p', zipPath, 'manifest.json']));
     assert.equal(manifest.manifest_version, 3);
-    assert.equal(manifest.version, '1.1.0');
+    assert.equal(manifest.version, '1.1.1');
     assert.equal(manifest.default_locale, 'ja');
     assert.equal(manifest.name, '__MSG_extensionName__');
     assert.equal(manifest.description, '__MSG_extensionDescription__');
@@ -56,6 +57,10 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
     assert.equal(manifest.host_permissions, undefined);
     assert.match(manifest.content_security_policy.extension_pages, /ws:\/\/127\.0\.0\.1:\*/);
     assert.doesNotMatch(manifest.content_security_policy.extension_pages, /https?:\/\//);
+
+    const serviceWorker = run('unzip', ['-p', zipPath, 'service-worker.js']);
+    assert.match(serviceWorker, /chrome\.runtime\.onUpdateAvailable\.addListener/);
+    assert.match(serviceWorker, /updateCoordinator\.run/);
 
     const jaMessages = JSON.parse(run('unzip', ['-p', zipPath, '_locales/ja/messages.json']));
     const enMessages = JSON.parse(run('unzip', ['-p', zipPath, '_locales/en/messages.json']));
