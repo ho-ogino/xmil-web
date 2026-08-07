@@ -1,6 +1,6 @@
 # x1pen-mcp
 
-`x1pen-mcp` is a local MCP server that lets Codex and Claude Code edit, validate, run, inspect, and Z80-debug programs in the X1Pen tab already open in Chrome or Edge. It also includes bounded, offline-searchable references for X1Pen FuzzyBASIC and SLANG.
+`x1pen-mcp` is a local MCP server that lets Codex and Claude Code edit, validate, run, inspect, and Z80-debug programs in the X1Pen tab already open in Chrome or Edge. It also includes bounded, offline-searchable references for X1Pen FuzzyBASIC, SLANG, and the X1 hardware implemented by the emulator.
 
 The server communicates only through stdio and `127.0.0.1`. It requires Node.js 20 or later. Browser-control tools require the X1Pen Connector extension; the bundled reference tools do not.
 
@@ -40,7 +40,7 @@ The pairing code changes whenever the MCP server process restarts. One browser e
 
 The debugger tools expose named CPU/video state, pause/resume, bounded multi-step execution, atomic PC breakpoint replacement, compact hexadecimal CPU/VRAM reads, paused VRAM writes, and filtered pause waiting. They operate only through the allowlisted X1Pen Automation API; arbitrary JavaScript, raw I/O, and raw WASM access are not exposed.
 
-## Language reference
+## Language and X1 hardware reference
 
 The reference tools work before browser pairing because the data is bundled in this package:
 
@@ -50,6 +50,6 @@ The reference tools work before browser pairing because the data is bundled in t
 
 Search first and fetch only the entries needed for the current program. This avoids putting a complete language manual into the model context.
 
-The server initialization instructions tell MCP clients not to infer these nonstandard languages from ordinary BASIC, C, or another SLANG release. FuzzyBASIC coverage includes direct indexed memory/I/O arrays, LSX-Dodgers-specific file limitations, machine-code integration, PCG, PSG sound, and joystick input. SLANG coverage is tied to the exact browser compiler and VFS, including compiler vocabulary, native FLOAT, LSX file I/O, X1 graphics/PCG/PSG/timing/SGL, compression and all bundled include APIs. Exact symbols are searchable in English or Japanese, and an unsuccessful all-term search falls back to partial matches explicitly marked with `matchMode: "partial"`.
+The server initialization instructions tell MCP clients not to infer these nonstandard languages from ordinary BASIC, C, or another SLANG release, and not to confuse X1 CPU memory, I/O ports, VRAM, or their independent banks. FuzzyBASIC coverage includes direct indexed memory/I/O arrays, LSX-Dodgers-specific file limitations, machine-code integration, PCG, PSG sound, and joystick input. SLANG coverage is tied to the exact browser compiler and VFS, including compiler vocabulary, native FLOAT, LSX file I/O, X1 graphics/PCG/PSG/timing/SGL, compression and all bundled include APIs. The X1 hardware profile initially covers address spaces, turbo low-memory banking, text/attribute/kanji VRAM, graphics banks and color planes, simultaneous access, screen control, PCG, and the base palette. Exact symbols are searchable in English or Japanese, and an unsuccessful all-term search falls back to partial matches explicitly marked with `matchMode: "partial"`.
 
 See the [complete setup and tool documentation](https://github.com/ho-ogino/xmil-web/blob/main/docs/X1PEN_MCP.md) for details.

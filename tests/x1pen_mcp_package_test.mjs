@@ -49,6 +49,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
       'reference/manifest.json',
       'reference/slang-catalogs.json',
       'reference/slang.json',
+      'reference/x1-hardware.json',
       'x1pen-bridge.mjs',
       'x1pen-reference.mjs',
       'x1pen-server.mjs',
@@ -65,7 +66,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     const packageRoot = join(installRoot, 'node_modules', 'x1pen-mcp');
     const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
     assert.equal(manifest.name, 'x1pen-mcp');
-    assert.equal(manifest.version, '2.6.0');
+    assert.equal(manifest.version, '2.7.0');
     assert.deepEqual(manifest.bin, { 'x1pen-mcp': 'x1pen-server.mjs' });
 
     const serverPath = join(packageRoot, 'x1pen-server.mjs');
@@ -80,6 +81,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     client = new Client({ name: 'x1pen-package-test', version: '1.0.0' });
     await client.connect(transport);
     assert.match(client.getInstructions(), /FuzzyBASIC and X1Pen SLANG are nonstandard/);
+    assert.match(client.getInstructions(), /separate CPU-memory, I\/O-port and video-memory spaces/);
     assert.match(client.getInstructions(), /x1pen_search_reference/);
 
     const tools = await client.listTools();
@@ -100,6 +102,13 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     });
     const matches = JSON.parse(reference.content[0].text);
     assert.equal(matches.matches[0].id, 'fuzzybasic.subroutines.proc');
+
+    const hardwareReference = await client.callTool({
+      name: 'x1pen_search_reference',
+      arguments: { language: 'x1', query: 'バンクメモリ VRAM' },
+    });
+    const hardwareMatches = JSON.parse(hardwareReference.content[0].text);
+    assert.ok(hardwareMatches.matches.some((match) => match.language === 'x1'));
   } finally {
     if (client) await client.close();
     await rm(tempRoot, { recursive: true, force: true });

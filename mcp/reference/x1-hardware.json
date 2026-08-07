@@ -1,0 +1,198 @@
+[
+  {
+    "id": "x1.architecture.address-spaces",
+    "language": "x1",
+    "kind": "architecture",
+    "title": "Z80 CPU memory, I/O ports and video memory",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["0000H-FFFFH", "IN", "OUT", "MEM", "PORT", "x1pen_debug_read_memory", "x1pen_debug_read_vram"],
+    "aliases": ["address space", "CPU memory", "I/O space", "port space", "video memory", "VRAM", "アドレス空間", "CPUメモリ", "I/O空間", "ポート空間", "ビデオメモリ"],
+    "summary": "The X1 uses separate 16-bit Z80 CPU-memory and I/O-port spaces. Text and graphics VRAM are reached through I/O ports, not by changing the CPU-memory bank.",
+    "syntax": [
+      "LD A,(address) / LD (address),A       CPU memory",
+      "IN A,(C) / OUT (C),A                 16-bit I/O port in BC",
+      "x1pen_debug_read_memory              current mapped CPU memory",
+      "x1pen_debug_read_vram                logical video-memory region"
+    ],
+    "notes": [
+      "CPU addresses and I/O ports both range from 0000H through FFFFH, but they are independent namespaces. The same numeric value does not identify the same storage.",
+      "X1 text VRAM is decoded at I/O ports 2000H through 3FFFH and graphics VRAM at 4000H through FFFFH. These are not CPU-memory addresses.",
+      "x1pen_debug_read_memory observes the Z80's currently mapped 64KB CPU view. Use x1pen_debug_read_vram for text, attribute, kanji or graphics video memory.",
+      "Do not invent a CPU bank switch to reach VRAM. X1turbo low-memory banks and graphics VRAM banks are separate mechanisms.",
+      "A general debugger IN/OUT API is intentionally not exposed: device reads can acknowledge interrupts, consume data or change modes. VRAM debugger reads use a side-effect-free physical view.",
+      "On this X1 implementation, every ordinary IN clears graphics simultaneous-access mode. A debugger VRAM read does not call Z80_In and therefore does not clear it."
+    ],
+    "relatedIds": ["x1.memory.cpu-banking", "x1.video.text-vram", "x1.video.graphics-vram", "x1.video.screen-control"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_IO.CPP",
+      "https://github.com/ho-ogino/xmil-web/blob/main/platform/x1_mem_port.cpp",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.memory.cpu-banking",
+    "language": "x1",
+    "kind": "memory",
+    "title": "CPU memory map and X1turbo low-memory banks",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["0000H-7FFFH", "8000H-FFFFH", "0B00H-0BFFH", "1D00H-1DFFH", "1E00H-1EFFH", "lastmem", "ROM_TYPE"],
+    "aliases": ["memory map", "bank memory", "banked RAM", "ROM switch", "low memory", "X1turbo bank", "メモリマップ", "バンクメモリ", "バンクRAM", "ROM切替", "低位メモリ"],
+    "summary": "CPU addresses 8000H-FFFFH always use main RAM. The 0000H-7FFFH view can select IPL ROM/main RAM, and X1turbo/Z can instead map one of sixteen 32KB bank-RAM pages.",
+    "syntax": [
+      "OUT (0B00H),A   turbo/Z low-memory selector",
+      "A bit 4 = 0     map bank RAM page A bits 3..0 to 0000H-7FFFH",
+      "A bit 4 = 1     use normal IPL-ROM/main-RAM low-memory mapping",
+      "OUT (1D00H),A   enable IPL ROM reads in normal mapping",
+      "OUT (1E00H),A   enable main RAM reads in normal mapping"
+    ],
+    "notes": [
+      "The 0Bxx selector and sixteen 32KB bank pages are available only on X1turbo and X1turboZ. Original X1 does not provide this bank-RAM mapping.",
+      "In normal low-memory mapping, writes go to main RAM. Reads select IPL ROM or main RAM according to the ROM switch controlled by 1Dxx and 1Exx output ports.",
+      "The debugger state reports lowMemory.mapping as bios, main or bank and reports the selected bank when applicable. x1pen_debug_read_memory follows that active view.",
+      "Graphics bank 0/1 is unrelated to these CPU-memory pages. Select graphics banks only through screen control or the VRAM debugger bank parameter.",
+      "EMM is a separate I/O peripheral and is not the X1turbo low-memory bank mechanism. This initial hardware profile does not document EMM ports."
+    ],
+    "relatedIds": ["x1.architecture.address-spaces", "x1.video.graphics-vram", "x1.video.screen-control"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_IO.CPP",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1.cpp",
+      "https://github.com/ho-ogino/xmil-web/blob/main/platform/platform_main.cpp"
+    ]
+  },
+  {
+    "id": "x1.video.text-vram",
+    "language": "x1",
+    "kind": "video",
+    "title": "Text, attribute and kanji VRAM",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["2000H-27FFH", "2800H-2FFFH", "3000H-37FFH", "3800H-3FFFH", "TEXT_ATR", "TEXT_ANK", "TEXT_KNJ", "X1ATR_PCG"],
+    "aliases": ["text VRAM", "attribute VRAM", "kanji VRAM", "ANK", "text color", "blink", "double width", "テキストVRAM", "属性VRAM", "漢字VRAM", "文字色", "点滅", "倍角"],
+    "summary": "Text display uses three logical 2048-byte regions in I/O space: attributes at canonical 2000H-27FFH, ANK character codes at 3000H-37FFH, and turbo/Z kanji codes at 3800H-3FFFH.",
+    "syntax": [
+      "2000H-27FFH   attribute VRAM (canonical)",
+      "2800H-2FFFH   mirror of attribute VRAM",
+      "3000H-37FFH   ANK character-code VRAM",
+      "3800H-3FFFH   kanji-code VRAM on turbo/Z; ANK mirror on X1",
+      "attribute bits: 7=X2, 6=Y2, 5=PCG, 4=blink, 3=reverse, 2..0=color"
+    ],
+    "notes": [
+      "Each debugger region uses logical offsets 0000H-07FFH. Use region text, attribute or kanji instead of passing an I/O port as the offset.",
+      "The canonical attribute range is 2000H-27FFH. 2800H-2FFFH is a mirror alias of the same 2048 bytes.",
+      "On original X1, hardware reads and writes at 3800H-3FFFH mirror ANK text VRAM. Software can use this behavior to distinguish X1 from turbo models.",
+      "The debugger deliberately rejects region kanji on original X1 so clients do not mistake the mirror for an independent region. Read region text to observe the underlying ANK data.",
+      "Writing through the debugger applies the emulator's normal text dirty, blink and double-size handling and is allowed only while paused."
+    ],
+    "relatedIds": ["x1.architecture.address-spaces", "x1.video.pcg-palette", "x1.video.screen-control", "x1.video.graphics-vram"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/platform/x1_vram_port.cpp",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_VRAM.H",
+      "https://github.com/mamedev/mame/blob/master/src/mame/sharp/x1.cpp",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.video.graphics-vram",
+    "language": "x1",
+    "kind": "video",
+    "title": "Graphics VRAM banks, color planes and simultaneous access",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["4000H-7FFFH", "8000H-BFFFH", "C000H-FFFFH", "BLUE", "RED", "GREEN", "IO_MODE", "1A02H"],
+    "aliases": ["graphics VRAM", "VRAM plane", "color plane", "display bank", "access bank", "simultaneous access", "GRAM", "グラフィックVRAM", "色プレーン", "表示バンク", "アクセスバンク", "同時アクセス", "同時書き込み"],
+    "summary": "Graphics VRAM has independent blue, red and green 16KB planes. X1turbo/Z provides banks 0 and 1, while original X1 supports bank 0 only.",
+    "syntax": [
+      "4000H-7FFFH   BLUE plane in normal single-plane mode",
+      "8000H-BFFFH   RED plane in normal single-plane mode",
+      "C000H-FFFFH   GREEN plane in normal single-plane mode",
+      "simultaneous 0000H-3FFFH -> B+R+G",
+      "simultaneous 4000H-7FFFH -> R+G",
+      "simultaneous 8000H-BFFFH -> B+G",
+      "simultaneous C000H-FFFFH -> B+R"
+    ],
+    "notes": [
+      "Normal plane accesses use the low 14 port bits as a logical offset 0000H-3FFFH. The debugger exposes this contiguous offset and hides GRP_RAM's internal interleaving.",
+      "Bank 1 is available only on X1turbo and X1turboZ. Original X1 rejects debugger requests for bank 1.",
+      "The current display bank and CPU access bank are separate. MCP accepts numeric bank 0/1 or the selectors display/access and returns the resolved numeric bank.",
+      "PPI port C at 1A02H controls the simultaneous-access trigger. A bit-5 falling edge enters the mode; subsequent OUT instructions write the plane combinations shown above instead of ordinary I/O devices.",
+      "Any ordinary IN clears simultaneous-access mode. x1pen_debug_read_vram does not perform IN and therefore does not disturb the mode.",
+      "Pause before a multi-byte dump when a consistent snapshot matters. Debugger writes are paused-only and mark changed graphics bytes for a later display frame."
+    ],
+    "relatedIds": ["x1.architecture.address-spaces", "x1.video.screen-control", "x1.video.text-vram", "x1.video.pcg-palette"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/platform/x1_vram_port.cpp",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_IO.CPP",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_8255.cpp",
+      "https://github.com/mamedev/mame/blob/master/src/mame/sharp/x1.cpp",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.video.screen-control",
+    "language": "x1",
+    "kind": "video",
+    "title": "Screen control, CRTC and graphics bank selection",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["1800H-18FFH", "1A02H", "1FD0H", "SCRN_BITS", "SCRN_DISPVRAM", "SCRN_ACCESSVRAM", "SCRN_PCGMODE"],
+    "aliases": ["screen mode", "screen control", "CRTC", "display bank", "access bank", "display bank access bank", "resolution", "40 columns", "80 columns", "画面モード", "画面制御", "表示バンク", "アクセスバンク", "表示バンク アクセスバンク", "解像度", "CRTC"],
+    "summary": "The CRTC and PPI determine text and graphics dimensions. X1turbo/Z screen-control port 1FD0H also selects the displayed and CPU-access graphics banks independently.",
+    "syntax": [
+      "1800H-18FFH   CRTC writes",
+      "1A02H         PPI port C; bit 6 reflects/selects 40 versus 80 columns",
+      "1FD0H bit 0   0=15kHz, 1=24kHz",
+      "1FD0H bit 1   0=400-line family, 1=200-line family",
+      "1FD0H bit 2   text vertical double",
+      "1FD0H bit 3   displayed graphics VRAM bank",
+      "1FD0H bit 4   CPU-access graphics VRAM bank",
+      "1FD0H bit 5   high-speed PCG mode",
+      "1FD0H bit 6   CPU font height selection",
+      "1FD0H bit 7   underline enable"
+    ],
+    "notes": [
+      "Port 1FD0H and graphics bank 1 require X1turbo or X1turboZ. Original X1 has one graphics bank.",
+      "Display bank controls what the video hardware shows. Access bank controls which graphics bank ordinary I/O reads and writes reach. They may intentionally differ for page flipping.",
+      "x1pen_debug_get_video_state returns the raw screenBits plus resolved displayBank/accessBank and dimensions derived by the emulator's current CRTC state.",
+      "Do not recompute the current dimensions from screenBits alone; CRTC registers and the 40/80-column PPI state also contribute.",
+      "The MCP VRAM display/access selectors are resolved inside the same WASM call as the copy, avoiding a bank-change race within the single-threaded emulator call."
+    ],
+    "relatedIds": ["x1.video.graphics-vram", "x1.video.text-vram", "x1.video.pcg-palette", "x1.architecture.address-spaces"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_CRTC.H",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_CRTC.CPP",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_8255.cpp",
+      "http://www.x1center.org/sdx1/sdx1_1.html"
+    ]
+  },
+  {
+    "id": "x1.video.pcg-palette",
+    "language": "x1",
+    "kind": "video",
+    "title": "PCG character patterns and base graphics palette",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["1000H-12FFH", "1400H-14FFH", "1500H-15FFH", "1600H-16FFH", "1700H-17FFH", "X1ATR_PCG", "SCRN_PCGMODE"],
+    "aliases": ["PCG", "programmable character", "character generator", "palette", "blue palette", "red palette", "green palette", "キャラクタジェネレータ", "キャラクター定義", "パレット", "色設定"],
+    "summary": "PCG provides blue, red and green pattern bytes for programmable text characters. Base graphics palette components are controlled through the 1000H, 1100H and 1200H port groups.",
+    "syntax": [
+      "1000H-10FFH   blue graphics palette component",
+      "1100H-11FFH   red graphics palette component",
+      "1200H-12FFH   green graphics palette component",
+      "1400H-14FFH   character/font pattern read path",
+      "1500H-15FFH   PCG blue pattern write",
+      "1600H-16FFH   PCG red pattern write",
+      "1700H-17FFH   PCG green pattern write",
+      "attribute bit 5 (20H) selects PCG for a text cell"
+    ],
+    "notes": [
+      "A PCG glyph is color-planar: each raster row has separate blue, red and green pattern bytes. The text attribute PCG bit selects programmable rather than ROM character data.",
+      "Original-compatible PCG access is synchronized with the currently scanned text cell. X1turbo/Z high-speed PCG mode changes addressing behavior and is selected by screen-control bit 5.",
+      "Direct PCG port programming is timing- and mode-sensitive. For FuzzyBASIC or SLANG, prefer the bundled PCG helpers documented by those language profiles unless hardware-level control is required.",
+      "The 1000H/1100H/1200H groups are base blue/red/green palette controls. X1turboZ extended palettes add further modes and ports not covered by this initial reference.",
+      "PCG RAM is not exposed by the current VRAM debugger regions. text and attribute regions let a debugger inspect which character and PCG attribute a cell uses."
+    ],
+    "relatedIds": ["x1.video.text-vram", "x1.video.screen-control", "x1.video.graphics-vram", "x1.architecture.address-spaces"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_PCG.CPP",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_CRTC.CPP",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_VRAM.H",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  }
+]

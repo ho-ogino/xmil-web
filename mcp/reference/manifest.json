@@ -3,7 +3,8 @@
   "referenceVersion": "2026-08-07",
   "defaultProfiles": {
     "fuzzybasic": "x1pen-fuzzybasic-1.2L",
-    "slang": "x1pen-slang-c9e8f53-lsx"
+    "slang": "x1pen-slang-c9e8f53-lsx",
+    "x1": "x1-hardware-xmillennium-web"
   },
   "profiles": [
     {
@@ -31,6 +32,19 @@
       "notes": "The exact browser compiler snapshot and the runtime/include files loaded by the X1Pen VFS. Schema v2 indexes compiler vocabulary, runtime metadata symbols and bundled include APIs, with dedicated entries for supported application-facing contracts.",
       "sourceUrls": [
         "https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"
+      ]
+    },
+    {
+      "id": "x1-hardware-xmillennium-web",
+      "language": "x1",
+      "displayName": "X1 hardware implemented by X millennium Web",
+      "environment": "SHARP X1 / X1turbo / X1turboZ",
+      "notes": "A focused hardware profile derived from the emulator implementation and cross-checked against X1 technical documentation. It distinguishes CPU memory, I/O ports and logical VRAM debugger regions; broader peripheral I/O coverage is intentionally incremental.",
+      "sourceUrls": [
+        "https://github.com/ho-ogino/xmil-web/tree/main/src",
+        "https://github.com/ho-ogino/xmil-web/tree/main/platform",
+        "https://github.com/mamedev/mame/blob/master/src/mame/sharp/x1.cpp",
+        "http://x1center.org/sdx1/sdx1_0.html"
       ]
     }
   ]

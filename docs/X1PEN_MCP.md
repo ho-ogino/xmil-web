@@ -81,8 +81,8 @@ MCPサーバーのnpm配布とブラウザー拡張の配布は独立してお�
 | `x1pen_connection_info` | 拡張機能の接続情報を取得 |
 | `x1pen_list_sessions` | 接続済みX1Penタブを一覧表示 |
 | `x1pen_select_session` | 操作対象タブを選択 |
-| `x1pen_get_language_profile` | 同梱リファレンスと接続中X1Penの言語profileを確認 |
-| `x1pen_search_reference` | FuzzyBASIC / SLANGリファレンスを要約検索 |
+| `x1pen_get_language_profile` | 同梱言語／X1ハードウェアprofileと接続中X1Penの言語profileを確認 |
+| `x1pen_search_reference` | FuzzyBASIC / SLANG / X1ハードウェアリファレンスを要約検索 |
 | `x1pen_get_reference` | 検索結果のIDを指定して詳細を上限付きで取得 |
 | `x1pen_get_program` | メタデータと明示指定した完全ソースを取得 |
 | `x1pen_get_source` | 1セクションを行範囲・文字数上限付きで取得 |
@@ -107,11 +107,11 @@ MCPサーバーのnpm配布とブラウザー拡張の配布は独立してお�
 
 AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。`x1pen_set_program`と`x1pen_apply_edits`は取得済みの`revision`を要求し、途中で人間が編集していた場合は上書きを拒否します。
 
-### 言語リファレンス
+### 言語・X1ハードウェアリファレンス
 
-MCPパッケージには、X1Pen FuzzyBASIC 1.2L（X1 / LSX-Dodgers版）とX1Pen内蔵SLANGコンパイラに対応する構造化リファレンスが同梱されています。ブラウザー未接続でも検索できるため、プログラム作成前に仕様を確認できます。MCP初期化時にも「一般的なBASIC、C、別バージョンのSLANGから仕様を推測しない」ことと、生成前のリファレンス検索、生成後の検証をクライアントへ通知します。
+MCPパッケージには、X1Pen FuzzyBASIC 1.2L（X1 / LSX-Dodgers版）、X1Pen内蔵SLANGコンパイラ、X millennium Webが実装するX1ハードウェアに対応する構造化リファレンスが同梱されています。ブラウザー未接続でも検索できるため、プログラム作成前に仕様を確認できます。MCP初期化時にも「一般的なBASIC、C、別バージョンのSLANGから仕様を推測しない」こと、X1のCPUメモリ／I/O空間／VRAMを混同しないこと、生成前のリファレンス検索、生成後の検証をクライアントへ通知します。
 
-schema v2の`symbols`と`relatedIds`による索引はFuzzyBASICとSLANGの両方へ適用しています。SLANGは内蔵コンパイラの予約語表と、`x1pen.js`が実際に読み込むruntime/includeファイルから公開シンボルを検査し、更新時に未収録項目が生じるとテストで検出します。
+schema v2の`symbols`と`relatedIds`による索引はFuzzyBASIC、SLANG、X1ハードウェアの全profileへ適用しています。SLANGは内蔵コンパイラの予約語表と、`x1pen.js`が実際に読み込むruntime/includeファイルから公開シンボルを検査し、更新時に未収録項目が生じるとテストで検出します。
 
 最初に`x1pen_get_language_profile`を呼ぶと、同梱profileを確認できます。X1Penへ接続済みなら、ブラウザーが報告したprofile IDとの互換性も返します。
 
@@ -146,6 +146,8 @@ FuzzyBASICの固有構文は記号や日本語でも検索できます。
 FuzzyBASICについては、メモリ／I/O配列、16bit値と変数制約、PROC/FUNC、スタック、機械語連携、LSX-Dodgersファイル処理、X1のグラフィック・PCG・PSG・JOYまで収録しています。一般言語構文は原典を参照しますが、OS、ファイル、コンソール、メモリ配置、X1拡張の挙動はLSX-Dodgers移植ソースを優先しています。全トークナイザ予約語がリファレンスの`symbols`でカバーされることと、代表サンプルが現在のX1Pen tokenizerで処理できることを自動検証しています。
 
 SLANGについては、正確なコンパイラrevision、`ENV_TYPE=1`のLSX-Dodgers環境、予約語と文字列関数、native FLOAT、LSXファイル、X1の画面／描画／PCG／PSG／VSYNC／SGL、圧縮・画像ローダ、同梱される8本のinclude APIを収録しています。網羅catalogには内部実装シンボルも含まれるため、通常は検索結果の専用項目を優先してください。ゲーム開発で利用するPCGについては、FuzzyBASICの`PCGDEF` / `TCOLOR`、SLANGの`PCGDEF` / `PCGDEFS`、24-byte BRGパターン形式、TILELIBとの初期化順序まで独立項目として収録しています。未知のAPIや複雑な引数規約については、リファレンス確認後も`x1pen_validate`で検証してください。
+
+X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分離、X1turbo/Zの低位バンクRAM、テキスト／属性／漢字VRAM、グラフィックVRAMのbankとB/R/G plane、PPIによる同時アクセス、画面制御、PCG／基本パレットを収録しています。VRAMをCPUバンク切替で参照できるとは推測せず、デバッガでは`x1pen_debug_read_memory`と`x1pen_debug_read_vram`を目的に応じて使い分けてください。PSG、サブCPU、CTC、DMA、FDC、SASI、EMM等の詳細I/Oは後続で段階的に追加します。
 
 ### 大きなプログラムの扱い
 
