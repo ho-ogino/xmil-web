@@ -9,7 +9,8 @@
   },
   "devDependencies": {
     "esbuild": "^0.28.1",
-    "playwright": "^1.62.1"
+    "playwright": "^1.62.1",
+    "wrangler": "^4.116.0"
   },
   "dependencies": {
     "@codemirror/commands": "^6.0.0",
@@ -21,6 +22,11 @@
     "ws": "^8.21.2",
     "zod": "^3.25.76"
   },
+  "overrides": {
+    "miniflare": {
+      "undici": "7.29.0"
+    }
+  },
   "scripts": {
     "build:editor": "esbuild src/x1pen_editor.js --bundle --outfile=html/x1pen_editor.bundle.js --format=iife --minify",
     "build:extension-assets": "node scripts/render-extension-assets.mjs",
@@ -28,6 +34,8 @@
     "mcp:x1pen": "node mcp/x1pen-server.mjs",
     "pack:mcp": "npm pack ./mcp",
     "pack:extension": "sh scripts/package-x1pen-connector.sh",
+    "pages:dev": "wrangler pages dev dist/",
+    "pages:deploy": "wrangler pages deploy dist/",
     "test:automation": "node --test tests/x1pen_automation_test.mjs",
     "test:bridge": "node --test tests/x1pen_bridge_test.mjs",
     "test:extension-package": "node --test tests/x1pen_extension_package_test.mjs tests/x1pen_extension_bridge_test.mjs",
@@ -36,6 +44,8 @@
   },
   "allowScripts": {
     "esbuild@0.28.1": true,
-    "fsevents@2.3.2": true
+    "fsevents@2.3.2": true,
+    "fsevents@2.3.3": true,
+    "workerd@1.20260730.1": true
   }
 }

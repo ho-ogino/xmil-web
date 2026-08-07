@@ -1,5 +1,5 @@
 -- 既存テーブルを破棄して gzip BLOB 形式に移行
--- Apply via: wrangler d1 execute x1pen-shares --remote --file=migrations/002_compress.sql
+-- Apply via: npx wrangler d1 execute x1pen-shares --remote --file=migrations/002_compress.sql
 
 DROP TABLE IF EXISTS shares;
 CREATE TABLE shares (

@@ -5,8 +5,10 @@
 # 使い方:
 #   cp wrangler.toml.example wrangler.toml
 #   # database_id を Cloudflare ダッシュボードの D1 database ID に置き換え
+#   nvm use
+#   npm ci
 #   ./build.sh
-#   wrangler pages deploy dist/ --project-name <your-project>
+#   npm run pages:deploy -- --project-name <your-project>
 
 name = "xmillennium-web"
 pages_build_output_dir = "./dist"
