@@ -6,12 +6,12 @@ The server communicates only through stdio and `127.0.0.1`. It requires Node.js 
 
 ## Codex
 
-Add the following server to your Codex MCP configuration. Pinning the version prevents an unexpected update during startup.
+Add the following server to your Codex MCP configuration. The `latest` tag keeps newly started MCP processes on the current release. Restart Codex after an `x1pen-mcp` update to use it.
 
 ```toml
 [mcp_servers.x1pen]
 command = "npx"
-args = ["-y", "x1pen-mcp@2.5.0"]
+args = ["-y", "x1pen-mcp@latest"]
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
@@ -22,7 +22,7 @@ Register the server at user scope to make it available from any project.
 
 ```bash
 claude mcp add --transport stdio --scope user x1pen -- \
-  npx -y x1pen-mcp@2.5.0
+  npx -y x1pen-mcp@latest
 ```
 
 Use `claude mcp list` or `/mcp` to check the connection.

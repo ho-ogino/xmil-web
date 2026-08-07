@@ -13,7 +13,7 @@ Node.js 20以降が必要です。通信はstdioと`127.0.0.1`だけを使用し
 
 ## セットアップ
 
-MCPサーバーはnpmパッケージとしてX1Pen本体から独立して配布します。MCPサーバーを動かすために、このリポジトリをcloneする必要はありません。予期しない自動更新を避けるため、設定ではバージョンを固定します。
+MCPサーバーはnpmパッケージとしてX1Pen本体から独立して配布します。MCPサーバーを動かすために、このリポジトリをcloneする必要はありません。最新版へ追従するため、設定ではnpmの`latest`タグを指定します。更新を反映するにはCodexまたはClaude Codeを再起動してください。
 
 ### Codex
 
@@ -22,7 +22,7 @@ CodexのMCP設定に以下を追加します。
 ```toml
 [mcp_servers.x1pen]
 command = "npx"
-args = ["-y", "x1pen-mcp@2.5.0"]
+args = ["-y", "x1pen-mcp@latest"]
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
@@ -35,7 +35,7 @@ userスコープへ登録すると、任意のプロジェクトからX1Penを�
 
 ```bash
 claude mcp add --transport stdio --scope user x1pen -- \
-  npx -y x1pen-mcp@2.5.0
+  npx -y x1pen-mcp@latest
 claude mcp list
 ```
 
@@ -47,7 +47,7 @@ claude mcp list
     "x1pen": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "x1pen-mcp@2.5.0"]
+      "args": ["-y", "x1pen-mcp@latest"]
     }
   }
 }
