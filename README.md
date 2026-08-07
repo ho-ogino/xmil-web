@@ -62,9 +62,14 @@ npm ci
 
 npmパッケージは公開から7日間の検疫期間を設け、依存パッケージのLifecycle scriptは明示承認したものだけを実行します。
 
+Cloudflare Pages Functions、D1、R2を含むローカル環境は、ビルド後にプロジェクト固定のWranglerで起動します。
+
 ```bash
 ./build.sh
+npm run pages:dev
 ```
+
+Wranglerが使用するMiniflareは脆弱性修正版より古いUndiciを固定しているため、`package.json`で修正版へ限定的にoverrideしています。上流が修正版を採用した後は、このoverrideを削除できます。
 
 ビルド後、`build/` に以下のファイルが生成されます：
 

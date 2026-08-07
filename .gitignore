@@ -34,6 +34,7 @@ html/config.js
 
 # Cloudflare Wrangler 設定（個人の D1 database_id 等を含む）
 wrangler.toml
+.wrangler/
 
 # Google Search Console 認証ファイル（個人用、公開リポジトリに含めない）
 html/google*.html
