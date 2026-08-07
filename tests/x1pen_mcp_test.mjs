@@ -136,7 +136,7 @@ const fakeBridge = {
         bank: params.bank === 'access' || params.bank === 'display' ? 0 : params.bank,
         length: params.bytes.length,
         bytesWritten: params.bytes.length,
-        redrawPending: true,
+        redrawPending: params.bytes.some((byte) => byte !== 0),
       };
     }
     if (method === 'debuggerWaitForPause') return clone(debuggerState);
@@ -512,6 +512,12 @@ test('debugger VRAM tools validate regions and return compact responses', async 
   assert.deepEqual(written, {
     region: 'attribute', offset: 2, endOffset: 3, bytesWritten: 2, redrawPending: true,
   });
+
+  const unchanged = jsonContent(await client.callTool({
+    name: 'x1pen_debug_write_vram',
+    arguments: { region: 'attribute', offset: 3, hex: '00' },
+  }));
+  assert.equal(unchanged.redrawPending, false);
 
   const missingPlane = await client.callTool({
     name: 'x1pen_debug_read_vram',

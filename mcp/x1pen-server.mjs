@@ -349,7 +349,7 @@ function compactDebuggerVramWrite(value) {
   if (!value || !DEBUGGER_VRAM_REGIONS.includes(value.region) ||
       !Number.isInteger(value.offset) || !Number.isInteger(value.length) ||
       !Number.isInteger(value.bytesWritten) || value.bytesWritten !== value.length ||
-      value.redrawPending !== true) {
+      typeof value.redrawPending !== 'boolean') {
     throw new Error('X1Pen returned an invalid debugger VRAM write response');
   }
   const result = {
@@ -357,7 +357,7 @@ function compactDebuggerVramWrite(value) {
     offset: value.offset,
     endOffset: value.offset + value.length - 1,
     bytesWritten: value.bytesWritten,
-    redrawPending: true,
+    redrawPending: value.redrawPending,
   };
   if (value.region === 'graphics') {
     if (!Number.isInteger(value.bank) || !DEBUGGER_VRAM_PLANES.includes(value.plane)) {
