@@ -100,6 +100,9 @@ MCPサーバーのnpm配布とブラウザー拡張の配布は独立してお�
 | `x1pen_debug_step` | 停止位置から1〜100命令をステップ実行 |
 | `x1pen_debug_set_breakpoints` | PCブレークポイントを一括置換・解除 |
 | `x1pen_debug_read_memory` | 現在の64KBアドレス空間を範囲指定して16進取得 |
+| `x1pen_debug_get_video_state` | 現在機種、画面寸法、表示／アクセスbankを取得 |
+| `x1pen_debug_read_vram` | テキスト／属性／漢字／グラフィックVRAMを副作用なしで16進取得 |
+| `x1pen_debug_write_vram` | 停止中にVRAMへ連続16進データを書き込み |
 | `x1pen_debug_wait_for_pause` | 条件に一致する停止まで待機 |
 
 AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。`x1pen_set_program`と`x1pen_apply_edits`は取得済みの`revision`を要求し、途中で人間が編集していた場合は上書きを拒否します。
@@ -196,7 +199,9 @@ SLANG編集中のASMは生成物として読み取り・編集とも既定で保
 4. `x1pen_debug_get_state`と`x1pen_debug_read_memory`で状態を調査
 5. `x1pen_debug_step`で必要な命令数だけ進める
 
-`x1pen_debug_resume`後の新しい停止を待つ場合、`afterSequence`には停止前の値ではなく、`x1pen_debug_resume`が返した`sequence`を指定します。`x1pen_debug_read_memory`は既定64 byte、最大4096 byteで、モデルのコンテキスト消費を抑えるためバイト配列ではなく連続した大文字16進文字列を返します。
+`x1pen_debug_resume`後の新しい停止を待つ場合、`afterSequence`には停止前の値ではなく、`x1pen_debug_resume`が返した`sequence`を指定します。`x1pen_debug_read_memory`と`x1pen_debug_read_vram`は既定64 byte、最大4096 byteで、モデルのコンテキスト消費を抑えるためバイト配列ではなく連続した大文字16進文字列を返します。
+
+VRAMはCPUの64KBメモリ空間とは別です。`x1pen_debug_get_video_state`で現在の機種とbankを確認し、グラフィックVRAMではbank（`0`、`1`、`display`、`access`）とplane（`blue`、`red`、`green`）を指定します。実行中の読出しは複数バイトの一貫したスナップショットにならない場合があるため、厳密な調査では先にpauseしてください。書込みは停止中のみ許可され、空白なしの偶数桁hex文字列を指定します。
 
 ```json
 {

@@ -23,6 +23,14 @@ const REFERENCE_KINDS = ['syntax', 'runtime', 'x1-extension', 'catalog', 'librar
 const DEBUGGER_STOP_REASONS = ['none', 'manual', 'breakpoint', 'step'];
 const DEBUGGER_MAX_READ_LENGTH = 4096;
 const DEBUGGER_MAX_BREAKPOINTS = 1024;
+const DEBUGGER_VRAM_REGIONS = ['text', 'attribute', 'kanji', 'graphics'];
+const DEBUGGER_VRAM_PLANES = ['blue', 'red', 'green'];
+const DEBUGGER_VRAM_REGION_SIZES = {
+  text: 0x0800,
+  attribute: 0x0800,
+  kanji: 0x0800,
+  graphics: 0x4000,
+};
 const SERVER_INSTRUCTIONS = [
   'X1Pen FuzzyBASIC and X1Pen SLANG are nonstandard languages. Do not infer syntax or APIs from ordinary BASIC, C, or another SLANG release.',
   'Before writing or substantially editing a program, call x1pen_get_language_profile, search the bundled reference with x1pen_search_reference, and fetch only the needed IDs with x1pen_get_reference.',
@@ -299,6 +307,69 @@ function compactDebuggerMemory(value) {
   };
 }
 
+function validateDebuggerVramRange({ region, bank, plane, offset, length }) {
+  const size = DEBUGGER_VRAM_REGION_SIZES[region];
+  if (offset + length > size) {
+    throw new Error(`VRAM range exceeds the ${region} region (${size} bytes)`);
+  }
+  if (region === 'graphics') {
+    if (bank === undefined) throw new Error('graphics VRAM requires bank 0, 1, display or access');
+    if (plane === undefined) throw new Error('graphics VRAM requires plane blue, red or green');
+  } else if (bank !== undefined || plane !== undefined) {
+    throw new Error('bank and plane are only valid for graphics VRAM');
+  }
+}
+
+function compactDebuggerVram(value) {
+  if (!value || !DEBUGGER_VRAM_REGIONS.includes(value.region) ||
+      !Number.isInteger(value.offset) || !Number.isInteger(value.length) ||
+      !Array.isArray(value.bytes) || value.bytes.length !== value.length ||
+      value.bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 0xFF)) {
+    throw new Error('X1Pen returned an invalid debugger VRAM response');
+  }
+  const result = {
+    region: value.region,
+    offset: value.offset,
+    endOffset: value.offset + value.length - 1,
+    length: value.length,
+    hex: value.bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('').toUpperCase(),
+  };
+  if (value.region === 'graphics') {
+    if (!Number.isInteger(value.bank) || !DEBUGGER_VRAM_PLANES.includes(value.plane)) {
+      throw new Error('X1Pen returned an invalid graphics VRAM response');
+    }
+    result.bankSelector = value.bankSelector;
+    result.bank = value.bank;
+    result.plane = value.plane;
+  }
+  return result;
+}
+
+function compactDebuggerVramWrite(value) {
+  if (!value || !DEBUGGER_VRAM_REGIONS.includes(value.region) ||
+      !Number.isInteger(value.offset) || !Number.isInteger(value.length) ||
+      !Number.isInteger(value.bytesWritten) || value.bytesWritten !== value.length ||
+      typeof value.redrawPending !== 'boolean') {
+    throw new Error('X1Pen returned an invalid debugger VRAM write response');
+  }
+  const result = {
+    region: value.region,
+    offset: value.offset,
+    endOffset: value.offset + value.length - 1,
+    bytesWritten: value.bytesWritten,
+    redrawPending: value.redrawPending,
+  };
+  if (value.region === 'graphics') {
+    if (!Number.isInteger(value.bank) || !DEBUGGER_VRAM_PLANES.includes(value.plane)) {
+      throw new Error('X1Pen returned an invalid graphics VRAM write response');
+    }
+    result.bankSelector = value.bankSelector;
+    result.bank = value.bank;
+    result.plane = value.plane;
+  }
+  return result;
+}
+
 export function createX1PenMcpServer(options = {}) {
   const bridge = options.bridge || new X1PenBridge(options.bridgeOptions);
   const server = new McpServer(
@@ -569,6 +640,52 @@ export function createX1PenMcpServer(options = {}) {
     if (address + length > 0x10000) throw new Error('Memory range exceeds the 64KB address space');
     const memory = await bridge.sendCommand('debuggerReadMemory', { address, length }, sessionId);
     return textResult(compactDebuggerMemory(memory));
+  }));
+
+  server.registerTool('x1pen_debug_get_video_state', {
+    description: 'Get the current X1 model, screen dimensions, display/access graphics banks and VRAM availability.',
+    inputSchema: sessionInput,
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId }) => textResult(
+    await bridge.sendCommand('debuggerGetVideoState', {}, sessionId),
+  )));
+
+  const vramSelectionSchema = {
+    sessionId: sessionInput.sessionId,
+    region: z.enum(DEBUGGER_VRAM_REGIONS),
+    bank: z.union([z.literal(0), z.literal(1), z.enum(['display', 'access'])]).optional()
+      .describe('Required for graphics VRAM; display/access are resolved atomically by X1Pen'),
+    plane: z.enum(DEBUGGER_VRAM_PLANES).optional().describe('Required for graphics VRAM'),
+    offset: z.number().int().min(0).max(0x3FFF),
+  };
+
+  server.registerTool('x1pen_debug_read_vram', {
+    description: 'Read logical X1 video memory without I/O side effects and return compact uppercase hex. Running reads may not be a consistent multi-byte snapshot; pause first when consistency matters.',
+    inputSchema: {
+      ...vramSelectionSchema,
+      length: z.number().int().min(1).max(DEBUGGER_MAX_READ_LENGTH).default(64),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId, ...request }) => {
+    validateDebuggerVramRange(request);
+    const value = await bridge.sendCommand('debuggerReadVram', request, sessionId);
+    return textResult(compactDebuggerVram(value));
+  }));
+
+  server.registerTool('x1pen_debug_write_vram', {
+    description: 'Write logical X1 video memory while the Z80 debugger is paused. hex must contain 1-4096 bytes as contiguous even-length hexadecimal.',
+    inputSchema: {
+      ...vramSelectionSchema,
+      hex: z.string().min(2).max(DEBUGGER_MAX_READ_LENGTH * 2)
+        .regex(/^(?:[0-9A-Fa-f]{2})+$/, 'hex must contain contiguous pairs of hexadecimal digits'),
+    },
+    annotations: { destructiveHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId, hex, ...selection }) => {
+    const bytes = Array.from(Buffer.from(hex, 'hex'));
+    const request = { ...selection, length: bytes.length };
+    validateDebuggerVramRange(request);
+    const value = await bridge.sendCommand('debuggerWriteVram', { ...selection, bytes }, sessionId);
+    return textResult(compactDebuggerVramWrite(value));
   }));
 
   server.registerTool('x1pen_debug_wait_for_pause', {

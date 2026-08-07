@@ -114,6 +114,31 @@ const fakeBridge = {
         bytes: Array.from({ length: params.length }, (_, index) => (params.address + index) & 0xFF),
       };
     }
+    if (method === 'debuggerGetVideoState') {
+      return {
+        version: 1, model: 'x1', romType: 1, displayBank: 0, accessBank: 0,
+        text: { columns: 80, rows: 25, regionSize: 0x0800, kanjiAvailable: false },
+        graphics: { width: 640, height: 200, banks: 1, planes: ['blue', 'red', 'green'], planeSize: 0x4000 },
+      };
+    }
+    if (method === 'debuggerReadVram') {
+      return {
+        ...params,
+        bankSelector: params.bank,
+        bank: params.bank === 'access' || params.bank === 'display' ? 0 : params.bank,
+        bytes: Array.from({ length: params.length }, (_, index) => (params.offset + 0xAB + index) & 0xFF),
+      };
+    }
+    if (method === 'debuggerWriteVram') {
+      return {
+        ...params,
+        bankSelector: params.bank,
+        bank: params.bank === 'access' || params.bank === 'display' ? 0 : params.bank,
+        length: params.bytes.length,
+        bytesWritten: params.bytes.length,
+        redrawPending: params.bytes.some((byte) => byte !== 0),
+      };
+    }
     if (method === 'debuggerWaitForPause') return clone(debuggerState);
     return { ok: true };
   },
@@ -154,12 +179,15 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_capture_screen',
     'x1pen_connection_info',
     'x1pen_debug_get_state',
+    'x1pen_debug_get_video_state',
     'x1pen_debug_pause',
     'x1pen_debug_read_memory',
+    'x1pen_debug_read_vram',
     'x1pen_debug_resume',
     'x1pen_debug_set_breakpoints',
     'x1pen_debug_step',
     'x1pen_debug_wait_for_pause',
+    'x1pen_debug_write_vram',
     'x1pen_get_language_profile',
     'x1pen_get_program',
     'x1pen_get_reference',
@@ -457,4 +485,51 @@ test('debugger memory reads are bounded and compact', async () => {
   });
   assert.equal(invalid.isError, true);
   assert.match(invalid.content[0].text, /64KB address space/);
+});
+
+test('debugger VRAM tools validate regions and return compact responses', async () => {
+  const video = jsonContent(await client.callTool({
+    name: 'x1pen_debug_get_video_state', arguments: {},
+  }));
+  assert.equal(video.model, 'x1');
+  assert.equal(calls.at(-1).method, 'debuggerGetVideoState');
+
+  const read = jsonContent(await client.callTool({
+    name: 'x1pen_debug_read_vram',
+    arguments: { region: 'graphics', bank: 'access', plane: 'blue', offset: 0, length: 4 },
+  }));
+  assert.deepEqual(read, {
+    region: 'graphics', bankSelector: 'access', bank: 0, plane: 'blue',
+    offset: 0, endOffset: 3, length: 4, hex: 'ABACADAE',
+  });
+  assert.equal(read.bytes, undefined);
+
+  const written = jsonContent(await client.callTool({
+    name: 'x1pen_debug_write_vram',
+    arguments: { region: 'attribute', offset: 2, hex: '0aFF' },
+  }));
+  assert.deepEqual(calls.at(-1).params.bytes, [0x0A, 0xFF]);
+  assert.deepEqual(written, {
+    region: 'attribute', offset: 2, endOffset: 3, bytesWritten: 2, redrawPending: true,
+  });
+
+  const unchanged = jsonContent(await client.callTool({
+    name: 'x1pen_debug_write_vram',
+    arguments: { region: 'attribute', offset: 3, hex: '00' },
+  }));
+  assert.equal(unchanged.redrawPending, false);
+
+  const missingPlane = await client.callTool({
+    name: 'x1pen_debug_read_vram',
+    arguments: { region: 'graphics', bank: 0, offset: 0, length: 1 },
+  });
+  assert.equal(missingPlane.isError, true);
+  assert.match(missingPlane.content[0].text, /requires plane/);
+
+  const oversizedText = await client.callTool({
+    name: 'x1pen_debug_read_vram',
+    arguments: { region: 'text', offset: 0x07FF, length: 2 },
+  });
+  assert.equal(oversizedText.isError, true);
+  assert.match(oversizedText.content[0].text, /2048 bytes/);
 });

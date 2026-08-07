@@ -38,7 +38,7 @@ The pairing code changes whenever the MCP server process restarts. One browser e
 
 ## Z80 debugger
 
-The debugger tools expose named CPU state, pause/resume, bounded multi-step execution, atomic PC breakpoint replacement, compact hexadecimal memory reads, and filtered pause waiting. They operate only through the allowlisted X1Pen Automation API; arbitrary JavaScript and raw WASM access are not exposed.
+The debugger tools expose named CPU/video state, pause/resume, bounded multi-step execution, atomic PC breakpoint replacement, compact hexadecimal CPU/VRAM reads, paused VRAM writes, and filtered pause waiting. They operate only through the allowlisted X1Pen Automation API; arbitrary JavaScript, raw I/O, and raw WASM access are not exposed.
 
 ## Language reference
 

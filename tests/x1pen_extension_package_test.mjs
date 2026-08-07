@@ -49,7 +49,7 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
 
     const manifest = JSON.parse(run('unzip', ['-p', zipPath, 'manifest.json']));
     assert.equal(manifest.manifest_version, 3);
-    assert.equal(manifest.version, '1.1.1');
+    assert.equal(manifest.version, '1.2.0');
     assert.equal(manifest.default_locale, 'ja');
     assert.equal(manifest.name, '__MSG_extensionName__');
     assert.equal(manifest.description, '__MSG_extensionDescription__');
@@ -86,6 +86,7 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
     assert.match(privacy, /127\.0\.0\.1/);
     assert.match(privacy, /program source/i);
     assert.match(privacy, /debugger state/i);
+    assert.match(privacy, /video memory/i);
     assert.match(privacy, /AI provider/i);
     const buildScript = await readFile(join(repoRoot, 'build.sh'), 'utf8');
     assert.match(buildScript, /html\/x1pen-connector-privacy\.html.*DIST_DIR/);
@@ -93,6 +94,7 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
     const popup = await readFile(join(repoRoot, 'extension/popup.html'), 'utf8');
     assert.match(popup, /id="consent" type="checkbox"/);
     assert.match(popup, /debug programs/);
+    assert.match(popup, /video memory/);
     assert.match(popup, /x1pen-connector-privacy\.html/);
     assert.match(popup, /id="connect" disabled/);
   } finally {
