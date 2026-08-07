@@ -27,7 +27,7 @@ function createAutomationApi() {
     ready: async () => ({ ready: true }),
     getStatus: () => ({
       capabilities: {
-        debugger: { available: true, runPending: pendingReads-- > 0 },
+        debugger: { available: true, runPending: pendingReads-- > 0, vram: { available: true } },
       },
     }),
     getProgram: () => ({ revision: 1 }),
@@ -55,6 +55,12 @@ function createAutomationApi() {
       },
       setBreakpoints: async (addresses) => state({ breakpointCount: new Set(addresses).size }),
       readMemory: (address, length) => ({ address, length, bytes: Array(length).fill(0xAA) }),
+      getVideoState: () => ({ model: 'x1', displayBank: 0, accessBank: 0 }),
+      readVram: (options) => ({ ...options, bank: 0, bytes: [0x12, 0x34] }),
+      writeVram: async (options) => {
+        timeline.push('vram-write:done');
+        return { ...options, bank: 0, bytesWritten: options.bytes.length, redrawPending: true };
+      },
       waitForPause: async (options) => ({ ...state(), options }),
     },
   };
@@ -94,6 +100,17 @@ test('page bridge allowlists debugger operations and retries Run setup races', a
   assert.equal(breakpoints.breakpointCount, 2);
   const memory = await invokeX1PenInPage('debuggerReadMemory', { address: 0x200, length: 4 });
   assert.deepEqual(memory.bytes, [0xAA, 0xAA, 0xAA, 0xAA]);
+  const video = await invokeX1PenInPage('debuggerGetVideoState', {});
+  assert.equal(video.model, 'x1');
+  const vram = await invokeX1PenInPage('debuggerReadVram', {
+    region: 'graphics', bank: 'access', plane: 'blue', offset: 0, length: 2,
+  });
+  assert.deepEqual(vram.bytes, [0x12, 0x34]);
+  const written = await invokeX1PenInPage('debuggerWriteVram', {
+    region: 'graphics', bank: 'access', plane: 'blue', offset: 0, bytes: [0x56],
+  });
+  assert.equal(written.bytesWritten, 1);
+  assert.deepEqual(timeline.slice(-3), ['lock:on', 'vram-write:done', 'lock:off']);
   const waited = await invokeX1PenInPage('debuggerWaitForPause', { stopReason: 'breakpoint' });
   assert.deepEqual(waited.options, { stopReason: 'breakpoint' });
 
@@ -106,6 +123,18 @@ test('page bridge rejects debugger calls when capability is unavailable', async 
   api.getStatus = () => ({ capabilities: { debugger: { available: false, runPending: false } } });
   globalThis.window = { X1PenAutomation: api };
   await assert.rejects(invokeX1PenInPage('debuggerGetState', {}), /does not provide the debugger API/);
+});
+
+test('page bridge rejects VRAM calls when its capability is unavailable', async () => {
+  const { api } = createAutomationApi();
+  api.getStatus = () => ({
+    capabilities: { debugger: { available: true, runPending: false, vram: { available: false } } },
+  });
+  globalThis.window = { X1PenAutomation: api };
+  await assert.rejects(
+    invokeX1PenInPage('debuggerReadVram', { region: 'text', offset: 0, length: 1 }),
+    /does not provide the VRAM debugger API/,
+  );
 });
 
 test('extension update waits for active operations before disconnecting and reloading', async () => {

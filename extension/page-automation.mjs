@@ -13,6 +13,15 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
     }
     return api.debugger;
   };
+  const requireVramDebugger = () => {
+    const debuggerApi = requireDebugger();
+    const capability = api.getStatus().capabilities?.debugger?.vram;
+    if (!capability?.available || !debuggerApi.getVideoState ||
+        !debuggerApi.readVram || !debuggerApi.writeVram) {
+      throw new Error('The connected X1Pen does not provide the VRAM debugger API');
+    }
+    return debuggerApi;
+  };
   const runDebuggerControl = async (operation) => {
     const deadline = Date.now() + 10_000;
     while (true) {
@@ -41,6 +50,7 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
     debuggerResume: 'AI is resuming the debugger...',
     debuggerStep: 'AI is stepping the debugger...',
     debuggerSetBreakpoints: 'AI is updating breakpoints...',
+    debuggerWriteVram: 'AI is updating video memory...',
   };
   const shouldLock = Object.prototype.hasOwnProperty.call(lockLabels, requestedMethod);
   if (shouldLock) api.setInteractionLocked(true, lockLabels[requestedMethod]);
@@ -79,6 +89,15 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
     }
     if (requestedMethod === 'debuggerReadMemory') {
       return requireDebugger().readMemory(requestedParams.address, requestedParams.length);
+    }
+    if (requestedMethod === 'debuggerGetVideoState') {
+      return requireVramDebugger().getVideoState();
+    }
+    if (requestedMethod === 'debuggerReadVram') {
+      return requireVramDebugger().readVram(requestedParams);
+    }
+    if (requestedMethod === 'debuggerWriteVram') {
+      return await requireVramDebugger().writeVram(requestedParams);
     }
     if (requestedMethod === 'debuggerWaitForPause') {
       return requireDebugger().waitForPause(requestedParams);
