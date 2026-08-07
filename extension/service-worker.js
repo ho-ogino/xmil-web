@@ -1,4 +1,5 @@
 import { invokeX1PenInPage } from './page-automation.mjs';
+import { createUpdateCoordinator } from './update-coordinator.mjs';
 
 const connectedTabs = new Map();
 let bridgeConfig = null;
@@ -7,7 +8,14 @@ let paired = false;
 let connectPromise = null;
 let reconnectTimer = null;
 
-initialize();
+const updateCoordinator = createUpdateCoordinator({
+  prepare: prepareForUpdate,
+  reload: () => chrome.runtime.reload(),
+  onError: (error) => console.warn('Failed to cleanly disconnect before extension update:', error),
+});
+
+chrome.runtime.onUpdateAvailable.addListener(() => updateCoordinator.requestUpdate());
+updateCoordinator.run(initialize).catch(() => {});
 
 async function initialize() {
   const stored = await chrome.storage.local.get('bridgeConfig');
@@ -19,7 +27,7 @@ async function initialize() {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  handlePopupMessage(message).then(
+  updateCoordinator.run(() => handlePopupMessage(message)).then(
     (result) => sendResponse({ ok: true, result }),
     (error) => sendResponse({ ok: false, error: error.message || String(error) }),
   );
@@ -115,7 +123,7 @@ async function connectBridge() {
         sendSessions();
         resolve();
       } else if (message.type === 'command') {
-        handleCommand(message);
+        updateCoordinator.run(() => handleCommand(message)).catch(() => {});
       } else if (message.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong', timestamp: message.timestamp }));
       }
@@ -143,17 +151,33 @@ async function connectBridge() {
 }
 
 function scheduleReconnect() {
-  if (!bridgeConfig || connectedTabs.size === 0 || reconnectTimer) return;
+  if (updateCoordinator.isUpdatePending() || !bridgeConfig || connectedTabs.size === 0 || reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    connectBridge().then(async () => {
+    updateCoordinator.run(async () => {
+      await connectBridge();
       for (const session of connectedTabs.values()) {
         await invokeX1Pen(session.tabId, 'connection', { connected: true }).catch(() => {});
       }
       await refreshSessions();
       sendSessions();
-    }).catch(scheduleReconnect);
+    }).catch(() => {
+      if (!updateCoordinator.isUpdatePending()) scheduleReconnect();
+    });
   }, 2_000);
+}
+
+async function prepareForUpdate() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  await Promise.allSettled(Array.from(connectedTabs.values(), (session) =>
+    invokeX1Pen(session.tabId, 'connection', { connected: false })));
+  const activeSocket = socket;
+  socket = null;
+  paired = false;
+  if (activeSocket) activeSocket.close(1012, 'Applying X1Pen Connector update');
 }
 
 async function handleCommand(message) {
