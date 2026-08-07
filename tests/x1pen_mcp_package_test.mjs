@@ -33,9 +33,13 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
   const npmCache = join(tempRoot, 'npm-cache');
   let client;
   try {
-    const packResult = JSON.parse(runNpm([
+    const packOutput = JSON.parse(runNpm([
       'pack', './mcp', '--json', '--pack-destination', tempRoot, '--cache', npmCache,
-    ], { cwd: repoRoot }))[0];
+    ], { cwd: repoRoot }));
+    const packResult = Array.isArray(packOutput)
+      ? packOutput[0]
+      : packOutput['x1pen-mcp'];
+    assert.ok(packResult, 'npm pack did not return x1pen-mcp package metadata');
     assert.deepEqual(packResult.files.map((file) => file.path).sort(), [
       'LICENSE',
       'README.md',

@@ -50,7 +50,17 @@ Google Drive 連携を使用する場合も、ファイルのやり取りはユ�
 
 ## ビルド方法
 
-Emscripten SDK が必要です。[インストール手順](https://emscripten.org/docs/getting_started/downloads.html)
+Emscripten SDK、Node.js 24 LTS、npm 12 が必要です。[Emscriptenのインストール手順](https://emscripten.org/docs/getting_started/downloads.html)
+
+`nvm`を使用する場合は、リポジトリに固定したバージョンを次のようにセットアップできます。
+
+```bash
+nvm install
+nvm use
+npm ci
+```
+
+npmパッケージは公開から7日間の検疫期間を設け、依存パッケージのLifecycle scriptは明示承認したものだけを実行します。
 
 ```bash
 ./build.sh
