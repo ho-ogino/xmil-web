@@ -156,6 +156,7 @@ export function assertMethodCompatible(method, compatibility, components) {
       message: `${feature} is not advertised by the connected ${component === 'connector' ? 'Connector' : 'X1Pen'}.`,
     });
   }
+  // Defensive for a future MCP release that deliberately omits a known feature.
   throw new X1PenCompatibilityError({
     code: 'MCP_UPDATE_REQUIRED',
     component,

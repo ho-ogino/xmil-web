@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { afterEach, test } from 'node:test';
 import { invokeX1PenInPage } from '../extension/page-automation.mjs';
 import { createUpdateCoordinator } from '../extension/update-coordinator.mjs';
@@ -10,6 +11,7 @@ import {
   normalizeX1PenDescriptor,
   serializeExtensionError,
 } from '../extension/compatibility.mjs';
+import { FEATURE_IDS, MCP_FEATURES } from '../mcp/x1pen-compatibility.mjs';
 
 afterEach(() => {
   delete globalThis.window;
@@ -186,6 +188,23 @@ test('connector compatibility metadata is bounded and preserves legacy fallbacks
     () => assertMcpProtocolSupported({ protocolVersion: 3, version: '3.0.0' }),
     (error) => error.code === 'BRIDGE_PROTOCOL_UNSUPPORTED' && error.component === 'mcp',
   );
+});
+
+test('feature IDs match across X1Pen, Connector and MCP', () => {
+  const source = readFileSync(new URL('../html/x1pen.js', import.meta.url), 'utf8');
+  const featureFunction = source.match(
+    /function getAutomationFeatures\(\) \{([\s\S]*?)\n    \}/,
+  );
+  assert.ok(featureFunction, 'getAutomationFeatures implementation was not found');
+
+  const x1penFeatures = Array.from(
+    featureFunction[1].matchAll(/['"]([a-z][a-z0-9.-]+)['"]/g),
+    (match) => match[1],
+  );
+  const expected = [...FEATURE_IDS].sort();
+  assert.deepEqual([...new Set(x1penFeatures)].sort(), expected);
+  assert.deepEqual([...CONNECTOR_FEATURES].sort(), expected);
+  assert.deepEqual([...MCP_FEATURES].sort(), expected);
 });
 
 test('connector serializes machine-readable errors without copying arbitrary fields', () => {
