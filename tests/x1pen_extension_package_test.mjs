@@ -33,6 +33,7 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
       '_locales/en/messages.json',
       '_locales/ja/',
       '_locales/ja/messages.json',
+      'compatibility.mjs',
       'icons/',
       'icons/icon-128.png',
       'icons/icon-16.png',
@@ -61,6 +62,8 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
     const serviceWorker = run('unzip', ['-p', zipPath, 'service-worker.js']);
     assert.match(serviceWorker, /chrome\.runtime\.onUpdateAvailable\.addListener/);
     assert.match(serviceWorker, /updateCoordinator\.run/);
+    assert.match(serviceWorker, /connector:\s*connectorDescriptor\(\)/);
+    assert.match(serviceWorker, /normalizeMcpServerDescriptor/);
 
     const jaMessages = JSON.parse(run('unzip', ['-p', zipPath, '_locales/ja/messages.json']));
     const enMessages = JSON.parse(run('unzip', ['-p', zipPath, '_locales/en/messages.json']));
@@ -97,7 +100,28 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
     assert.match(popup, /video memory/);
     assert.match(popup, /x1pen-connector-privacy\.html/);
     assert.match(popup, /id="connect" disabled/);
+    assert.match(popup, /id="connector-version"/);
+    assert.match(popup, /id="mcp-version"/);
+    assert.match(popup, /id="x1pen-version"/);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
+});
+
+test('X1Pen product version is declared once and copied into browser builds', async () => {
+  const versionSource = await readFile(join(repoRoot, 'html/x1pen-version.js'), 'utf8');
+  assert.match(versionSource, /version:\s*'0\.8\.0'/);
+  assert.match(versionSource, /name:\s*'x1pen'/);
+
+  const x1penHtml = await readFile(join(repoRoot, 'html/x1pen.html'), 'utf8');
+  assert.match(x1penHtml, /<script src="x1pen-version\.js"><\/script>\s*<script src="x1pen\.js"><\/script>/);
+
+  const buildScript = await readFile(join(repoRoot, 'build.sh'), 'utf8');
+  assert.match(buildScript, /html\/x1pen-version\.js.*\.\/x1pen-version\.js/);
+  assert.match(buildScript, /html\/x1pen-version\.js.*DIST_DIR/);
+  assert.match(buildScript, /XMIL_VERSION=.*html\/x1pen-version\.js/);
+
+  const cmake = await readFile(join(repoRoot, 'CMakeLists.txt'), 'utf8');
+  assert.match(cmake, /file\(READ .*html\/x1pen-version\.js/);
+  assert.match(cmake, /set\(XMIL_VERSION "\$\{CMAKE_MATCH_1\}"\)/);
 });

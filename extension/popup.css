@@ -88,6 +88,22 @@ button:disabled { opacity: 0.5; cursor: default; }
   color: #9da7b3;
 }
 #status.error { color: #ff8b8b; }
+.versions {
+  margin: 8px 0 0;
+  padding: 7px 0;
+  border-top: 1px solid #2a313b;
+  border-bottom: 1px solid #2a313b;
+  color: #9da7b3;
+  font-size: 11px;
+}
+.versions div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+  padding: 2px 0;
+}
+.versions dt, .versions dd { margin: 0; }
+.versions dd { color: #e6edf3; overflow-wrap: anywhere; }
 ul {
   margin: 7px 0 0;
   padding: 0;

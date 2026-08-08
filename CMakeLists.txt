@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.10)
 project(XMillennium-Web)
 
-set(XMIL_VERSION "0.7.3")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/html/x1pen-version.js" X1PEN_VERSION_SOURCE)
+string(REGEX MATCH "version:[ \t]*'([0-9]+\\.[0-9]+\\.[0-9]+)'" X1PEN_VERSION_MATCH "${X1PEN_VERSION_SOURCE}")
+if(NOT CMAKE_MATCH_1)
+    message(FATAL_ERROR "Could not read X1Pen version from html/x1pen-version.js")
+endif()
+set(XMIL_VERSION "${CMAKE_MATCH_1}")
 
 # Emscripten用の設定
 if(EMSCRIPTEN)

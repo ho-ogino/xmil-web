@@ -74,6 +74,14 @@ MCPサーバーのnpm配布とブラウザー拡張の配布は独立してお�
 
 接続されたX1Penには`MCP Connected`と表示されます。複数タブを接続した場合は`x1pen_list_sessions`と`x1pen_select_session`で操作対象を選びます。通常はX1Pen自身の複数タブ警告により1タブだけが接続されます。
 
+### バージョンと機能互換性
+
+`x1pen_connection_info`、`x1pen_list_sessions`、`x1pen_get_status`は、MCPサーバー、Connector、X1Penのバージョンと実効capabilityを返します。バージョンは診断と更新案内に使用し、実際の利用可否は3コンポーネントが申告するfeatureの積集合で決定します。
+
+feature IDは完全一致する不変の契約です。現在は`automation.core`、`screen.capture`、`debugger.cpu`、`debugger.vram`を使用します。後方互換性のない変更では既存IDの意味を変更せず、`debugger.vram-v2`のような新しいIDを追加します。
+
+公開済みのConnector 1.0.1、1.1.0、1.1.1だけは、明示featureがないためMCPサーバーが既知の機能を推定します。この表は歴史的互換性のために凍結されており、Connector 1.2.0以降は明示featureを申告します。未対応機能はConnectorへ送信する前に拒否され、`component`、`feature`、現在版、必要な場合は必要版、対処方法を含む機械可読エラーが返ります。
+
 ## ツール
 
 | Tool | 内容 |
@@ -253,6 +261,16 @@ npm publish ./mcp
 ```
 
 公開後は`npm view x1pen-mcp version`と`npx -y x1pen-mcp@<version> --version`で確認します。
+
+### コンポーネント公開順
+
+互換性機能を追加するリリースは、次の順序で公開します。
+
+1. `html/x1pen-version.js`を更新し、X1Penをデプロイ
+2. `extension/manifest.json`を更新し、ConnectorをChrome Web Storeへ提出・公開
+3. `mcp/package.json`を更新し、MCPサーバーをnpmへ公開
+
+X1Pen製品バージョンの真実の源は`html/x1pen-version.js`です。X1Pen 0.8.0、Connector 1.2.0、MCP 2.6.0から明示的な3層互換性情報に対応します。X1Penのリリースタグは製品バージョンと同じ`v<version>`形式にします。
 
 ## セキュリティ
 

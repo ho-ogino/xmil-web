@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { afterEach, test } from 'node:test';
 import { invokeX1PenInPage } from '../extension/page-automation.mjs';
 import { createUpdateCoordinator } from '../extension/update-coordinator.mjs';
+import {
+  CONNECTOR_FEATURES,
+  assertMcpProtocolSupported,
+  createConnectorDescriptor,
+  normalizeMcpServerDescriptor,
+  normalizeX1PenDescriptor,
+  serializeExtensionError,
+} from '../extension/compatibility.mjs';
+import { FEATURE_IDS, MCP_FEATURES } from '../mcp/x1pen-compatibility.mjs';
 
 afterEach(() => {
   delete globalThis.window;
@@ -135,6 +145,78 @@ test('page bridge rejects VRAM calls when its capability is unavailable', async 
     invokeX1PenInPage('debuggerReadVram', { region: 'text', offset: 0, length: 1 }),
     /does not provide the VRAM debugger API/,
   );
+});
+
+test('page bridge treats advertised features as authoritative', async () => {
+  const { api } = createAutomationApi();
+  api.getStatus = () => ({
+    x1pen: { features: ['automation.core', 'screen.capture', 'debugger.cpu'] },
+    capabilities: { debugger: { available: true, runPending: false, vram: { available: true } } },
+  });
+  globalThis.window = { X1PenAutomation: api };
+  await assert.rejects(
+    invokeX1PenInPage('debuggerReadVram', { region: 'text', offset: 0, length: 1 }),
+    (error) => error.code === 'FEATURE_UNAVAILABLE' && error.component === 'x1pen' &&
+      error.feature === 'debugger.vram',
+  );
+});
+
+test('connector compatibility metadata is bounded and preserves legacy fallbacks', () => {
+  assert.deepEqual(createConnectorDescriptor('1.2.0'), {
+    name: 'x1pen-connector',
+    version: '1.2.0',
+    protocolVersion: 2,
+    features: [...CONNECTOR_FEATURES],
+  });
+  assert.deepEqual(normalizeX1PenDescriptor({
+    x1pen: {
+      version: '0.8.0', automationApiVersion: 2,
+      features: ['automation.core', 'debugger.vram', 'invalid feature', 'debugger.vram'],
+    },
+  }), {
+    name: 'x1pen', version: '0.8.0', automationApiVersion: 2,
+    features: ['automation.core', 'debugger.vram'],
+  });
+  assert.deepEqual(normalizeX1PenDescriptor({
+    capabilities: { debugger: { available: true, vram: { available: false } } },
+  }).features, ['automation.core', 'screen.capture', 'debugger.cpu']);
+  assert.deepEqual(normalizeMcpServerDescriptor({ type: 'paired', protocolVersion: 1 }), {
+    name: 'x1pen-mcp', version: null, protocolVersion: 1, features: [],
+  });
+  assert.doesNotThrow(() => assertMcpProtocolSupported({ protocolVersion: 2 }));
+  assert.throws(
+    () => assertMcpProtocolSupported({ protocolVersion: 3, version: '3.0.0' }),
+    (error) => error.code === 'BRIDGE_PROTOCOL_UNSUPPORTED' && error.component === 'mcp',
+  );
+});
+
+test('feature IDs match across X1Pen, Connector and MCP', () => {
+  const source = readFileSync(new URL('../html/x1pen.js', import.meta.url), 'utf8');
+  const featureFunction = source.match(
+    /function getAutomationFeatures\(\) \{([\s\S]*?)\n    \}/,
+  );
+  assert.ok(featureFunction, 'getAutomationFeatures implementation was not found');
+
+  const x1penFeatures = Array.from(
+    featureFunction[1].matchAll(/['"]([a-z][a-z0-9.-]+)['"]/g),
+    (match) => match[1],
+  );
+  const expected = [...FEATURE_IDS].sort();
+  assert.deepEqual([...new Set(x1penFeatures)].sort(), expected);
+  assert.deepEqual([...CONNECTOR_FEATURES].sort(), expected);
+  assert.deepEqual([...MCP_FEATURES].sort(), expected);
+});
+
+test('connector serializes machine-readable errors without copying arbitrary fields', () => {
+  const error = new Error('Update X1Pen');
+  Object.assign(error, {
+    code: 'X1PEN_UPDATE_REQUIRED', component: 'x1pen', feature: 'debugger.vram',
+    requiredVersion: '0.8.0', action: 'Reload X1Pen', secret: 'discard',
+  });
+  assert.deepEqual(serializeExtensionError(error), {
+    message: 'Update X1Pen', code: 'X1PEN_UPDATE_REQUIRED', component: 'x1pen',
+    feature: 'debugger.vram', requiredVersion: '0.8.0', action: 'Reload X1Pen',
+  });
 });
 
 test('extension update waits for active operations before disconnecting and reloading', async () => {

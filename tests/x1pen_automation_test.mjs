@@ -71,6 +71,12 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   const ready = await page.evaluate(() => window.X1PenAutomation.ready());
   assert.equal(ready.ready, true);
   assert.equal(await page.evaluate(() => window.X1PenAutomation.version), 2);
+  assert.deepEqual(ready.x1pen, {
+    name: 'x1pen',
+    version: '0.8.0',
+    automationApiVersion: 2,
+    features: ['automation.core', 'screen.capture', 'debugger.cpu', 'debugger.vram'],
+  });
   assert.equal(ready.capabilities.debugger.available, true);
   assert.equal(ready.capabilities.debugger.version, 2);
   assert.equal(ready.capabilities.debugger.addressSpaceSize, 0x10000);

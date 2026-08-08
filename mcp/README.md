@@ -36,6 +36,12 @@ Use `claude mcp list` or `/mcp` to check the connection.
 
 The pairing code changes whenever the MCP server process restarts. One browser extension connection can be paired with one running MCP server at a time.
 
+## Compatibility
+
+Connection, session and status results report the versions and effective features of the MCP server, X1Pen Connector and connected X1Pen. Versions are diagnostic; commands are permitted from the exact feature IDs advertised by all required components. Unsupported debugger commands are rejected before they reach an older Connector and return a machine-readable update action.
+
+The current feature contracts are `automation.core`, `screen.capture`, `debugger.cpu` and `debugger.vram`. Feature IDs are immutable. A backward-incompatible successor uses a new ID such as `debugger.vram-v2` rather than changing the meaning of an existing ID.
+
 ## Z80 debugger
 
 The debugger tools expose named CPU/video state, pause/resume, bounded multi-step execution, atomic PC breakpoint replacement, compact hexadecimal CPU/VRAM reads, paused VRAM writes, and filtered pause waiting. They operate only through the allowlisted X1Pen Automation API; arbitrary JavaScript, raw I/O, and raw WASM access are not exposed.

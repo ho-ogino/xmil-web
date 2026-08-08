@@ -51,6 +51,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
       'reference/slang.json',
       'reference/x1-hardware.json',
       'x1pen-bridge.mjs',
+      'x1pen-compatibility.mjs',
       'x1pen-reference.mjs',
       'x1pen-server.mjs',
     ]);
@@ -95,6 +96,10 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.equal(info.host, '127.0.0.1');
     assert.ok(Number.isInteger(info.port));
     assert.match(info.pairingCode, /^\d{6}$/);
+    assert.equal(info.components.mcp.version, '2.6.0');
+    assert.deepEqual(info.components.mcp.features,
+      ['automation.core', 'screen.capture', 'debugger.cpu', 'debugger.vram']);
+    assert.equal(info.components.connector, null);
 
     const reference = await client.callTool({
       name: 'x1pen_search_reference',

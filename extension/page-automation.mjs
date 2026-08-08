@@ -1,24 +1,50 @@
 export async function invokeX1PenInPage(requestedMethod, requestedParams) {
   const api = window.X1PenAutomation;
-  if (!api || api.version < 2) throw new Error('This tab does not provide X1Pen Automation API v2');
+  if (!api || api.version < 2) {
+    const error = new Error('This tab does not provide X1Pen Automation API v2');
+    error.code = 'X1PEN_UPDATE_REQUIRED';
+    error.component = 'x1pen';
+    error.feature = 'automation.core';
+    error.requiredVersion = '0.8.0';
+    error.action = 'Reload X1Pen and reconnect this tab.';
+    throw error;
+  }
   if (requestedMethod === 'probe') return api.ready();
   if (requestedMethod === 'connection') {
     return api.setConnectionState(requestedParams.connected, requestedParams.connected ? 'MCP Connected' : '');
   }
 
   const requireDebugger = () => {
-    const capability = api.getStatus().capabilities?.debugger;
-    if (!api.debugger || !capability?.available) {
-      throw new Error('The connected X1Pen does not provide the debugger API');
+    const status = api.getStatus();
+    const features = status.x1pen?.features;
+    const capability = status.capabilities?.debugger;
+    const available = Array.isArray(features) ? features.includes('debugger.cpu') : capability?.available;
+    if (!api.debugger || !available) {
+      const error = new Error('The connected X1Pen does not provide the debugger API');
+      error.code = 'FEATURE_UNAVAILABLE';
+      error.component = 'x1pen';
+      error.feature = 'debugger.cpu';
+      error.currentVersion = status.x1pen?.version || 'unknown';
+      error.action = 'Reload or update X1Pen and reconnect this tab.';
+      throw error;
     }
     return api.debugger;
   };
   const requireVramDebugger = () => {
     const debuggerApi = requireDebugger();
-    const capability = api.getStatus().capabilities?.debugger?.vram;
-    if (!capability?.available || !debuggerApi.getVideoState ||
+    const status = api.getStatus();
+    const features = status.x1pen?.features;
+    const capability = status.capabilities?.debugger?.vram;
+    const available = Array.isArray(features) ? features.includes('debugger.vram') : capability?.available;
+    if (!available || !debuggerApi.getVideoState ||
         !debuggerApi.readVram || !debuggerApi.writeVram) {
-      throw new Error('The connected X1Pen does not provide the VRAM debugger API');
+      const error = new Error('The connected X1Pen does not provide the VRAM debugger API');
+      error.code = 'FEATURE_UNAVAILABLE';
+      error.component = 'x1pen';
+      error.feature = 'debugger.vram';
+      error.currentVersion = status.x1pen?.version || 'unknown';
+      error.action = 'Reload or update X1Pen and reconnect this tab.';
+      throw error;
     }
     return debuggerApi;
   };

@@ -15,6 +15,7 @@ const initialProgram = {
 const calls = [];
 let currentProgram;
 let debuggerState;
+let compatibilityFailure;
 
 const initialDebuggerState = {
   version: 1,
@@ -55,11 +56,30 @@ function normalizeProgram(program) {
 }
 
 const fakeBridge = {
-  connectionInfo() { return { port: 43110, pairingCode: '123456', extensionConnected: true }; },
-  listSessions() { return [{ sessionId: 'tab-a', title: 'X1Pen', selected: true }]; },
+  connectionInfo() {
+    return {
+      port: 43110, pairingCode: '123456', extensionConnected: true,
+      components: {
+        mcp: { name: 'x1pen-mcp', version: '2.6.0' },
+        connector: { name: 'x1pen-connector', version: '1.2.0' },
+      },
+    };
+  },
+  listSessions() {
+    return [{ sessionId: 'tab-a', title: 'X1Pen', selected: true, x1pen: { version: '0.8.0' } }];
+  },
   selectSession(sessionId) { return { sessionId }; },
+  getSessionCompatibility() {
+    return {
+      components: {
+        mcp: { version: '2.6.0' }, connector: { version: '1.2.0' }, x1pen: { version: '0.8.0' },
+      },
+      capabilities: { 'debugger.vram': { state: 'available', available: true } },
+    };
+  },
   async sendCommand(method, params, sessionId) {
     calls.push({ method, params: clone(params), sessionId });
+    if (compatibilityFailure && method === compatibilityFailure.method) throw compatibilityFailure.error;
     if (method === 'getProgram') return clone(currentProgram);
     if (method === 'setProgram') {
       if (params.expectedRevision !== currentProgram.revision) {
@@ -165,6 +185,7 @@ beforeEach(() => {
   calls.length = 0;
   currentProgram = clone(initialProgram);
   debuggerState = clone(initialDebuggerState);
+  compatibilityFailure = null;
 });
 
 after(async () => {
@@ -202,6 +223,39 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_stop',
     'x1pen_validate',
   ]);
+});
+
+test('connection and status tools report all component versions and effective capabilities', async () => {
+  const connection = jsonContent(await client.callTool({ name: 'x1pen_connection_info', arguments: {} }));
+  assert.equal(connection.components.mcp.version, '2.6.0');
+  assert.equal(connection.components.connector.version, '1.2.0');
+
+  const sessions = jsonContent(await client.callTool({ name: 'x1pen_list_sessions', arguments: {} }));
+  assert.equal(sessions.sessions[0].x1pen.version, '0.8.0');
+
+  const status = jsonContent(await client.callTool({ name: 'x1pen_get_status', arguments: {} }));
+  assert.equal(status.compatibility.components.x1pen.version, '0.8.0');
+  assert.equal(status.compatibility.capabilities['debugger.vram'].available, true);
+});
+
+test('machine-readable compatibility failures survive the MCP tool boundary', async () => {
+  const error = new Error('debugger.vram requires X1Pen Connector 1.2.0 or later');
+  Object.assign(error, {
+    code: 'CONNECTOR_UPDATE_REQUIRED', component: 'connector', feature: 'debugger.vram',
+    currentVersion: '1.1.1', requiredVersion: '1.2.0', action: 'Update X1Pen Connector and reconnect this tab.',
+  });
+  compatibilityFailure = { method: 'debuggerReadVram', error };
+  const result = await client.callTool({
+    name: 'x1pen_debug_read_vram',
+    arguments: { region: 'text', offset: 0, length: 1 },
+  });
+  assert.equal(result.isError, true);
+  const details = jsonContent(result).error;
+  assert.equal(details.code, 'CONNECTOR_UPDATE_REQUIRED');
+  assert.equal(details.component, 'connector');
+  assert.equal(details.feature, 'debugger.vram');
+  assert.equal(details.currentVersion, '1.1.1');
+  assert.equal(details.requiredVersion, '1.2.0');
 });
 
 test('language reference tools search compact results and fetch selected details', async () => {

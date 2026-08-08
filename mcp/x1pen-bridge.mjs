@@ -1,5 +1,13 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
+import {
+  assertMethodCompatible,
+  createMcpDescriptor,
+  deserializeBridgeError,
+  evaluateCompatibility,
+  normalizeConnectorPair,
+  normalizeX1PenDescriptor,
+} from './x1pen-compatibility.mjs';
 
 const DEFAULT_START_PORT = 43110;
 const DEFAULT_END_PORT = 43119;
@@ -30,6 +38,8 @@ export class X1PenBridge {
     this.selectedSessionId = null;
     this.pendingCommands = new Map();
     this.keepAliveTimer = null;
+    this.serverDescriptor = options.serverDescriptor || createMcpDescriptor('unknown');
+    this.connectorDescriptor = null;
   }
 
   async start() {
@@ -103,9 +113,14 @@ export class X1PenBridge {
           this.socket.close(1012, 'Replaced by a new extension connection');
         }
         this.socket = socket;
+        this.connectorDescriptor = normalizeConnectorPair(message);
         this.sessions.clear();
         this.selectedSessionId = null;
-        socket.send(JSON.stringify({ type: 'paired', protocolVersion: 1 }));
+        socket.send(JSON.stringify({
+          type: 'paired',
+          protocolVersion: this.serverDescriptor.protocolVersion,
+          server: this.serverDescriptor,
+        }));
         this.logger('browser extension paired');
         return;
       }
@@ -117,6 +132,7 @@ export class X1PenBridge {
       clearTimeout(authTimeout);
       if (this.socket !== socket) return;
       this.socket = null;
+      this.connectorDescriptor = null;
       this.sessions.clear();
       this.selectedSessionId = null;
       this.rejectPending(new Error('X1Pen browser extension disconnected'));
@@ -135,6 +151,7 @@ export class X1PenBridge {
           url: String(session.url || ''),
           active: !!session.active,
           revision: Number.isInteger(session.revision) ? session.revision : 0,
+          x1pen: normalizeX1PenDescriptor(session.x1pen),
         });
       }
       if (this.selectedSessionId && !this.sessions.has(this.selectedSessionId)) this.selectedSessionId = null;
@@ -147,7 +164,7 @@ export class X1PenBridge {
       this.pendingCommands.delete(message.id);
       clearTimeout(pending.timeout);
       if (message.ok) pending.resolve(message.result);
-      else pending.reject(new Error(message.error || 'X1Pen command failed'));
+      else pending.reject(deserializeBridgeError(message.error));
     }
   }
 
@@ -159,6 +176,13 @@ export class X1PenBridge {
       extensionConnected: !!this.socket,
       sessionCount: this.sessions.size,
       selectedSessionId: this.selectedSessionId,
+      components: {
+        mcp: this.serverDescriptor,
+        connector: this.connectorDescriptor,
+      },
+      compatibility: this.selectedSessionId && this.sessions.has(this.selectedSessionId)
+        ? this.getSessionCompatibility(this.selectedSessionId)
+        : null,
     };
   }
 
@@ -166,13 +190,15 @@ export class X1PenBridge {
     return Array.from(this.sessions.values()).map((session) => ({
       ...session,
       selected: session.sessionId === this.selectedSessionId,
+      compatibility: this.getSessionCompatibility(session.sessionId),
     }));
   }
 
   selectSession(sessionId) {
     if (!this.sessions.has(sessionId)) throw new Error(`X1Pen session not found: ${sessionId}`);
     this.selectedSessionId = sessionId;
-    return this.sessions.get(sessionId);
+    const session = this.sessions.get(sessionId);
+    return { ...session, selected: true, compatibility: this.getSessionCompatibility(sessionId) };
   }
 
   resolveSession(sessionId) {
@@ -188,6 +214,8 @@ export class X1PenBridge {
 
   sendCommand(method, params = {}, sessionId) {
     const resolvedSessionId = this.resolveSession(sessionId);
+    const compatibility = this.getSessionCompatibility(resolvedSessionId);
+    assertMethodCompatible(method, compatibility.capabilities, compatibility.components);
     const id = randomUUID();
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -210,6 +238,25 @@ export class X1PenBridge {
     });
   }
 
+  getSessionCompatibility(sessionId) {
+    let resolvedSessionId = sessionId || this.selectedSessionId;
+    if (!resolvedSessionId && this.sessions.size === 1) resolvedSessionId = this.sessions.keys().next().value;
+    const session = this.sessions.get(resolvedSessionId);
+    if (!session) throw new Error(`X1Pen session not found: ${sessionId || 'not selected'}`);
+    const components = {
+      mcp: this.serverDescriptor,
+      connector: this.connectorDescriptor,
+      x1pen: session.x1pen,
+    };
+    return {
+      components,
+      capabilities: evaluateCompatibility({
+        ...components,
+        connected: !!this.socket,
+      }),
+    };
+  }
+
   rejectPending(error) {
     for (const pending of this.pendingCommands.values()) {
       clearTimeout(pending.timeout);
@@ -224,6 +271,7 @@ export class X1PenBridge {
     this.rejectPending(new Error('X1Pen bridge closed'));
     if (this.socket) this.socket.close(1001, 'Server shutting down');
     this.socket = null;
+    this.connectorDescriptor = null;
     if (this.server) {
       const server = this.server;
       this.server = null;

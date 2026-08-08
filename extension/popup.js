@@ -5,6 +5,9 @@ const connectButton = document.getElementById('connect');
 const disconnectButton = document.getElementById('disconnect');
 const statusElement = document.getElementById('status');
 const sessionsElement = document.getElementById('sessions');
+const connectorVersionElement = document.getElementById('connector-version');
+const mcpVersionElement = document.getElementById('mcp-version');
+const x1penVersionElement = document.getElementById('x1pen-version');
 
 loadState();
 
@@ -48,6 +51,12 @@ async function loadState() {
       portInput.value = state.bridgeConfig.port;
       codeInput.value = state.bridgeConfig.code;
     }
+    connectorVersionElement.textContent = state.connector?.version || 'unknown';
+    mcpVersionElement.textContent = state.server?.version || (state.paired ? 'legacy / unknown' : 'not connected');
+    const x1penVersions = Array.from(new Set(state.sessions
+      .map((session) => session.x1pen?.version)
+      .filter(Boolean)));
+    x1penVersionElement.textContent = x1penVersions.length ? x1penVersions.join(', ') : 'not connected';
     sessionsElement.replaceChildren(...state.sessions.map((session) => {
       const item = document.createElement('li');
       item.textContent = `${session.active ? 'Active: ' : ''}${session.title}`;
