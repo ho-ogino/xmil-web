@@ -159,10 +159,39 @@ test('representative Japanese and English queries reach dedicated X1 hardware en
     ['screen control CRTC', 'x1.video.screen-control'],
     ['PCG パレット', 'x1.video.pcg-palette'],
     ['programmable character palette', 'x1.video.pcg-palette'],
+    ['I/Oマップ', 'x1.io.dispatch-map'],
+    ['キーボード サブCPU', 'x1.io.ppi-subcpu'],
+    ['PSG ジョイスティック', 'x1.io.psg-joystick'],
+    ['FM音源 OPM', 'x1.io.opm'],
+    ['CTC タイマー', 'x1.io.ctc'],
+    ['DMA転送', 'x1.io.dma'],
+    ['SIO マウス', 'x1.io.sio-mouse'],
+    ['FDC フロッピー', 'x1.io.floppy'],
+    ['SASI', 'x1.io.sasi'],
+    ['EMM 拡張メモリ', 'x1.io.emm-rom'],
+    ['漢字ROM', 'x1.io.kanji-rom'],
+    ['turboZ 4096色', 'x1.video.turboz-controls'],
   ]);
 
   for (const [query, expectedId] of cases) {
     const result = searchReference({ language: 'x1', query, maxResults: 3 });
+    assert.equal(result.matches[0]?.id, expectedId, query);
+  }
+});
+
+test('representative Japanese and English queries reach X1Pen assembler entries', () => {
+  const cases = new Map([
+    ['アセンブラの書式', 'z80asm.syntax.source'],
+    ['local label namespace', 'z80asm.syntax.source'],
+    ['16進数 式', 'z80asm.syntax.expressions'],
+    ['DB DW ORG', 'z80asm.directives.data'],
+    ['条件アセンブル', 'z80asm.preprocessor.conditionals'],
+    ['macro arguments', 'z80asm.macros'],
+    ['Z80命令 IXH', 'z80asm.instructions'],
+  ]);
+
+  for (const [query, expectedId] of cases) {
+    const result = searchReference({ language: 'z80asm', query, maxResults: 3 });
     assert.equal(result.matches[0]?.id, expectedId, query);
   }
 });
@@ -248,20 +277,32 @@ test('every X1 hardware reference entry is reachable through relatedIds', () => 
   );
 });
 
+test('every X1Pen assembler reference entry is reachable through relatedIds', () => {
+  const entries = validateReferenceData().entries
+    .filter((entry) => entry.language === 'z80asm');
+  const incoming = new Map(entries.map((entry) => [entry.id, 0]));
+  for (const entry of entries) {
+    for (const relatedId of entry.relatedIds || []) {
+      if (incoming.has(relatedId)) incoming.set(relatedId, incoming.get(relatedId) + 1);
+    }
+  }
+  assert.deepEqual(
+    [...incoming].filter(([, count]) => count === 0).map(([id]) => id),
+    [],
+  );
+});
+
 test('X1 hardware reference matches emulator memory and VRAM constants', () => {
   const x1Header = readFileSync(join(repoRoot, 'src/X1.H'), 'utf8');
   const crtcHeader = readFileSync(join(repoRoot, 'src/X1_CRTC.H'), 'utf8');
   const ioSource = readFileSync(join(repoRoot, 'src/X1_IO.CPP'), 'utf8');
   const vramSource = readFileSync(join(repoRoot, 'platform/x1_vram_port.cpp'), 'utf8');
+  const ids = validateReferenceData().entries
+    .filter((entry) => entry.language === 'x1')
+    .map((entry) => entry.id);
   const details = JSON.stringify(getReferenceEntries({
-    ids: [
-      'x1.architecture.address-spaces',
-      'x1.memory.cpu-banking',
-      'x1.video.text-vram',
-      'x1.video.graphics-vram',
-      'x1.video.screen-control',
-    ],
-    maxCharacters: 64 * 1024,
+    ids,
+    maxCharacters: 128 * 1024,
   }).entries);
 
   assert.match(x1Header, /mBANK\[16\]\[0x8000\]/);
@@ -282,6 +323,11 @@ test('X1 hardware reference matches emulator memory and VRAM constants', () => {
     '2000H-27FFH', '2800H-2FFFH', '3000H-37FFH', '3800H-3FFFH',
     '4000H-7FFFH', '8000H-BFFFH', 'C000H-FFFFH',
     'B+R+G', 'R+G', 'B+G', 'B+R', '0B00H-0BFFH',
+    '0700H/0701H', '0704H-0707H', '0DxxH', '0E80H-0E83H',
+    '0FD0H-0FD3H', '0FF8H-0FFFH', '1900H-19FFH', '1A00H-1A03H',
+    '1BxxH/1CxxH', '1F80H-1F8FH', '1F90H-1F93H',
+    '1FA0H-1FA3H', '1FA8H-1FABH', '1FB9H-1FBFH',
+    '1FD0H/1FE0H', '1FF0H-1FFFH',
   ]) {
     assert.ok(details.includes(fact), `${fact} must remain documented`);
   }
@@ -300,6 +346,52 @@ test('every X1 hardware example assembles with the bundled Z80 assembler', () =>
         `${entry.id}: ${example.title}: ${JSON.stringify(result.errors)}`);
       assert.ok(result.bytes.length > 0, `${entry.id}: ${example.title} must produce bytes`);
     }
+  }
+});
+
+test('every X1Pen assembler example assembles with the bundled assembler', () => {
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const entries = validateReferenceData().entries
+    .filter((entry) => entry.language === 'z80asm');
+  assert.ok(entries.length >= 6);
+  for (const entry of entries) {
+    assert.ok(entry.examples?.length > 0, `${entry.id} must include an example`);
+    for (const example of entry.examples) {
+      const result = assembler.assemble(example.source);
+      assert.equal(result.errors.length, 0,
+        `${entry.id}: ${example.title}: ${JSON.stringify(result.errors)}`);
+      assert.ok(result.bytes.length > 0, `${entry.id}: ${example.title} must produce bytes`);
+    }
+  }
+});
+
+test('every assembler mnemonic is covered by the X1Pen assembler reference', () => {
+  const source = readFileSync(join(repoRoot, 'html/x1pen_z80asm.js'), 'utf8');
+  const block = source.match(/var KNOWN_MNEMONICS = \{\};([\s\S]*?)\.split\(' '\)/);
+  assert.ok(block, 'KNOWN_MNEMONICS must be present');
+  const mnemonics = [...block[1].matchAll(/'([^']*)'/g)]
+    .flatMap((match) => match[1].trim().split(/\s+/).filter(Boolean));
+  assert.ok(mnemonics.length >= 75);
+
+  const documented = new Set(validateReferenceData().entries
+    .filter((entry) => entry.language === 'z80asm')
+    .flatMap((entry) => entry.symbols));
+  for (const mnemonic of new Set(mnemonics)) {
+    assert.ok(documented.has(mnemonic), `${mnemonic} must be covered by the assembler reference`);
+  }
+});
+
+test('every implemented X1 I/O dispatcher has a dedicated reference entry', () => {
+  const source = readFileSync(join(repoRoot, 'src/X1_IO.CPP'), 'utf8');
+  const handlers = new Set([...source.matchAll(/\b(x1_[A-Za-z0-9_]+)\s*\(/g)]
+    .map((match) => match[1]));
+  assert.ok(handlers.size >= 50);
+
+  const documented = new Set(validateReferenceData().entries
+    .filter((entry) => entry.language === 'x1' && entry.kind !== 'catalog')
+    .flatMap((entry) => entry.symbols));
+  for (const handler of handlers) {
+    assert.ok(documented.has(handler), `${handler} must have a dedicated X1 I/O reference entry`);
   }
 });
 

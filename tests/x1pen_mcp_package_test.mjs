@@ -50,6 +50,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
       'reference/slang-catalogs.json',
       'reference/slang.json',
       'reference/x1-hardware.json',
+      'reference/z80asm.json',
       'x1pen-bridge.mjs',
       'x1pen-compatibility.mjs',
       'x1pen-reference.mjs',
@@ -81,7 +82,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     });
     client = new Client({ name: 'x1pen-package-test', version: '1.0.0' });
     await client.connect(transport);
-    assert.match(client.getInstructions(), /FuzzyBASIC and X1Pen SLANG are nonstandard/);
+    assert.match(client.getInstructions(), /built-in Z80 assembler have implementation-specific contracts/);
     assert.match(client.getInstructions(), /separate CPU-memory, I\/O-port and video-memory spaces/);
     assert.match(client.getInstructions(), /x1pen_search_reference/);
 
@@ -114,6 +115,13 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     });
     const hardwareMatches = JSON.parse(hardwareReference.content[0].text);
     assert.ok(hardwareMatches.matches.some((match) => match.language === 'x1'));
+
+    const assemblerReference = await client.callTool({
+      name: 'x1pen_search_reference',
+      arguments: { language: 'z80asm', query: '条件アセンブル' },
+    });
+    const assemblerMatches = JSON.parse(assemblerReference.content[0].text);
+    assert.equal(assemblerMatches.matches[0].id, 'z80asm.preprocessor.conditionals');
   } finally {
     if (client) await client.close();
     await rm(tempRoot, { recursive: true, force: true });

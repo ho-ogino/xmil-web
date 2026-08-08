@@ -1,0 +1,168 @@
+[
+  {
+    "id": "z80asm.syntax.source",
+    "language": "z80asm",
+    "kind": "syntax",
+    "title": "X1Pen assembler source, labels and namespaces",
+    "profiles": ["x1pen-z80asm-current"],
+    "symbols": ["label:", ".local", "[NAME]", ";", "NAME_SPACE_DEFAULT"],
+    "aliases": ["assembler syntax", "label", "local label", "namespace", "comment", "アセンブラ", "アセンブラの書式", "アセンブリ言語", "ソース書式", "ラベル", "ローカルラベル", "名前空間", "コメント"],
+    "summary": "X1Pen uses a case-insensitive two-pass Z80 assembler with semicolon comments, global/local labels, optional colonless labels and bracketed namespaces.",
+    "syntax": [
+      "GLOBAL: instruction        global label with colon",
+      "GLOBAL instruction         colonless label only at the unindented start of a line",
+      ".local: instruction        local label resolved below the latest global label",
+      "[LIBRARY]                  switch symbol namespace",
+      "; comment                  ignored outside a double-quoted DB string"
+    ],
+    "notes": [
+      "Mnemonics, labels, EQU names, macro names and references are case-insensitive.",
+      "Indent instructions when a leading unknown word must not be interpreted as a colonless label.",
+      "A local name such as .loop is qualified by the most recent global label. It cannot be used before any global label establishes its scope.",
+      "Namespaces are emitted as NAME.SYMBOL. An unqualified reference searches the current namespace, NAME_SPACE_DEFAULT and then matching imported namespace suffixes.",
+      "X1Pen injects cold-state address-map symbols before assembly. User labels and EQU definitions may override those predefined values."
+    ],
+    "examples": [{
+      "title": "Global and local labels in the default namespace",
+      "source": "ORG 0100H\nMAIN:\n.loop:\n  NOP\n  JR .loop"
+    }],
+    "relatedIds": ["z80asm.syntax.expressions", "z80asm.directives.data", "z80asm.preprocessor.conditionals", "z80asm.macros", "z80asm.instructions"],
+    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_z80asm.js"]
+  },
+  {
+    "id": "z80asm.syntax.expressions",
+    "language": "z80asm",
+    "kind": "syntax",
+    "title": "Numbers, character literals and expressions",
+    "profiles": ["x1pen-z80asm-current"],
+    "symbols": ["0x", "$", "H", "%", "B", "LOW", "HIGH", "EXISTS", "+", "-", "*", "/", "<<", ">>", "&", "|", "~", "==", "!=", "<", "<=", ">", ">="],
+    "aliases": ["numeric literal", "hexadecimal", "binary", "expression", "operator precedence", "character literal", "数値", "16進数", "2進数", "式", "演算子", "文字リテラル"],
+    "summary": "Expressions are 16-bit and accept decimal, hexadecimal, binary, ASCII character, symbol and current-address values with arithmetic, shift, bitwise and comparison operators.",
+    "syntax": [
+      "123 / 0x7B / $7B / 7BH      decimal and hexadecimal",
+      "%1010 / 1010B              binary",
+      "'A' or \"A\"                one-byte ASCII character literal",
+      "$                            current assembly address",
+      "LOW expr / HIGH expr         low or high byte",
+      "EXISTS symbol                1 when a symbol is already defined, otherwise 0",
+      "precedence: unary; *, /, <<, >>; +, -; &, |; comparisons"
+    ],
+    "notes": [
+      "Expression results wrap to 16 bits. Division by zero currently evaluates to zero.",
+      "Only single-byte ASCII character literals are accepted; use DB with an ASCII double-quoted string for multiple bytes.",
+      "Comparisons return 1 or 0 and are primarily useful in #IF/#ELIF.",
+      "An unresolved symbol is tolerated as a pass-one placeholder but must resolve during pass two."
+    ],
+    "examples": [{
+      "title": "Build a word from high and low byte expressions",
+      "source": "ORG 0100H\nVALUE EQU 1234H\nDB LOW VALUE,HIGH VALUE\nDW (VALUE+2)"
+    }],
+    "relatedIds": ["z80asm.syntax.source", "z80asm.directives.data", "z80asm.preprocessor.conditionals", "z80asm.instructions"],
+    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_z80asm.js"]
+  },
+  {
+    "id": "z80asm.directives.data",
+    "language": "z80asm",
+    "kind": "syntax",
+    "title": "ORG, EQU, data, reservation and alignment directives",
+    "profiles": ["x1pen-z80asm-current"],
+    "symbols": ["ORG", "EQU", "DB", "DEFB", "DW", "DEFW", "DS", "DEFS", "ALIGN"],
+    "aliases": ["assembler directive", "define byte", "define word", "reserve space", "origin", "alignment", "擬似命令", "データ定義", "領域確保", "開始アドレス", "アラインメント"],
+    "summary": "The built-in directives set the origin, define constants and little-endian data, reserve filled bytes and align the current address.",
+    "syntax": [
+      "ORG address                 set location; later ORG may move forward but never backward",
+      "NAME EQU expression         define a case-insensitive constant",
+      "DB/DEFB item,...            bytes; double-quoted ASCII strings are expanded",
+      "DW/DEFW expression,...      little-endian 16-bit words",
+      "DS/DEFS count[,fill]        reserve count bytes; default fill is FFH",
+      "ALIGN boundary[,fill]       pad to the next boundary"
+    ],
+    "notes": [
+      "The first ORG is returned as the assembled block origin. A forward ORG inserts zero padding into the block.",
+      "DW is little-endian, matching Z80 memory order.",
+      "EQU may forward-reference symbols resolved by the second pass, but cyclic definitions remain errors.",
+      "DB string parsing supports double-quoted ASCII text; semicolons inside the string are data rather than comments."
+    ],
+    "examples": [{
+      "title": "Define constants and a small aligned table",
+      "source": "ORG 0100H\nCOUNT EQU 3\nDB \"X1\",0\nALIGN 4,0\nDW COUNT\nDS COUNT,0FFH"
+    }],
+    "relatedIds": ["z80asm.syntax.source", "z80asm.syntax.expressions", "z80asm.preprocessor.conditionals", "z80asm.macros"],
+    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_z80asm.js"]
+  },
+  {
+    "id": "z80asm.preprocessor.conditionals",
+    "language": "z80asm",
+    "kind": "syntax",
+    "title": "Conditional assembly with #IF, #ELIF and #ELSE",
+    "profiles": ["x1pen-z80asm-current"],
+    "symbols": ["#IF", "#ELIF", "#ELSEIF", "#ELSE", "#ENDIF", "EXISTS"],
+    "aliases": ["conditional assembly", "preprocessor", "feature flag", "defined symbol", "条件アセンブル", "プリプロセッサ", "条件分岐", "シンボル判定"],
+    "summary": "A preprocessing pass supports nested #IF blocks, multiple #ELIF/#ELSEIF branches, #ELSE and #ENDIF using assembler expressions and predefined symbols.",
+    "syntax": ["#IF expression", "#ELIF expression or #ELSEIF expression", "#ELSE", "#ENDIF", "#IF EXISTS SYMBOL"],
+    "notes": [
+      "Undefined symbols evaluate as zero during conditional preprocessing, so #IF UNKNOWN is false and #IF UNKNOWN==0 is true.",
+      "Only active EQU definitions become available to later conditions in the preprocessing pass.",
+      "#ELIF after #ELSE, duplicate #ELSE, unmatched directives and unterminated blocks are errors.",
+      "X1Pen address-map predefined symbols are available to the preprocessor as bare names and through NAME_SPACE_DEFAULT."
+    ],
+    "examples": [{
+      "title": "Select code using a predefined or user EQU flag",
+      "source": "ORG 0100H\nTURBO EQU 1\n#IF TURBO\n  LD A,2\n#ELSE\n  LD A,1\n#ENDIF\nRET"
+    }],
+    "relatedIds": ["z80asm.syntax.expressions", "z80asm.directives.data", "z80asm.syntax.source", "z80asm.macros"],
+    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_z80asm.js"]
+  },
+  {
+    "id": "z80asm.macros",
+    "language": "z80asm",
+    "kind": "syntax",
+    "title": "Parameterized MACRO and ENDM expansion",
+    "profiles": ["x1pen-z80asm-current"],
+    "symbols": ["MACRO", "ENDM"],
+    "aliases": ["assembler macro", "macro argument", "macro expansion", "parameter substitution", "マクロ", "マクロ引数", "展開", "定型コード"],
+    "summary": "X1Pen macros use NAME MACRO arg,... through ENDM, support forward calls and calls to other macros, and substitute whole identifier tokens.",
+    "syntax": ["NAME MACRO [ARG,...]", "  instruction using ARG", "ENDM", "NAME value,..."],
+    "notes": [
+      "A macro call must provide exactly the declared number of arguments.",
+      "A macro may call another macro, including one defined later, but recursive expansion is rejected.",
+      "Labels, local labels and EQU definitions are forbidden inside a macro body. Put labels on the macro call line or outside the macro.",
+      "Macro names cannot conflict with an instruction or directive mnemonic. Nested macro definitions and unterminated definitions are errors."
+    ],
+    "examples": [{
+      "title": "Define and call a register-loading macro",
+      "source": "ORG 0100H\nLOAD8 MACRO REG,VALUE\n  LD REG,VALUE\nENDM\nSTART: LOAD8 A,42H\nRET"
+    }],
+    "relatedIds": ["z80asm.syntax.source", "z80asm.directives.data", "z80asm.preprocessor.conditionals", "z80asm.instructions"],
+    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_z80asm.js"]
+  },
+  {
+    "id": "z80asm.instructions",
+    "language": "z80asm",
+    "kind": "catalog",
+    "title": "Z80 instruction and operand forms accepted by X1Pen",
+    "profiles": ["x1pen-z80asm-current"],
+    "symbols": ["NOP", "HALT", "DI", "EI", "RLCA", "RRCA", "RLA", "RRA", "DAA", "CPL", "SCF", "CCF", "EXX", "RET", "LD", "PUSH", "POP", "EX", "ADD", "ADC", "SUB", "SBC", "AND", "OR", "XOR", "CP", "INC", "DEC", "JP", "JR", "DJNZ", "CALL", "RST", "IN", "OUT", "NEG", "RLC", "RRC", "RL", "RR", "SLA", "SRA", "SLL", "SL1", "SRL", "BIT", "RES", "SET", "RETI", "RETN", "IM", "RRD", "RLD", "LDI", "LDIR", "LDD", "LDDR", "CPI", "CPIR", "CPD", "CPDR", "INI", "INIR", "IND", "INDR", "OUTI", "OTIR", "OUTD", "OTDR", "IXH", "IXL", "IYH", "IYL", "(IX+d)", "(IY+d)", "AF'"],
+    "aliases": ["Z80 instruction", "mnemonic", "operand", "indexed addressing", "undocumented instruction", "instruction set", "Z80命令", "ニーモニック", "オペランド", "インデックスレジスタ", "未定義命令", "命令一覧"],
+    "summary": "The assembler covers documented Z80 base, CB, ED, IX and IY families plus IXH/IXL/IYH/IYL and undocumented SLL/SL1 forms represented in its encoder.",
+    "syntax": [
+      "8-bit: A B C D E H L (HL); 16-bit: BC DE HL SP AF IX IY; special: I R AF'",
+      "conditions: NZ Z NC C PO PE P M; JR accepts NZ Z NC C only",
+      "indexed memory: (IX+expr), (IX-expr), (IY+expr), (IY-expr)",
+      "16-bit X1 I/O: LD BC,port then IN r,(C) or OUT (C),r",
+      "immediate I/O IN A,(n)/OUT (n),A encodes only the low 8-bit port and is usually wrong for X1 high-byte-decoded devices"
+    ],
+    "notes": [
+      "Use the symbols list as the accepted mnemonic catalog. Unsupported aliases or alternate syntax produce an assembler error rather than being silently translated.",
+      "IXH/IXL/IYH/IYL and SLL/SL1 are undocumented Z80 forms intentionally supported by X1Pen.",
+      "Relative JR and DJNZ targets must fit signed -128 through +127 bytes from the following instruction.",
+      "For X1 hardware ports such as 1A01H or 4000H, always use the (C) form with the full 16-bit address in BC. IN A,(01H) cannot express 1A01H."
+    ],
+    "examples": [{
+      "title": "Read a full 16-bit X1 port and use indexed addressing",
+      "source": "ORG 0100H\nLD IX,0200H\nLD BC,01A01H\nIN A,(C)\nLD (IX+1),A\nBIT 7,(IX+1)\nRET"
+    }],
+    "relatedIds": ["z80asm.syntax.source", "z80asm.syntax.expressions", "z80asm.directives.data", "z80asm.macros", "x1.architecture.address-spaces", "x1.io.dispatch-map"],
+    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_z80asm.js"]
+  }
+]

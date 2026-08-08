@@ -90,7 +90,7 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 | `x1pen_list_sessions` | 接続済みX1Penタブを一覧表示 |
 | `x1pen_select_session` | 操作対象タブを選択 |
 | `x1pen_get_language_profile` | 同梱言語／X1ハードウェアprofileと接続中X1Penの言語profileを確認 |
-| `x1pen_search_reference` | FuzzyBASIC / SLANG / X1ハードウェアリファレンスを要約検索 |
+| `x1pen_search_reference` | FuzzyBASIC / SLANG / 内蔵Z80アセンブラ / X1ハードウェアリファレンスを要約検索 |
 | `x1pen_get_reference` | 検索結果のIDを指定して詳細を上限付きで取得 |
 | `x1pen_get_program` | メタデータと明示指定した完全ソースを取得 |
 | `x1pen_get_source` | 1セクションを行範囲・文字数上限付きで取得 |
@@ -117,9 +117,9 @@ AIによる更新、検証、実行、停止中はエディターとツールバ
 
 ### 言語・X1ハードウェアリファレンス
 
-MCPパッケージには、X1Pen FuzzyBASIC 1.2L（X1 / LSX-Dodgers版）、X1Pen内蔵SLANGコンパイラ、X millennium Webが実装するX1ハードウェアに対応する構造化リファレンスが同梱されています。ブラウザー未接続でも検索できるため、プログラム作成前に仕様を確認できます。MCP初期化時にも「一般的なBASIC、C、別バージョンのSLANGから仕様を推測しない」こと、X1のCPUメモリ／I/O空間／VRAMを混同しないこと、生成前のリファレンス検索、生成後の検証をクライアントへ通知します。
+MCPパッケージには、X1Pen FuzzyBASIC 1.2L（X1 / LSX-Dodgers版）、X1Pen内蔵SLANGコンパイラ、内蔵Z80アセンブラ、X millennium Webが実装するX1ハードウェアに対応する構造化リファレンスが同梱されています。ブラウザー未接続でも検索できるため、プログラム作成前に仕様を確認できます。MCP初期化時にも「一般的なBASIC、C、別バージョンのSLANGや別のアセンブラから仕様を推測しない」こと、X1のCPUメモリ／I/O空間／VRAMを混同しないこと、生成前のリファレンス検索、生成後の検証をクライアントへ通知します。
 
-schema v2の`symbols`と`relatedIds`による索引はFuzzyBASIC、SLANG、X1ハードウェアの全profileへ適用しています。SLANGは内蔵コンパイラの予約語表と、`x1pen.js`が実際に読み込むruntime/includeファイルから公開シンボルを検査し、更新時に未収録項目が生じるとテストで検出します。
+schema v2の`symbols`と`relatedIds`による索引はFuzzyBASIC、SLANG、内蔵Z80アセンブラ、X1ハードウェアの全profileへ適用しています。SLANGは内蔵コンパイラの予約語表と、`x1pen.js`が実際に読み込むruntime/includeファイルから公開シンボルを検査します。アセンブラは内蔵実装の全命令語、X1ハードウェアは現在の`Z80_In` / `Z80_Out`から到達する全I/Oハンドラを検査し、更新時に未収録項目が生じるとテストで検出します。
 
 最初に`x1pen_get_language_profile`を呼ぶと、同梱profileを確認できます。X1Penへ接続済みなら、ブラウザーが報告したprofile IDとの互換性も返します。
 
@@ -143,6 +143,16 @@ FuzzyBASICの固有構文は記号や日本語でも検索できます。
 }
 ```
 
+内蔵Z80アセンブラの書式も独立profileとして検索できます。
+
+```json
+{
+  "language": "z80asm",
+  "query": "条件アセンブル macro",
+  "maxResults": 5
+}
+```
+
 必要な項目だけ`x1pen_get_reference`で取得します。1回に指定できるIDは10件までで、既定の応答上限は32 KiBです。
 
 ```json
@@ -155,7 +165,9 @@ FuzzyBASICについては、メモリ／I/O配列、16bit値と変数制約、PR
 
 SLANGについては、正確なコンパイラrevision、`ENV_TYPE=1`のLSX-Dodgers環境、予約語と文字列関数、native FLOAT、LSXファイル、X1の画面／描画／PCG／PSG／VSYNC／SGL、圧縮・画像ローダ、同梱される8本のinclude APIを収録しています。網羅catalogには内部実装シンボルも含まれるため、通常は検索結果の専用項目を優先してください。ゲーム開発で利用するPCGについては、FuzzyBASICの`PCGDEF` / `TCOLOR`、SLANGの`PCGDEF` / `PCGDEFS`、24-byte BRGパターン形式、TILELIBとの初期化順序まで独立項目として収録しています。未知のAPIや複雑な引数規約については、リファレンス確認後も`x1pen_validate`で検証してください。
 
-X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分離、X1turbo/Zの低位バンクRAM、テキスト／属性／漢字VRAM、グラフィックVRAMのbankとB/R/G plane、PPIによる同時アクセス、画面制御、PCG／基本パレットを収録しています。VRAMをCPUバンク切替で参照できるとは推測せず、デバッガでは`x1pen_debug_read_memory`と`x1pen_debug_read_vram`を目的に応じて使い分けてください。PSG、サブCPU、CTC、DMA、FDC、SASI、EMM等の詳細I/Oは後続で段階的に追加します。
+内蔵Z80アセンブラについては、数値／文字列／式、global・local labelとnamespace、`ORG` / `EQU` / `DB` / `DW` / `DS` / `ALIGN`、条件アセンブル、macro、受理される全命令語を収録しています。X1のI/Oは16bit portを使うため、一般的な8bit immediate portを推測せず、`LD BC,port`と`IN A,(C)` / `OUT (C),A`の形を確認してください。全項目の例を現在の内蔵アセンブラで自動検証しています。
+
+X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分離、X1turbo/Zの低位バンクRAM、テキスト／属性／漢字VRAM、グラフィックVRAMのbankとB/R/G plane、同時アクセス、画面制御、PCG／paletteに加え、PPI・sub CPU、PSG・joystick、OPM、CTC、DMA、SIO・mouse、FDC、SASI、EMM・ROM board、漢字ROM、turboZ拡張を収録しています。VRAMをCPUバンク切替で参照できるとは推測せず、デバッガでは`x1pen_debug_read_memory`と`x1pen_debug_read_vram`を目的に応じて使い分けてください。収録範囲は現在のX millennium Webビルドが実際にdispatchする機能であり、未実装の実機拡張は掲載しません。
 
 ### 大きなプログラムの扱い
 

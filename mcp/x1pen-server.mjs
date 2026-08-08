@@ -19,7 +19,7 @@ const MAX_SOURCE_LENGTH = 512 * 1024;
 const DEFAULT_RANGE_CHARACTERS = 32 * 1024;
 const MAX_RANGE_CHARACTERS = 128 * 1024;
 const SOURCE_SECTIONS = ['basic', 'asm', 'slang'];
-const REFERENCE_LANGUAGES = ['fuzzybasic', 'slang', 'x1'];
+const REFERENCE_LANGUAGES = ['fuzzybasic', 'slang', 'z80asm', 'x1'];
 const REFERENCE_KINDS = [
   'syntax', 'runtime', 'x1-extension', 'catalog', 'library', 'profile', 'limits',
   'architecture', 'memory', 'video', 'io',
@@ -36,7 +36,7 @@ const DEBUGGER_VRAM_REGION_SIZES = {
   graphics: 0x4000,
 };
 const SERVER_INSTRUCTIONS = [
-  'X1Pen FuzzyBASIC and X1Pen SLANG are nonstandard languages. Do not infer syntax or APIs from ordinary BASIC, C, or another SLANG release.',
+  'X1Pen FuzzyBASIC, SLANG and the built-in Z80 assembler have implementation-specific contracts. Do not infer syntax or APIs from ordinary BASIC, C, another SLANG release or a different assembler.',
   'The X1 has separate CPU-memory, I/O-port and video-memory spaces. Before direct memory, port, bank or VRAM work, search the bundled x1 hardware reference instead of inferring another machine architecture.',
   'Before writing or substantially editing a program, call x1pen_get_language_profile, search the bundled reference with x1pen_search_reference, and fetch only the needed IDs with x1pen_get_reference.',
   'After editing, call x1pen_validate. Run and inspect the visible emulator when behavior must be confirmed.',
@@ -414,7 +414,7 @@ export function createX1PenMcpServer(options = {}) {
   }, handleTool(async ({ sessionId }) => textResult(bridge.selectSession(sessionId))));
 
   server.registerTool('x1pen_get_language_profile', {
-    description: 'Call before generating nontrivial code. Lists the bundled FuzzyBASIC, SLANG and X1 hardware profiles and, when connected, compares language profiles with those reported by X1Pen.',
+    description: 'Call before generating nontrivial code. Lists the bundled FuzzyBASIC, SLANG, built-in Z80 assembler and X1 hardware profiles and, when connected, compares language profiles with those reported by X1Pen.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       includeActive: z.boolean().default(true)
@@ -448,7 +448,7 @@ export function createX1PenMcpServer(options = {}) {
   }));
 
   server.registerTool('x1pen_search_reference', {
-    description: 'Search the bundled X1Pen-specific FuzzyBASIC, SLANG and X1 hardware reference before assuming syntax, APIs, memory maps or I/O behavior. Returns compact summaries and stable IDs; use x1pen_get_reference for selected details.',
+    description: 'Search the bundled X1Pen-specific FuzzyBASIC, SLANG, built-in Z80 assembler and X1 hardware reference before assuming syntax, APIs, memory maps or I/O behavior. Returns compact summaries and stable IDs; use x1pen_get_reference for selected details.',
     inputSchema: {
       query: z.string().min(1).max(1_024),
       language: z.enum(REFERENCE_LANGUAGES).optional(),
