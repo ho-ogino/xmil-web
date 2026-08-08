@@ -64,8 +64,9 @@ emcmake cmake .. -DCMAKE_BUILD_TYPE=Release
 echo "Building..."
 emmake make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
-# CMakeLists.txt からバージョン文字列を取得
-XMIL_VERSION=$(grep 'set(XMIL_VERSION' "${SCRIPT_DIR}/CMakeLists.txt" | sed 's/.*"\(.*\)".*/\1/')
+# X1Penの製品バージョンはhtml/x1pen-version.jsを真実の源とする
+XMIL_VERSION=$(sed -n "s/.*version: '\([^']*\)'.*/\1/p" "${SCRIPT_DIR}/html/x1pen-version.js" | head -1)
+[ -n "${XMIL_VERSION}" ] || { echo "Failed to read X1Pen version" >&2; exit 1; }
 COLD_STATE_FILE="fuzzybasic_cold.v1.xmst"
 BOOT_DISK_FILE="fuzzybasic_boot.v1.d88"
 
@@ -89,6 +90,7 @@ cp "${SCRIPT_DIR}/html/apple-touch-icon.png" ./apple-touch-icon.png
 
 # X1Pen IDE ファイル
 cp "${SCRIPT_DIR}/html/x1pen.html"           ./x1pen.html
+cp "${SCRIPT_DIR}/html/x1pen-version.js"     ./x1pen-version.js
 cp "${SCRIPT_DIR}/html/x1pen.js"             ./x1pen.js
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
@@ -180,6 +182,7 @@ cp ./apple-touch-icon.png "${DIST_DIR}/"
 
 # X1Pen IDE
 cp "${SCRIPT_DIR}/html/x1pen.html"           "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen-version.js"     "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen.js"             "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"

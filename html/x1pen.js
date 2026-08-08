@@ -1770,6 +1770,16 @@ window.__X1PEN_MODE = true;
         });
     }
 
+    var X1PEN_AUTOMATION_API_VERSION = 2;
+    var X1PEN_PRODUCT = window.X1PenBuild || { name: 'x1pen', version: 'unknown' };
+
+    function getAutomationFeatures() {
+        var features = ['automation.core', 'screen.capture'];
+        if (isDebuggerModuleAvailable()) features.push('debugger.cpu');
+        if (isDebuggerVramModuleAvailable()) features.push('debugger.vram');
+        return features;
+    }
+
     // Call X1PenAutomation.ready() before synchronous observation methods.
     // Async debugger methods wait for readiness.
     var automationDebuggerApi = Object.freeze({
@@ -1835,6 +1845,12 @@ window.__X1PEN_MODE = true;
             status: elStatus ? elStatus.textContent : '',
             sourceMode: sourceMode,
             activeLanguageProfile: activeLanguageProfile,
+            x1pen: {
+                name: X1PEN_PRODUCT.name,
+                version: X1PEN_PRODUCT.version,
+                automationApiVersion: X1PEN_AUTOMATION_API_VERSION,
+                features: getAutomationFeatures()
+            },
             capabilities: {
                 debugger: {
                     available: isDebuggerModuleAvailable(),
@@ -1940,7 +1956,7 @@ window.__X1PEN_MODE = true;
     }
 
     window.X1PenAutomation = Object.freeze({
-        version: 2,
+        version: X1PEN_AUTOMATION_API_VERSION,
         ready: function() {
             return automationReadyPromise.then(getAutomationStatus);
         },

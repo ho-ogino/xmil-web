@@ -12,6 +12,7 @@
     "THIRD_PARTY_LICENSES.md",
     "reference",
     "x1pen-bridge.mjs",
+    "x1pen-compatibility.mjs",
     "x1pen-reference.mjs",
     "x1pen-server.mjs"
   ],

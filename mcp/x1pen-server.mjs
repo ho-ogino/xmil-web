@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as z from 'zod/v4';
 import { X1PenBridge } from './x1pen-bridge.mjs';
+import { createMcpDescriptor } from './x1pen-compatibility.mjs';
 import {
   getReferenceEntries,
   getReferenceManifest,
@@ -40,6 +41,7 @@ const SERVER_INSTRUCTIONS = [
   'Before writing or substantially editing a program, call x1pen_get_language_profile, search the bundled reference with x1pen_search_reference, and fetch only the needed IDs with x1pen_get_reference.',
   'After editing, call x1pen_validate. Run and inspect the visible emulator when behavior must be confirmed.',
   'Prefer bounded source and reference tools so generated ASM and unrelated manual sections do not consume context.',
+  'Connection and status results report MCP, Connector and X1Pen compatibility. Do not retry a feature that reports an update-required error until that component is updated.',
 ].join(' ');
 
 function textResult(value) {
@@ -49,6 +51,16 @@ function textResult(value) {
 }
 
 function toolError(error) {
+  if (error && typeof error.code === 'string') {
+    const details = {};
+    for (const key of ['code', 'component', 'feature', 'message', 'currentVersion', 'requiredVersion', 'action']) {
+      if (typeof error[key] === 'string') details[key] = error[key];
+    }
+    return {
+      isError: true,
+      content: [{ type: 'text', text: JSON.stringify({ error: details }) }],
+    };
+  }
   return {
     isError: true,
     content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }],
@@ -375,7 +387,10 @@ function compactDebuggerVramWrite(value) {
 }
 
 export function createX1PenMcpServer(options = {}) {
-  const bridge = options.bridge || new X1PenBridge(options.bridgeOptions);
+  const bridge = options.bridge || new X1PenBridge({
+    ...options.bridgeOptions,
+    serverDescriptor: options.bridgeOptions?.serverDescriptor || createMcpDescriptor(PACKAGE.version),
+  });
   const server = new McpServer(
     { name: 'x1pen', version: PACKAGE.version },
     { instructions: SERVER_INSTRUCTIONS },
@@ -725,7 +740,13 @@ export function createX1PenMcpServer(options = {}) {
     description: 'Get readiness, revision, lock and status state from the connected X1Pen tab.',
     inputSchema: sessionInput,
     annotations: { readOnlyHint: true, openWorldHint: false },
-  }, handleTool(async ({ sessionId }) => textResult(await bridge.sendCommand('getStatus', {}, sessionId))));
+  }, handleTool(async ({ sessionId }) => {
+    const status = await bridge.sendCommand('getStatus', {}, sessionId);
+    const compatibility = typeof bridge.getSessionCompatibility === 'function'
+      ? bridge.getSessionCompatibility(sessionId)
+      : null;
+    return textResult({ ...status, compatibility });
+  }));
 
   server.registerTool('x1pen_capture_screen', {
     description: 'Capture the connected X1Pen emulator canvas as a 640x400 PNG.',

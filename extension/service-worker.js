@@ -1,5 +1,12 @@
 import { invokeX1PenInPage } from './page-automation.mjs';
 import { createUpdateCoordinator } from './update-coordinator.mjs';
+import {
+  assertMcpProtocolSupported,
+  createConnectorDescriptor,
+  normalizeMcpServerDescriptor,
+  normalizeX1PenDescriptor,
+  serializeExtensionError,
+} from './compatibility.mjs';
 
 const connectedTabs = new Map();
 let bridgeConfig = null;
@@ -7,6 +14,33 @@ let socket = null;
 let paired = false;
 let connectPromise = null;
 let reconnectTimer = null;
+let serverDescriptor = null;
+
+function connectorDescriptor() {
+  return createConnectorDescriptor(chrome.runtime.getManifest().version);
+}
+
+function sessionFromStatus(status, base = {}) {
+  return {
+    ...base,
+    sessionId: base.sessionId || status.instanceId,
+    title: status.title,
+    url: status.url,
+    revision: status.revision,
+    x1pen: normalizeX1PenDescriptor(status),
+  };
+}
+
+function bridgeSession(session) {
+  return {
+    sessionId: session.sessionId,
+    title: session.title,
+    url: session.url,
+    active: !!session.active,
+    revision: session.revision,
+    x1pen: session.x1pen,
+  };
+}
 
 const updateCoordinator = createUpdateCoordinator({
   prepare: prepareForUpdate,
@@ -23,7 +57,9 @@ async function initialize() {
   const session = await chrome.storage.session.get('connectedTabs');
   for (const item of session.connectedTabs || []) connectedTabs.set(item.sessionId, item);
   updateBadge();
-  if (bridgeConfig && connectedTabs.size > 0) connectBridge().catch(() => {});
+  if (bridgeConfig && connectedTabs.size > 0) {
+    connectBridge().then(refreshSessions).then(sendSessions).catch(() => {});
+  }
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -44,7 +80,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 async function handlePopupMessage(message) {
   if (message.type === 'get-state') {
     await refreshSessions();
-    return { bridgeConfig, paired, sessions: Array.from(connectedTabs.values()) };
+    return {
+      bridgeConfig,
+      paired,
+      connector: connectorDescriptor(),
+      server: serverDescriptor,
+      sessions: Array.from(connectedTabs.values(), bridgeSession),
+    };
   }
   if (message.type === 'connect-active-tab') {
     const port = Number(message.port);
@@ -57,21 +99,17 @@ async function handlePopupMessage(message) {
     const status = await invokeX1Pen(tab.id, 'probe', {});
     bridgeConfig = { port, code };
     await chrome.storage.local.set({ bridgeConfig });
-    connectedTabs.set(status.instanceId, {
-      sessionId: status.instanceId,
+    connectedTabs.set(status.instanceId, sessionFromStatus(status, {
       tabId: tab.id,
-      title: status.title,
-      url: status.url,
       active: true,
-      revision: status.revision,
-    });
+    }));
     await persistSessions();
     try {
       await connectBridge();
       await invokeX1Pen(tab.id, 'connection', { connected: true });
       await refreshSessions();
       sendSessions();
-      return { paired: true, session: connectedTabs.get(status.instanceId) };
+      return { paired: true, session: bridgeSession(connectedTabs.get(status.instanceId)) };
     } catch (error) {
       connectedTabs.delete(status.instanceId);
       await persistSessions();
@@ -112,6 +150,7 @@ async function connectBridge() {
       type: 'pair',
       code: bridgeConfig.code,
       extensionVersion: chrome.runtime.getManifest().version,
+      connector: connectorDescriptor(),
     }));
     ws.onmessage = (event) => {
       let message;
@@ -120,6 +159,16 @@ async function connectBridge() {
         clearTimeout(timeout);
         didPair = true;
         paired = true;
+        serverDescriptor = normalizeMcpServerDescriptor(message);
+        try {
+          assertMcpProtocolSupported(serverDescriptor);
+        } catch (error) {
+          paired = false;
+          serverDescriptor = null;
+          ws.close(1002, 'Unsupported MCP bridge protocol');
+          reject(error);
+          return;
+        }
         sendSessions();
         resolve();
       } else if (message.type === 'command') {
@@ -138,6 +187,7 @@ async function connectBridge() {
       if (socket === ws) {
         socket = null;
         paired = false;
+        serverDescriptor = null;
         for (const session of connectedTabs.values()) {
           invokeX1Pen(session.tabId, 'connection', { connected: false }).catch(() => {});
         }
@@ -183,7 +233,11 @@ async function prepareForUpdate() {
 async function handleCommand(message) {
   const session = connectedTabs.get(message.sessionId);
   if (!session) {
-    send({ type: 'result', id: message.id, ok: false, error: 'X1Pen tab is no longer connected' });
+    send({ type: 'result', id: message.id, ok: false, error: {
+      code: 'SESSION_NOT_FOUND',
+      component: 'connector',
+      message: 'X1Pen tab is no longer connected',
+    } });
     return;
   }
   try {
@@ -192,7 +246,7 @@ async function handleCommand(message) {
     send({ type: 'result', id: message.id, ok: true, result });
     sendSessions();
   } catch (error) {
-    send({ type: 'result', id: message.id, ok: false, error: error.message || String(error) });
+    send({ type: 'result', id: message.id, ok: false, error: serializeExtensionError(error) });
   }
 }
 
@@ -212,13 +266,10 @@ async function refreshSessions() {
   for (const [sessionId, session] of Array.from(connectedTabs)) {
     try {
       const status = await invokeX1Pen(session.tabId, 'getStatus', {});
-      connectedTabs.set(sessionId, {
+      connectedTabs.set(sessionId, sessionFromStatus(status, {
         ...session,
-        title: status.title,
-        url: status.url,
-        revision: status.revision,
         active: session.tabId === activeTab?.id,
-      });
+      }));
     } catch {
       connectedTabs.delete(sessionId);
     }
@@ -227,7 +278,7 @@ async function refreshSessions() {
 }
 
 function sendSessions() {
-  send({ type: 'sessions', sessions: Array.from(connectedTabs.values()) });
+  send({ type: 'sessions', sessions: Array.from(connectedTabs.values(), bridgeSession) });
   updateBadge();
 }
 
