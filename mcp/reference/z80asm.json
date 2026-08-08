@@ -67,7 +67,7 @@
     "title": "ORG, EQU, data, reservation and alignment directives",
     "profiles": ["x1pen-z80asm-current"],
     "symbols": ["ORG", "EQU", "DB", "DEFB", "DW", "DEFW", "DS", "DEFS", "ALIGN"],
-    "aliases": ["assembler directive", "define byte", "define word", "reserve space", "origin", "alignment", "擬似命令", "データ定義", "領域確保", "開始アドレス", "アラインメント"],
+    "aliases": ["assembler directive", "define byte", "define word", "reserve space", "origin", "alignment", "擬似命令", "等価定義", "データ定義", "領域確保", "開始アドレス", "アラインメント"],
     "summary": "The built-in directives set the origin, define constants and little-endian data, reserve filled bytes and align the current address.",
     "syntax": [
       "ORG address                 set location; later ORG may move forward but never backward",

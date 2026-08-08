@@ -276,7 +276,7 @@
     "title": "8255 PPI, sub CPU, keyboard, calendar and cassette commands",
     "profiles": ["x1-hardware-xmillennium-web"],
     "symbols": ["1900H-19FFH", "1A00H", "1A01H", "1A02H", "1A03H", "D0H-DFH", "E3H-EFH", "x1_sub_w", "x1_sub_r", "x1_8255_w", "x1_8255_r"],
-    "aliases": ["8255", "PPI", "sub CPU", "keyboard command", "calendar", "cassette control", "CMT", "サブCPU", "キーボード", "カレンダー", "時計", "カセット", "PPIステータス"],
+    "aliases": ["8255", "PPI", "sub CPU", "keyboard command", "calendar", "cassette control", "CMT", "サブCPU", "キーボード", "キー入力", "カレンダー", "時計", "カセット", "PPIステータス"],
     "summary": "Port 1900H exchanges command/data bytes with the X1 sub CPU, while PPI ports 1A00H-1A03H expose handshake, display, ROM and simultaneous-graphics control signals.",
     "syntax": [
       "1900H       sub-CPU command/data port (high-byte aliases 1900H-19FFH)",
@@ -372,7 +372,7 @@
     "title": "Z80 CTC timers and interrupt vectors",
     "profiles": ["x1-hardware-xmillennium-web"],
     "symbols": ["0704H-0707H", "1FA0H-1FA3H", "1FA8H-1FABH", "Z80 CTC", "x1_ctc_w", "x1_ctc_r"],
-    "aliases": ["CTC", "counter timer", "timer interrupt", "interrupt vector", "カウンタ", "タイマー", "割り込み", "CTCポート", "定周期処理"],
+    "aliases": ["CTC", "counter timer", "timer interrupt", "interrupt vector", "カウンタ", "タイマー", "タイマー割り込み", "割り込み", "CTCポート", "定周期処理"],
     "summary": "X1turbo/Z exposes two four-channel CTC blocks at 1FA0H and 1FA8H; an enabled OPM board adds a third block at 0704H.",
     "syntax": [
       "1FA0H-1FA3H   turbo CTC block 0 channels 0-3",
