@@ -1,9 +1,10 @@
 {
   "schemaVersion": 2,
-  "referenceVersion": "2026-08-07",
+  "referenceVersion": "2026-08-08",
   "defaultProfiles": {
     "fuzzybasic": "x1pen-fuzzybasic-1.2L",
     "slang": "x1pen-slang-c9e8f53-lsx",
+    "z80asm": "x1pen-z80asm-current",
     "x1": "x1-hardware-xmillennium-web"
   },
   "profiles": [
@@ -35,11 +36,21 @@
       ]
     },
     {
+      "id": "x1pen-z80asm-current",
+      "language": "z80asm",
+      "displayName": "X1Pen built-in Z80 assembler",
+      "implementation": "html/x1pen_z80asm.js",
+      "notes": "The exact two-pass assembler bundled with X1Pen, including its accepted mnemonics, expressions, directives, namespaces, conditional assembly, macros and predefined address-map symbol behavior.",
+      "sourceUrls": [
+        "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_z80asm.js"
+      ]
+    },
+    {
       "id": "x1-hardware-xmillennium-web",
       "language": "x1",
       "displayName": "X1 hardware implemented by X millennium Web",
       "environment": "SHARP X1 / X1turbo / X1turboZ",
-      "notes": "A focused hardware profile derived from the emulator implementation and cross-checked against X1 technical documentation. It distinguishes CPU memory, I/O ports and logical VRAM debugger regions; broader peripheral I/O coverage is intentionally incremental.",
+      "notes": "The I/O and memory profile implemented by X millennium Web, derived from Z80_In/Z80_Out dispatch and device handlers and cross-checked against X1 technical documentation. It excludes peripherals not routed by the current build.",
       "sourceUrls": [
         "https://github.com/ho-ogino/xmil-web/tree/main/src",
         "https://github.com/ho-ogino/xmil-web/tree/main/platform",

@@ -290,17 +290,24 @@ test('language reference tools search compact results and fetch selected details
     arguments: { language: 'x1', query: 'I/O空間 VRAM' },
   });
   assert.equal(jsonContent(hardwareResult).matches[0].id, 'x1.architecture.address-spaces');
+
+  const assemblerResult = await client.callTool({
+    name: 'x1pen_search_reference',
+    arguments: { language: 'z80asm', query: 'MACRO ENDM' },
+  });
+  assert.equal(jsonContent(assemblerResult).matches[0].id, 'z80asm.macros');
 });
 
 test('language profile reports bundled data and connected X1Pen compatibility', async () => {
   const result = await client.callTool({ name: 'x1pen_get_language_profile', arguments: {} });
   const profile = jsonContent(result);
   assert.equal(profile.schemaVersion, 2);
-  assert.equal(profile.profiles.length, 3);
+  assert.equal(profile.profiles.length, 4);
   assert.equal(profile.active.id, 'x1pen-fuzzybasic-1.2L');
   assert.equal(profile.profiles[0].environment, 'SHARP X1 / LSX-Dodgers');
   assert.equal(profile.reportedProfiles.slang.id, 'x1pen-slang-c9e8f53-lsx');
   assert.equal(profile.defaultProfiles.x1, 'x1-hardware-xmillennium-web');
+  assert.equal(profile.defaultProfiles.z80asm, 'x1pen-z80asm-current');
   assert.equal(profile.compatible, true);
   assert.equal(calls.at(-1).method, 'getStatus');
 });

@@ -56,7 +56,7 @@
       "In normal low-memory mapping, writes go to main RAM. Reads select IPL ROM or main RAM according to the ROM switch controlled by 1Dxx and 1Exx output ports.",
       "The debugger state reports lowMemory.mapping as bios, main or bank and reports the selected bank when applicable. x1pen_debug_read_memory follows that active view.",
       "Graphics bank 0/1 is unrelated to these CPU-memory pages. Select graphics banks only through screen control or the VRAM debugger bank parameter.",
-      "EMM is a separate I/O peripheral and is not the X1turbo low-memory bank mechanism. This initial hardware profile does not document EMM ports."
+      "EMM is a separate I/O peripheral and is not the X1turbo low-memory bank mechanism. See x1.io.emm-rom for its independent address/data ports."
     ],
     "examples": [
       {
@@ -77,7 +77,7 @@
     "kind": "video",
     "title": "Text, attribute and kanji VRAM",
     "profiles": ["x1-hardware-xmillennium-web"],
-    "symbols": ["2000H-27FFH", "2800H-2FFFH", "3000H-37FFH", "3800H-3FFFH", "TEXT_ATR", "TEXT_ANK", "TEXT_KNJ", "X1ATR_PCG"],
+    "symbols": ["2000H-27FFH", "2800H-2FFFH", "3000H-37FFH", "3800H-3FFFH", "TEXT_ATR", "TEXT_ANK", "TEXT_KNJ", "X1ATR_PCG", "x1_txt_w", "x1_txt_r"],
     "aliases": ["text VRAM", "attribute VRAM", "kanji VRAM", "ANK", "text color", "blink", "double width", "テキストVRAM", "属性VRAM", "漢字VRAM", "文字色", "点滅", "倍角"],
     "summary": "Text display uses three logical 2048-byte regions in I/O space: attributes at canonical 2000H-27FFH, ANK character codes at 3000H-37FFH, and turbo/Z kanji codes at 3800H-3FFFH.",
     "syntax": [
@@ -114,7 +114,7 @@
     "kind": "video",
     "title": "Graphics VRAM banks, color planes and simultaneous access",
     "profiles": ["x1-hardware-xmillennium-web"],
-    "symbols": ["4000H-7FFFH", "8000H-BFFFH", "C000H-FFFFH", "BLUE", "RED", "GREEN", "IO_MODE", "1A02H"],
+    "symbols": ["4000H-7FFFH", "8000H-BFFFH", "C000H-FFFFH", "BLUE", "RED", "GREEN", "IO_MODE", "1A02H", "x1_grp_w", "x1_grp_w2", "x1_grp_r"],
     "aliases": ["graphics VRAM", "VRAM plane", "color plane", "display bank", "access bank", "simultaneous access", "GRAM", "グラフィックVRAM", "色プレーン", "表示バンク", "アクセスバンク", "同時アクセス", "同時書き込み"],
     "summary": "Graphics VRAM has independent blue, red and green 16KB planes. X1turbo/Z provides banks 0 and 1, while original X1 supports bank 0 only.",
     "syntax": [
@@ -155,7 +155,7 @@
     "kind": "video",
     "title": "Screen control, CRTC and graphics bank selection",
     "profiles": ["x1-hardware-xmillennium-web"],
-    "symbols": ["1800H-18FFH", "1A02H", "1FD0H", "SCRN_BITS", "SCRN_DISPVRAM", "SCRN_ACCESSVRAM", "SCRN_PCGMODE"],
+    "symbols": ["1800H-18FFH", "1A02H", "1FD0H", "SCRN_BITS", "SCRN_DISPVRAM", "SCRN_ACCESSVRAM", "SCRN_PCGMODE", "x1_crtc_w", "x1_scrn_w", "x1_scrn_r"],
     "aliases": ["screen mode", "screen control", "CRTC", "display bank", "access bank", "display bank access bank", "resolution", "40 columns", "80 columns", "画面モード", "画面制御", "表示バンク", "アクセスバンク", "表示バンク アクセスバンク", "解像度", "CRTC"],
     "summary": "The CRTC and PPI determine text and graphics dimensions. X1turbo/Z screen-control port 1FD0H also selects the displayed and CPU-access graphics banks independently.",
     "syntax": [
@@ -197,7 +197,7 @@
     "kind": "video",
     "title": "PCG character patterns and base graphics palette",
     "profiles": ["x1-hardware-xmillennium-web"],
-    "symbols": ["1000H-12FFH", "1400H-14FFH", "1500H-15FFH", "1600H-16FFH", "1700H-17FFH", "X1ATR_PCG", "SCRN_PCGMODE"],
+    "symbols": ["1000H-12FFH", "1300H-13FFH", "1400H-14FFH", "1500H-15FFH", "1600H-16FFH", "1700H-17FFH", "X1ATR_PCG", "SCRN_PCGMODE", "x1_palet_w", "x1_palet_r", "x1_ply_w", "x1_ply_r", "x1_pcg_w", "x1_pcg_r"],
     "aliases": ["PCG", "programmable character", "character generator", "palette", "blue palette", "red palette", "green palette", "キャラクタジェネレータ", "キャラクター定義", "パレット", "色設定"],
     "summary": "PCG provides blue, red and green pattern bytes for programmable text characters. Base graphics palette components are controlled through the 1000H, 1100H and 1200H port groups.",
     "syntax": [
@@ -214,7 +214,7 @@
       "A PCG glyph is color-planar: each raster row has separate blue, red and green pattern bytes. The text attribute PCG bit selects programmable rather than ROM character data.",
       "Original-compatible PCG access is synchronized with the currently scanned text cell. X1turbo/Z high-speed PCG mode changes addressing behavior and is selected by screen-control bit 5.",
       "Direct PCG port programming is timing- and mode-sensitive. For FuzzyBASIC or SLANG, prefer the bundled PCG helpers documented by those language profiles unless hardware-level control is required.",
-      "The 1000H/1100H/1200H groups are base blue/red/green palette controls. X1turboZ extended palettes add further modes and ports not covered by this initial reference.",
+      "The 1000H/1100H/1200H groups are base blue/red/green palette controls. The 1300H group controls display priority. X1turboZ extended modes are documented separately.",
       "PCG RAM is not exposed by the current VRAM debugger regions. text and attribute regions let a debugger inspect which character and PCG attribute a cell uses."
     ],
     "examples": [
@@ -223,11 +223,387 @@
         "source": "ORG 0100H\nLD BC,01000H\nLD A,0FFH\nOUT (C),A\nRET"
       }
     ],
-    "relatedIds": ["x1.video.text-vram", "x1.video.screen-control", "x1.video.graphics-vram", "x1.architecture.address-spaces"],
+    "relatedIds": ["x1.video.text-vram", "x1.video.screen-control", "x1.video.graphics-vram", "x1.video.turboz-controls", "x1.architecture.address-spaces"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_PCG.CPP",
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_CRTC.CPP",
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_VRAM.H",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.io.dispatch-map",
+    "language": "x1",
+    "kind": "catalog",
+    "title": "X millennium Web implemented I/O port map",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["0700H-0707H", "0B00H-0BFFH", "0D00H-0DFFH", "0E00H-0EFFH", "0FD0H-0FD3H", "0FF8H-0FFFH", "1000H-1FFFH", "2000H-FFFFH"],
+    "aliases": ["I/O map", "port map", "hardware ports", "implemented peripherals", "I/O一覧", "I/Oマップ", "ポートマップ", "周辺機器", "入出力ポート"],
+    "summary": "Complete routing overview for I/O devices implemented by the current X millennium Web build; use the related dedicated entry for register semantics and side effects.",
+    "syntax": [
+      "0700H/0701H OPM register/data; 0704H-0707H sound-board CTC",
+      "0BxxH turbo low-memory selector; 0DxxH EMM; 0ExxH ROM board and kanji ROM",
+      "0FD0H-0FD3H SASI; 0FF8H-0FFFH FDC and drive/media controls",
+      "1000H-17FFH palette/priority/font/PCG; 1800H-18FFH CRTC",
+      "1900H-19FFH sub CPU; 1A00H-1A03H PPI; 1BxxH/1CxxH PSG",
+      "1DxxH/1ExxH ROM switch; 1F80H-1F8FH DMA; 1F90H-1F93H SIO",
+      "1FA0H-1FA3H/1FA8H-1FABH CTC; 1FB0H,1FB9H-1FBFH,1FC0H/1FC5H turboZ video",
+      "1FD0H/1FE0H turbo/Z screen and black control; 1FF0H-1FFFH DIP switch",
+      "2000H-3FFFH text VRAM; 4000H-FFFFH graphics VRAM"
+    ],
+    "notes": [
+      "This map follows Z80_In and Z80_Out in the current emulator, not a union of every expansion ever sold for X1.",
+      "Port decoding often uses only the high byte or masked low bits, so aliases exist. Dedicated entries identify canonical ports and the exact aliases used by this implementation.",
+      "An active PPI simultaneous-access mode intercepts every OUT before normal device decoding. Every ordinary IN clears that mode before reading its target device.",
+      "Some ranges are model- or option-dependent. Check each dedicated entry before emitting code for original X1, X1turbo or X1turboZ.",
+      "General debugger IN/OUT remains intentionally unavailable because reads and writes can acknowledge interrupts, advance FIFOs, change disk handshakes or alter display modes."
+    ],
+    "examples": [{
+      "title": "Read the PPI status port using a 16-bit I/O address",
+      "source": "ORG 0100H\nLD BC,01A01H\nIN A,(C)\nRET"
+    }],
+    "relatedIds": ["x1.io.ppi-subcpu", "x1.io.psg-joystick", "x1.io.opm", "x1.io.ctc", "x1.io.dma", "x1.io.sio-mouse", "x1.io.floppy", "x1.io.sasi", "x1.io.emm-rom", "x1.io.kanji-rom", "x1.video.turboz-controls", "x1.architecture.address-spaces"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_IO.CPP",
+      "https://github.com/mamedev/mame/blob/master/src/mame/sharp/x1.cpp",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.io.ppi-subcpu",
+    "language": "x1",
+    "kind": "io",
+    "title": "8255 PPI, sub CPU, keyboard, calendar and cassette commands",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["1900H-19FFH", "1A00H", "1A01H", "1A02H", "1A03H", "D0H-DFH", "E3H-EFH", "x1_sub_w", "x1_sub_r", "x1_8255_w", "x1_8255_r"],
+    "aliases": ["8255", "PPI", "sub CPU", "keyboard command", "calendar", "cassette control", "CMT", "サブCPU", "キーボード", "キー入力", "カレンダー", "時計", "カセット", "PPIステータス"],
+    "summary": "Port 1900H exchanges command/data bytes with the X1 sub CPU, while PPI ports 1A00H-1A03H expose handshake, display, ROM and simultaneous-graphics control signals.",
+    "syntax": [
+      "1900H       sub-CPU command/data port (high-byte aliases 1900H-19FFH)",
+      "1A00H       PPI port A",
+      "1A01H       PPI port B status: bit7 display, bit6 sub busy, bit5 output empty, bit4 RAM view, bit2 V-SYNC",
+      "1A02H       PPI port C: bit6 40/80-column state; bit5 falling edge enters simultaneous graphics mode",
+      "1A03H       8255 mode/bit set-reset control",
+      "D0H-D7H     write six-byte timer slot 0-7; D8H-DFH read six-byte timer slot 0-7",
+      "E3H game keys; E4H keyboard IRQ vector; E6H key data; E7H/E8H TV control",
+      "E9H-EFH cassette status/sensor and three-byte calendar/time set/get"
+    ],
+    "notes": [
+      "Sub-CPU traffic is handshaked through PPI status. Do not stream command and data bytes without observing buffer state.",
+      "Reading 1900H consumes the currently presented sub-CPU output byte. Keyboard interrupts also fetch their vector through this path.",
+      "The emulator implements E3/E4/E6-EF and D0-DF behavior used for game keys, keyboard, cassette, calendar, clock and timers; unsupported command values have no useful contract.",
+      "PPI port B and port C contain live status. Reads are not passive snapshots because every IN also clears graphics simultaneous-access mode.",
+      "Use language/runtime keyboard and file helpers when possible; use this protocol only for hardware-level software."
+    ],
+    "examples": [{
+      "title": "Read PPI handshake and display status",
+      "source": "ORG 0100H\nLD BC,01A01H\nIN A,(C)\nRET"
+    }],
+    "relatedIds": ["x1.io.dispatch-map", "x1.video.graphics-vram", "x1.video.screen-control", "x1.io.psg-joystick"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_8255.cpp",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_scpu.cpp",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.io.psg-joystick",
+    "language": "x1",
+    "kind": "io",
+    "title": "AY-3-8910 PSG and joystick ports",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["1B00H-1BFFH", "1C00H-1CFFH", "PSG", "AY-3-8910", "register 14", "register 15", "x1_psg_dat", "x1_psg_reg", "x1_psg_sta"],
+    "aliases": ["PSG register", "sound chip", "joystick port", "game controller", "AY", "音源", "PSGポート", "ジョイスティック", "ゲームパッド", "レジスタ14", "レジスタ15"],
+    "summary": "Select an AY-3-8910 register through the 1CxxH group, then read or write it through the 1BxxH group; input registers 14 and 15 carry joystick-style data.",
+    "syntax": [
+      "OUT 1CxxH,register   select PSG register 0-15",
+      "OUT 1BxxH,value      write selected sound register 0-13",
+      "IN  1BxxH           read selected register or joystick input",
+      "registers 0-5 tone, 6 noise, 7 mixer/I/O, 8-10 volume, 11-13 envelope, 14-15 I/O"
+    ],
+    "notes": [
+      "Use BC with OUT (C),A and IN A,(C); the X1 decodes the 16-bit port high byte, not only an 8-bit immediate port.",
+      "The Web emulator exposes external joystick flags on register 14 and applies JoyKey keyboard mapping to register 14 or 15 according to Key Mode.",
+      "Joystick bits are active-low. Preserve or interpret all bits according to the controller contract instead of assuming active-high directions.",
+      "Writes to registers 14 and 15 are not modeled as general-purpose output by this implementation.",
+      "For FuzzyBASIC or SLANG music playback, prefer their documented PSG drivers unless direct tone-register control is required."
+    ],
+    "examples": [{
+      "title": "Read joystick input from PSG register 14",
+      "source": "ORG 0100H\nLD BC,01C00H\nLD A,0EH\nOUT (C),A\nLD BC,01B00H\nIN A,(C)\nRET"
+    }],
+    "relatedIds": ["x1.io.dispatch-map", "x1.io.ppi-subcpu", "x1.io.opm", "slang.x1.psg", "fuzzybasic.x1.input"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_SOUND.CPP",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/OPMSOUND/ay8910.cpp",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.io.opm",
+    "language": "x1",
+    "kind": "io",
+    "title": "YM2151 OPM sound-board ports",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["0700H", "0701H", "YM2151", "OPM", "SOUND_SW", "x1_opm_reg", "x1_opm_dat", "x1_opm_stat"],
+    "aliases": ["FM sound", "FM synthesizer", "sound board", "OPM status", "FM音源", "音源ボード", "YM2151ポート", "OPMポート"],
+    "summary": "The optional YM2151-compatible OPM board uses 0700H for register selection and 0701H for register data; reads return board-presence/status behavior.",
+    "syntax": ["0700H write = register select", "0701H write = selected register data", "0700H/0701H read = OPM status/presence"],
+    "notes": [
+      "The OPM board is optional and controlled by the emulator sound-board setting. Status reads return 00H when enabled and FFH when absent in this implementation.",
+      "Direct YM2151 programming requires the chip register contract in addition to this X1 port map.",
+      "The adjacent 0704H-0707H range is the sound-board CTC, not OPM register data."
+    ],
+    "examples": [{
+      "title": "Silence OPM channel 0 by writing key-off register 08H",
+      "source": "ORG 0100H\nLD BC,00700H\nLD A,08H\nOUT (C),A\nINC C\nXOR A\nOUT (C),A\nRET"
+    }],
+    "relatedIds": ["x1.io.dispatch-map", "x1.io.ctc", "x1.io.psg-joystick"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_SOUND.CPP",
+      "https://github.com/ho-ogino/xmil-web/tree/main/src/OPMSOUND",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.io.ctc",
+    "language": "x1",
+    "kind": "io",
+    "title": "Z80 CTC timers and interrupt vectors",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["0704H-0707H", "1FA0H-1FA3H", "1FA8H-1FABH", "Z80 CTC", "x1_ctc_w", "x1_ctc_r"],
+    "aliases": ["CTC", "counter timer", "timer interrupt", "interrupt vector", "カウンタ", "タイマー", "タイマー割り込み", "割り込み", "CTCポート", "定周期処理"],
+    "summary": "X1turbo/Z exposes two four-channel CTC blocks at 1FA0H and 1FA8H; an enabled OPM board adds a third block at 0704H.",
+    "syntax": [
+      "1FA0H-1FA3H   turbo CTC block 0 channels 0-3",
+      "1FA8H-1FABH   turbo CTC block 1 channels 0-3",
+      "0704H-0707H   optional sound-board CTC channels 0-3",
+      "write control/vector then optional time constant; read current down-counter"
+    ],
+    "notes": [
+      "The 1FAxH blocks require X1turbo or X1turboZ. The 0704H block is present only when the sound-board option is enabled.",
+      "This implementation follows the Z80 CTC control-word protocol and IM 2 vector generation; consult the Z80 CTC programming model for control-bit details.",
+      "Channels 1 and 2 use a 2MHz source in counter mode, channel 3 may cascade from channel 0, and timer timing is based on a fixed 4MHz source in the emulator.",
+      "Reading a channel returns its current counter and every IN clears graphics simultaneous-access mode."
+    ],
+    "examples": [{
+      "title": "Read turbo CTC block 0 channel 1",
+      "source": "ORG 0100H\nLD BC,01FA1H\nIN A,(C)\nRET"
+    }],
+    "relatedIds": ["x1.io.dispatch-map", "x1.io.opm", "x1.io.dma", "slang.x1.timing"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_ctc.cpp",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_IO.CPP",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.io.dma",
+    "language": "x1",
+    "kind": "io",
+    "title": "X1turbo Z80 DMA command stream",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["1F80H-1F8FH", "Z80 DMA", "DMA_REDY", "x1_dma_w", "x1_dma_r"],
+    "aliases": ["DMA", "direct memory access", "disk DMA", "byte count", "DMA転送", "ダイレクトメモリアクセス", "DMAポート", "転送アドレス"],
+    "summary": "X1turbo/Z routes 1F80H-1F8FH to one Z80 DMA command/status stream used with peripherals such as the FDC and SASI interface.",
+    "syntax": ["1F80H-1F8FH write = Z80 DMA WR0-WR6 command/parameter byte stream", "1F80H-1F8FH read = status or bytes selected by read-mask command"],
+    "notes": [
+      "All sixteen decoded addresses reach the same command-stream parser; they are aliases, not sixteen independent DMA registers.",
+      "The command byte determines which parameter bytes follow. Do not treat later bytes as fixed port offsets.",
+      "The emulator models address A/B, byte count, search/match, READY, interrupt and RETI behavior. FDC and SASI update DMA READY during transfers.",
+      "DMA ports require X1turbo or X1turboZ. Use the Z80 DMA programming contract when constructing WR0-WR6 sequences."
+    ],
+    "examples": [{
+      "title": "Read current DMA status",
+      "source": "ORG 0100H\nLD BC,01F80H\nIN A,(C)\nRET"
+    }],
+    "relatedIds": ["x1.io.dispatch-map", "x1.io.ctc", "x1.io.floppy", "x1.io.sasi"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_dma.cpp",
+      "https://github.com/ho-ogino/xmil-web/blob/main/platform/x1_dmam_port.cpp",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.io.sio-mouse",
+    "language": "x1",
+    "kind": "io",
+    "title": "Z80 SIO channels and X1 mouse packet",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["1F90H", "1F91H", "1F92H", "1F93H", "Z80 SIO", "RTS", "x1_sio_w", "x1_sio_r"],
+    "aliases": ["SIO", "serial port", "mouse interface", "mouse packet", "RS-232", "シリアル", "マウス", "マウスポート", "SIOポート", "RTS"],
+    "summary": "Ports 1F90H-1F93H expose two Z80 SIO channels; the current Web implementation feeds a three-byte X1 mouse packet into channel B when RTS rises.",
+    "syntax": ["1F90H channel A data", "1F91H channel A control/status", "1F92H channel B data", "1F93H channel B control/status", "mouse packet = buttons/overflow flags, signed X delta, signed Y delta"],
+    "notes": [
+      "Even ports are data and odd ports are control/status. Select SIO write/read registers through the channel control port according to the Z80 SIO protocol.",
+      "On channel B, a rising RTS bit in WR5 requests a fresh three-byte mouse packet. The first byte contains two button bits and X/Y overflow flags.",
+      "The receive data port consumes queued bytes and may clear receive interrupt state; it is not a passive debugger read.",
+      "The current X1_IO decoder does not apply a ROM_TYPE guard to 1F90H-1F93H, although software normally associates this interface with turbo-class hardware."
+    ],
+    "examples": [{
+      "title": "Read SIO channel B status register zero",
+      "source": "ORG 0100H\nLD BC,01F93H\nIN A,(C)\nRET"
+    }],
+    "relatedIds": ["x1.io.dispatch-map", "x1.io.ppi-subcpu", "x1.io.ctc"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_sio.cpp",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_IO.CPP",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.io.floppy",
+    "language": "x1",
+    "kind": "io",
+    "title": "Floppy disk controller, drive and media ports",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["0FF8H", "0FF9H", "0FFAH", "0FFBH", "0FFCH", "0FFEH", "0FFFH", "FDC", "x1_fdc_w", "x1_fdc_r"],
+    "aliases": ["floppy", "disk controller", "drive select", "track register", "sector register", "FDC status", "フロッピー", "ディスク", "FDC", "ドライブ選択", "セクタ", "トラック"],
+    "summary": "The X1 FDC uses 0FF8H-0FFBH for command/status, track, sector and data, 0FFCH for drive/side/motor selection, and read strobes at 0FFEH/0FFFH for media rate.",
+    "syntax": [
+      "0FF8H write command / read status",
+      "0FF9H track register; 0FFAH sector register; 0FFBH data register",
+      "0FFCH write: bits 1..0 drive, bit4 side, bit7 motor",
+      "0FFEH read selects 1.6M media timing; 0FFFH read selects 500K/1M timing"
+    ],
+    "notes": [
+      "Command high nibbles follow the WD17xx-style restore, seek, step, read/write sector, read address, force interrupt and track operations modeled in X1_fdc.cpp.",
+      "Reading or writing the data register advances an active transfer and changes FDC/DMA handshake state. Never poll it as a harmless presence test.",
+      "The Web emulator connects mounted D88 and 2D images to this controller. The browser file-management API is separate from guest-visible FDC ports.",
+      "Drive select values 0-3 address the four emulated drives; motor and side are part of the same 0FFCH byte."
+    ],
+    "examples": [{
+      "title": "Read FDC status",
+      "source": "ORG 0100H\nLD BC,00FF8H\nIN A,(C)\nRET"
+    }],
+    "relatedIds": ["x1.io.dispatch-map", "x1.io.dma", "x1.io.sasi"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_fdc.cpp",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_IO.CPP",
+      "http://x1center.org/sdx1/sdx1_0.html"
+    ]
+  },
+  {
+    "id": "x1.io.sasi",
+    "language": "x1",
+    "kind": "io",
+    "title": "SASI hard-disk interface and handshake phases",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["0FD0H", "0FD1H", "0FD2H", "0FD3H", "REQ", "BSY", "I/O", "C/D", "MSG", "x1_sasi_w", "x1_sasi_r"],
+    "aliases": ["SASI", "hard disk", "HDD interface", "SASI phase", "SASI status", "ハードディスク", "SASIポート", "バスフェーズ", "REQ BSY"],
+    "summary": "Ports 0FD0H-0FD3H implement the X1 SASI data, control, reset and selection handshake used by mounted SASI disk images.",
+    "syntax": [
+      "0FD0H read/write data with handshake",
+      "0FD1H read control signals; write deasserts selection",
+      "0FD2H write resets the SASI bus",
+      "0FD3H write asserts selection with target value",
+      "status bits: bit0 REQ, bit1 BSY, bit2 I/O, bit3 C/D, bit4 MSG"
+    ],
+    "notes": [
+      "Data-port access advances the current SASI command/data/status/message phase. Poll 0FD1H for REQ and phase bits before transferring data.",
+      "REQ also drives the emulated DMA READY signal, allowing the Z80 DMA block to transfer SASI data.",
+      "The implemented command set is the subset handled by X1_sasi.cpp and 256-byte image sectors; do not infer later SCSI commands.",
+      "This interface is compiled into the current Web build through T_TUNE=1."
+    ],
+    "examples": [{
+      "title": "Read SASI control signals without consuming data",
+      "source": "ORG 0100H\nLD BC,00FD1H\nIN A,(C)\nRET"
+    }],
+    "relatedIds": ["x1.io.dispatch-map", "x1.io.dma", "x1.io.floppy", "x1.io.emm-rom"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_sasi.cpp",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_IO.CPP"
+    ]
+  },
+  {
+    "id": "x1.io.emm-rom",
+    "language": "x1",
+    "kind": "io",
+    "title": "EMM slots and ROM BASIC board sequential ports",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["0D00H-0D27H", "0E00H-0EFFH", "EMM0-EMM9", "ROMBASIC.ROM", "x1_emm_w", "x1_emm_r", "x1_rom_w", "x1_rom_r"],
+    "aliases": ["EMM", "expanded memory", "extension memory", "ROM BASIC", "ROM board", "拡張メモリ", "EMMポート", "ROM BASICボード", "連続読み出し"],
+    "summary": "Ten file-backed EMM slots use four-port address/data windows beginning at 0D00H; the 0ExxH ROM BASIC board exposes a separate 24-bit sequential read address.",
+    "syntax": [
+      "EMM slot n base = 0D00H + n*4 (n=0..9)",
+      "base+0 low address, base+1 middle address, base+2 high address, base+3 data with auto-increment",
+      "ROM board 0ExxH low two bits: 0=high address, 1=middle, 2=low, 3=data read",
+      "0E80H-0E83H is intercepted by the kanji-ROM interface before ROM-board decoding"
+    ],
+    "notes": [
+      "EMM is an I/O peripheral and is unrelated to X1turbo low-memory bank RAM or graphics VRAM banks.",
+      "Reading or writing an EMM data port increments that slot's 24-bit address. Writes are persisted to the browser-managed EMM image through the emulator cache.",
+      "Only slots 0-9 are implemented even though the high-byte decoder covers 0D00H-0DFFH; later four-byte windows return FFH or ignore writes.",
+      "The ROM board read path is backed by ROMBASIC.ROM. Address programming order differs from EMM and data reads do not auto-increment in the current implementation.",
+      "The 0E80H kanji range has priority over the ROM board and must not be used as a ROM BASIC address window."
+    ],
+    "examples": [{
+      "title": "Read one byte from EMM0 address 001234H",
+      "source": "ORG 0100H\nLD BC,00D00H\nLD A,34H\nOUT (C),A\nINC C\nLD A,12H\nOUT (C),A\nINC C\nXOR A\nOUT (C),A\nINC C\nIN A,(C)\nRET"
+    }],
+    "relatedIds": ["x1.io.dispatch-map", "x1.memory.cpu-banking", "x1.io.sasi", "x1.io.kanji-rom"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_emm.cpp",
+      "https://github.com/ho-ogino/xmil-web/blob/main/html/pre.js"
+    ]
+  },
+  {
+    "id": "x1.io.kanji-rom",
+    "language": "x1",
+    "kind": "io",
+    "title": "Kanji ROM code and raster data ports",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["0E80H", "0E81H", "0E82H", "KCODE", "KFONT", "x1_knj_w", "x1_knj_r"],
+    "aliases": ["kanji ROM", "font ROM", "JIS code", "kanji raster", "漢字ROM", "漢字フォント", "漢字コード", "JIS", "フォントデータ"],
+    "summary": "Ports 0E80H and 0E81H hold the X1 kanji code and return left/right raster bytes; writing 0E82H latches the selected glyph in the current implementation.",
+    "syntax": ["OUT 0E80H,code-low", "OUT 0E81H,code-high", "OUT 0E82H,any to latch glyph", "IN 0E80H = left raster; IN 0E81H = right raster; reading both advances row 0-15"],
+    "notes": [
+      "The interface returns 16 rows of two bytes. The row advances only after both left and right bytes have been read.",
+      "Code conversion follows the X1 kanji-ROM address/JIS mapping implemented by adr2jis_x1 and jis2adr_x1.",
+      "0E80H-0E83H is decoded before the broader 0ExxH ROM BASIC board range.",
+      "This kanji ROM interface is distinct from the text-screen kanji VRAM at 3800H-3FFFH."
+    ],
+    "examples": [{
+      "title": "Select a kanji code and read the first raster pair",
+      "source": "ORG 0100H\nLD BC,00E80H\nLD A,21H\nOUT (C),A\nINC C\nLD A,21H\nOUT (C),A\nINC C\nXOR A\nOUT (C),A\nDEC C\nDEC C\nIN A,(C)\nINC C\nIN A,(C)\nRET"
+    }],
+    "relatedIds": ["x1.io.dispatch-map", "x1.io.emm-rom", "x1.video.text-vram", "x1.video.pcg-palette"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_PCG.CPP",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_IO.CPP"
+    ]
+  },
+  {
+    "id": "x1.video.turboz-controls",
+    "language": "x1",
+    "kind": "video",
+    "title": "X1turboZ analog palette and extended display controls",
+    "profiles": ["x1-hardware-xmillennium-web"],
+    "symbols": ["1FB0H", "1FB9H-1FBFH", "1FC0H", "1FC5H", "1FE0H", "1FF0H-1FFFH", "x1_extpal_w", "x1_extpal_r", "x1_exttextpal_w", "x1_exttextpal_r", "x1_exttextdisp_w", "x1_exttextdisp_r", "x1_extgrphpal_w", "x1_extgrphpal_r", "x1_blackctrl_w", "x1_blackctrl_r", "x1_dipsw_r"],
+    "aliases": ["X1turboZ palette", "4096 colors", "analog RGB", "extended palette", "black control", "DIP switch", "turboZパレット", "4096色", "アナログパレット", "拡張画面", "ブラック制御", "DIPスイッチ"],
+    "summary": "X1turboZ adds analog/4096-color palette modes and extended text/graphics controls at 1FB0H-1FC5H; turbo-class screen and DIP controls occupy 1FD0H-1FFFH.",
+    "syntax": [
+      "1FB0H extended palette mode",
+      "1FB9H-1FBFH extended text palette entries 1-7",
+      "1FC0H extended text display/priority; 1FC5H extended graphics palette control",
+      "1FD0H turbo screen control; 1FE0H black-level/palette control",
+      "1FF0H-1FFFH read DIP switch value on turbo/Z"
+    ],
+    "notes": [
+      "The 1FB0H, 1FB9H-1FBFH, 1FC0H and 1FC5H controls require X1turboZ. Do not emit them for original X1 or X1turbo.",
+      "Extended palette mode changes how 1000H-12FFH palette writes are decoded, including 64-color and 4096-color indexing. Program the mode before component values.",
+      "Port 1FE0H writes black control on turbo/Z in this emulator, but readback is exposed only for turboZ by the current decoder.",
+      "DIP switch bit 0 selects the startup resolution family and bit 2 selects boot media; 1FF0H-1FFFH are aliases returning the same byte.",
+      "Use x1pen_debug_get_video_state for current dimensions and graphics banks; it does not expose the full analog palette register set."
+    ],
+    "examples": [{
+      "title": "Read the X1turboZ extended palette mode",
+      "source": "ORG 0100H\nLD BC,01FB0H\nIN A,(C)\nRET"
+    }],
+    "relatedIds": ["x1.io.dispatch-map", "x1.video.pcg-palette", "x1.video.screen-control", "x1.video.graphics-vram"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_CRTC.CPP",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_CRTC.H",
       "http://x1center.org/sdx1/sdx1_0.html"
     ]
   }
