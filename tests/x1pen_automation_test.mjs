@@ -58,26 +58,46 @@ async function runWithRecordedKeyEvents() {
     const module = window.Module;
     const originalKeyDown = module._js_key_down;
     const originalKeyUp = module._js_key_up;
+    const originalSetKeyMode = module._js_set_key_mode;
     const events = [];
+    const modeChanges = [];
     module._js_key_down = function(vk) {
-      events.push(['down', vk]);
+      events.push({ type: 'down', vk, at: performance.now() });
       return originalKeyDown.call(module, vk);
     };
     module._js_key_up = function(vk) {
-      events.push(['up', vk]);
+      events.push({ type: 'up', vk, at: performance.now() });
       return originalKeyUp.call(module, vk);
     };
+    module._js_set_key_mode = function(mode) {
+      modeChanges.push(mode);
+      return originalSetKeyMode.call(module, mode);
+    };
     try {
-      return { result: await window.X1PenAutomation.run(), events };
+      return { result: await window.X1PenAutomation.run(), events, modeChanges };
     } finally {
       module._js_key_down = originalKeyDown;
       module._js_key_up = originalKeyUp;
+      module._js_set_key_mode = originalSetKeyMode;
     }
   });
 }
 
-function assertSequentialKeyEvents(actual, keys) {
-  assert.deepEqual(actual, keys.flatMap((vk) => [['down', vk], ['up', vk]]));
+function assertSequentialKeyEvents(actual, keys, gapMinimumMs) {
+  assert.deepEqual(
+    actual.map(({ type, vk }) => [type, vk]),
+    keys.flatMap((vk) => [['down', vk], ['up', vk]]),
+  );
+  for (let index = 0; index < keys.length; index++) {
+    const down = actual[index * 2];
+    const up = actual[index * 2 + 1];
+    assert.ok(up.at - down.at >= 70, `key ${index} hold must be at least 70ms`);
+    if (index < keys.length - 1) {
+      const nextDown = actual[index * 2 + 2];
+      assert.ok(nextDown.at - up.at >= gapMinimumMs,
+        `gap after key ${index} must be at least ${gapMinimumMs}ms`);
+    }
+  }
 }
 
 before(async () => {
@@ -180,10 +200,11 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   assert.ok(validation.output.basicBytes > 0);
 
   await page.evaluate(() => window.XmilControls.setKeyMode(1));
-  const { result, events } = await runWithRecordedKeyEvents();
+  const { result, events, modeChanges } = await runWithRecordedKeyEvents();
   assert.equal(result.ok, true);
   assert.equal(result.sourceMode, 'basic+asm');
-  assertSequentialKeyEvents(events, [0x52, 0x55, 0x4E, 0x0D]);
+  assertSequentialKeyEvents(events, [0x52, 0x55, 0x4E, 0x0D], 85);
+  assert.deepEqual(modeChanges, [0, 1], 'automation run must restore the JoyKey mode');
 
   await page.waitForTimeout(500);
   const screenshot = await page.locator('#canvas').screenshot({ type: 'png' });
@@ -338,9 +359,11 @@ test('focus loss releases physical keys before automation command injection', { 
   await page.keyboard.down('Alt');
   try {
     await page.evaluate(() => window.dispatchEvent(new FocusEvent('blur')));
-    const { result, events } = await runWithRecordedKeyEvents();
+    await page.evaluate(() => window.XmilControls.setKeyMode(2));
+    const { result, events, modeChanges } = await runWithRecordedKeyEvents();
     assert.equal(result.ok, true);
-    assertSequentialKeyEvents(events, [0x50, 0x52, 0x4F, 0x47, 0x0D]);
+    assertSequentialKeyEvents(events, [0x50, 0x52, 0x4F, 0x47, 0x0D], 40);
+    assert.deepEqual(modeChanges, [0, 2], 'automation run must restore the current JoyKey mode');
     await page.waitForFunction(({ address, bytes }) => {
       const module = window.Module;
       const ptr = module._malloc(bytes.length);
