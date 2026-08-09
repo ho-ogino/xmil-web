@@ -578,8 +578,17 @@ window.__X1PEN_MODE = true;
         }
     }
 
-    function simulateKeys(keys, interval) {
-        var ms = (interval === undefined) ? 100 : interval;
+    var SYNTHETIC_KEY_HOLD_MS = 80;
+
+    function waitForSyntheticKey(ms) {
+        return new Promise(function(resolve) { setTimeout(resolve, ms); });
+    }
+
+    async function simulateKeys(keys, interval) {
+        // `interval` is the idle gap after a key is released, not the time
+        // between key-down events. Keeping one key's full lifecycle in this
+        // loop prevents delayed/coalesced timers from overlapping key presses.
+        var gapMs = (interval === undefined) ? 100 : interval;
         if (!keys || keys.length === 0) return Promise.resolve();
 
         var prevMode = 0;
@@ -591,27 +600,19 @@ window.__X1PEN_MODE = true;
 
         var switched = enterSyntheticKeyboardMode(prevMode);
 
-        return new Promise(function(resolve) {
-            keys.forEach(function(vk, i) {
-                var last = (i === keys.length - 1);
-                setTimeout(function() {
-                    try { module._js_key_down(vk); } catch (e) {}
-                    setTimeout(function() {
-                        try {
-                            module._js_key_up(vk);
-                        } finally {
-                            if (last) {
-                                try {
-                                    leaveSyntheticKeyboardMode(switched);
-                                } finally {
-                                    resolve();
-                                }
-                            }
-                        }
-                    }, 80);
-                }, i * ms);
-            });
-        });
+        try {
+            for (var i = 0; i < keys.length; i++) {
+                var vk = keys[i];
+                try { module._js_key_down(vk); } catch (e) {}
+                await waitForSyntheticKey(SYNTHETIC_KEY_HOLD_MS);
+                try { module._js_key_up(vk); } catch (e) {}
+                if (i < keys.length - 1) {
+                    await waitForSyntheticKey(gapMs);
+                }
+            }
+        } finally {
+            leaveSyntheticKeyboardMode(switched);
+        }
     }
 
     function simulateRunCommand() {

@@ -53,6 +53,33 @@ async function launchChromium() {
   }
 }
 
+async function runWithRecordedKeyEvents() {
+  return page.evaluate(async () => {
+    const module = window.Module;
+    const originalKeyDown = module._js_key_down;
+    const originalKeyUp = module._js_key_up;
+    const events = [];
+    module._js_key_down = function(vk) {
+      events.push(['down', vk]);
+      return originalKeyDown.call(module, vk);
+    };
+    module._js_key_up = function(vk) {
+      events.push(['up', vk]);
+      return originalKeyUp.call(module, vk);
+    };
+    try {
+      return { result: await window.X1PenAutomation.run(), events };
+    } finally {
+      module._js_key_down = originalKeyDown;
+      module._js_key_up = originalKeyUp;
+    }
+  });
+}
+
+function assertSequentialKeyEvents(actual, keys) {
+  assert.deepEqual(actual, keys.flatMap((vk) => [['down', vk], ['up', vk]]));
+}
+
 before(async () => {
   assert.ok(existsSync(join(distDir, 'x1pen.html')), 'dist/x1pen.html is missing; run ./build.sh first');
   await startStaticServer();
@@ -153,9 +180,10 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   assert.ok(validation.output.basicBytes > 0);
 
   await page.evaluate(() => window.XmilControls.setKeyMode(1));
-  const result = await page.evaluate(() => window.X1PenAutomation.run());
+  const { result, events } = await runWithRecordedKeyEvents();
   assert.equal(result.ok, true);
   assert.equal(result.sourceMode, 'basic+asm');
+  assertSequentialKeyEvents(events, [0x52, 0x55, 0x4E, 0x0D]);
 
   await page.waitForTimeout(500);
   const screenshot = await page.locator('#canvas').screenshot({ type: 'png' });
@@ -310,8 +338,9 @@ test('focus loss releases physical keys before automation command injection', { 
   await page.keyboard.down('Alt');
   try {
     await page.evaluate(() => window.dispatchEvent(new FocusEvent('blur')));
-    const result = await page.evaluate(() => window.X1PenAutomation.run());
+    const { result, events } = await runWithRecordedKeyEvents();
     assert.equal(result.ok, true);
+    assertSequentialKeyEvents(events, [0x50, 0x52, 0x4F, 0x47, 0x0D]);
     await page.waitForFunction(({ address, bytes }) => {
       const module = window.Module;
       const ptr = module._malloc(bytes.length);
