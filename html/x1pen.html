@@ -56,11 +56,12 @@
             white-space: nowrap;
         }
 
-        #x1pen-toolbar button:hover:not(:disabled) {
+        #x1pen-toolbar button:hover:not(:disabled):not([aria-disabled="true"]) {
             background: #0f3460;
         }
 
-        #x1pen-toolbar button:disabled {
+        #x1pen-toolbar button:disabled,
+        #x1pen-toolbar button[aria-disabled="true"] {
             opacity: 0.4;
             cursor: default;
         }
@@ -70,8 +71,25 @@
             border-color: #0d7a47 !important;
             color: #7dffb3 !important;
         }
-        #btn-run:hover:not(:disabled) {
+        #btn-run:hover:not(:disabled):not([aria-disabled="true"]) {
             background: #0d7a47 !important;
+        }
+
+        #btn-run-recover {
+            border-color: #a56b16;
+            color: #ffd28a;
+        }
+
+        .visually-hidden {
+            position: absolute !important;
+            width: 1px !important;
+            height: 1px !important;
+            padding: 0 !important;
+            margin: -1px !important;
+            overflow: hidden !important;
+            clip: rect(0, 0, 0, 0) !important;
+            white-space: nowrap !important;
+            border: 0 !important;
         }
 
         #btn-stop {
@@ -592,11 +610,13 @@
         <span class="brand">X1Pen</span>
         <span id="x1pen-mcp-status" class="hidden">MCP Connected</span>
         <button id="btn-run" disabled title="Ctrl+Enter">&#x25B6; RUN</button>
+        <button id="btn-run-recover" class="hidden" data-automation-lock-exempt="true">Reload stalled Run</button>
         <button id="btn-stop" title="Escape">&#x25A0; STOP</button>
         <button id="btn-dev-reload" class="hidden" title="Reload cached X1Pen assets">Reload Assets</button>
         <button id="btn-symbols" title="Symbol Table" disabled>Sym</button>
         <button id="btn-share" title="Share code">Share</button>
         <span id="x1pen-status">Loading...</span>
+        <span id="x1pen-live-notice" class="visually-hidden" aria-live="polite" aria-atomic="true"></span>
     </div>
     <div id="mobile-tabs">
         <button class="mobile-tab active" data-panel="emulator">Emulator</button>

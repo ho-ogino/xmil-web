@@ -122,7 +122,7 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
     name: 'x1pen',
     version: '0.8.0',
     automationApiVersion: 2,
-    features: ['automation.core', 'screen.capture', 'debugger.cpu', 'debugger.vram'],
+    features: ['automation.core', 'automation.run-recovery', 'screen.capture', 'debugger.cpu', 'debugger.vram'],
   });
   assert.equal(ready.capabilities.debugger.available, true);
   assert.equal(ready.capabilities.debugger.version, 2);
@@ -205,6 +205,68 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   assert.equal(result.sourceMode, 'basic+asm');
   assertSequentialKeyEvents(events, [0x52, 0x55, 0x4E, 0x0D], 85);
   assert.deepEqual(modeChanges, [0, 1], 'automation run must restore the JoyKey mode');
+
+  const apiReentry = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const savedDown = module._js_key_down;
+    const savedUp = module._js_key_up;
+    const events = [];
+    module._js_key_down = (vk) => { events.push(['down', vk]); return savedDown.call(module, vk); };
+    module._js_key_up = (vk) => { events.push(['up', vk]); return savedUp.call(module, vk); };
+    try {
+      const firstPromise = api.run();
+      const immediate = api.getStatus().runAdmission;
+      const secondPromise = api.run();
+      const [first, second] = await Promise.all([firstPromise, secondPromise]);
+      return { first, second, immediate, events, final: api.getStatus().runAdmission };
+    } finally {
+      module._js_key_down = savedDown;
+      module._js_key_up = savedUp;
+    }
+  });
+  assert.equal(apiReentry.first.ok, true);
+  assert.equal(apiReentry.second.ok, false);
+  assert.equal(apiReentry.second.code, 'RUN_IN_PROGRESS');
+  assert.equal(apiReentry.second.retryable, true);
+  assert.equal(apiReentry.immediate.pending, true, 'Automation must reserve synchronously before queueing');
+  assert.equal(apiReentry.final.pending, false);
+  assert.deepEqual(apiReentry.events.map(([type, vk]) => [type, vk]),
+    [0x52, 0x55, 0x4E, 0x0D].flatMap((vk) => [['down', vk], ['up', vk]]));
+
+  const uiReentry = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const button = document.getElementById('btn-run');
+    const savedDown = module._js_key_down;
+    const savedUp = module._js_key_up;
+    const events = [];
+    module._js_key_down = (vk) => { events.push(['down', vk]); return savedDown.call(module, vk); };
+    module._js_key_up = (vk) => { events.push(['up', vk]); return savedUp.call(module, vk); };
+    try {
+      button.click();
+      const reserved = {
+        ariaDisabled: button.getAttribute('aria-disabled'),
+        ariaBusy: button.getAttribute('aria-busy'),
+        pending: api.getStatus().runAdmission.pending,
+      };
+      button.removeAttribute('aria-disabled');
+      button.removeAttribute('aria-busy');
+      button.click();
+      const deadline = Date.now() + 5000;
+      while (api.getStatus().runAdmission.pending && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      return { reserved, events, final: api.getStatus().runAdmission };
+    } finally {
+      module._js_key_down = savedDown;
+      module._js_key_up = savedUp;
+    }
+  });
+  assert.deepEqual(uiReentry.reserved, { ariaDisabled: 'true', ariaBusy: 'true', pending: true });
+  assert.equal(uiReentry.final.pending, false);
+  assert.deepEqual(uiReentry.events,
+    [0x52, 0x55, 0x4E, 0x0D].flatMap((vk) => [['down', vk], ['up', vk]]));
 
   await page.waitForTimeout(500);
   const screenshot = await page.locator('#canvas').screenshot({ type: 'png' });
@@ -681,7 +743,10 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
     const before = api.debugger.getState();
     const runPromise = api.run();
     const pendingStatus = api.getStatus().capabilities.debugger.runPending;
-    const breakpointPromise = api.debugger.setBreakpoints([0x2345]);
+    const breakpointPromise = api.debugger.setBreakpoints([0x2345]).then(
+      () => null,
+      (error) => ({ message: error.message, code: error.code }),
+    );
     const controlErrors = [];
     for (const control of ['pause', 'resume', 'step']) {
       try {
@@ -692,7 +757,7 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
       }
     }
     const result = await runPromise;
-    const queuedBreakpoints = await breakpointPromise;
+    const breakpointError = await breakpointPromise;
     const after = api.debugger.getState();
     let runningStepError = null;
     try {
@@ -701,9 +766,13 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
       runningStepError = error.message;
     }
     const pausedAfterRun = await api.debugger.pause();
+    const breakpointsAfterRun = await api.debugger.setBreakpoints([0x2345]);
     await api.debugger.setBreakpoints([]);
     await api.debugger.resume();
-    return { before, result, pendingStatus, after, controlErrors, runningStepError, pausedAfterRun, queuedBreakpoints };
+    return {
+      before, result, pendingStatus, after, controlErrors, runningStepError,
+      pausedAfterRun, breakpointError, breakpointsAfterRun,
+    };
   });
   assert.equal(rerun.before.runState, 'paused');
   assert.equal(rerun.result.ok, true);
@@ -713,7 +782,8 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
   assert.ok(rerun.controlErrors.every((error) => /run setup is pending/.test(error.message)));
   assert.match(rerun.runningStepError, /requires the paused state/);
   assert.equal(rerun.pausedAfterRun.runState, 'paused');
-  assert.equal(rerun.queuedBreakpoints.breakpointCount, 1);
+  assert.equal(rerun.breakpointError.code, 'RUN_PENDING');
+  assert.equal(rerun.breakpointsAfterRun.breakpointCount, 1);
 
   const manualRun = await page.evaluate(async () => {
     const api = window.X1PenAutomation;

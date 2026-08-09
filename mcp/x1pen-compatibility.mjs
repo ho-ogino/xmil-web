@@ -1,5 +1,6 @@
 export const FEATURE_IDS = Object.freeze([
   'automation.core',
+  'automation.run-recovery',
   'screen.capture',
   'debugger.cpu',
   'debugger.vram',
@@ -19,6 +20,7 @@ const METHOD_FEATURES = Object.freeze({
   setProgram: 'automation.core',
   validate: 'automation.core',
   run: 'automation.core',
+  recoverStalled: 'automation.run-recovery',
   stop: 'automation.core',
   getStatus: 'automation.core',
   captureScreen: 'screen.capture',

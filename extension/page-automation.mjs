@@ -85,9 +85,22 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
     if (requestedMethod === 'setProgram') return await api.setProgram(requestedParams.program, requestedParams.expectedRevision);
     if (requestedMethod === 'validate') return await api.validate();
     if (requestedMethod === 'run') {
-      const result = await api.run();
-      if (requestedParams.waitMs > 0) await new Promise((resolve) => setTimeout(resolve, requestedParams.waitMs));
+      const result = await api.run({ origin: 'mcp', queueTimeoutMs: requestedParams.queueTimeoutMs });
+      const admissionFailure = result?.code === 'RUN_IN_PROGRESS' || result?.code === 'RUN_QUEUE_TIMEOUT';
+      if (!admissionFailure && requestedParams.waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, requestedParams.waitMs));
+      }
       return { ...result, state: api.getStatus() };
+    }
+    if (requestedMethod === 'recoverStalled') {
+      if (typeof api.recoverStalled !== 'function') {
+        const error = new Error('The connected X1Pen does not support stalled Run recovery');
+        error.code = 'FEATURE_UNAVAILABLE';
+        error.component = 'x1pen';
+        error.feature = 'automation.run-recovery';
+        throw error;
+      }
+      return api.recoverStalled(requestedParams.confirmDataLoss === true);
     }
     if (requestedMethod === 'stop') return await api.stop();
     if (requestedMethod === 'getStatus') return api.getStatus();

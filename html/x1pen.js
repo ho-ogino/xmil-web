@@ -28,8 +28,9 @@ window.__X1PEN_MODE = true;
     automationReadyPromise.catch(function() {});
     var automationOperationQueue = Promise.resolve();
     var automationPendingOperations = 0;
-    var automationQueuedRuns = 0;
-    var automationActiveRuns = 0;
+    var runAdmission = null;
+    var RUN_QUEUE_TIMEOUT_MS = 20000;
+    var RUN_STALL_WARNING_MS = 30000;
     var automationRevision = 0;
     var automationConnected = false;
     var automationInteractionLocked = false;
@@ -358,9 +359,11 @@ window.__X1PEN_MODE = true;
     }
 
     var elBtnRun    = document.getElementById('btn-run');
+    var elBtnRunRecover = document.getElementById('btn-run-recover');
     var elBtnStop   = document.getElementById('btn-stop');
     var elBtnDevReload = document.getElementById('btn-dev-reload');
     var elStatus    = document.getElementById('x1pen-status');
+    var elLiveNotice = document.getElementById('x1pen-live-notice');
     var activeTab   = 'basic';
 
     function isDevAssetMode() {
@@ -703,16 +706,168 @@ window.__X1PEN_MODE = true;
 
     // ── RUN ──
 
-    async function onRunClick() {
-        automationActiveRuns++;
-        try {
-            return await performRun();
-        } finally {
-            automationActiveRuns--;
+    function normalizeRunOrigin(origin, internal) {
+        if (internal && (origin === 'ui' || origin === 'share')) return origin;
+        return origin === 'mcp' ? 'mcp' : 'automation';
+    }
+
+    function getRunAdmissionSnapshot() {
+        if (!runAdmission) return { pending: false, origin: null, phase: 'idle', ageMs: 0, phaseAgeMs: 0 };
+        var now = performance.now();
+        return {
+            pending: true,
+            origin: runAdmission.origin,
+            phase: runAdmission.phase,
+            ageMs: Math.max(0, Math.round(now - runAdmission.createdAt)),
+            phaseAgeMs: Math.max(0, Math.round(now - runAdmission.phaseAt))
+        };
+    }
+
+    function announceRunNotice(message) {
+        if (elLiveNotice) elLiveNotice.textContent = message || '';
+    }
+
+    function refreshRunTriggerState() {
+        if (!elBtnRun) return;
+        var ready = automationReadyState === 'ready';
+        var pending = !!runAdmission;
+        elBtnRun.disabled = !ready || automationInteractionLocked;
+        if (pending) {
+            elBtnRun.setAttribute('aria-disabled', 'true');
+            elBtnRun.setAttribute('aria-busy', 'true');
+        } else {
+            elBtnRun.removeAttribute('aria-disabled');
+            elBtnRun.removeAttribute('aria-busy');
+        }
+        if (elBtnRunRecover) {
+            var stalled = !!runAdmission && runAdmission.phase === 'stalled';
+            elBtnRunRecover.classList.toggle('hidden', !stalled);
+            elBtnRunRecover.disabled = !stalled;
         }
     }
 
-    async function performRun() {
+    function tryReserveRun(origin, phase) {
+        if (runAdmission) return null;
+        var token = {};
+        var now = performance.now();
+        runAdmission = {
+            token: token,
+            origin: origin,
+            phase: phase || 'reserved',
+            createdAt: now,
+            phaseAt: now,
+            stallTimer: null
+        };
+        refreshRunTriggerState();
+        return token;
+    }
+
+    function transitionRunToExecuting(token) {
+        if (!runAdmission || runAdmission.token !== token ||
+            (runAdmission.phase !== 'reserved' && runAdmission.phase !== 'queued')) return false;
+        runAdmission.phase = 'executing';
+        runAdmission.phaseAt = performance.now();
+        runAdmission.stallTimer = setTimeout(function() {
+            if (!runAdmission || runAdmission.token !== token || runAdmission.phase !== 'executing') return;
+            runAdmission.phase = 'stalled';
+            runAdmission.phaseAt = performance.now();
+            announceRunNotice('Run setup appears stalled. Reloading preserves editor source but loses emulator RAM and unpersisted disk changes.');
+            refreshRunTriggerState();
+        }, RUN_STALL_WARNING_MS);
+        refreshRunTriggerState();
+        return true;
+    }
+
+    function releaseRun(token) {
+        if (!runAdmission || runAdmission.token !== token) return;
+        if (runAdmission.phase === 'recovering') return;
+        var stallTimer = runAdmission.stallTimer;
+        runAdmission = null;
+        if (stallTimer) clearTimeout(stallTimer);
+        try {
+            refreshRunTriggerState();
+        } catch (error) {
+            console.warn('[x1pen] Failed to refresh Run trigger after release:', error);
+        }
+    }
+
+    function makeRunResult(ok, code, status, retryable, retryAfterMs) {
+        var result = {
+            ok: !!ok,
+            status: status || (elStatus ? elStatus.textContent : ''),
+            sourceMode: getAutomationProgram().sourceMode,
+            revision: automationRevision
+        };
+        if (code) result.code = code;
+        if (retryable !== undefined) result.retryable = !!retryable;
+        if (retryAfterMs !== undefined) result.retryAfterMs = retryAfterMs;
+        if (!ok && runAdmission) result.activeOrigin = runAdmission.origin;
+        return result;
+    }
+
+    function makeRunBusyResult() {
+        return makeRunResult(false, 'RUN_IN_PROGRESS', 'Run setup is already in progress', true, 500);
+    }
+
+    function makeRunQueueTimeoutResult(origin) {
+        var result = makeRunResult(false, 'RUN_QUEUE_TIMEOUT', 'Run did not start before the Automation queue timeout', false);
+        result.activeOrigin = origin;
+        return result;
+    }
+
+    async function executeReservedRun(token) {
+        if (!transitionRunToExecuting(token)) return makeRunBusyResult();
+        try {
+            var ok = await performRun(token);
+            return makeRunResult(ok);
+        } finally {
+            releaseRun(token);
+        }
+    }
+
+    async function onRunClick(origin) {
+        var normalizedOrigin = normalizeRunOrigin(origin, true);
+        var token = tryReserveRun(normalizedOrigin, 'reserved');
+        if (!token) {
+            announceRunNotice('Run already in progress');
+            return false;
+        }
+        var result = await executeReservedRun(token);
+        return result.ok;
+    }
+
+    function recoverStalledRun(confirmDataLoss) {
+        var warning = 'Reloading preserves editor source but loses emulator RAM and unpersisted disk changes.';
+        if (!confirmDataLoss) {
+            return { ok: false, code: 'RECOVERY_CONFIRM_REQUIRED', status: warning };
+        }
+        if (!runAdmission || runAdmission.phase !== 'stalled') {
+            return { ok: false, code: 'RECOVERY_NOT_STALLED', status: 'Run setup is not stalled' };
+        }
+        persistEditorSources(
+            basicEditor ? basicEditor.getValue() : '',
+            asmEditor ? asmEditor.getValue() : '',
+            slangEditor ? slangEditor.getValue() : ''
+        );
+        var snapshot = getRunAdmissionSnapshot();
+        runAdmission.phase = 'recovering';
+        runAdmission.phaseAt = performance.now();
+        refreshRunTriggerState();
+        return {
+            ok: true,
+            code: 'RECOVERY_ACCEPTED',
+            status: warning,
+            activeOrigin: snapshot.origin,
+            ageMs: snapshot.ageMs,
+            reloadRequired: true
+        };
+    }
+
+    async function performRun(token) {
+        if (!runAdmission || runAdmission.token !== token) {
+            console.warn('[x1pen] performRun called without the active Run token');
+            return false;
+        }
         if (!module) return false;
 
         // 0. sourceMode / runMode 判定
@@ -1466,13 +1621,17 @@ window.__X1PEN_MODE = true;
     }
 
     function isRunSetupPending() {
-        return automationQueuedRuns > 0 || automationActiveRuns > 0;
+        return !!runAdmission;
+    }
+
+    function createRunPendingError(operation) {
+        var error = new Error(operation + ' is unavailable while run setup is pending');
+        error.code = 'RUN_PENDING';
+        return error;
     }
 
     function createDebuggerRunPendingError(operation) {
-        var error = new Error('Debugger ' + operation + ' is unavailable while run setup is pending');
-        error.code = 'RUN_PENDING';
-        return error;
+        return createRunPendingError('Debugger ' + operation);
     }
 
     function runAutomationDebuggerControl(exportName, operation) {
@@ -1791,7 +1950,7 @@ window.__X1PEN_MODE = true;
     var X1PEN_PRODUCT = window.X1PenBuild || { name: 'x1pen', version: 'unknown' };
 
     function getAutomationFeatures() {
-        var features = ['automation.core', 'screen.capture'];
+        var features = ['automation.core', 'automation.run-recovery', 'screen.capture'];
         if (isDebuggerModuleAvailable()) features.push('debugger.cpu');
         if (isDebuggerVramModuleAvailable()) features.push('debugger.vram');
         return features;
@@ -1821,6 +1980,7 @@ window.__X1PEN_MODE = true;
             });
         },
         setBreakpoints: function(addresses) {
+            if (isRunSetupPending()) return Promise.reject(createDebuggerRunPendingError('set breakpoints'));
             return queueAutomationOperation(function() {
                 return setAutomationDebuggerBreakpoints(addresses);
             });
@@ -1828,6 +1988,7 @@ window.__X1PEN_MODE = true;
         readMemory: readAutomationDebuggerMemory,
         readVram: readAutomationDebuggerVram,
         writeVram: function(options) {
+            if (isRunSetupPending()) return Promise.reject(createDebuggerRunPendingError('write VRAM'));
             return queueAutomationOperation(function() {
                 if (getAutomationDebuggerState().runState !== 'paused') {
                     throw createDebuggerVramError('write', -3);
@@ -1857,6 +2018,7 @@ window.__X1PEN_MODE = true;
             busy: automationPendingOperations > 0,
             connected: automationConnected,
             interactionLocked: automationInteractionLocked,
+            runAdmission: getRunAdmissionSnapshot(),
             title: document.title,
             url: location.href,
             status: elStatus ? elStatus.textContent : '',
@@ -1938,7 +2100,7 @@ window.__X1PEN_MODE = true;
             if (!automationInteractionLocked) overlay.textContent = 'AI is editing...';
             overlay.classList.toggle('hidden', !automationInteractionLocked);
         }
-        var buttons = document.querySelectorAll('#x1pen-toolbar button');
+        var buttons = document.querySelectorAll('#x1pen-toolbar button:not(#btn-run):not([data-automation-lock-exempt="true"])');
         buttons.forEach(function(button) {
             if (!wasLocked && automationInteractionLocked) {
                 button.dataset.mcpWasDisabled = button.disabled ? '1' : '0';
@@ -1948,6 +2110,7 @@ window.__X1PEN_MODE = true;
                 delete button.dataset.mcpWasDisabled;
             }
         });
+        refreshRunTriggerState();
         return getAutomationStatus();
     }
 
@@ -1972,6 +2135,39 @@ window.__X1PEN_MODE = true;
         });
     }
 
+    function runAutomation(options) {
+        options = options || {};
+        var origin = normalizeRunOrigin(options.origin, false);
+        var token = tryReserveRun(origin, 'queued');
+        if (!token) return Promise.resolve(makeRunBusyResult());
+        var requestedTimeout = Number(options.queueTimeoutMs);
+        var queueTimeoutMs = Number.isFinite(requestedTimeout)
+            ? Math.max(100, Math.min(RUN_QUEUE_TIMEOUT_MS, Math.floor(requestedTimeout)))
+            : RUN_QUEUE_TIMEOUT_MS;
+        var settled = false;
+        return new Promise(function(resolve, reject) {
+            var queueTimer = setTimeout(function() {
+                if (!runAdmission || runAdmission.token !== token || runAdmission.phase !== 'queued') return;
+                releaseRun(token);
+                settled = true;
+                resolve(makeRunQueueTimeoutResult(origin));
+            }, queueTimeoutMs);
+            queueAutomationOperation(function() {
+                clearTimeout(queueTimer);
+                return executeReservedRun(token);
+            }).then(function(value) {
+                if (settled) return;
+                settled = true;
+                resolve(value);
+            }, function(error) {
+                if (settled) return;
+                settled = true;
+                releaseRun(token);
+                reject(error);
+            });
+        });
+    }
+
     window.X1PenAutomation = Object.freeze({
         version: X1PEN_AUTOMATION_API_VERSION,
         ready: function() {
@@ -1979,34 +2175,16 @@ window.__X1PEN_MODE = true;
         },
         getProgram: getAutomationProgram,
         setProgram: function(program, expectedRevision) {
+            if (isRunSetupPending()) return Promise.reject(createRunPendingError('Program update'));
             return queueAutomationOperation(function() {
                 return setAutomationProgram(program, expectedRevision);
             });
         },
         validate: function() {
+            if (isRunSetupPending()) return Promise.reject(createRunPendingError('Validation'));
             return queueAutomationOperation(validateAutomationProgram);
         },
-        run: function() {
-            // Reserve the debugger guard before the operation queue advances;
-            // onRunClick separately covers UI, shortcut and Share-triggered runs.
-            automationQueuedRuns++;
-            var result = queueAutomationOperation(async function() {
-                var ok = await onRunClick();
-                return {
-                    ok: ok,
-                    status: elStatus ? elStatus.textContent : '',
-                    sourceMode: getAutomationProgram().sourceMode,
-                    revision: automationRevision
-                };
-            });
-            return result.then(function(value) {
-                automationQueuedRuns--;
-                return value;
-            }, function(error) {
-                automationQueuedRuns--;
-                throw error;
-            });
-        },
+        run: runAutomation,
         stop: function() {
             return queueAutomationOperation(function() {
                 onStopClick();
@@ -2016,6 +2194,7 @@ window.__X1PEN_MODE = true;
         debugger: automationDebuggerApi,
         getStatus: getAutomationStatus,
         captureScreen: captureAutomationScreen,
+        recoverStalled: recoverStalledRun,
         setConnectionState: setAutomationConnectionState,
         setInteractionLocked: setAutomationInteractionLocked
     });
@@ -2355,9 +2534,9 @@ window.__X1PEN_MODE = true;
         // 6. エミュレータ開始
         module._js_xmil_start();
 
-        elBtnRun.disabled = false;
         elStatus.textContent = 'Ready';
         automationReadyState = 'ready';
+        refreshRunTriggerState();
         automationReadyResolve();
 
         // 共有コード読み込み (?id=xxx)
@@ -2457,7 +2636,7 @@ window.__X1PEN_MODE = true;
                     lastShareHash = await computePayloadHash(replayPayload);
                     lastShareId = urlId;
 
-                    var runOk = await onRunClick();
+                    var runOk = await onRunClick('share');
                     // 実行成功時のみ: AudioContext がまだ suspended ならオーバーレイ表示
                     if (runOk) showAudioUnmuteIfNeeded();
                 } else if (shareResp.status === 400) {
@@ -2989,7 +3168,22 @@ window.__X1PEN_MODE = true;
 
     // ── イベントリスナー ──
 
-    elBtnRun.addEventListener('click', onRunClick);
+    elBtnRun.addEventListener('click', function() {
+        if (elBtnRun.getAttribute('aria-disabled') === 'true') {
+            announceRunNotice('Run already in progress');
+            return;
+        }
+        onRunClick('ui');
+    });
+    if (elBtnRunRecover) {
+        elBtnRunRecover.addEventListener('click', function() {
+            var result = recoverStalledRun(window.confirm(
+                'Reloading preserves editor source but loses emulator RAM and unpersisted disk changes. Continue?'
+            ));
+            if (result.ok) location.reload();
+            else announceRunNotice(result.status);
+        });
+    }
     elBtnStop.addEventListener('click', onStopClick);
     var elBtnShare = document.getElementById('btn-share');
     if (elBtnShare) elBtnShare.addEventListener('click', onShareClick);
@@ -3002,9 +3196,10 @@ window.__X1PEN_MODE = true;
 
     // Ctrl+Enter で RUN
     document.addEventListener('keydown', function(e) {
-        if (e.ctrlKey && e.key === 'Enter' && !elBtnRun.disabled) {
+        if (e.ctrlKey && e.key === 'Enter' && !elBtnRun.disabled &&
+            elBtnRun.getAttribute('aria-disabled') !== 'true') {
             e.preventDefault();
-            onRunClick();
+            onRunClick('ui');
         }
     });
 

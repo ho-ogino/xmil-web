@@ -99,6 +99,7 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 | `x1pen_set_program` | revision一致時だけプログラム全体を更新（新規作成・全置換用） |
 | `x1pen_validate` | 実行せずにコンパイル、アセンブル、トークナイズ |
 | `x1pen_run` | ユーザーが開いているX1Penで実行 |
+| `x1pen_recover_stalled` | stallしたRun準備を、データ損失確認後のタブ再読込で復旧 |
 | `x1pen_stop` | ESCを送信して停止 |
 | `x1pen_get_status` | 接続、ロック、実行状態を取得 |
 | `x1pen_capture_screen` | 640x400のエミュレーター画面をPNG取得 |
@@ -232,7 +233,14 @@ VRAMはCPUの64KBメモリ空間とは別です。`x1pen_debug_get_video_state`�
 }
 ```
 
-Runボタン、Ctrl+Enter、Share自動実行、MCPの`x1pen_run`による実行準備中は、pause/resume/stepが準備完了まで拡張ブリッジ内で待機します。人間とAIが同じX1Penを操作しても、起動用キー注入の途中へデバッガ操作が割り込まないための制約です。
+Runボタン、Ctrl+Enter、Share自動実行、Automation API、MCPの`x1pen_run`は、ページ全体で1つのRun予約を共有します。先に受理されたRunだけがビルド・状態復元・コマンドキー注入へ進み、同時要求は通常のツールcontentとして次を返します。
+
+- `RUN_IN_PROGRESS`: `retryable: true`。`retryAfterMs`以降に呼出し側が再試行できます。MCP/Connector自身は自動再試行しません。
+- `RUN_QUEUE_TIMEOUT`: 先行Automation処理のため実行開始できなかった非再試行結果です。`x1pen_get_status`で状態を確認してください。
+
+既存の`ok: true`は従来どおり「Run準備とコマンドキー注入が完了した」ことを示し、X1プログラムが実際に開始したことの確認までは含みません。Run準備中はpause/resume/step、プログラム更新、検証、デバッガ書込みを拒否または待機し、起動用キー注入への割込みを防ぎます。
+
+Run準備が`stalled`になった場合、`x1pen_get_status`は`runAdmission`のphase/origin/経過時間を返します。`x1pen_recover_stalled`を確認なしで呼ぶと警告を返し、`confirmDataLoss: true`でのみ再読込します。エディターの現在値は保存されますが、エミュレーターRAMと未永続化のディスク変更は失われます。
 
 Share機能はユーザーが開いているX1Pen自身から実行するため、本番X1Pen上では既存のShare APIと公開URLをそのまま利用できます。
 

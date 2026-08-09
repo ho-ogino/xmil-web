@@ -242,10 +242,24 @@ async function handleCommand(message) {
   }
   try {
     const result = await invokeX1Pen(session.tabId, message.method, message.params || {});
+    if (message.method === 'recoverStalled' && result?.ok && result.reloadRequired) {
+      send({ type: 'result', id: message.id, ok: true, result });
+      setTimeout(() => {
+        chrome.tabs.reload(session.tabId).catch((error) => {
+          console.warn('Failed to reload stalled X1Pen tab:', error);
+        });
+      }, 0);
+      return;
+    }
     await refreshSessions();
     send({ type: 'result', id: message.id, ok: true, result });
     sendSessions();
   } catch (error) {
+    if (!error?.code && /execution context|frame was removed|tab (?:was )?closed|No tab with id/i.test(error?.message || '')) {
+      error.code = 'TAB_RELOADED';
+      error.component = 'connector';
+      error.action = 'Wait for X1Pen to reload, then call x1pen_get_status.';
+    }
     send({ type: 'result', id: message.id, ok: false, error: serializeExtensionError(error) });
   }
 }
