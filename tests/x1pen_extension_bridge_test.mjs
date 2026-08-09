@@ -41,6 +41,14 @@ function createAutomationApi() {
       },
     }),
     getProgram: () => ({ revision: 1 }),
+    run: async (options) => {
+      calls.push({ run: options });
+      return { ok: false, code: 'RUN_IN_PROGRESS', retryable: true, retryAfterMs: 500 };
+    },
+    recoverStalled: (confirmDataLoss) => ({
+      ok: confirmDataLoss,
+      code: confirmDataLoss ? 'RECOVERY_ACCEPTED' : 'RECOVERY_CONFIRM_REQUIRED',
+    }),
     setInteractionLocked: (locked, label) => {
       locks.push({ locked, label });
       timeline.push(locked ? 'lock:on' : 'lock:off');
@@ -126,6 +134,28 @@ test('page bridge allowlists debugger operations and retries Run setup races', a
 
   await assert.rejects(invokeX1PenInPage('debuggerStep', { count: 101 }), /integer from 1 to 100/);
   await assert.rejects(invokeX1PenInPage('evaluateJavaScript', {}), /Unsupported X1Pen method/);
+});
+
+test('page bridge preserves Run admission results and routes guarded recovery', async () => {
+  const { api, calls, locks } = createAutomationApi();
+  globalThis.window = { X1PenAutomation: api };
+
+  const started = Date.now();
+  const busy = await invokeX1PenInPage('run', { waitMs: 200, queueTimeoutMs: 15000 });
+  assert.equal(busy.code, 'RUN_IN_PROGRESS');
+  assert.ok(Date.now() - started < 150, 'admission failure must skip waitMs');
+  assert.deepEqual(calls.at(-1), { run: { origin: 'mcp', queueTimeoutMs: 15000 } });
+  assert.deepEqual(locks.slice(-2), [
+    { locked: true, label: 'AI is running the program...' },
+    { locked: false, label: undefined },
+  ]);
+
+  assert.deepEqual(await invokeX1PenInPage('recoverStalled', { confirmDataLoss: false }), {
+    ok: false, code: 'RECOVERY_CONFIRM_REQUIRED',
+  });
+  assert.deepEqual(await invokeX1PenInPage('recoverStalled', { confirmDataLoss: true }), {
+    ok: true, code: 'RECOVERY_ACCEPTED',
+  });
 });
 
 test('page bridge rejects debugger calls when capability is unavailable', async () => {

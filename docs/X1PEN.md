@@ -190,6 +190,8 @@ X millennium Web 本体のエミュレータで FDD にマウントして起動�
 | **Ctrl+F** | 検索 |
 | **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / Redo |
 
+RUNの準備中はRUNボタンがbusy表示になり、連打やCtrl+Enterの再入力は無視されます。Automation/MCPから同時にRUNされた場合も、先に受理された1件だけが実行されます。
+
 ## 自動保存
 
 エディタの内容はブラウザの localStorage に自動保存されます。

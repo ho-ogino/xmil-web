@@ -16,6 +16,8 @@ const calls = [];
 let currentProgram;
 let debuggerState;
 let compatibilityFailure;
+let runResponse;
+let recoveryResponse;
 
 const initialDebuggerState = {
   version: 1,
@@ -56,6 +58,7 @@ function normalizeProgram(program) {
 }
 
 const fakeBridge = {
+  commandTimeoutMs: 40_000,
   connectionInfo() {
     return {
       port: 43110, pairingCode: '123456', extensionConnected: true,
@@ -93,6 +96,8 @@ const fakeBridge = {
       return clone(currentProgram);
     }
     if (method === 'validate') return { ok: true, diagnostics: [] };
+    if (method === 'run') return clone(runResponse);
+    if (method === 'recoverStalled') return clone(recoveryResponse);
     if (method === 'getStatus') {
       return {
         ready: true,
@@ -186,6 +191,8 @@ beforeEach(() => {
   currentProgram = clone(initialProgram);
   debuggerState = clone(initialDebuggerState);
   compatibilityFailure = null;
+  runResponse = { ok: true, status: 'Ready', revision: 3 };
+  recoveryResponse = { ok: false, code: 'RECOVERY_CONFIRM_REQUIRED', status: 'Data loss warning' };
 });
 
 after(async () => {
@@ -215,6 +222,7 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_get_source',
     'x1pen_get_status',
     'x1pen_list_sessions',
+    'x1pen_recover_stalled',
     'x1pen_run',
     'x1pen_search_reference',
     'x1pen_search_source',
@@ -223,6 +231,33 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_stop',
     'x1pen_validate',
   ]);
+});
+
+test('Run admission and stalled recovery remain ordinary MCP content', async () => {
+  runResponse = {
+    ok: false,
+    code: 'RUN_IN_PROGRESS',
+    status: 'Run setup is already in progress',
+    retryable: true,
+    retryAfterMs: 500,
+    activeOrigin: 'ui',
+  };
+  const run = await client.callTool({ name: 'x1pen_run', arguments: { waitMs: 500 } });
+  assert.equal(run.isError, undefined);
+  assert.deepEqual(jsonContent(run), runResponse);
+  assert.deepEqual(calls.at(-1).params, { waitMs: 500, queueTimeoutMs: 10_000 });
+
+  const preview = await client.callTool({ name: 'x1pen_recover_stalled', arguments: {} });
+  assert.equal(preview.isError, undefined);
+  assert.equal(jsonContent(preview).code, 'RECOVERY_CONFIRM_REQUIRED');
+  assert.deepEqual(calls.at(-1).params, { confirmDataLoss: false });
+
+  recoveryResponse = { ok: true, code: 'RECOVERY_ACCEPTED', reloadRequired: true };
+  const accepted = await client.callTool({
+    name: 'x1pen_recover_stalled', arguments: { confirmDataLoss: true },
+  });
+  assert.equal(accepted.isError, undefined);
+  assert.equal(jsonContent(accepted).code, 'RECOVERY_ACCEPTED');
 });
 
 test('connection and status tools report all component versions and effective capabilities', async () => {

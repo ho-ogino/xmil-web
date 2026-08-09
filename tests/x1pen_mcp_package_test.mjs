@@ -87,7 +87,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.match(client.getInstructions(), /x1pen_search_reference/);
 
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 26);
+    assert.equal(tools.tools.length, 27);
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_apply_edits'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_debug_get_state'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_debug_read_vram'));
@@ -99,7 +99,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.match(info.pairingCode, /^\d{6}$/);
     assert.equal(info.components.mcp.version, '2.6.0');
     assert.deepEqual(info.components.mcp.features,
-      ['automation.core', 'screen.capture', 'debugger.cpu', 'debugger.vram']);
+      ['automation.core', 'automation.run-recovery', 'screen.capture', 'debugger.cpu', 'debugger.vram']);
     assert.equal(info.components.connector, null);
 
     const reference = await client.callTool({

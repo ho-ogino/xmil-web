@@ -1,6 +1,7 @@
 export const CONNECTOR_PROTOCOL_VERSION = 2;
 export const CONNECTOR_FEATURES = Object.freeze([
   'automation.core',
+  'automation.run-recovery',
   'screen.capture',
   'debugger.cpu',
   'debugger.vram',

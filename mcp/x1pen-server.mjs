@@ -722,13 +722,28 @@ export function createX1PenMcpServer(options = {}) {
   )));
 
   server.registerTool('x1pen_run', {
-    description: 'Build and run the current program in the connected user-visible X1Pen tab.',
+    description: 'Build and run the current program in the connected user-visible X1Pen tab. Concurrent Run returns ordinary content with code RUN_IN_PROGRESS and retryAfterMs; a Run held behind other Automation work can return non-retryable RUN_QUEUE_TIMEOUT. The server does not retry automatically.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       waitMs: z.number().int().min(0).max(10_000).default(500),
     },
     annotations: { destructiveHint: true, openWorldHint: false },
-  }, handleTool(async ({ sessionId, waitMs }) => textResult(await bridge.sendCommand('run', { waitMs }, sessionId))));
+  }, handleTool(async ({ sessionId, waitMs }) => {
+    const commandTimeoutMs = Number.isFinite(bridge.commandTimeoutMs) ? bridge.commandTimeoutMs : 60_000;
+    const queueTimeoutMs = Math.max(100, Math.min(20_000, Math.floor(commandTimeoutMs / 4)));
+    return textResult(await bridge.sendCommand('run', { waitMs, queueTimeoutMs }, sessionId));
+  }));
+
+  server.registerTool('x1pen_recover_stalled', {
+    description: 'Reload a Run-stalled X1Pen tab. First call without confirmation to read the data-loss warning. Recovery is refused unless Run admission is already stalled; it preserves editor source but loses emulator RAM and unpersisted disk changes.',
+    inputSchema: {
+      sessionId: sessionInput.sessionId,
+      confirmDataLoss: z.boolean().default(false),
+    },
+    annotations: { destructiveHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId, confirmDataLoss }) => textResult(
+    await bridge.sendCommand('recoverStalled', { confirmDataLoss }, sessionId),
+  )));
 
   server.registerTool('x1pen_stop', {
     description: 'Send ESC to stop the program in the connected X1Pen tab.',
