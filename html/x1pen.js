@@ -552,6 +552,16 @@ window.__X1PEN_MODE = true;
     var syntheticKeyDepth = 0;
     var syntheticKeyRestoreMode = null;
 
+    function getConfiguredKeyMode(fallback) {
+        try {
+            if (window.XmilControls && window.XmilControls.getSettings) {
+                var mode = window.XmilControls.getSettings().keyMode;
+                if (mode === 0 || mode === 1 || mode === 2) return mode;
+            }
+        } catch (e) {}
+        return fallback;
+    }
+
     function enterSyntheticKeyboardMode(prevMode) {
         if (!module || !module._js_set_key_mode || prevMode === 0) return false;
         if (syntheticKeyDepth === 0) {
@@ -570,7 +580,7 @@ window.__X1PEN_MODE = true;
         if (!switched) return;
         syntheticKeyDepth = Math.max(0, syntheticKeyDepth - 1);
         if (syntheticKeyDepth === 0) {
-            var restoreMode = syntheticKeyRestoreMode;
+            var restoreMode = getConfiguredKeyMode(syntheticKeyRestoreMode);
             syntheticKeyRestoreMode = null;
             if (module && module._js_set_key_mode && restoreMode !== null) {
                 module._js_set_key_mode(restoreMode);
@@ -578,40 +588,47 @@ window.__X1PEN_MODE = true;
         }
     }
 
-    function simulateKeys(keys, interval) {
-        var ms = (interval === undefined) ? 100 : interval;
+    var SYNTHETIC_KEY_HOLD_MS = 80;
+
+    function waitForSyntheticKey(ms) {
+        return new Promise(function(resolve) { setTimeout(resolve, ms); });
+    }
+
+    async function simulateKeys(keys, gapMs) {
+        // `gapMs` is the idle gap after a key is released. Keeping one key's
+        // full lifecycle in this loop prevents delayed/coalesced timers from
+        // overlapping key presses.
+        gapMs = (gapMs === undefined) ? 100 : gapMs;
         if (!keys || keys.length === 0) return Promise.resolve();
 
-        var prevMode = 0;
-        try {
-            if (window.XmilControls && window.XmilControls.getSettings) {
-                prevMode = window.XmilControls.getSettings().keyMode || 0;
-            }
-        } catch (e) {}
+        var prevMode = getConfiguredKeyMode(0);
 
+        // This switches the emulator module directly and intentionally leaves
+        // the persistent XmilControls settings store unchanged.
         var switched = enterSyntheticKeyboardMode(prevMode);
 
-        return new Promise(function(resolve) {
-            keys.forEach(function(vk, i) {
-                var last = (i === keys.length - 1);
-                setTimeout(function() {
-                    try { module._js_key_down(vk); } catch (e) {}
-                    setTimeout(function() {
-                        try {
-                            module._js_key_up(vk);
-                        } finally {
-                            if (last) {
-                                try {
-                                    leaveSyntheticKeyboardMode(switched);
-                                } finally {
-                                    resolve();
-                                }
-                            }
-                        }
-                    }, 80);
-                }, i * ms);
-            });
-        });
+        try {
+            for (var i = 0; i < keys.length; i++) {
+                var vk = keys[i];
+                var keyIsDown = false;
+                try {
+                    try {
+                        module._js_key_down(vk);
+                        keyIsDown = true;
+                    } catch (e) {}
+                    await waitForSyntheticKey(SYNTHETIC_KEY_HOLD_MS);
+                } finally {
+                    if (keyIsDown) {
+                        try { module._js_key_up(vk); } catch (e) {}
+                    }
+                }
+                if (i < keys.length - 1) {
+                    await waitForSyntheticKey(gapMs);
+                }
+            }
+        } finally {
+            leaveSyntheticKeyboardMode(switched);
+        }
     }
 
     function simulateRunCommand() {
