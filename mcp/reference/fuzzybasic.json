@@ -643,7 +643,7 @@
         "source": "10 J=JOY(0)\n20 PRINT J\n30 GOTO 10"
       }
     ],
-    "relatedIds": ["fuzzybasic.io.console", "fuzzybasic.x1.sound"],
+    "relatedIds": ["fuzzybasic.io.console", "fuzzybasic.x1.sound", "x1.io.psg-joystick"],
     "sourceUrls": ["https://github.com/ho-ogino/FuzzyBASIC/blob/69aaa029bfc80fbb57406994176c63d7f213f04f/src/FUZZY.ASM"]
   },
   {

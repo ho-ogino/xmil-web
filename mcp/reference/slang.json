@@ -268,7 +268,7 @@
         "source": "MAIN() BEGIN\n  VAR RESULT;\n  RESULT=FOPEN(0, \"A:DATA.BIN\", 0);\n  IF RESULT==0 THEN FCLOSE(0);\n  PRINT(RESULT, /);\nEND;"
       }
     ],
-    "relatedIds": ["slang.machine.system-access", "slang.x1.assets-compression", "slang.x1.display-graphics", "slang.runtime.catalog"],
+    "relatedIds": ["slang.machine.system-access", "slang.x1.assets-compression", "slang.x1.display-graphics", "slang.runtime.catalog", "x1.io.psg-joystick"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/liblsx_input.asm",
       "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/liblsx_file.asm"

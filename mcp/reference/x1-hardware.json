@@ -313,29 +313,48 @@
     "title": "AY-3-8910 PSG and joystick ports",
     "profiles": ["x1-hardware-xmillennium-web"],
     "symbols": ["1B00H-1BFFH", "1C00H-1CFFH", "PSG", "AY-3-8910", "register 14", "register 15", "x1_psg_dat", "x1_psg_reg", "x1_psg_sta"],
-    "aliases": ["PSG register", "sound chip", "joystick port", "game controller", "AY", "音源", "PSGポート", "ジョイスティック", "ゲームパッド", "レジスタ14", "レジスタ15"],
+    "aliases": ["PSG register", "PSG clock", "tone period", "2 MHz", "sound chip", "joystick port", "joystick bit mapping", "active-low input", "game controller", "AY", "音源", "PSGクロック", "音程計算", "PSGポート", "ジョイスティック", "ジョイスティック ビット割り当て", "ゲームパッド", "押下検出", "レジスタ14", "レジスタ15"],
     "summary": "Select an AY-3-8910 register through the 1CxxH group, then read or write it through the 1BxxH group; input registers 14 and 15 carry joystick-style data.",
     "syntax": [
       "OUT 1CxxH,register   select PSG register 0-15",
       "OUT 1BxxH,value      write selected sound register 0-13",
       "IN  1BxxH           read selected register or joystick input",
-      "registers 0-5 tone, 6 noise, 7 mixer/I/O, 8-10 volume, 11-13 envelope, 14-15 I/O"
+      "registers 0-5 tone, 6 noise, 7 mixer/I/O, 8-10 volume, 11-13 envelope, 14-15 I/O",
+      "PSG clock = 2,000,000 Hz; tone period = clock / (16 * frequency)",
+      "register | controller: 14 | joystick 1; 15 | joystick 2",
+      "bit | mask | active-low input",
+      "0 | 01H | Up",
+      "1 | 02H | Down",
+      "2 | 04H | Left",
+      "3 | 08H | Right",
+      "4 | 10H | Button 4",
+      "5 | 20H | Button 2 (B)",
+      "6 | 40H | Button 1 (A)",
+      "7 | 80H | Button 3"
     ],
     "notes": [
       "Use BC with OUT (C),A and IN A,(C); the X1 decodes the 16-bit port high byte, not only an 8-bit immediate port.",
-      "The Web emulator exposes external joystick flags on register 14 and applies JoyKey keyboard mapping to register 14 or 15 according to Key Mode.",
-      "Joystick bits are active-low. Preserve or interpret all bits according to the controller contract instead of assuming active-high directions.",
+      "The AY-3-8910 receives a 2 MHz clock. Round clock / (16 * frequency) to the nearest supported 12-bit tone period. For channel A, A4 at 440 Hz uses period 284 (011CH): register 0 (fine) = 1CH and register 1 (coarse) = 01H, producing about 440.14 Hz. The coarse register uses only its low four bits, so tone periods are limited to 12 bits.",
+      "The bit table applies identically to raw bytes read from register 14 or 15. The Web emulator combines physical gamepad state into register 14 and applies JoyKey keyboard mapping to register 14 or 15 according to Key Mode.",
+      "Buttons 3 and 4 are additional mappings exposed by the Web emulator platform layer; do not assume that a physical two-button X1 pad drives those lines.",
+      "Joystick bits are active-low: 0 means pressed, and 255 (FFH) means that no direction or button is pressed.",
+      "For successive raw samples, (NEW XOR OLD) AND OLD yields the newly pressed bits. For example, OLD=FFH and NEW=FEH produces 01H for a new Up press.",
       "Writes to registers 14 and 15 are not modeled as general-purpose output by this implementation.",
       "For FuzzyBASIC or SLANG music playback, prefer their documented PSG drivers unless direct tone-register control is required."
     ],
     "examples": [{
       "title": "Read joystick input from PSG register 14",
       "source": "ORG 0100H\nLD BC,01C00H\nLD A,0EH\nOUT (C),A\nLD BC,01B00H\nIN A,(C)\nRET"
+    }, {
+      "title": "Detect newly pressed active-low joystick bits",
+      "source": "ORG 0100H\n; B=OLD, A=NEW\nXOR B\nAND B\nRET"
     }],
-    "relatedIds": ["x1.io.dispatch-map", "x1.io.ppi-subcpu", "x1.io.opm", "slang.x1.psg", "fuzzybasic.x1.input"],
+    "relatedIds": ["x1.io.dispatch-map", "x1.io.ppi-subcpu", "x1.io.opm", "slang.x1.psg", "slang.runtime.lsx-io-files", "fuzzybasic.x1.input"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_SOUND.CPP",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/OPMSOUND/Opmcore.cpp",
       "https://github.com/ho-ogino/xmil-web/blob/main/src/OPMSOUND/ay8910.cpp",
+      "https://github.com/ho-ogino/xmil-web/blob/main/platform/platform_joystick.cpp",
       "http://x1center.org/sdx1/sdx1_0.html"
     ]
   },

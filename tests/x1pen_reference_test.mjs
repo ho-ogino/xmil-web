@@ -163,6 +163,10 @@ test('representative Japanese and English queries reach dedicated X1 hardware en
     ['キーボード サブCPU', 'x1.io.ppi-subcpu'],
     ['キー入力', 'x1.io.ppi-subcpu'],
     ['PSG ジョイスティック', 'x1.io.psg-joystick'],
+    ['PSG clock tone period', 'x1.io.psg-joystick'],
+    ['ジョイスティック ビット割り当て', 'x1.io.psg-joystick'],
+    ['active-low input', 'x1.io.psg-joystick'],
+    ['押下検出', 'x1.io.psg-joystick'],
     ['FM音源 OPM', 'x1.io.opm'],
     ['CTC タイマー', 'x1.io.ctc'],
     ['タイマー割り込み', 'x1.io.ctc'],
@@ -334,6 +338,51 @@ test('X1 hardware reference matches emulator memory and VRAM constants', () => {
   ]) {
     assert.ok(details.includes(fact), `${fact} must remain documented`);
   }
+});
+
+test('PSG and joystick reference matches the emulator input contract', () => {
+  const soundSource = readFileSync(join(repoRoot, 'src/OPMSOUND/Opmcore.cpp'), 'utf8');
+  const joystickSource = readFileSync(join(repoRoot, 'platform/platform_joystick.cpp'), 'utf8');
+  const entries = new Map(validateReferenceData().entries.map((entry) => [entry.id, entry]));
+  const [contract] = getReferenceEntries({
+    ids: ['x1.io.psg-joystick'],
+    maxCharacters: 16 * 1024,
+  }).entries;
+  const details = JSON.stringify(contract);
+
+  assert.match(soundSource, /AY8910_init\(2000000,/);
+  const inputLabels = {
+    UP: 'Up', DOWN: 'Down', LEFT: 'Left', RIGHT: 'Right',
+    BTN4: 'Button 4', BTN2: 'Button 2 (B)', BTN1: 'Button 1 (A)', BTN3: 'Button 3',
+  };
+  const sourceInputs = new Map(
+    [...joystickSource.matchAll(/^#define JOY_(UP|DOWN|LEFT|RIGHT|BTN[1-4])_BIT\s+(0x[0-9A-F]+)/gmi)]
+      .map(([, name, mask]) => {
+        const numericMask = Number.parseInt(mask, 16);
+        return [Math.log2(numericMask), { mask: numericMask, input: inputLabels[name] }];
+      }),
+  );
+  const documentedInputs = new Map(
+    contract.syntax.flatMap((row) => {
+      const match = row.match(/^(\d) \| ([0-9A-F]+)H \| (.+)$/);
+      return match
+        ? [[Number(match[1]), { mask: Number.parseInt(match[2], 16), input: match[3] }]]
+        : [];
+    }),
+  );
+  assert.deepEqual(documentedInputs, sourceInputs);
+  for (const fact of [
+    '2,000,000 Hz', 'clock / (16 * frequency)', 'period 284',
+    'register 0 (fine) = 1CH', 'register 1 (coarse) = 01H', 'limited to 12 bits',
+    '14 | joystick 1', '15 | joystick 2', 'applies identically',
+    'physical gamepad state into register 14', 'Buttons 3 and 4 are additional mappings',
+    '0 means pressed', '255 (FFH) means that no direction or button is pressed',
+    '(NEW XOR OLD) AND OLD',
+  ]) {
+    assert.ok(details.includes(fact), `${fact} must remain documented`);
+  }
+  assert.ok(entries.get('fuzzybasic.x1.input').relatedIds.includes('x1.io.psg-joystick'));
+  assert.ok(entries.get('slang.runtime.lsx-io-files').relatedIds.includes('x1.io.psg-joystick'));
 });
 
 test('every X1 hardware example assembles with the bundled Z80 assembler', () => {

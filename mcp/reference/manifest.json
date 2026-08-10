@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "referenceVersion": "2026-08-08",
+  "referenceVersion": "2026-08-10",
   "defaultProfiles": {
     "fuzzybasic": "x1pen-fuzzybasic-1.2L",
     "slang": "x1pen-slang-c9e8f53-lsx",
