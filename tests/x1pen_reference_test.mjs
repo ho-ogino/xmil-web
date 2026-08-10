@@ -163,6 +163,8 @@ test('representative Japanese and English queries reach dedicated X1 hardware en
     ['キーボード サブCPU', 'x1.io.ppi-subcpu'],
     ['キー入力', 'x1.io.ppi-subcpu'],
     ['PSG ジョイスティック', 'x1.io.psg-joystick'],
+    ['PSG clock tone period', 'x1.io.psg-joystick'],
+    ['ジョイスティック ビット割り当て', 'x1.io.psg-joystick'],
     ['FM音源 OPM', 'x1.io.opm'],
     ['CTC タイマー', 'x1.io.ctc'],
     ['タイマー割り込み', 'x1.io.ctc'],
@@ -334,6 +336,40 @@ test('X1 hardware reference matches emulator memory and VRAM constants', () => {
   ]) {
     assert.ok(details.includes(fact), `${fact} must remain documented`);
   }
+});
+
+test('PSG and joystick reference matches the emulator input contract', () => {
+  const soundSource = readFileSync(join(repoRoot, 'src/OPMSOUND/Opmcore.cpp'), 'utf8');
+  const joystickSource = readFileSync(join(repoRoot, 'platform/platform_joystick.cpp'), 'utf8');
+  const entries = new Map(validateReferenceData().entries.map((entry) => [entry.id, entry]));
+  const details = JSON.stringify(getReferenceEntries({
+    ids: ['x1.io.psg-joystick'],
+    maxCharacters: 16 * 1024,
+  }).entries);
+
+  assert.match(soundSource, /AY8910_init\(2000000,/);
+  for (const [name, value] of [
+    ['JOY_UP_BIT', '0x01'],
+    ['JOY_DOWN_BIT', '0x02'],
+    ['JOY_LEFT_BIT', '0x04'],
+    ['JOY_RIGHT_BIT', '0x08'],
+    ['JOY_BTN4_BIT', '0x10'],
+    ['JOY_BTN2_BIT', '0x20'],
+    ['JOY_BTN1_BIT', '0x40'],
+    ['JOY_BTN3_BIT', '0x80'],
+  ]) {
+    assert.match(joystickSource, new RegExp(`#define\\s+${name}\\s+${value}`));
+  }
+  for (const fact of [
+    '2,000,000 Hz', 'clock / (16 * frequency)', 'period 284',
+    '14 | joystick 1', '15 | joystick 2', '0 | 01H | Up', '7 | 80H | Button 3',
+    '0 means pressed', '255 (FFH) means that no direction or button is pressed',
+    '(NEW XOR OLD) AND OLD',
+  ]) {
+    assert.ok(details.includes(fact), `${fact} must remain documented`);
+  }
+  assert.ok(entries.get('fuzzybasic.x1.input').relatedIds.includes('x1.io.psg-joystick'));
+  assert.ok(entries.get('slang.runtime.lsx-io-files').relatedIds.includes('x1.io.psg-joystick'));
 });
 
 test('every X1 hardware example assembles with the bundled Z80 assembler', () => {
