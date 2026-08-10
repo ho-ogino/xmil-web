@@ -2,9 +2,10 @@
 ; SLANG Runtime Library (new format)
 
 ; @name M8ALOAD
+; @calls X1WORK
 ; @lib M8ALIB
 
-WIDTH		EQU	40
+M8A_WIDTH	EQU	40
 
 DRAWSPEED	EQU	0	;0=�ȃT�C�Y�ᑬ/1=����/1�ȏ�=���[�v�W�J����
 CALCSPEED	EQU	0	;0=�v�Z�擾�ᑬ/0�ȊO=TABLE�擾����
@@ -17,7 +18,7 @@ DRAWM8A:
 	LD E,C
 
 #IF CALCSPEED == 0
-	; ���݂�WIDTH�l������(CALCSPEED��0�̎��̂ݓ��I��WIDTH�؂�ւ����\�ƂȂ�)
+	; ���݂�M8A_WIDTH�l������(CALCSPEED��0�̎��̂ݓ��I��M8A_WIDTH�؂�ւ����\�ƂȂ�)
 	LD A,(NAME_SPACE_DEFAULT.AT_WIDTH)
 	LD (REWRITE0Y+1),A
 #ENDIF
@@ -44,7 +45,7 @@ DRAWM8A:
 ;	   nn!=0: repeat length (1�`3)
 ;
 ; HL .... DATA POINTER
-; B ..... WIDTH COUNTER
+; B ..... M8A_WIDTH COUNTER
 ; C ..... HEIGHT COUNTER
 ;
 ; BC' ... VRAM address
@@ -98,7 +99,7 @@ REWRITE0X:
 
 	; ���[���W�v�Z
 #IF CALCSPEED == 0
-		LD	C, A		; ���[���W�̌v�Z...(Y AND 7)*2^11 + (Y \ 8)*WIDTH
+		LD	C, A		; ���[���W�̌v�Z...(Y AND 7)*2^11 + (Y \ 8)*M8A_WIDTH
 		AND	7		; Y AND 7
 		ADD	A, A
 		ADD	A, A
@@ -110,7 +111,7 @@ REWRITE0X:
 		RRCA
 		AND	00011111B	; (Y \ 8)
 REWRITE0Y:
-		LD	B, WIDTH
+		LD	B, M8A_WIDTH
 AXBHL:					; A�~B = HL
 		LD	HL, 0		; ���ʂ��N���A
 		LD	D, H		; D=0
@@ -335,9 +336,10 @@ ERREND:
 
 
 ;------------------------------------------------------------------------------
-#IF CALCSPEED != 0 && WIDTH == 40
+#IF CALCSPEED != 0
+#IF M8A_WIDTH == 40
 	ALIGN	256
-	; WIDTH40
+	; M8A_WIDTH 40
 GVRAMADRS_LO:
 	DB	$00,$00,$00,$00,$00,$00,$00,$00		;1	8x 0=  0
 	DB	$28,$28,$28,$28,$28,$28,$28,$28		;2	8x 1=  8
@@ -394,8 +396,8 @@ GVRAMADRS_HI:
 	DB	$43,$4b,$53,$5b,$63,$6b,$73,$7b		;24	8x23=184
 	DB	$43,$4b,$53,$5b,$63,$6b,$73,$7b		;25	8x24=192
 	DB	$43,$4b,$53,$5b,$63,$6b,$73,$7b		;26	8x25=200
-#ELIF CALCSPEED != 0 && WIDTH == 80
-	; WIDTH80
+#ELIF M8A_WIDTH == 80
+	; M8A_WIDTH 80
 GVRAMADRS_LO:
 	DB	$00,$00,$00,$00,$00,$00,$00,$00		;1	  0-  7
 	DB	$50,$50,$50,$50,$50,$50,$50,$50		;2	  8- 15
@@ -453,9 +455,9 @@ GVRAMADRS_HI:
 	DB	$07,$0f,$17,$1f,$27,$2f,$37,$3f		;25	192-200
 	DB	$07,$0f,$17,$1f,$27,$2f,$37,$3f		;26
 #ENDIF
+#ENDIF
 
 MAGICM8A:
      DB "M8A"
-
 
 
