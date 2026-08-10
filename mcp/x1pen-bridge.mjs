@@ -29,6 +29,7 @@ export class X1PenBridge {
     this.endPort = options.endPort ?? (this.startPort === DEFAULT_START_PORT ? DEFAULT_END_PORT : this.startPort);
     this.pairingCode = options.pairingCode || createPairingCode();
     this.commandTimeoutMs = options.commandTimeoutMs || 60_000;
+    this.padReleaseTimeoutMs = options.padReleaseTimeoutMs || 2_000;
     this.allowOrigin = options.allowOrigin || isExtensionOrigin;
     this.logger = options.logger || ((message) => console.error(`[x1pen-mcp] ${message}`));
     this.server = null;
@@ -194,11 +195,50 @@ export class X1PenBridge {
     }));
   }
 
-  selectSession(sessionId) {
+  async selectSession(sessionId, options = {}) {
     if (!this.sessions.has(sessionId)) throw new Error(`X1Pen session not found: ${sessionId}`);
+    const previousSessionId = this.selectedSessionId;
+    let padReleaseWarning = null;
+    if (previousSessionId && previousSessionId !== sessionId &&
+        this.sessions.has(previousSessionId)) {
+      const previousCompatibility = this.getSessionCompatibility(previousSessionId);
+      if (previousCompatibility.capabilities['input.pad']?.available === true) {
+        try {
+          await this.sendCommand('releasePads', {}, previousSessionId, {
+            timeoutMs: this.padReleaseTimeoutMs,
+          });
+        } catch (cause) {
+          // A removed/reloaded tab has no surviving WebAssembly pad state.
+          if (this.sessions.has(previousSessionId)) {
+            const details = {
+              code: 'PAD_RELEASE_FAILED',
+              component: 'x1pen',
+              feature: 'input.pad',
+              previousSessionId,
+              action: 'Retry selection, disconnect/reload the old X1Pen tab, or pass force=true.',
+              message: `Could not release pad input in the previously selected X1Pen session: ${cause?.message || String(cause)}`,
+            };
+            if (!options.force) {
+              const error = new Error(details.message);
+              Object.assign(error, details);
+              throw error;
+            }
+            padReleaseWarning = details;
+          }
+        }
+      }
+    }
+    if (!this.sessions.has(sessionId)) {
+      throw new Error(`X1Pen session disappeared during selection: ${sessionId}`);
+    }
     this.selectedSessionId = sessionId;
     const session = this.sessions.get(sessionId);
-    return { ...session, selected: true, compatibility: this.getSessionCompatibility(sessionId) };
+    return {
+      ...session,
+      selected: true,
+      compatibility: this.getSessionCompatibility(sessionId),
+      ...(padReleaseWarning ? { warning: padReleaseWarning } : {}),
+    };
   }
 
   resolveSession(sessionId) {
@@ -212,16 +252,20 @@ export class X1PenBridge {
     throw new Error('Multiple X1Pen tabs are connected. Call x1pen_list_sessions and x1pen_select_session first.');
   }
 
-  sendCommand(method, params = {}, sessionId) {
+  sendCommand(method, params = {}, sessionId, options = {}) {
     const resolvedSessionId = this.resolveSession(sessionId);
     const compatibility = this.getSessionCompatibility(resolvedSessionId);
     assertMethodCompatible(method, compatibility.capabilities, compatibility.components);
     const id = randomUUID();
+    const requestedTimeoutMs = Number(options.timeoutMs);
+    const timeoutMs = Number.isFinite(requestedTimeoutMs)
+      ? Math.max(1, Math.min(this.commandTimeoutMs, Math.floor(requestedTimeoutMs)))
+      : this.commandTimeoutMs;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingCommands.delete(id);
         reject(new Error(`X1Pen command timed out: ${method}`));
-      }, this.commandTimeoutMs);
+      }, timeoutMs);
       this.pendingCommands.set(id, { resolve, reject, timeout });
       this.socket.send(JSON.stringify({
         type: 'command',

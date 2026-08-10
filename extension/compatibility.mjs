@@ -4,6 +4,7 @@ export const CONNECTOR_FEATURES = Object.freeze([
   'automation.run-recovery',
   'screen.capture',
   'input.keyboard',
+  'input.pad',
   'debugger.cpu',
   'debugger.vram',
 ]);

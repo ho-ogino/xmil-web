@@ -29,6 +29,8 @@ window.__X1PEN_MODE = true;
     var automationOperationQueue = Promise.resolve();
     var automationPendingOperations = 0;
     var automationKeyAdmission = false;
+    var automationPadAdmission = false;
+    var automationInputEpoch = 0;
     window.__X1PEN_SYNTHETIC_INPUT_LOCKED = false;
     var runAdmission = null;
     var RUN_QUEUE_TIMEOUT_MS = 20000;
@@ -595,7 +597,7 @@ window.__X1PEN_MODE = true;
 
     var SYNTHETIC_KEY_HOLD_MS = 80;
     var SYNTHETIC_KEY_MAX_HOLD_MS = 2000;
-    var syntheticKeyQueue = Promise.resolve();
+    var automationInputQueue = Promise.resolve();
 
     function waitForSyntheticKey(ms) {
         return new Promise(function(resolve) { setTimeout(resolve, ms); });
@@ -655,13 +657,17 @@ window.__X1PEN_MODE = true;
         }
     }
 
+    function queueAutomationInput(operation) {
+        var result = automationInputQueue.then(operation);
+        // A failed input operation must not poison later RUN/PROG or MCP input.
+        automationInputQueue = result.catch(function() {});
+        return result;
+    }
+
     function simulateKeys(keys, gapMs, holdMs) {
-        var result = syntheticKeyQueue.then(function() {
+        return queueAutomationInput(function() {
             return runSyntheticKeySequence(keys, gapMs, holdMs);
         });
-        // A failed key sequence must not poison later RUN/PROG or MCP input.
-        syntheticKeyQueue = result.catch(function() {});
-        return result;
     }
 
     function simulateRunCommand() {
@@ -749,6 +755,103 @@ window.__X1PEN_MODE = true;
             });
         }).finally(function() {
             automationKeyAdmission = false;
+        });
+    }
+
+    function createAutomationPadError(code, message) {
+        var error = new Error(message);
+        error.code = code;
+        error.component = 'x1pen';
+        error.feature = 'input.pad';
+        return error;
+    }
+
+    function isAutomationPadAvailable() {
+        return !!module &&
+            typeof module._js_set_automation_pad === 'function' &&
+            typeof module._js_release_automation_pads === 'function';
+    }
+
+    function assertAutomationPadReady() {
+        if (automationReadyState !== 'ready' || !isAutomationPadAvailable()) {
+            throw createAutomationPadError('INPUT_UNAVAILABLE', 'X1Pen pad input is not ready');
+        }
+        if (document.visibilityState !== 'visible') {
+            throw createAutomationPadError(
+                'INPUT_TAB_NOT_VISIBLE', 'X1Pen pad input requires a visible tab'
+            );
+        }
+    }
+
+    function validateAutomationPadRequest(port, bits) {
+        if (!Number.isInteger(port) || (port !== 1 && port !== 2)) {
+            throw createAutomationPadError('INVALID_INPUT', 'port must be 1 or 2');
+        }
+        if (!Number.isInteger(bits) || bits < 0 || bits > 0xFF) {
+            throw createAutomationPadError('INVALID_INPUT', 'bits must be an integer from 0 to 255');
+        }
+    }
+
+    function releaseAutomationPad(port) {
+        automationInputEpoch++;
+        if (!isAutomationPadAvailable()) {
+            return Promise.reject(createAutomationPadError(
+                'INPUT_UNAVAILABLE', 'X1Pen pad input is not ready'
+            ));
+        }
+        try {
+            if (module._js_set_automation_pad(port, 0xFF) !== 1) {
+                throw createAutomationPadError('INPUT_UNAVAILABLE', 'X1Pen rejected pad release');
+            }
+            return Promise.resolve({ ok: true, port: port, bits: 0xFF });
+        } catch (error) {
+            return Promise.reject(error);
+        }
+    }
+
+    function releaseAllAutomationPads() {
+        automationInputEpoch++;
+        if (!isAutomationPadAvailable()) return { ok: false, released: false };
+        module._js_release_automation_pads();
+        return { ok: true, released: true, bits: [0xFF, 0xFF] };
+    }
+
+    function setAutomationPad(port, bits) {
+        try {
+            validateAutomationPadRequest(port, bits);
+        } catch (error) {
+            return Promise.reject(error);
+        }
+        // A full release is cleanup, not a press: it must work while hidden or
+        // while an older press is queued, and invalidates that queued press.
+        if (bits === 0xFF) return releaseAutomationPad(port);
+        try {
+            assertAutomationPadReady();
+        } catch (error) {
+            return Promise.reject(error);
+        }
+        if (automationPadAdmission) {
+            return Promise.reject(createAutomationPadError(
+                'PAD_INPUT_IN_PROGRESS', 'Another X1Pen pad request is already pending'
+            ));
+        }
+        automationPadAdmission = true;
+        var requestEpoch = automationInputEpoch;
+        return queueAutomationOperation(function() {
+            return queueAutomationInput(function() {
+                assertAutomationPadReady();
+                if (requestEpoch !== automationInputEpoch) {
+                    throw createAutomationPadError(
+                        'PAD_INPUT_CANCELLED', 'X1Pen pad request was superseded by cleanup'
+                    );
+                }
+                if (module._js_set_automation_pad(port, bits) !== 1) {
+                    throw createAutomationPadError('INPUT_UNAVAILABLE', 'X1Pen rejected pad input');
+                }
+                return { ok: true, port: port, bits: bits };
+            });
+        }).finally(function() {
+            automationPadAdmission = false;
         });
     }
 
@@ -2064,6 +2167,7 @@ window.__X1PEN_MODE = true;
         if (isAutomationKeyboardAvailable()) {
             features.push('input.keyboard');
         }
+        if (isAutomationPadAvailable()) features.push('input.pad');
         if (isDebuggerModuleAvailable()) features.push('debugger.cpu');
         if (isDebuggerVramModuleAvailable()) features.push('debugger.vram');
         return features;
@@ -2185,6 +2289,9 @@ window.__X1PEN_MODE = true;
     }
 
     function setAutomationConnectionState(connected, label) {
+        if (!connected) {
+            try { releaseAllAutomationPads(); } catch (e) {}
+        }
         automationConnected = !!connected;
         var badge = document.getElementById('x1pen-mcp-status');
         if (badge) {
@@ -2308,6 +2415,8 @@ window.__X1PEN_MODE = true;
         getStatus: getAutomationStatus,
         captureScreen: captureAutomationScreen,
         sendKey: sendAutomationKey,
+        setPad: setAutomationPad,
+        releasePads: releaseAllAutomationPads,
         recoverStalled: recoverStalledRun,
         setConnectionState: setAutomationConnectionState,
         setInteractionLocked: setAutomationInteractionLocked

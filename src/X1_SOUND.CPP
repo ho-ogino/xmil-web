@@ -84,6 +84,7 @@ void x1_psg_reset(void) {
 		stream_avaiable = 0;
 	}
 	INX1F_reset();
+	joy_releaseautomation();
 	opmreg = 0;
 	psgreg = 0;
 }
@@ -144,6 +145,10 @@ static	BYTE	rapids = 0;
 			BYTE bit2 = (ret & 0x20) << 1;
 			ret = (ret & (~0x60)) | bit1 | bit2;
 		}
+		// MCP/Automation pad state is a raw active-low PSG input source.
+		// Apply it after user rapid/swap transforms so its public bit contract
+		// is stable and independent of joystick-enable and JoyKey routing.
+		ret &= joy_getautomation((BYTE)(psgreg - 0x0e));
 		return(ret);
 	}
 	return(0xff);

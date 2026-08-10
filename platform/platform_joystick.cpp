@@ -13,6 +13,7 @@
 #define JOY_BTN3_BIT  0x80
 
 static BYTE joyflag = 0xFF;
+static BYTE automation_joyflag[2] = { 0xFF, 0xFF };
 
 // joy_getflag / joy_flash / js_set_joystick はすべて C リンケージ
 // （DINPUTS.H の extern "C" 宣言と一致させる）
@@ -38,6 +39,16 @@ BYTE joy_getflag(void) {
     return joyflag;
 }
 
+BYTE joy_getautomation(BYTE port_index) {
+    if (port_index >= 2) return 0xFF;
+    return automation_joyflag[port_index];
+}
+
+void joy_releaseautomation(void) {
+    automation_joyflag[0] = 0xFF;
+    automation_joyflag[1] = 0xFF;
+}
+
 void joy_flash(void) {
     xmilcfg.JOYSTICK &= 0x7f;  // bit7 クリア
     joyflag = 0xFF;
@@ -56,6 +67,18 @@ void js_set_joystick(int enabled) {
     } else {
         xmilcfg.JOYSTICK &= ~0x01;  // bit0 OFF
     }
+}
+
+int js_set_automation_pad(int port, int bits) {
+    if (port < 1 || port > 2 || bits < 0 || bits > 0xFF) {
+        return 0;
+    }
+    automation_joyflag[port - 1] = (BYTE)bits;
+    return 1;
+}
+
+void js_release_automation_pads(void) {
+    joy_releaseautomation();
 }
 
 } // extern "C"
