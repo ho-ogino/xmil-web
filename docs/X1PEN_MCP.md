@@ -78,7 +78,7 @@ MCPサーバーのnpm配布とブラウザー拡張の配布は独立してお�
 
 `x1pen_connection_info`、`x1pen_list_sessions`、`x1pen_get_status`は、MCPサーバー、Connector、X1Penのバージョンと実効capabilityを返します。バージョンは診断と更新案内に使用し、実際の利用可否は3コンポーネントが申告するfeatureの積集合で決定します。
 
-feature IDは完全一致する不変の契約です。現在は`automation.core`、`screen.capture`、`debugger.cpu`、`debugger.vram`を使用します。後方互換性のない変更では既存IDの意味を変更せず、`debugger.vram-v2`のような新しいIDを追加します。
+feature IDは完全一致する不変の契約です。現在は`automation.core`、`automation.run-recovery`、`screen.capture`、`input.keyboard`、`debugger.cpu`、`debugger.vram`を使用します。後方互換性のない変更では既存IDの意味を変更せず、`debugger.vram-v2`のような新しいIDを追加します。
 
 公開済みのConnector 1.0.1、1.1.0、1.1.1だけは、明示featureがないためMCPサーバーが既知の機能を推定します。この表は歴史的互換性のために凍結されており、Connector 1.2.0以降は明示featureを申告します。未対応機能はConnectorへ送信する前に拒否され、`component`、`feature`、現在版、必要な場合は必要版、対処方法を含む機械可読エラーが返ります。
 
@@ -100,6 +100,7 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 | `x1pen_validate` | 実行せずにコンパイル、アセンブル、トークナイズ |
 | `x1pen_run` | ユーザーが開いているX1Penで実行 |
 | `x1pen_recover_stalled` | stallしたRun準備を、データ損失確認後のタブ再読込で復旧 |
+| `x1pen_send_key` | 表示中のX1Penエミュレーターへ許可済みの1キーを送信 |
 | `x1pen_stop` | ESCを送信して停止 |
 | `x1pen_get_status` | 接続、ロック、実行状態を取得 |
 | `x1pen_capture_screen` | 640x400のエミュレーター画面をPNG取得 |
@@ -115,6 +116,21 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 | `x1pen_debug_wait_for_pause` | 条件に一致する停止まで待機 |
 
 AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。`x1pen_set_program`と`x1pen_apply_edits`は取得済みの`revision`を要求し、途中で人間が編集していた場合は上書きを拒否します。
+
+### エミュレーターへのキー入力
+
+`x1pen_send_key`は、接続中かつ表示中のX1Penタブのエミュレーターだけへ、1つのdown／hold／upライフサイクルを送ります。OSキーボード入力、任意JavaScript、文字列、複数キーのchord、joystick/pad入力は公開しません。`durationMs`は80〜2000 msの整数（既定80 ms）です。成功はローカルでkey-upまでdispatchしたことを表し、実行中プログラムがキーを消費したことまでは保証しません。必要な場合は`x1pen_capture_screen`またはデバッガ状態で結果を確認してください。
+
+`code`はX1Penが内部で使用するWindows互換virtual-key整数です。主な値は`0x30`〜`0x39`（数字）、`0x41`〜`0x5A`（A〜Z）、`0x70`〜`0x7B`（F1〜F12）、`0x0D`（Enter）、`0x1B`（ESC）、`0x20`（Space）、`0x25`〜`0x28`（矢印）です。numpadとJIS/OEM記号キーも許可済みですが、Shift／Control／Alt、Caps／Kana／IMEのようなmodifier・latchキーは対象外です。たとえば文字Aの入力は次のように指定します。
+
+```json
+{
+  "code": 65,
+  "durationMs": 80
+}
+```
+
+RUN、PROG、MCPキー入力は同じ合成キーqueueを共有するため、各キー列のdown→upは相互に割り込みません。同時に2件目のMCPキーを要求すると`INPUT_IN_PROGRESS`、背景タブでは`INPUT_TAB_NOT_VISIBLE`、旧版X1Penでは`FEATURE_UNAVAILABLE`または更新案内を返します。キー要求や結果をConnectorのstorageへ保持しません。
 
 ### 言語・X1ハードウェアリファレンス
 

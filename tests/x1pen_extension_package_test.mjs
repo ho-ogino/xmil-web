@@ -50,7 +50,7 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
 
     const manifest = JSON.parse(run('unzip', ['-p', zipPath, 'manifest.json']));
     assert.equal(manifest.manifest_version, 3);
-    assert.equal(manifest.version, '1.2.0');
+    assert.equal(manifest.version, '1.3.0');
     assert.equal(manifest.default_locale, 'ja');
     assert.equal(manifest.name, '__MSG_extensionName__');
     assert.equal(manifest.description, '__MSG_extensionDescription__');

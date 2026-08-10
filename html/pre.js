@@ -1908,6 +1908,7 @@
     }
 
     function skKeyDown(vk) {
+        if (window.__X1PEN_SYNTHETIC_INPUT_LOCKED) return;
         if (module && module._js_key_down) module._js_key_down(vk);
     }
     function skKeyUp(vk) {

@@ -2,6 +2,7 @@ export const FEATURE_IDS = Object.freeze([
   'automation.core',
   'automation.run-recovery',
   'screen.capture',
+  'input.keyboard',
   'debugger.cpu',
   'debugger.vram',
 ]);
@@ -24,6 +25,7 @@ const METHOD_FEATURES = Object.freeze({
   stop: 'automation.core',
   getStatus: 'automation.core',
   captureScreen: 'screen.capture',
+  sendKey: 'input.keyboard',
   debuggerGetState: 'debugger.cpu',
   debuggerPause: 'debugger.cpu',
   debuggerResume: 'debugger.cpu',
@@ -39,6 +41,7 @@ const METHOD_FEATURES = Object.freeze({
 const CONNECTOR_MINIMUMS = Object.freeze({
   'debugger.cpu': '1.1.0',
   'debugger.vram': '1.2.0',
+  'input.keyboard': '1.3.0',
 });
 
 export function normalizeFeatureList(value) {

@@ -35,6 +35,19 @@ const DEBUGGER_VRAM_REGION_SIZES = {
   kanji: 0x0800,
   graphics: 0x4000,
 };
+const X1PEN_KEY_CODES = Object.freeze([
+  0x08, 0x09, 0x0D, 0x13, 0x1B, 0x20,
+  ...Array.from({ length: 8 }, (_, index) => 0x21 + index),
+  0x2D, 0x2E,
+  ...Array.from({ length: 10 }, (_, index) => 0x30 + index),
+  ...Array.from({ length: 26 }, (_, index) => 0x41 + index),
+  ...Array.from({ length: 12 }, (_, index) => 0x60 + index),
+  0x6D, 0x6E, 0x6F,
+  ...Array.from({ length: 12 }, (_, index) => 0x70 + index),
+  0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0,
+  0xDB, 0xDC, 0xDD, 0xDE, 0xE2,
+]);
+const X1PEN_KEY_CODE_SET = new Set(X1PEN_KEY_CODES);
 const SERVER_INSTRUCTIONS = [
   'X1Pen FuzzyBASIC, SLANG and the built-in Z80 assembler have implementation-specific contracts. Do not infer syntax or APIs from ordinary BASIC, C, another SLANG release or a different assembler.',
   'The X1 has separate CPU-memory, I/O-port and video-memory spaces. Before direct memory, port, bank or VRAM work, search the bundled x1 hardware reference instead of inferring another machine architecture.',
@@ -743,6 +756,20 @@ export function createX1PenMcpServer(options = {}) {
     annotations: { destructiveHint: true, openWorldHint: false },
   }, handleTool(async ({ sessionId, confirmDataLoss }) => textResult(
     await bridge.sendCommand('recoverStalled', { confirmDataLoss }, sessionId),
+  )));
+
+  server.registerTool('x1pen_send_key', {
+    description: 'Send one allowlisted X1 virtual key down/hold/up lifecycle to the visible connected X1Pen emulator. code is a numeric Windows-compatible VK (for example 0x41=A, 0x0D=Enter, 0x20=Space); modifiers, chords and text strings are not supported.',
+    inputSchema: {
+      sessionId: sessionInput.sessionId,
+      code: z.number().int().min(0).max(0xFF)
+        .refine((value) => X1PEN_KEY_CODE_SET.has(value), 'code is not an allowlisted X1Pen virtual key'),
+      durationMs: z.number().int().min(80).max(2_000).default(80)
+        .describe('Requested hold duration in milliseconds; background tabs are rejected'),
+    },
+    annotations: { destructiveHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId, code, durationMs }) => textResult(
+    await bridge.sendCommand('sendKey', { code, durationMs }, sessionId),
   )));
 
   server.registerTool('x1pen_stop', {

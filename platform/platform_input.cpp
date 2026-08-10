@@ -38,6 +38,11 @@ static struct {
     BOOL initialized;
 } g_input = {0};
 
+// Synthetic keyboard sequences temporarily own the emulator keyboard. Physical
+// key-down events are ignored during that window so they cannot interleave with
+// MCP/UI RUN and PROG sequences. Key-up is still accepted for cleanup.
+static BOOL g_automation_input_locked = FALSE;
+
 // ゲームパッド状態（Gamepad API ポーリング結果キャッシュ）
 // joy_flash() 毎フレーム更新 → joy_getflag() が参照する
 static struct {
@@ -168,6 +173,7 @@ static EM_BOOL keyboard_callback(int eventType, const EmscriptenKeyboardEvent* e
     }
 
     if (eventType == EMSCRIPTEN_EVENT_KEYDOWN) {
+        if (g_automation_input_locked) return TRUE;
         // OS のキーオートリピートは捨てる。X1 サブ CPU 内蔵のリピート機能に
         // 一本化することで、両者の二重リピートで keyque が飽和する問題を回避する。
         if (e->repeat) return TRUE;
@@ -237,6 +243,7 @@ BOOL Platform_Input_Init(void) {
     }
 
     memset(&g_input, 0, sizeof(g_input));
+    g_automation_input_locked = FALSE;
 
     // X1キーボード状態の初期化
     winkeyinit106();
@@ -259,6 +266,7 @@ BOOL Platform_Input_Init(void) {
 }
 
 void Platform_Input_Term(void) {
+    g_automation_input_locked = FALSE;
     g_input.initialized = FALSE;
 }
 
@@ -268,6 +276,14 @@ extern "C" EMSCRIPTEN_KEEPALIVE void js_key_down(int vk) {
 }
 extern "C" EMSCRIPTEN_KEEPALIVE void js_key_up(int vk) {
     winkeyup106((WPARAM)vk, 0);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void js_set_automation_input_lock(int locked) {
+    BOOL next = locked ? TRUE : FALSE;
+    if (!g_automation_input_locked && next) {
+        release_all_keyboard_keys();
+    }
+    g_automation_input_locked = next;
 }
 
 void Platform_Input_Update(void) {

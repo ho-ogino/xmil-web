@@ -122,7 +122,7 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
     name: 'x1pen',
     version: '0.8.1',
     automationApiVersion: 2,
-    features: ['automation.core', 'automation.run-recovery', 'screen.capture', 'debugger.cpu', 'debugger.vram'],
+    features: ['automation.core', 'automation.run-recovery', 'screen.capture', 'input.keyboard', 'debugger.cpu', 'debugger.vram'],
   });
   assert.equal(ready.capabilities.debugger.available, true);
   assert.equal(ready.capabilities.debugger.version, 2);
@@ -274,6 +274,202 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
 
   const settings = await page.evaluate(() => window.XmilControls.getSettings());
   assert.equal(settings.keyMode, 1, 'automation run must preserve the JoyKey setting');
+});
+
+test('keyboard input is bounded, serialized with Run, and always releases ownership', { timeout: 60_000 }, async () => {
+  const behavior = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const savedDown = module._js_key_down;
+    const savedUp = module._js_key_up;
+    const savedGate = module._js_set_automation_input_lock;
+    const events = [];
+    const gates = [];
+    module._js_key_down = (vk) => { events.push(['down', vk]); return savedDown.call(module, vk); };
+    module._js_key_up = (vk) => { events.push(['up', vk]); return savedUp.call(module, vk); };
+    module._js_set_automation_input_lock = (locked) => {
+      gates.push(locked);
+      return savedGate.call(module, locked);
+    };
+    try {
+      const first = api.sendKey(0x41, 120);
+      const busy = await api.sendKey(0x42, 80).then(
+        () => null,
+        (error) => ({ code: error.code, feature: error.feature }),
+      );
+      const run = api.run();
+      const [sent, runResult] = await Promise.all([first, run]);
+      return { sent, busy, runResult, events, gates };
+    } finally {
+      module._js_key_down = savedDown;
+      module._js_key_up = savedUp;
+      module._js_set_automation_input_lock = savedGate;
+    }
+  });
+  assert.deepEqual(behavior.sent, { ok: true, code: 0x41, durationMs: 120 });
+  assert.deepEqual(behavior.busy, { code: 'INPUT_IN_PROGRESS', feature: 'input.keyboard' });
+  assert.equal(behavior.runResult.ok, true);
+  assert.deepEqual(behavior.events.map(([type, vk]) => [type, vk]), [
+    ['down', 0x41], ['up', 0x41],
+    ...[0x52, 0x55, 0x4E, 0x0D].flatMap((vk) => [['down', vk], ['up', vk]]),
+  ]);
+  assert.deepEqual(behavior.gates, [1, 0, 1, 0]);
+
+  const validation = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const invalid = [];
+    for (const args of [[0x10, 80], [0x41, 79], ['KeyA', 80]]) {
+      try {
+        await api.sendKey(args[0], args[1]);
+        invalid.push(null);
+      } catch (error) {
+        invalid.push(error.code);
+      }
+    }
+    return invalid;
+  });
+  assert.deepEqual(validation, ['INVALID_INPUT', 'INVALID_INPUT', 'INVALID_INPUT']);
+
+  const recovery = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const savedDown = module._js_key_down;
+    const savedGate = module._js_set_automation_input_lock;
+    const gates = [];
+    let fail = true;
+    module._js_key_down = (vk) => {
+      if (fail) {
+        fail = false;
+        throw new Error('injected key-down failure');
+      }
+      return savedDown.call(module, vk);
+    };
+    module._js_set_automation_input_lock = (locked) => {
+      gates.push(locked);
+      return savedGate.call(module, locked);
+    };
+    try {
+      const failed = await api.sendKey(0x41, 80).then(
+        () => null,
+        (error) => error.message,
+      );
+      const recovered = await api.sendKey(0x42, 80);
+      return { failed, recovered, gates };
+    } finally {
+      module._js_key_down = savedDown;
+      module._js_set_automation_input_lock = savedGate;
+    }
+  });
+  assert.match(recovery.failed, /injected key-down failure/);
+  assert.deepEqual(recovery.recovered, { ok: true, code: 0x42, durationMs: 80 });
+  assert.deepEqual(recovery.gates, [1, 0, 1, 0], 'input ownership must release after rejection');
+
+  const unavailable = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const saved = module._js_set_automation_input_lock;
+    module._js_set_automation_input_lock = null;
+    try {
+      const advertised = api.getStatus().x1pen.features.includes('input.keyboard');
+      const errorCode = await api.sendKey(0x41, 80).then(
+        () => null,
+        (error) => error.code,
+      );
+      return { advertised, errorCode };
+    } finally {
+      module._js_set_automation_input_lock = saved;
+    }
+  });
+  assert.deepEqual(unavailable, { advertised: false, errorCode: 'INPUT_UNAVAILABLE' });
+
+  const hidden = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const originalDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    const savedDown = module._js_key_down;
+    let downCalls = 0;
+    module._js_key_down = (...args) => {
+      downCalls++;
+      return savedDown.apply(module, args);
+    };
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    try {
+      const errorCode = await api.sendKey(0x41, 80).then(
+        () => null,
+        (error) => error.code,
+      );
+      return { errorCode, downCalls };
+    } finally {
+      module._js_key_down = savedDown;
+      if (originalDescriptor) {
+        Object.defineProperty(document, 'visibilityState', originalDescriptor);
+      } else {
+        delete document.visibilityState;
+      }
+    }
+  });
+  assert.deepEqual(hidden, { errorCode: 'INPUT_TAB_NOT_VISIBLE', downCalls: 0 });
+});
+
+test('keyboard input changes captured guest screens for character entry and PRESS FIRE', { timeout: 60_000 }, async () => {
+  const result = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const waitForScreenChange = async (before, timeoutMs = 3000) => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const current = api.captureScreen();
+        if (current !== before) return current;
+        await sleep(50);
+      }
+      throw new Error('Timed out waiting for captured X1Pen screen to change');
+    };
+    const current = api.getProgram();
+    const program = await api.setProgram({
+      sourceMode: 'basic+asm',
+      basic: [
+        '10 CLS',
+        '20 PRINT "TYPE 1"',
+        '30 INPUT A',
+        '40 PRINT "VALUE";A',
+        '50 PRINT "PRESS FIRE"',
+        '60 A=GET',
+        '70 IF A=0 THEN 60',
+        '80 CLS',
+        '90 PRINT "FIRE OK"',
+      ].join('\n'),
+      asm: '',
+      slang: '',
+    }, current.revision);
+    const validation = await api.validate();
+    if (!validation.ok) throw new Error('Acceptance program did not validate');
+    const run = await api.run();
+    if (!run.ok) throw new Error('Acceptance program did not run');
+    await sleep(300);
+
+    const beforeCharacter = api.captureScreen();
+    await api.sendKey(0x31, 80);
+    const afterCharacter = await waitForScreenChange(beforeCharacter);
+    await api.sendKey(0x0D, 80);
+    const pressFire = await waitForScreenChange(afterCharacter);
+    await api.sendKey(0x20, 80);
+    const afterFire = await waitForScreenChange(pressFire);
+    return {
+      revision: program.revision,
+      characterChanged: beforeCharacter !== afterCharacter,
+      pressFireChanged: afterCharacter !== pressFire,
+      fireTransitionChanged: pressFire !== afterFire,
+      capturePrefixes: [beforeCharacter, afterCharacter, pressFire, afterFire]
+        .map((value) => value.slice(0, 22)),
+    };
+  });
+  assert.equal(result.characterChanged, true);
+  assert.equal(result.pressFireChanged, true);
+  assert.equal(result.fireTransitionChanged, true);
+  assert.deepEqual(result.capturePrefixes, Array(4).fill('data:image/png;base64,'));
 });
 
 test('automation operations are serialized and stale source modes are cleared', async () => {

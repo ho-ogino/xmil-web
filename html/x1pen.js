@@ -28,6 +28,8 @@ window.__X1PEN_MODE = true;
     automationReadyPromise.catch(function() {});
     var automationOperationQueue = Promise.resolve();
     var automationPendingOperations = 0;
+    var automationKeyAdmission = false;
+    window.__X1PEN_SYNTHETIC_INPUT_LOCKED = false;
     var runAdmission = null;
     var RUN_QUEUE_TIMEOUT_MS = 20000;
     var RUN_STALL_WARNING_MS = 30000;
@@ -592,19 +594,30 @@ window.__X1PEN_MODE = true;
     }
 
     var SYNTHETIC_KEY_HOLD_MS = 80;
+    var SYNTHETIC_KEY_MAX_HOLD_MS = 2000;
+    var syntheticKeyQueue = Promise.resolve();
 
     function waitForSyntheticKey(ms) {
         return new Promise(function(resolve) { setTimeout(resolve, ms); });
     }
 
-    async function simulateKeys(keys, gapMs) {
+    function setSyntheticInputLocked(locked) {
+        if (!module || typeof module._js_set_automation_input_lock !== 'function') return false;
+        module._js_set_automation_input_lock(locked ? 1 : 0);
+        window.__X1PEN_SYNTHETIC_INPUT_LOCKED = !!locked;
+        return true;
+    }
+
+    async function runSyntheticKeySequence(keys, gapMs, holdMs) {
         // `gapMs` is the idle gap after a key is released. Keeping one key's
         // full lifecycle in this loop prevents delayed/coalesced timers from
         // overlapping key presses.
         gapMs = (gapMs === undefined) ? 100 : gapMs;
+        holdMs = (holdMs === undefined) ? SYNTHETIC_KEY_HOLD_MS : holdMs;
         if (!keys || keys.length === 0) return Promise.resolve();
 
         var prevMode = getConfiguredKeyMode(0);
+        var inputGated = setSyntheticInputLocked(true);
 
         // This switches the emulator module directly and intentionally leaves
         // the persistent XmilControls settings store unchanged.
@@ -615,14 +628,12 @@ window.__X1PEN_MODE = true;
                 var vk = keys[i];
                 var keyIsDown = false;
                 try {
-                    try {
-                        module._js_key_down(vk);
-                        keyIsDown = true;
-                    } catch (e) {}
-                    await waitForSyntheticKey(SYNTHETIC_KEY_HOLD_MS);
+                    module._js_key_down(vk);
+                    keyIsDown = true;
+                    await waitForSyntheticKey(holdMs);
                 } finally {
                     if (keyIsDown) {
-                        try { module._js_key_up(vk); } catch (e) {}
+                        module._js_key_up(vk);
                     }
                 }
                 if (i < keys.length - 1) {
@@ -630,8 +641,27 @@ window.__X1PEN_MODE = true;
                 }
             }
         } finally {
-            leaveSyntheticKeyboardMode(switched);
+            try {
+                leaveSyntheticKeyboardMode(switched);
+            } finally {
+                if (inputGated) {
+                    try {
+                        setSyntheticInputLocked(false);
+                    } finally {
+                        window.__X1PEN_SYNTHETIC_INPUT_LOCKED = false;
+                    }
+                }
+            }
         }
+    }
+
+    function simulateKeys(keys, gapMs, holdMs) {
+        var result = syntheticKeyQueue.then(function() {
+            return runSyntheticKeySequence(keys, gapMs, holdMs);
+        });
+        // A failed key sequence must not poison later RUN/PROG or MCP input.
+        syntheticKeyQueue = result.catch(function() {});
+        return result;
     }
 
     function simulateRunCommand() {
@@ -640,6 +670,86 @@ window.__X1PEN_MODE = true;
 
     function simulateProgCommand() {
         return simulateKeys([0x50, 0x52, 0x4F, 0x47, 0x0D], 50);  // P, R, O, G, Enter
+    }
+
+    function isSupportedAutomationKeyCode(code) {
+        if (!Number.isInteger(code)) return false;
+        if ((code >= 0x30 && code <= 0x39) ||
+            (code >= 0x41 && code <= 0x5A) ||
+            (code >= 0x70 && code <= 0x7B) ||
+            (code >= 0x21 && code <= 0x28) ||
+            (code >= 0x2D && code <= 0x2E) ||
+            (code >= 0x60 && code <= 0x6B) ||
+            (code >= 0x6D && code <= 0x6F)) return true;
+        return [
+            0x08, 0x09, 0x0D, 0x13, 0x1B, 0x20,
+            0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0,
+            0xDB, 0xDC, 0xDD, 0xDE, 0xE2
+        ].indexOf(code) >= 0;
+    }
+
+    function createAutomationInputError(code, message) {
+        var error = new Error(message);
+        error.code = code;
+        error.component = 'x1pen';
+        error.feature = 'input.keyboard';
+        return error;
+    }
+
+    function isAutomationKeyboardAvailable() {
+        return !!module &&
+            typeof module._js_key_down === 'function' &&
+            typeof module._js_key_up === 'function' &&
+            typeof module._js_set_automation_input_lock === 'function';
+    }
+
+    function assertAutomationKeyboardReady() {
+        if (automationReadyState !== 'ready' || !isAutomationKeyboardAvailable()) {
+            throw createAutomationInputError(
+                'INPUT_UNAVAILABLE', 'X1Pen keyboard input is not ready'
+            );
+        }
+        if (document.visibilityState !== 'visible') {
+            throw createAutomationInputError(
+                'INPUT_TAB_NOT_VISIBLE', 'X1Pen keyboard input requires a visible tab'
+            );
+        }
+    }
+
+    function sendAutomationKey(code, durationMs) {
+        if (!isSupportedAutomationKeyCode(code)) {
+            return Promise.reject(createAutomationInputError(
+                'INVALID_INPUT', 'code must be a supported X1Pen virtual-key integer'
+            ));
+        }
+        if (durationMs === undefined) durationMs = SYNTHETIC_KEY_HOLD_MS;
+        if (!Number.isInteger(durationMs) ||
+            durationMs < SYNTHETIC_KEY_HOLD_MS || durationMs > SYNTHETIC_KEY_MAX_HOLD_MS) {
+            return Promise.reject(createAutomationInputError(
+                'INVALID_INPUT', 'durationMs must be an integer from 80 to 2000'
+            ));
+        }
+        try {
+            assertAutomationKeyboardReady();
+        } catch (error) {
+            return Promise.reject(error);
+        }
+        if (automationKeyAdmission) {
+            return Promise.reject(createAutomationInputError(
+                'INPUT_IN_PROGRESS', 'Another X1Pen key request is already pending'
+            ));
+        }
+        automationKeyAdmission = true;
+        return queueAutomationOperation(function() {
+            // Recheck immediately before dispatch because the request may have
+            // waited behind another Automation operation.
+            assertAutomationKeyboardReady();
+            return simulateKeys([code], 0, durationMs).then(function() {
+                return { ok: true, code: code, durationMs: durationMs };
+            });
+        }).finally(function() {
+            automationKeyAdmission = false;
+        });
     }
 
     function inferSourceMode(basicSrc, asmSrc, slangSrc) {
@@ -1951,6 +2061,9 @@ window.__X1PEN_MODE = true;
 
     function getAutomationFeatures() {
         var features = ['automation.core', 'automation.run-recovery', 'screen.capture'];
+        if (isAutomationKeyboardAvailable()) {
+            features.push('input.keyboard');
+        }
         if (isDebuggerModuleAvailable()) features.push('debugger.cpu');
         if (isDebuggerVramModuleAvailable()) features.push('debugger.vram');
         return features;
@@ -2194,6 +2307,7 @@ window.__X1PEN_MODE = true;
         debugger: automationDebuggerApi,
         getStatus: getAutomationStatus,
         captureScreen: captureAutomationScreen,
+        sendKey: sendAutomationKey,
         recoverStalled: recoverStalledRun,
         setConnectionState: setAutomationConnectionState,
         setInteractionLocked: setAutomationInteractionLocked

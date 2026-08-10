@@ -63,8 +63,8 @@ const fakeBridge = {
     return {
       port: 43110, pairingCode: '123456', extensionConnected: true,
       components: {
-        mcp: { name: 'x1pen-mcp', version: '2.6.0' },
-        connector: { name: 'x1pen-connector', version: '1.2.0' },
+        mcp: { name: 'x1pen-mcp', version: '2.7.0' },
+        connector: { name: 'x1pen-connector', version: '1.3.0' },
       },
     };
   },
@@ -75,7 +75,7 @@ const fakeBridge = {
   getSessionCompatibility() {
     return {
       components: {
-        mcp: { version: '2.6.0' }, connector: { version: '1.2.0' }, x1pen: { version: '0.8.0' },
+        mcp: { version: '2.7.0' }, connector: { version: '1.3.0' }, x1pen: { version: '0.8.0' },
       },
       capabilities: { 'debugger.vram': { state: 'available', available: true } },
     };
@@ -227,10 +227,29 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_search_reference',
     'x1pen_search_source',
     'x1pen_select_session',
+    'x1pen_send_key',
     'x1pen_set_program',
     'x1pen_stop',
     'x1pen_validate',
   ]);
+});
+
+test('send_key routes an allowlisted VK with a bounded hold duration', async () => {
+  const sent = await client.callTool({
+    name: 'x1pen_send_key',
+    arguments: { sessionId: 'tab-a', code: 0x41, durationMs: 120 },
+  });
+  assert.deepEqual(jsonContent(sent), { ok: true });
+  assert.deepEqual(calls.at(-1), {
+    method: 'sendKey', params: { code: 0x41, durationMs: 120 }, sessionId: 'tab-a',
+  });
+
+  const rejected = await client.callTool({
+    name: 'x1pen_send_key',
+    arguments: { code: 0x10, durationMs: 80 },
+  });
+  assert.equal(rejected.isError, true);
+  assert.equal(calls.some((call) => call.method === 'sendKey' && call.params.code === 0x10), false);
 });
 
 test('Run admission and stalled recovery remain ordinary MCP content', async () => {
@@ -262,8 +281,8 @@ test('Run admission and stalled recovery remain ordinary MCP content', async () 
 
 test('connection and status tools report all component versions and effective capabilities', async () => {
   const connection = jsonContent(await client.callTool({ name: 'x1pen_connection_info', arguments: {} }));
-  assert.equal(connection.components.mcp.version, '2.6.0');
-  assert.equal(connection.components.connector.version, '1.2.0');
+  assert.equal(connection.components.mcp.version, '2.7.0');
+  assert.equal(connection.components.connector.version, '1.3.0');
 
   const sessions = jsonContent(await client.callTool({ name: 'x1pen_list_sessions', arguments: {} }));
   assert.equal(sessions.sessions[0].x1pen.version, '0.8.0');

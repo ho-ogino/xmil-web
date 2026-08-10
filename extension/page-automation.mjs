@@ -48,6 +48,21 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
     }
     return debuggerApi;
   };
+  const requireKeyboardInput = () => {
+    const status = api.getStatus();
+    const features = status.x1pen?.features;
+    const available = Array.isArray(features) && features.includes('input.keyboard');
+    if (typeof api.sendKey !== 'function' || !available) {
+      const error = new Error('The connected X1Pen does not provide keyboard input automation');
+      error.code = 'FEATURE_UNAVAILABLE';
+      error.component = 'x1pen';
+      error.feature = 'input.keyboard';
+      error.currentVersion = status.x1pen?.version || 'unknown';
+      error.action = 'Reload or update X1Pen and reconnect this tab.';
+      throw error;
+    }
+    return api.sendKey;
+  };
   const runDebuggerControl = async (operation) => {
     const deadline = Date.now() + 10_000;
     while (true) {
@@ -72,6 +87,7 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
     validate: 'AI is validating the program...',
     run: 'AI is running the program...',
     stop: 'AI is stopping the program...',
+    sendKey: 'AI is sending keyboard input...',
     debuggerPause: 'AI is pausing the debugger...',
     debuggerResume: 'AI is resuming the debugger...',
     debuggerStep: 'AI is stepping the debugger...',
@@ -103,6 +119,9 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
       return api.recoverStalled(requestedParams.confirmDataLoss === true);
     }
     if (requestedMethod === 'stop') return await api.stop();
+    if (requestedMethod === 'sendKey') {
+      return await requireKeyboardInput()(requestedParams.code, requestedParams.durationMs);
+    }
     if (requestedMethod === 'getStatus') return api.getStatus();
     if (requestedMethod === 'captureScreen') return api.captureScreen();
     if (requestedMethod === 'debuggerGetState') return requireDebugger().getState();
