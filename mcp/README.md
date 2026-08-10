@@ -40,7 +40,11 @@ The pairing code changes whenever the MCP server process restarts. One browser e
 
 Connection, session and status results report the versions and effective features of the MCP server, X1Pen Connector and connected X1Pen. Versions are diagnostic; commands are permitted from the exact feature IDs advertised by all required components. Unsupported debugger commands are rejected before they reach an older Connector and return a machine-readable update action.
 
-The current feature contracts are `automation.core`, `screen.capture`, `debugger.cpu` and `debugger.vram`. Feature IDs are immutable. A backward-incompatible successor uses a new ID such as `debugger.vram-v2` rather than changing the meaning of an existing ID.
+The current feature contracts are `automation.core`, `automation.run-recovery`, `screen.capture`, `input.keyboard`, `debugger.cpu` and `debugger.vram`. Feature IDs are immutable. A backward-incompatible successor uses a new ID such as `debugger.vram-v2` rather than changing the meaning of an existing ID.
+
+## Emulator keyboard input
+
+`x1pen_send_key` sends one allowlisted numeric Windows-compatible virtual key to the visible connected X1Pen emulator. For example, `65` is A, `13` is Enter, and `32` is Space. `durationMs` defaults to 80 and accepts integers through 2000. Modifier/latching keys, chords, text strings, OS input and arbitrary JavaScript are not supported. RUN, PROG and key requests share one non-interleaving queue; verify guest behavior with a screen capture or debugger state when needed.
 
 ## Z80 debugger
 

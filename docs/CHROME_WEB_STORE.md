@@ -9,7 +9,7 @@ npm run test:extension-package
 npm run pack:extension
 ```
 
-Upload `dist/x1pen-connector-1.2.0.zip`. The ZIP has `manifest.json` at its root and excludes source artwork, README files, and Store-only images.
+Upload `dist/x1pen-connector-1.3.0.zip`. The ZIP has `manifest.json` at its root and excludes source artwork, README files, and Store-only images.
 
 ## Store listing
 
@@ -28,7 +28,7 @@ Connect the active X1Pen tab to a local MCP server for AI-assisted FuzzyBASIC an
 
 X1Pen Connector links the X1Pen tab you explicitly select to an x1pen-mcp server running on the same computer. A configured MCP client such as Codex or Claude Code can then assist with FuzzyBASIC and SLANG development in the X1Pen editor you can see and edit yourself.
 
-The connection handles the selected tab's title and URL, requested source, validation results, execution, debugger and video state, requested CPU and video memory ranges, paused video-memory changes, and emulator screen captures. Supported operations include reading and editing source, validating programs, running and stopping programs, and controlling the Z80 debugger. Access starts only after you open the extension popup, review the data-access disclosure, enter the local bridge port and pairing code, and choose "Connect this tab." The port and pairing code are stored locally so the requested connection can be restored.
+The connection handles the selected tab's title and URL, requested source, validation results, execution, allowlisted emulator-key requests, debugger and video state, requested CPU and video memory ranges, paused video-memory changes, and emulator screen captures. Supported operations include reading and editing source, validating programs, running and stopping programs, sending a bounded key lifecycle only to the visible X1Pen emulator, and controlling the Z80 debugger. Access starts only after you open the extension popup, review the data-access disclosure, enter the local bridge port and pairing code, and choose "Connect this tab." The port and pairing code are stored locally so the requested connection can be restored.
 
 The extension communicates with the paired local bridge at 127.0.0.1. It does not contain advertising, analytics, or tracking, and it does not send data to a server operated by the extension developer. Your configured MCP client may send requested X1Pen data to its AI provider under that provider's terms and privacy policy.
 
@@ -49,7 +49,7 @@ X1PenのタブをローカルMCPサーバーへ接続し、AIによるFuzzyBASIC
 
 X1Pen Connectorは、明示的に選択したX1Penタブを、同じコンピューターで動作するx1pen-mcpサーバーへ接続します。CodexやClaude CodeなどのMCPクライアントが、人間も操作できるX1Penエディター上でFuzzyBASIC・SLANGプログラムの作成を支援できます。
 
-選択したタブのタイトルとURL、要求されたソース、検証結果、実行・デバッガ・ビデオ状態、要求されたCPU／ビデオメモリ範囲、停止中のビデオメモリ変更、エミュレーター画面を取り扱い、ソースの読み書き、検証、実行・停止、Z80デバッガ操作に対応します。拡張機能のポップアップでデータ取扱いの説明を確認し、ローカル接続情報を入力して「Connect this tab」を押したタブだけにアクセスします。ポートとペアリングコードは、要求された接続を復元するためローカルへ保存します。
+選択したタブのタイトルとURL、要求されたソース、検証結果、実行状態、許可済みのエミュレーターキー要求、デバッガ・ビデオ状態、要求されたCPU／ビデオメモリ範囲、停止中のビデオメモリ変更、エミュレーター画面を取り扱い、ソースの読み書き、検証、実行・停止、表示中のX1Penエミュレーターだけへの上限付き1キー入力、Z80デバッガ操作に対応します。拡張機能のポップアップでデータ取扱いの説明を確認し、ローカル接続情報を入力して「Connect this tab」を押したタブだけにアクセスします。ポートとペアリングコードは、要求された接続を復元するためローカルへ保存します。
 
 通信先は127.0.0.1のペアリング済みローカルブリッジです。広告、アクセス解析、追跡はなく、拡張機能の開発者が運用するサーバーへデータを送信しません。設定したMCPクライアントは、各AIプロバイダーの規約とプライバシーポリシーに基づき、要求したX1Penデータを送信する場合があります。
 
@@ -77,7 +77,7 @@ Stores the user-entered local bridge port and pairing code in local extension st
 
 The extension handles the following user data only after prominent disclosure and affirmative consent in the popup:
 
-- Website content: X1Pen source, validation results, execution, debugger and video state, requested CPU/video memory ranges and paused video-memory changes, and requested emulator screenshots.
+- Website content: X1Pen source, validation results, execution, allowlisted emulator-key requests, debugger and video state, requested CPU/video memory ranges and paused video-memory changes, and requested emulator screenshots.
 - Web browsing activity: title and URL of the explicitly connected X1Pen tab only.
 - Authentication information: the six-digit pairing code for the user-selected local bridge.
 
@@ -89,7 +89,7 @@ Data use declarations:
 - Not used for personalized advertising, profiling, analytics, or tracking.
 - Not made available for unrelated human review.
 - The developer does not operate a data collection server for the extension.
-- Program source and screenshots are not retained in extension storage.
+- Program source, key requests/results, and screenshots are not retained in extension storage.
 
 The loopback WebSocket uses `ws://127.0.0.1`. Chrome Web Store policy explicitly exempts communication between an extension and a native program on the same computer from the transmission-encryption requirement.
 
@@ -102,7 +102,7 @@ No account or paid feature is required.
 3. Open `https://x1.onoda-pro.com/x1pen` in Chrome and wait for the editor to become ready.
 4. Open X1Pen Connector, enter the displayed port and pairing code, review and accept the disclosure, then click `Connect this tab`.
 5. Confirm the extension badge shows `1` and X1Pen shows `MCP Connected`.
-6. Configure an MCP client using the instructions at `https://github.com/ho-ogino/xmil-web/blob/main/docs/X1PEN_MCP.md` to exercise source read/edit, validation, run/stop, debugger, status, and screenshot tools.
+6. Configure an MCP client using the instructions at `https://github.com/ho-ogino/xmil-web/blob/main/docs/X1PEN_MCP.md` to exercise source read/edit, validation, run/stop, visible-emulator keyboard input, debugger, status, and screenshot tools.
 7. Click `Disconnect` to end access to the tab.
 
 The extension should show a clear error if the current tab is not X1Pen, if the pairing code is invalid, or if the local server is not running.

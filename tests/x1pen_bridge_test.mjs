@@ -85,19 +85,19 @@ test('bridge negotiates component metadata and computes effective capabilities',
     startPort: 0,
     pairingCode: '123456',
     logger: () => {},
-    serverDescriptor: createMcpDescriptor('2.6.0'),
+    serverDescriptor: createMcpDescriptor('2.7.0'),
   });
   openBridges.add(bridge);
   await bridge.start();
   const socket = await connectExtension(bridge, {
-    extensionVersion: '1.2.0',
+    extensionVersion: '1.3.0',
     connector: {
-      name: 'x1pen-connector', version: '1.2.0', protocolVersion: 2,
-      features: ['automation.core', 'screen.capture', 'debugger.cpu', 'debugger.vram'],
+      name: 'x1pen-connector', version: '1.3.0', protocolVersion: 2,
+      features: ['automation.core', 'screen.capture', 'input.keyboard', 'debugger.cpu', 'debugger.vram'],
     },
   });
   assert.equal(socket.pairedMessage.protocolVersion, 2);
-  assert.equal(socket.pairedMessage.server.version, '2.6.0');
+  assert.equal(socket.pairedMessage.server.version, '2.7.0');
 
   socket.send(JSON.stringify({
     type: 'sessions',
@@ -105,15 +105,15 @@ test('bridge negotiates component metadata and computes effective capabilities',
       sessionId: 'tab-a', title: 'X1Pen', revision: 1,
       x1pen: {
         version: '0.8.0', automationApiVersion: 2,
-        features: ['automation.core', 'screen.capture', 'debugger.cpu', 'debugger.vram'],
+        features: ['automation.core', 'screen.capture', 'input.keyboard', 'debugger.cpu', 'debugger.vram'],
       },
     }],
   }));
   await new Promise((resolve) => setTimeout(resolve, 10));
 
   const info = bridge.connectionInfo();
-  assert.equal(info.components.mcp.version, '2.6.0');
-  assert.equal(info.components.connector.version, '1.2.0');
+  assert.equal(info.components.mcp.version, '2.7.0');
+  assert.equal(info.components.connector.version, '1.3.0');
   assert.equal(info.compatibility.capabilities['debugger.vram'].state, 'available');
   const [session] = bridge.listSessions();
   assert.equal(session.x1pen.version, '0.8.0');
@@ -148,7 +148,7 @@ test('legacy Connector inference is frozen and blocks unsupported debugger RPCs 
 });
 
 test('explicit feature advertisements are authoritative without semver inference', () => {
-  const mcp = createMcpDescriptor('2.6.0');
+  const mcp = createMcpDescriptor('2.7.0');
   const connector = normalizeConnectorPair({
     extensionVersion: '9.0.0',
     connector: {
@@ -158,7 +158,7 @@ test('explicit feature advertisements are authoritative without semver inference
   });
   const x1pen = {
     name: 'x1pen', version: '0.8.0', automationApiVersion: 2,
-    features: ['automation.core', 'screen.capture', 'debugger.cpu', 'debugger.vram'],
+    features: ['automation.core', 'screen.capture', 'input.keyboard', 'debugger.cpu', 'debugger.vram'],
     featureSource: 'advertised',
   };
   const capabilities = evaluateCompatibility({ mcp, connector, x1pen });

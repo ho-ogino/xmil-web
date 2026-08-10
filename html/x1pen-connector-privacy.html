@@ -49,10 +49,11 @@
             <li>The selected X1Pen tab's title, URL, connection status, and program revision.</li>
             <li>X1Pen FuzzyBASIC, SLANG, and assembly source requested by the MCP client.</li>
             <li>Validation results, execution status, and emulator screen captures requested by the MCP client.</li>
+            <li>Allowlisted single-key requests sent only to the visible X1Pen emulator.</li>
             <li>Debugger state, video state, CPU registers, breakpoint settings, requested CPU and video memory ranges, and requested video-memory changes made while paused.</li>
             <li>The local bridge port and six-digit pairing code entered by the user.</li>
         </ul>
-        <p class="ja" lang="ja">接続への同意後、選択したX1Penタブのタイトル・URL・接続状態・リビジョン、MCPクライアントが要求したプログラムソース・検証結果・実行状態・画面キャプチャ・デバッガ／ビデオ状態・CPUレジスタ・ブレークポイント設定・CPU／ビデオメモリ範囲・停止中のビデオメモリ変更、およびユーザーが入力したローカル接続情報を取り扱います。</p>
+        <p class="ja" lang="ja">接続への同意後、選択したX1Penタブのタイトル・URL・接続状態・リビジョン、MCPクライアントが要求したプログラムソース・検証結果・実行状態・画面キャプチャ・表示中のX1Penエミュレーターだけへ送る許可済み1キー要求・デバッガ／ビデオ状態・CPUレジスタ・ブレークポイント設定・CPU／ビデオメモリ範囲・停止中のビデオメモリ変更、およびユーザーが入力したローカル接続情報を取り扱います。</p>
     </section>
 
     <section>
@@ -64,9 +65,9 @@
 
     <section>
         <h2>Storage and deletion</h2>
-        <p>The bridge port and pairing code are stored in Chrome local extension storage so the local connection can be restored. Connected-tab metadata is stored in Chrome session storage. Program source, debugger data, memory reads or writes, and screen captures are not retained by the extension.</p>
+        <p>The bridge port and pairing code are stored in Chrome local extension storage so the local connection can be restored. Connected-tab metadata is stored in Chrome session storage. Program source, key requests/results, debugger data, memory reads or writes, and screen captures are not retained by the extension.</p>
         <p>Users can disconnect a tab from the popup. Removing the extension or clearing its extension data deletes its saved local configuration.</p>
-        <p class="ja" lang="ja">ポートとペアリングコードはChromeの拡張機能用ローカルストレージへ、接続タブ情報はセッションストレージへ保存します。プログラムソース、デバッガデータ、メモリ読み書き結果、画面キャプチャを拡張機能内へ保持しません。切断、拡張機能の削除、または拡張データの消去により保存情報を削除できます。</p>
+        <p class="ja" lang="ja">ポートとペアリングコードはChromeの拡張機能用ローカルストレージへ、接続タブ情報はセッションストレージへ保存します。プログラムソース、キー要求・結果、デバッガデータ、メモリ読み書き結果、画面キャプチャを拡張機能内へ保持しません。切断、拡張機能の削除、または拡張データの消去により保存情報を削除できます。</p>
     </section>
 
     <section>

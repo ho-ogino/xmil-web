@@ -36,6 +36,7 @@ function createAutomationApi() {
     version: 2,
     ready: async () => ({ ready: true }),
     getStatus: () => ({
+      x1pen: { version: '0.8.1', features: ['automation.core', 'input.keyboard', 'debugger.cpu', 'debugger.vram'] },
       capabilities: {
         debugger: { available: true, runPending: pendingReads-- > 0, vram: { available: true } },
       },
@@ -49,6 +50,10 @@ function createAutomationApi() {
       ok: confirmDataLoss,
       code: confirmDataLoss ? 'RECOVERY_ACCEPTED' : 'RECOVERY_CONFIRM_REQUIRED',
     }),
+    sendKey: async (code, durationMs) => {
+      calls.push({ sendKey: { code, durationMs } });
+      return { ok: true, code, durationMs };
+    },
     setInteractionLocked: (locked, label) => {
       locks.push({ locked, label });
       timeline.push(locked ? 'lock:on' : 'lock:off');
@@ -158,6 +163,25 @@ test('page bridge preserves Run admission results and routes guarded recovery', 
   });
 });
 
+test('page bridge allowlists keyboard input and requires its advertised capability', async () => {
+  const { api, calls, locks } = createAutomationApi();
+  globalThis.window = { X1PenAutomation: api };
+  assert.deepEqual(await invokeX1PenInPage('sendKey', { code: 0x41, durationMs: 120 }), {
+    ok: true, code: 0x41, durationMs: 120,
+  });
+  assert.deepEqual(calls.at(-1), { sendKey: { code: 0x41, durationMs: 120 } });
+  assert.deepEqual(locks.slice(-2), [
+    { locked: true, label: 'AI is sending keyboard input...' },
+    { locked: false, label: undefined },
+  ]);
+
+  api.getStatus = () => ({ x1pen: { version: '0.8.1', features: ['automation.core'] } });
+  await assert.rejects(
+    invokeX1PenInPage('sendKey', { code: 0x41, durationMs: 80 }),
+    (error) => error.code === 'FEATURE_UNAVAILABLE' && error.feature === 'input.keyboard',
+  );
+});
+
 test('page bridge rejects debugger calls when capability is unavailable', async () => {
   const { api } = createAutomationApi();
   api.getStatus = () => ({ capabilities: { debugger: { available: false, runPending: false } } });
@@ -192,9 +216,9 @@ test('page bridge treats advertised features as authoritative', async () => {
 });
 
 test('connector compatibility metadata is bounded and preserves legacy fallbacks', () => {
-  assert.deepEqual(createConnectorDescriptor('1.2.0'), {
+  assert.deepEqual(createConnectorDescriptor('1.3.0'), {
     name: 'x1pen-connector',
-    version: '1.2.0',
+    version: '1.3.0',
     protocolVersion: 2,
     features: [...CONNECTOR_FEATURES],
   });
