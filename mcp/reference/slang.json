@@ -540,12 +540,20 @@
       "LZEEE_DECODE(sourceAddress,destinationAddress)",
       "ZX0_DECODE(sourceAddress,destinationAddress)",
       "MAGLOAD(filenameAddress,x,y)",
-      "M8ALOAD(...)"
+      "M8ALOAD(dataAddress,x,y)"
     ],
     "notes": [
       "The decompressors operate on encoded byte streams and write directly to the destination address; allocate enough writable memory for the decoded result.",
-      "MAGLOAD uses LSX file operations and receives a filename, X and Y. It is intended for 200-line X1 images and reserves substantial work buffers.",
-      "M8ALOAD is a low-level format-specific loader; validate memory use and display mode with a small test before combining it with other large libraries."
+      "MAGLOAD uses LSX file operations and receives a filename address, X and Y. Choose it for an M8A-independent MAG file on mounted disk media; it is intended for 200-line X1 images and reserves substantial work buffers.",
+      "M8ALOAD receives the address of an M8A byte stream already in memory plus its X and Y graphics-VRAM origin. Keep the complete encoded data valid until the call returns; it performs no disk I/O.",
+      "M8ALOAD writes the current X1 graphics VRAM but does not select or enable a visible graphics mode. For visible output, choose WIDTH(40) or WIDTH(80), initialize graphics for that layout, and enable graphics display before the call.",
+      "The compact example contains one 8-pixel group and one row. Its four $49 encoded pairs draw eight blue pixels at the graphics-VRAM origin."
+    ],
+    "examples": [
+      {
+        "title": "Draw an embedded M8A strip from memory",
+        "source": "ARRAY BYTE M8A_DATA[] = {\n  $4D,$38,$41,$00,$01,$01,$49,$49,$49,$49\n};\n\nMAIN() BEGIN\n  M8ALOAD(M8A_DATA,0,0);\n  LOOP VSYNC1();\nEND;"
+      }
     ],
     "relatedIds": ["slang.runtime.lsx-io-files", "slang.machine.system-access", "slang.x1.display-graphics", "slang.runtime.catalog"],
     "sourceUrls": [

@@ -1269,3 +1269,85 @@ test('debugger adapter pauses, steps, resumes, and reads mapped memory', { timeo
   assert.ok(manualRun.controlErrors.every((error) => /run setup is pending/.test(error.message)));
   assert.equal(manualRun.paused.runState, 'paused');
 });
+
+test('embedded M8A data assembles and draws into graphics VRAM', { timeout: 60_000 }, async () => {
+  const result = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const planes = ['blue', 'red', 'green'];
+    const readPlanes = () => Object.fromEntries(planes.map((plane) => [
+      plane,
+      api.debugger.readVram({
+        region: 'graphics', bank: 0, plane, offset: 0, length: 1,
+      }).bytes[0],
+    ]));
+    const original = readPlanes();
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    let observed = null;
+    let validation = null;
+    let run = null;
+
+    await api.debugger.pause();
+    await api.debugger.writeVram({
+      region: 'graphics', bank: 0, plane: 'blue', offset: 0, bytes: [0x00],
+    });
+    await api.debugger.writeVram({
+      region: 'graphics', bank: 0, plane: 'red', offset: 0, bytes: [0xA5],
+    });
+    await api.debugger.writeVram({
+      region: 'graphics', bank: 0, plane: 'green', offset: 0, bytes: [0x5A],
+    });
+    await api.debugger.resume();
+
+    try {
+      const current = api.getProgram();
+      await api.setProgram({
+        sourceMode: 'slang',
+        basic: '',
+        asm: '',
+        slang: [
+          'ARRAY BYTE M8A_DATA[] = {',
+          '  $4D,$38,$41,$00,$01,$01,$49,$49,$49,$49',
+          '};',
+          '',
+          'MAIN() BEGIN',
+          '  M8ALOAD(M8A_DATA,0,0);',
+          '  LOOP VSYNC1();',
+          'END;',
+        ].join('\n'),
+      }, current.revision);
+      validation = await api.validate();
+      if (!validation.ok) {
+        throw new Error(`Embedded M8A validation failed: ${JSON.stringify(validation.diagnostics)}`);
+      }
+      run = await api.run();
+      if (!run.ok) throw new Error(`Embedded M8A Run failed: ${JSON.stringify(run)}`);
+
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        observed = readPlanes();
+        if (observed.blue === 0xFF && observed.red === 0x00 && observed.green === 0x00) break;
+        await sleep(25);
+      }
+      if (!observed || observed.blue !== 0xFF || observed.red !== 0x00 || observed.green !== 0x00) {
+        throw new Error(`M8ALOAD did not produce the expected VRAM planes: ${JSON.stringify(observed)}`);
+      }
+      return { validation, run, observed };
+    } finally {
+      window.Module._js_xmil_reset();
+      await sleep(50);
+      await api.debugger.pause();
+      for (const plane of planes) {
+        await api.debugger.writeVram({
+          region: 'graphics', bank: 0, plane, offset: 0, bytes: [original[plane]],
+        });
+      }
+      await api.debugger.setBreakpoints([]);
+      await api.debugger.resume();
+    }
+  });
+
+  assert.equal(result.validation.ok, true);
+  assert.equal(result.run.ok, true);
+  assert.equal(result.run.sourceMode, 'slang');
+  assert.deepEqual(result.observed, { blue: 0xFF, red: 0x00, green: 0x00 });
+});

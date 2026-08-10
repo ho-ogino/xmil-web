@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -573,6 +573,112 @@ test('bundled SLANG examples compile with the exact X1Pen compiler and VFS', () 
     });
     assert.equal(result.errors.length, 0, `${example.title}: ${JSON.stringify(result.errors)}`);
     assert.ok(result.asm.length > 0, `${example.title} must generate ASM`);
+  }
+});
+
+test('documented embedded M8A example compiles and assembles with its standalone dependencies', () => {
+  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const vfs = loadSlangVfs();
+  const entry = validateReferenceData().entries
+    .find((candidate) => candidate.id === 'slang.x1.assets-compression');
+  const example = entry.examples.find((candidate) => candidate.title.includes('embedded M8A'));
+  assert.ok(example, 'the M8ALOAD reference must retain its executable embedded-data example');
+
+  const compiled = compiler.compile(example.source, vfs, {
+    defaultOrg: 0x100,
+    codeReadonly: false,
+    defines: { ENV_TYPE: 1 },
+  });
+  assert.equal(compiled.errors.length, 0, JSON.stringify(compiled.errors));
+  assert.match(compiled.asm, /CALL\s+M8ALIB\.M8ALOAD/);
+  assert.match(compiled.asm, /NAME_SPACE_DEFAULT\.AT_WIDTH/);
+
+  const assembled = assembler.assemble(compiled.asm, { ENV_TYPE: 1 });
+  assert.equal(assembled.errors.length, 0, JSON.stringify(assembled.errors));
+  assert.ok(assembled.bytes.length > 0);
+  assert.equal(assembled.symbols['M8ALIB.GVRAMADRS_LO'], undefined,
+    'the shipped CALCSPEED=0 build must omit dormant address tables');
+  assert.equal(assembled.symbols['M8ALIB.GVRAMADRS_HI'], undefined,
+    'the shipped CALCSPEED=0 build must omit dormant address tables');
+  assert.ok('NAME_SPACE_DEFAULT.AT_WIDTH' in assembled.symbols,
+    'M8ALOAD must pull X1WORK without requiring the caller to use WIDTH first');
+});
+
+test('M8A runtime conditionals use supported syntax and preserve both dormant width tables', () => {
+  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const vfs = loadSlangVfs();
+  const runtimeDir = join(repoRoot, 'assets/slang_runtime');
+  const unsupported = [];
+  for (const filename of readdirSync(runtimeDir).filter((name) => name.endsWith('.asm'))) {
+    const source = readFileSync(join(runtimeDir, filename), 'utf8');
+    source.split(/\r?\n/).forEach((line, index) => {
+      if (/^\s*#(?:IF|ELIF|ELSEIF)\b.*(?:&&|\|\|)/i.test(line)) {
+        unsupported.push(`${filename}:${index + 1}`);
+      }
+    });
+  }
+  assert.deepEqual(unsupported, [], 'assembler runtime directives must avoid unsupported logical tokens');
+
+  const m8aSource = vfs['libm8a.asm'];
+  const magSource = vfs['libmag.asm'];
+  assert.match(m8aSource, /^; @calls X1WORK$/m);
+  assert.match(m8aSource, /^M8A_WIDTH\s+EQU\s+40$/m);
+  assert.doesNotMatch(m8aSource, /^WIDTH\s+EQU\b/m);
+  assert.doesNotMatch(magSource, /^\s*#(?:IF|ELIF|ELSEIF)\b.*(?:&&|\|\|)/mi);
+
+  const minimalSource = [
+    'ARRAY BYTE DATA[] = {$4D,$38,$41,$00,$01,$01,$49,$49,$49,$49};',
+    'MAIN() BEGIN',
+    '  M8ALOAD(DATA,0,0);',
+    'END;',
+  ].join('\n');
+  for (const width of [40, 80]) {
+    const variantVfs = {
+      ...vfs,
+      'libm8a.asm': m8aSource
+        .replace(/^CALCSPEED\s+EQU\s+0\b/m, 'CALCSPEED\tEQU\t1')
+        .replace(/^M8A_WIDTH\s+EQU\s+40\b/m, `M8A_WIDTH\tEQU\t${width}`),
+    };
+    const compiled = compiler.compile(minimalSource, variantVfs, {
+      defaultOrg: 0x100,
+      codeReadonly: false,
+      defines: { ENV_TYPE: 1 },
+    });
+    assert.equal(compiled.errors.length, 0,
+      `M8A_WIDTH=${width} must compile: ${JSON.stringify(compiled.errors)}`);
+    const assembled = assembler.assemble(compiled.asm, { ENV_TYPE: 1 });
+    assert.equal(assembled.errors.length, 0,
+      `M8A_WIDTH=${width} must assemble: ${JSON.stringify(assembled.errors)}`);
+    const tableAddress = assembled.symbols['M8ALIB.GVRAMADRS_LO'];
+    assert.ok(Number.isInteger(tableAddress), `M8A_WIDTH=${width} must emit its low table`);
+    assert.equal(assembled.bytes[tableAddress - assembled.org + 8], width === 40 ? 0x28 : 0x50,
+      `M8A_WIDTH=${width} must select the matching table payload`);
+  }
+});
+
+test('M8A runtime changes do not affect unused programs or MAGLOAD assembly', () => {
+  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const vfs = loadSlangVfs();
+  for (const [name, source, expectedRuntime] of [
+    ['unused', 'MAIN() BEGIN END;', null],
+    ['MAGLOAD', 'MAIN() BEGIN MAGLOAD("A:X.MAG",0,0); END;', 'MAGLOAD'],
+  ]) {
+    const compiled = compiler.compile(source, vfs, {
+      defaultOrg: 0x100,
+      codeReadonly: false,
+      defines: { ENV_TYPE: 1 },
+    });
+    assert.equal(compiled.errors.length, 0,
+      `${name} control must compile: ${JSON.stringify(compiled.errors)}`);
+    assert.equal(compiled.asm.includes('[M8ALIB]'), false, `${name} must not pull M8ALOAD`);
+    if (expectedRuntime) assert.ok(compiled.asm.includes(expectedRuntime));
+    const assembled = assembler.assemble(compiled.asm, { ENV_TYPE: 1 });
+    assert.equal(assembled.errors.length, 0,
+      `${name} control must assemble: ${JSON.stringify(assembled.errors)}`);
+    assert.ok(assembled.bytes.length > 0);
   }
 });
 
