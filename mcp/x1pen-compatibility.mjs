@@ -1,6 +1,7 @@
 export const FEATURE_IDS = Object.freeze([
   'automation.core',
   'automation.run-recovery',
+  'automation.source-sync',
   'screen.capture',
   'input.keyboard',
   'input.pad',
@@ -19,7 +20,7 @@ const LEGACY_CONNECTOR_FEATURES = Object.freeze({
 
 const METHOD_FEATURES = Object.freeze({
   getProgram: 'automation.core',
-  setProgram: 'automation.core',
+  setProgram: 'automation.source-sync',
   validate: 'automation.core',
   run: 'automation.core',
   recoverStalled: 'automation.run-recovery',
@@ -177,9 +178,19 @@ export function assertMethodCompatible(method, compatibility, components) {
 
 export function deserializeBridgeError(value) {
   if (!value || typeof value !== 'object') return new Error(String(value || 'X1Pen command failed'));
-  const error = new Error(typeof value.message === 'string' ? value.message : 'X1Pen command failed');
+  const error = new Error(typeof value.message === 'string' ? value.message.slice(0, 1_024) : 'X1Pen command failed');
   for (const key of ['code', 'component', 'feature', 'currentVersion', 'requiredVersion', 'action']) {
-    if (typeof value[key] === 'string') error[key] = value[key];
+    if (typeof value[key] === 'string') error[key] = value[key].slice(0, key === 'action' ? 512 : 128);
   }
+  for (const key of ['expectedRevision', 'currentRevision', 'conflictRevision', 'observedRevision']) {
+    if (Number.isSafeInteger(value[key]) && value[key] >= 0) error[key] = value[key];
+  }
+  for (const key of [
+    'expectedRevisionEpoch', 'currentRevisionEpoch', 'conflictRevisionEpoch',
+    'observedRevisionEpoch', 'instanceId',
+  ]) {
+    if (typeof value[key] === 'string' && value[key].length <= 128) error[key] = value[key];
+  }
+  if (typeof value.metadataAvailable === 'boolean') error.metadataAvailable = value.metadataAvailable;
   return error;
 }

@@ -9,6 +9,17 @@ import * as z from 'zod/v4';
 import { X1PenBridge } from './x1pen-bridge.mjs';
 import { createMcpDescriptor } from './x1pen-compatibility.mjs';
 import {
+  HASH_PATTERN,
+  MAX_BASELINE_BYTES,
+  SourceBaselineCache,
+  SourceSyncError,
+  contentHash,
+  createBoundedLineDiff,
+  sourceByteLength,
+  sourceIdentities,
+  sourceRole,
+} from './x1pen-source-sync.mjs';
+import {
   getReferenceEntries,
   getReferenceManifest,
   searchReference,
@@ -54,6 +65,7 @@ const SERVER_INSTRUCTIONS = [
   'Before writing or substantially editing a program, call x1pen_get_language_profile, search the bundled reference with x1pen_search_reference, and fetch only the needed IDs with x1pen_get_reference.',
   'After editing, call x1pen_validate. Run and inspect the visible emulator when behavior must be confirmed.',
   'Prefer bounded source and reference tools so generated ASM and unrelated manual sections do not consume context.',
+  'Retain revisionEpoch, revision and authoringHash together. On a source conflict, compare before retrying; never replace only the revision and blindly resend stale source.',
   'Connection and status results report MCP, Connector and X1Pen compatibility. Do not retry a feature that reports an update-required error until that component is updated.',
 ].join(' ');
 
@@ -67,7 +79,44 @@ function toolError(error) {
   if (error && typeof error.code === 'string') {
     const details = {};
     for (const key of ['code', 'component', 'feature', 'message', 'currentVersion', 'requiredVersion', 'action']) {
-      if (typeof error[key] === 'string') details[key] = error[key];
+      if (typeof error[key] === 'string') details[key] = error[key].slice(0, 1_024);
+    }
+    for (const key of ['expectedRevision', 'currentRevision', 'conflictRevision', 'observedRevision']) {
+      if (Number.isSafeInteger(error[key]) && error[key] >= 0) details[key] = error[key];
+    }
+    for (const key of [
+      'expectedRevisionEpoch', 'currentRevisionEpoch', 'conflictRevisionEpoch',
+      'observedRevisionEpoch', 'instanceId',
+    ]) {
+      if (typeof error[key] === 'string' && error[key].length <= 128) details[key] = error[key];
+    }
+    for (const key of ['metadataAvailable', 'observedMetadataAvailable']) {
+      if (typeof error[key] === 'boolean') details[key] = error[key];
+    }
+    if (error.current && typeof error.current === 'object') {
+      const current = {};
+      for (const key of ['sourceMode', 'revisionEpoch', 'instanceId', 'authoringHash']) {
+        if (typeof error.current[key] === 'string' && error.current[key].length <= 128) current[key] = error.current[key];
+      }
+      if (Number.isSafeInteger(error.current.revision) && error.current.revision >= 0) {
+        current.revision = error.current.revision;
+      }
+      if (error.current.sections && typeof error.current.sections === 'object') {
+        current.sections = {};
+        for (const section of SOURCE_SECTIONS) {
+          const input = error.current.sections[section];
+          if (!input || typeof input !== 'object') continue;
+          const output = {};
+          for (const key of ['lineCount', 'characterCount', 'byteCount']) {
+            if (Number.isSafeInteger(input[key]) && input[key] >= 0) output[key] = input[key];
+          }
+          for (const key of ['role', 'contentHash', 'generatedContentHash']) {
+            if (typeof input[key] === 'string' && input[key].length <= 96) output[key] = input[key];
+          }
+          current.sections[section] = output;
+        }
+      }
+      details.current = current;
     }
     return {
       isError: true,
@@ -103,6 +152,9 @@ function normalizeProgramSnapshot(value) {
     sourceMode,
     revision: value.revision,
     instanceId: typeof value.instanceId === 'string' ? value.instanceId : undefined,
+    revisionEpoch: typeof value.revisionEpoch === 'string' && value.revisionEpoch.length <= 128
+      ? value.revisionEpoch
+      : undefined,
   };
   for (const section of SOURCE_SECTIONS) {
     if (typeof value[section] !== 'string') throw new Error(`X1Pen returned invalid ${section} source`);
@@ -116,18 +168,26 @@ function sourceLineCount(source) {
 }
 
 function summarizeProgram(snapshot) {
+  const identities = sourceIdentities(snapshot);
   const sections = {};
   for (const section of SOURCE_SECTIONS) {
+    const identity = identities.sections[section];
     sections[section] = {
       lineCount: sourceLineCount(snapshot[section]),
       characterCount: snapshot[section].length,
+      byteCount: sourceByteLength(snapshot[section]),
+      role: identity.role,
+      ...(identity.contentHash ? { contentHash: identity.contentHash } : {}),
+      ...(identity.generatedContentHash ? { generatedContentHash: identity.generatedContentHash } : {}),
     };
   }
   sections.asm.generated = snapshot.sourceMode === 'slang' && snapshot.asm.length > 0;
   return {
     sourceMode: snapshot.sourceMode,
     revision: snapshot.revision,
+    ...(snapshot.revisionEpoch ? { revisionEpoch: snapshot.revisionEpoch } : { guardedWritesReloadSafe: false }),
     ...(snapshot.instanceId ? { instanceId: snapshot.instanceId } : {}),
+    authoringHash: identities.authoringHash,
     sections,
   };
 }
@@ -170,6 +230,8 @@ function getSourceRange(snapshot, section, options) {
     return {
       section,
       revision: snapshot.revision,
+      ...(snapshot.revisionEpoch ? { revisionEpoch: snapshot.revisionEpoch } : {}),
+      contentHash: contentHash(snapshot[section]),
       startLine: 1,
       endLine: 0,
       totalLines: 0,
@@ -202,6 +264,8 @@ function getSourceRange(snapshot, section, options) {
   return {
     section,
     revision: snapshot.revision,
+    ...(snapshot.revisionEpoch ? { revisionEpoch: snapshot.revisionEpoch } : {}),
+    contentHash: contentHash(snapshot[section]),
     startLine: options.startLine,
     endLine,
     totalLines: lines.length,
@@ -257,6 +321,8 @@ function searchSource(snapshot, section, options) {
   return {
     section,
     revision: snapshot.revision,
+    ...(snapshot.revisionEpoch ? { revisionEpoch: snapshot.revisionEpoch } : {}),
+    contentHash: contentHash(snapshot[section]),
     query: options.query,
     totalMatches,
     matches,
@@ -409,16 +475,117 @@ export function createX1PenMcpServer(options = {}) {
     { instructions: SERVER_INSTRUCTIONS },
   );
   const sessionInput = { sessionId: z.string().optional().describe('Connected X1Pen instance ID; omit when one tab is connected') };
+  const baselines = new SourceBaselineCache(options.sourceBaselineOptions);
+
+  function pruneBaselinesToSessions() {
+    const activeInstances = new Set((bridge.listSessions?.() || []).map((session) => session.sessionId));
+    baselines.retainInstances(activeInstances);
+  }
+
+  function observeSnapshot(snapshot) {
+    pruneBaselinesToSessions();
+    baselines.rememberSnapshot(snapshot);
+    return snapshot;
+  }
+
+  async function readProgram(sessionId) {
+    return observeSnapshot(normalizeProgramSnapshot(
+      await bridge.sendCommand('getProgram', {}, sessionId),
+    ));
+  }
+
+  function conflictError(code, details = {}) {
+    let message;
+    if (code === 'REVISION_EPOCH_REQUIRED') {
+      message = 'A revision epoch is required with expectedRevision';
+    } else if (code === 'REVISION_EPOCH_MISMATCH') {
+      message = 'Revision epoch conflict: the program was reloaded after the caller read it';
+    } else {
+      message = `Revision conflict: expected ${details.expectedRevision}, current ${details.currentRevision}`;
+    }
+    const error = new Error(message);
+    Object.assign(error, {
+      code,
+      component: 'x1pen',
+      action: code === 'REVISION_EPOCH_REQUIRED'
+        ? 'Call x1pen_get_program and retry with both expectedRevisionEpoch and expectedRevision.'
+        : 'Call x1pen_diff_source or bounded source reads, reconcile changes, then retry with the newly observed epoch and revision.',
+      ...details,
+    });
+    return error;
+  }
+
+  function normalizeLegacyConflict(error) {
+    if (error?.code) return error;
+    const match = /^Revision conflict: expected (\d+), current (\d+)$/.exec(error?.message || '');
+    if (!match) return error;
+    const expectedRevision = Number(match[1]);
+    const currentRevision = Number(match[2]);
+    if (!Number.isSafeInteger(expectedRevision) || !Number.isSafeInteger(currentRevision)) return error;
+    Object.assign(error, {
+      code: 'REVISION_MISMATCH',
+      component: 'x1pen',
+      expectedRevision,
+      currentRevision,
+      metadataAvailable: false,
+      legacyConflictShape: true,
+      action: 'Call x1pen_get_program and compare the current source before retrying.',
+    });
+    return error;
+  }
+
+  async function enrichConflict(input, sessionId, knownSnapshot) {
+    const error = normalizeLegacyConflict(input);
+    if (!['REVISION_MISMATCH', 'REVISION_EPOCH_MISMATCH', 'REVISION_EPOCH_REQUIRED'].includes(error?.code)) {
+      throw error;
+    }
+    if (Number.isSafeInteger(error.currentRevision)) error.conflictRevision = error.currentRevision;
+    if (typeof error.currentRevisionEpoch === 'string') error.conflictRevisionEpoch = error.currentRevisionEpoch;
+    try {
+      const current = knownSnapshot || await readProgram(sessionId);
+      const summary = summarizeProgram(current);
+      error.metadataAvailable = error.legacyConflictShape !== true;
+      error.observedMetadataAvailable = true;
+      error.observedRevision = current.revision;
+      if (current.revisionEpoch) error.observedRevisionEpoch = current.revisionEpoch;
+      if (current.instanceId) error.instanceId = current.instanceId;
+      error.current = summary;
+      error.action = error.code === 'REVISION_EPOCH_REQUIRED'
+        ? 'Retry with expectedRevisionEpoch and expectedRevision from the current summary.'
+        : 'Compare the retained baseline with the current hashes or x1pen_diff_source before retrying with the observed epoch and revision.';
+    } catch {
+      error.metadataAvailable = false;
+      error.observedMetadataAvailable = false;
+    }
+    throw error;
+  }
+
+  async function sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, sessionId) {
+    try {
+      return observeSnapshot(normalizeProgramSnapshot(await bridge.sendCommand(
+        'setProgram', { program, expectedRevision, expectedRevisionEpoch }, sessionId,
+      )));
+    } catch (error) {
+      return enrichConflict(error, sessionId);
+    }
+  }
 
   server.registerTool('x1pen_connection_info', {
     description: 'Get the local bridge port and pairing code used by the X1Pen Connector extension.',
     annotations: { readOnlyHint: true, openWorldHint: false },
-  }, handleTool(async () => textResult(bridge.connectionInfo())));
+  }, handleTool(async () => {
+    pruneBaselinesToSessions();
+    return textResult(bridge.connectionInfo());
+  }));
 
   server.registerTool('x1pen_list_sessions', {
     description: 'List X1Pen browser tabs explicitly connected through the extension.',
     annotations: { readOnlyHint: true, openWorldHint: false },
-  }, handleTool(async () => textResult({ sessions: bridge.listSessions() })));
+  }, handleTool(async () => {
+    const sessions = bridge.listSessions();
+    baselines.retainInstances(new Set(sessions.map((session) => session.sessionId)));
+    return textResult({ sessions });
+  }));
 
   server.registerTool('x1pen_select_session', {
     description: 'Select the X1Pen browser tab used by later tool calls. Pad input is released on the previously selected live tab first; force only when that cleanup cannot complete.',
@@ -500,25 +667,24 @@ export function createX1PenMcpServer(options = {}) {
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, handleTool(async ({ sessionId, fields, includeGeneratedAsm, maxCharacters }) => {
-    const snapshot = normalizeProgramSnapshot(await bridge.sendCommand('getProgram', {}, sessionId));
+    const snapshot = await readProgram(sessionId);
     return textResult(selectProgramFields(snapshot, fields, includeGeneratedAsm, maxCharacters));
   }));
 
   server.registerTool('x1pen_set_program', {
-    description: 'Replace the complete program when expectedRevision still matches the connected X1Pen tab.',
+    description: 'Replace the complete program only when expectedRevisionEpoch and expectedRevision still match. On conflict, compare current hashes/diff before retrying; never refresh only the revision.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       expectedRevision: z.number().int().min(0),
+      expectedRevisionEpoch: z.string().min(1).max(128),
       sourceMode: z.enum(['basic+asm', 'asm', 'slang']),
       basic: z.string().max(MAX_SOURCE_LENGTH).optional(),
       asm: z.string().max(MAX_SOURCE_LENGTH).optional(),
       slang: z.string().max(MAX_SOURCE_LENGTH).optional(),
     },
     annotations: { destructiveHint: true, openWorldHint: false },
-  }, handleTool(async ({ sessionId, expectedRevision, ...program }) => {
-    const snapshot = normalizeProgramSnapshot(await bridge.sendCommand(
-      'setProgram', { program, expectedRevision }, sessionId,
-    ));
+  }, handleTool(async ({ sessionId, expectedRevision, expectedRevisionEpoch, ...program }) => {
+    const snapshot = await sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, sessionId);
     return textResult({ ok: true, ...summarizeProgram(snapshot) });
   }));
 
@@ -534,7 +700,7 @@ export function createX1PenMcpServer(options = {}) {
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, handleTool(async ({ sessionId, section, ...options }) => {
-    const snapshot = normalizeProgramSnapshot(await bridge.sendCommand('getProgram', {}, sessionId));
+    const snapshot = await readProgram(sessionId);
     return textResult(getSourceRange(snapshot, section, options));
   }));
 
@@ -551,16 +717,134 @@ export function createX1PenMcpServer(options = {}) {
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, handleTool(async ({ sessionId, section, ...options }) => {
-    const snapshot = normalizeProgramSnapshot(await bridge.sendCommand('getProgram', {}, sessionId));
+    const snapshot = await readProgram(sessionId);
     return textResult(searchSource(snapshot, section, options));
   }));
 
+  server.registerTool('x1pen_diff_source', {
+    description: 'Compare a retained source baseline with the current connected tab using bounded line hunks. Baselines are ephemeral; caller-supplied text is labeled self-attested. Diffs never authorize a write.',
+    inputSchema: {
+      sessionId: sessionInput.sessionId,
+      section: z.enum(SOURCE_SECTIONS),
+      baseHash: z.string().regex(HASH_PATTERN),
+      baseSourceMode: z.enum(['basic+asm', 'asm', 'slang']),
+      baseRevisionEpoch: z.string().min(1).max(128),
+      baseGenerated: z.boolean().default(false),
+      baseSource: z.string().max(MAX_SOURCE_LENGTH).optional()
+        .describe('Optional caller-retained fallback when the ephemeral baseline cache no longer has baseHash'),
+      includeGeneratedAsm: z.boolean().default(false),
+      contextLines: z.number().int().min(0).max(5).default(3),
+      maxHunks: z.number().int().min(1).max(100).default(20),
+      maxCharacters: z.number().int().min(1_024).max(64 * 1024).default(32 * 1024),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, handleTool(async ({
+    sessionId, section, baseHash, baseSourceMode, baseRevisionEpoch, baseGenerated,
+    baseSource, includeGeneratedAsm, contextLines, maxHunks, maxCharacters,
+  }) => {
+    const current = await readProgram(sessionId);
+    if (!current.instanceId || !current.revisionEpoch) {
+      throw new SourceSyncError(
+        'FEATURE_UNAVAILABLE',
+        'The connected X1Pen does not report source revision epochs',
+        { component: 'x1pen', feature: 'automation.source-sync', action: 'Update/reload X1Pen and reconnect the tab.' },
+      );
+    }
+    if (baseSourceMode !== current.sourceMode) {
+      throw new SourceSyncError(
+        'BASE_MODE_MISMATCH',
+        `Baseline mode ${baseSourceMode} does not match current mode ${current.sourceMode}`,
+        { action: 'Establish a new baseline after the source-mode change.' },
+      );
+    }
+
+    const requestedRole = baseGenerated ? 'generated' : 'authoring';
+    const currentRole = sourceRole(current.sourceMode, section, current[section]);
+    if (currentRole !== requestedRole) {
+      throw new SourceSyncError(
+        'BASE_ROLE_MISMATCH',
+        `${section} is ${currentRole} in ${current.sourceMode} mode, not ${requestedRole}`,
+        { action: 'Select an authoring section or establish a baseline with matching provenance.' },
+      );
+    }
+    if (requestedRole === 'generated' && !includeGeneratedAsm) {
+      throw new SourceSyncError(
+        'GENERATED_SOURCE_REQUIRES_OPT_IN',
+        'Generated ASM diffs require includeGeneratedAsm=true for both sides',
+        { action: 'Set includeGeneratedAsm=true only when generated output is intentionally needed.' },
+      );
+    }
+
+    let resolvedBaseSource;
+    let baseSourceOrigin;
+    if (baseSource !== undefined) {
+      if (sourceByteLength(baseSource) > MAX_BASELINE_BYTES) {
+        throw new SourceSyncError('DIFF_LIMIT_EXCEEDED', `baseSource exceeds ${MAX_BASELINE_BYTES} UTF-8 bytes`);
+      }
+      const suppliedHash = contentHash(baseSource);
+      if (suppliedHash !== baseHash) {
+        throw new SourceSyncError(
+          'BASE_HASH_MISMATCH',
+          'baseSource does not match baseHash',
+          { action: 'Use the hash returned with the retained source text.' },
+        );
+      }
+      if (sourceRole(baseSourceMode, section, baseSource) !== requestedRole) {
+        throw new SourceSyncError('BASE_ROLE_MISMATCH', 'baseSource provenance does not match baseGenerated');
+      }
+      resolvedBaseSource = baseSource;
+      baseSourceOrigin = 'caller-supplied';
+    } else {
+      const entry = baselines.get({
+        instanceId: current.instanceId,
+        revisionEpoch: baseRevisionEpoch,
+        sourceMode: baseSourceMode,
+        section,
+        role: requestedRole,
+        hash: baseHash,
+      });
+      if (!entry) {
+        throw new SourceSyncError(
+          'BASE_SNAPSHOT_UNAVAILABLE',
+          'The requested baseline is not available in the bounded in-memory cache',
+          { action: 'Supply the retained baseSource with its provenance or establish a new baseline.' },
+        );
+      }
+      resolvedBaseSource = entry.source;
+      baseSourceOrigin = 'cache';
+    }
+
+    const currentHash = contentHash(current[section]);
+    const diff = createBoundedLineDiff(resolvedBaseSource, current[section], {
+      contextLines, maxHunks, maxCharacters,
+    });
+    return textResult({
+      section,
+      sourceMode: current.sourceMode,
+      role: currentRole,
+      baseHash,
+      currentHash,
+      byteIdentityChanged: baseHash !== currentHash,
+      baseRevisionEpoch,
+      currentRevisionEpoch: current.revisionEpoch,
+      epochChanged: baseRevisionEpoch !== current.revisionEpoch,
+      currentRevision: current.revision,
+      instanceId: current.instanceId,
+      baseSourceOrigin,
+      baseSourceAttestation: baseSourceOrigin === 'cache'
+        ? 'observed-by-this-mcp-process'
+        : 'caller-supplied; hash proves self-consistency only',
+      ...diff,
+    });
+  }));
+
   server.registerTool('x1pen_apply_edits', {
-    description: 'Apply non-overlapping line edits to one authoring source when expectedRevision still matches. Line numbers are 1-based.',
+    description: 'Apply non-overlapping line edits only when expectedRevisionEpoch and expectedRevision match. Line numbers are 1-based; compare conflicts before retrying.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       section: z.enum(SOURCE_SECTIONS),
       expectedRevision: z.number().int().min(0),
+      expectedRevisionEpoch: z.string().min(1).max(128),
       edits: z.array(z.object({
         startLine: z.number().int().min(1),
         deleteLineCount: z.number().int().min(0),
@@ -568,15 +852,36 @@ export function createX1PenMcpServer(options = {}) {
       })).min(1).max(100),
     },
     annotations: { destructiveHint: true, openWorldHint: false },
-  }, handleTool(async ({ sessionId, section, expectedRevision, edits }) => {
+  }, handleTool(async ({ sessionId, section, expectedRevision, expectedRevisionEpoch, edits }) => {
     const replacementSize = edits.reduce((total, edit) => total + edit.text.length, 0);
     if (replacementSize > MAX_SOURCE_LENGTH) {
       throw new Error(`Combined replacement text exceeds ${MAX_SOURCE_LENGTH} characters`);
     }
 
-    const snapshot = normalizeProgramSnapshot(await bridge.sendCommand('getProgram', {}, sessionId));
+    const snapshot = await readProgram(sessionId);
+    if (!snapshot.revisionEpoch) {
+      throw new SourceSyncError(
+        'FEATURE_UNAVAILABLE',
+        'The connected X1Pen does not report source revision epochs',
+        { component: 'x1pen', feature: 'automation.source-sync', action: 'Update/reload X1Pen and reconnect the tab.' },
+      );
+    }
+    if (snapshot.revisionEpoch !== expectedRevisionEpoch) {
+      return enrichConflict(conflictError('REVISION_EPOCH_MISMATCH', {
+        expectedRevision,
+        expectedRevisionEpoch,
+        currentRevision: snapshot.revision,
+        currentRevisionEpoch: snapshot.revisionEpoch,
+        instanceId: snapshot.instanceId,
+      }), sessionId, snapshot);
+    }
     if (snapshot.revision !== expectedRevision) {
-      throw new Error(`Revision conflict: expected ${expectedRevision}, current ${snapshot.revision}`);
+      return enrichConflict(conflictError('REVISION_MISMATCH', {
+        expectedRevision,
+        currentRevision: snapshot.revision,
+        currentRevisionEpoch: snapshot.revisionEpoch,
+        instanceId: snapshot.instanceId,
+      }), sessionId, snapshot);
     }
     assertEditableSection(snapshot, section);
     const applied = applyLineEdits(snapshot[section], edits);
@@ -601,9 +906,7 @@ export function createX1PenMcpServer(options = {}) {
       [section]: applied.source,
     };
     const generatedAsmCleared = section === 'slang' && snapshot.asm.length > 0;
-    const updated = normalizeProgramSnapshot(await bridge.sendCommand(
-      'setProgram', { program, expectedRevision }, sessionId,
-    ));
+    const updated = await sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, sessionId);
     return textResult({
       ok: true,
       changed: true,
@@ -824,6 +1127,11 @@ export function createX1PenMcpServer(options = {}) {
     };
   }));
 
+  const closeServer = server.close.bind(server);
+  server.close = async () => {
+    baselines.clear();
+    return closeServer();
+  };
   return { server, bridge };
 }
 

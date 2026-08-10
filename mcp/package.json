@@ -14,7 +14,8 @@
     "x1pen-bridge.mjs",
     "x1pen-compatibility.mjs",
     "x1pen-reference.mjs",
-    "x1pen-server.mjs"
+    "x1pen-server.mjs",
+    "x1pen-source-sync.mjs"
   ],
   "engines": {
     "node": ">=20"

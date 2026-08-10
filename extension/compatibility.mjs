@@ -2,6 +2,7 @@ export const CONNECTOR_PROTOCOL_VERSION = 2;
 export const CONNECTOR_FEATURES = Object.freeze([
   'automation.core',
   'automation.run-recovery',
+  'automation.source-sync',
   'screen.capture',
   'input.keyboard',
   'input.pad',
@@ -69,13 +70,23 @@ export function assertMcpProtocolSupported(server) {
 
 export function serializeExtensionError(error) {
   const serialized = {
-    message: error?.message || String(error),
+    message: String(error?.message || error).slice(0, 1_024),
   };
-  if (typeof error?.code === 'string') serialized.code = error.code;
+  if (typeof error?.code === 'string') serialized.code = error.code.slice(0, 128);
   if (['mcp', 'connector', 'x1pen'].includes(error?.component)) serialized.component = error.component;
-  if (typeof error?.feature === 'string') serialized.feature = error.feature;
-  if (typeof error?.currentVersion === 'string') serialized.currentVersion = error.currentVersion;
-  if (typeof error?.requiredVersion === 'string') serialized.requiredVersion = error.requiredVersion;
-  if (typeof error?.action === 'string') serialized.action = error.action;
+  if (typeof error?.feature === 'string') serialized.feature = error.feature.slice(0, 64);
+  if (typeof error?.currentVersion === 'string') serialized.currentVersion = error.currentVersion.slice(0, 64);
+  if (typeof error?.requiredVersion === 'string') serialized.requiredVersion = error.requiredVersion.slice(0, 64);
+  if (typeof error?.action === 'string') serialized.action = error.action.slice(0, 512);
+  for (const key of ['expectedRevision', 'currentRevision', 'conflictRevision', 'observedRevision']) {
+    if (Number.isSafeInteger(error?.[key]) && error[key] >= 0) serialized[key] = error[key];
+  }
+  for (const key of [
+    'expectedRevisionEpoch', 'currentRevisionEpoch', 'conflictRevisionEpoch',
+    'observedRevisionEpoch', 'instanceId',
+  ]) {
+    if (typeof error?.[key] === 'string' && error[key].length <= 128) serialized[key] = error[key];
+  }
+  if (typeof error?.metadataAvailable === 'boolean') serialized.metadataAvailable = error.metadataAvailable;
   return serialized;
 }

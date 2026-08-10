@@ -114,7 +114,13 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
   if (shouldLock) api.setInteractionLocked(true, lockLabels[requestedMethod]);
   try {
     if (requestedMethod === 'getProgram') return api.getProgram();
-    if (requestedMethod === 'setProgram') return await api.setProgram(requestedParams.program, requestedParams.expectedRevision);
+    if (requestedMethod === 'setProgram') {
+      return await api.setProgram(
+        requestedParams.program,
+        requestedParams.expectedRevision,
+        requestedParams.expectedRevisionEpoch,
+      );
+    }
     if (requestedMethod === 'validate') return await api.validate();
     if (requestedMethod === 'run') {
       const result = await api.run({ origin: 'mcp', queueTimeoutMs: requestedParams.queueTimeoutMs });

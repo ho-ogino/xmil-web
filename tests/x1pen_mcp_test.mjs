@@ -10,6 +10,7 @@ const initialProgram = {
   asm: '',
   slang: '',
   revision: 3,
+  revisionEpoch: 'epoch-a',
   instanceId: 'tab-a',
 };
 const calls = [];
@@ -85,12 +86,31 @@ const fakeBridge = {
     if (compatibilityFailure && method === compatibilityFailure.method) throw compatibilityFailure.error;
     if (method === 'getProgram') return clone(currentProgram);
     if (method === 'setProgram') {
+      if (params.expectedRevisionEpoch !== currentProgram.revisionEpoch) {
+        const error = new Error('Revision epoch conflict');
+        Object.assign(error, {
+          code: 'REVISION_EPOCH_MISMATCH', component: 'x1pen',
+          expectedRevision: params.expectedRevision,
+          expectedRevisionEpoch: params.expectedRevisionEpoch,
+          currentRevision: currentProgram.revision,
+          currentRevisionEpoch: currentProgram.revisionEpoch,
+          instanceId: currentProgram.instanceId,
+        });
+        throw error;
+      }
       if (params.expectedRevision !== currentProgram.revision) {
-        throw new Error(`Revision conflict: expected ${params.expectedRevision}, current ${currentProgram.revision}`);
+        const error = new Error(`Revision conflict: expected ${params.expectedRevision}, current ${currentProgram.revision}`);
+        Object.assign(error, {
+          code: 'REVISION_MISMATCH', component: 'x1pen',
+          expectedRevision: params.expectedRevision, currentRevision: currentProgram.revision,
+          currentRevisionEpoch: currentProgram.revisionEpoch, instanceId: currentProgram.instanceId,
+        });
+        throw error;
       }
       currentProgram = {
         ...normalizeProgram(params.program),
         revision: currentProgram.revision + 1,
+        revisionEpoch: currentProgram.revisionEpoch,
         instanceId: currentProgram.instanceId,
       };
       return clone(currentProgram);
@@ -216,6 +236,7 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_debug_step',
     'x1pen_debug_wait_for_pause',
     'x1pen_debug_write_vram',
+    'x1pen_diff_source',
     'x1pen_get_language_profile',
     'x1pen_get_program',
     'x1pen_get_reference',
@@ -395,6 +416,7 @@ test('get_program defaults to metadata only and excludes generated ASM', async (
     asm: generatedAsm,
     slang: 'main() BEGIN\n  PRINT("MCP");\nEND;',
     revision: 8,
+    revisionEpoch: 'epoch-a',
     instanceId: 'tab-a',
   };
 
@@ -404,8 +426,12 @@ test('get_program defaults to metadata only and excludes generated ASM', async (
   assert.equal(selected.asm, undefined);
   assert.deepEqual(selected.includedFields, []);
   assert.equal(selected.sections.asm.generated, true);
+  assert.equal(selected.revisionEpoch, 'epoch-a');
+  assert.match(selected.authoringHash, /^sha256-authoring-v1:[0-9a-f]{64}$/);
+  assert.match(selected.sections.slang.contentHash, /^sha256-utf8-v1:[0-9a-f]{64}$/);
+  assert.match(selected.sections.asm.generatedContentHash, /^sha256-utf8-v1:[0-9a-f]{64}$/);
   assert.equal(selected.sections.asm.lineCount, 20_000);
-  assert.ok(defaultResult.content[0].text.length < 500, 'metadata-only response must stay small even with huge generated ASM');
+  assert.ok(defaultResult.content[0].text.length < 1_500, 'metadata-only response must stay bounded even with huge generated ASM');
   assert.equal(defaultResult.structuredContent, undefined);
 
   const slangResult = await client.callTool({
@@ -451,7 +477,8 @@ test('get_source returns a bounded line range and protects generated ASM', async
   assert.equal(range.truncated, true);
 
   currentProgram = {
-    sourceMode: 'slang', basic: '', asm: 'generated', slang: 'main() BEGIN\nEND;', revision: 4, instanceId: 'tab-a',
+    sourceMode: 'slang', basic: '', asm: 'generated', slang: 'main() BEGIN\nEND;', revision: 4,
+    revisionEpoch: 'epoch-a', instanceId: 'tab-a',
   };
   const protectedResult = await client.callTool({
     name: 'x1pen_get_source',
@@ -486,19 +513,133 @@ test('search_source finds literal text with bounded context', async () => {
   assert.deepEqual(search.matches[0].context.map((line) => line.line), [1, 2, 3]);
 });
 
-test('set_program forwards expected revision but returns only a compact summary', async () => {
+test('diff_source compares a cached baseline with bounded hunks', async () => {
+  const baseline = jsonContent(await client.callTool({ name: 'x1pen_get_program', arguments: {} }));
+  const baseHash = baseline.sections.basic.contentHash;
+  currentProgram.basic = '10 PRINT "MCP"\n15 PRINT "USER"\n20 END';
+  currentProgram.revision++;
+
+  const result = jsonContent(await client.callTool({
+    name: 'x1pen_diff_source',
+    arguments: {
+      section: 'basic', baseHash, baseSourceMode: 'basic+asm',
+      baseRevisionEpoch: 'epoch-a', contextLines: 1,
+    },
+  }));
+  assert.equal(result.baseSourceOrigin, 'cache');
+  assert.equal(result.epochChanged, false);
+  assert.equal(result.addedLines, 1);
+  assert.equal(result.deletedLines, 0);
+  assert.match(result.diff, /\+15 PRINT "USER"/);
+  assert.equal(result.truncated, false);
+});
+
+test('diff_source resolves a cached baseline from an older epoch by full provenance', async () => {
+  const baseline = jsonContent(await client.callTool({ name: 'x1pen_get_program', arguments: {} }));
+  currentProgram = {
+    ...currentProgram,
+    basic: '10 PRINT "AFTER RELOAD"\n20 END',
+    revision: 3,
+    revisionEpoch: 'epoch-b',
+  };
+  const result = jsonContent(await client.callTool({
+    name: 'x1pen_diff_source',
+    arguments: {
+      section: 'basic', baseHash: baseline.sections.basic.contentHash,
+      baseSourceMode: 'basic+asm', baseRevisionEpoch: 'epoch-a',
+    },
+  }));
+  assert.equal(result.baseSourceOrigin, 'cache');
+  assert.equal(result.epochChanged, true);
+  assert.equal(result.baseRevisionEpoch, 'epoch-a');
+  assert.equal(result.currentRevisionEpoch, 'epoch-b');
+  assert.match(result.diff, /AFTER RELOAD/);
+});
+
+test('diff_source labels caller-attested and cross-epoch baselines', async () => {
+  const baseSource = initialProgram.basic;
+  const baseline = jsonContent(await client.callTool({ name: 'x1pen_get_program', arguments: {} }));
+  currentProgram = {
+    ...currentProgram,
+    basic: '10 PRINT "RELOADED"\n20 END',
+    revision: 3,
+    revisionEpoch: 'epoch-b',
+  };
+  const result = jsonContent(await client.callTool({
+    name: 'x1pen_diff_source',
+    arguments: {
+      section: 'basic', baseHash: baseline.sections.basic.contentHash,
+      baseSourceMode: 'basic+asm', baseRevisionEpoch: 'epoch-a', baseSource,
+    },
+  }));
+  assert.equal(result.baseSourceOrigin, 'caller-supplied');
+  assert.match(result.baseSourceAttestation, /self-consistency only/);
+  assert.equal(result.epochChanged, true);
+  assert.equal(result.currentRevisionEpoch, 'epoch-b');
+});
+
+test('diff_source reports unavailable and mode-mismatched baselines', async () => {
+  const missing = await client.callTool({
+    name: 'x1pen_diff_source',
+    arguments: {
+      section: 'basic', baseHash: `sha256-utf8-v1:${'0'.repeat(64)}`,
+      baseSourceMode: 'basic+asm', baseRevisionEpoch: 'missing',
+    },
+  });
+  assert.equal(jsonContent(missing).error.code, 'BASE_SNAPSHOT_UNAVAILABLE');
+
+  currentProgram.sourceMode = 'slang';
+  currentProgram.basic = '';
+  currentProgram.slang = 'main() BEGIN\nEND;';
+  const mismatch = await client.callTool({
+    name: 'x1pen_diff_source',
+    arguments: {
+      section: 'basic', baseHash: `sha256-utf8-v1:${'0'.repeat(64)}`,
+      baseSourceMode: 'basic+asm', baseRevisionEpoch: 'epoch-a',
+    },
+  });
+  assert.equal(jsonContent(mismatch).error.code, 'BASE_MODE_MISMATCH');
+});
+
+test('set_program forwards the guarded epoch and revision but returns only a compact summary', async () => {
   const result = await client.callTool({
     name: 'x1pen_set_program',
-    arguments: { sourceMode: 'basic+asm', basic: '10 PRINT "UPDATED"', expectedRevision: 3 },
+    arguments: {
+      sourceMode: 'basic+asm', basic: '10 PRINT "UPDATED"',
+      expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+    },
   });
   const response = jsonContent(result);
   assert.equal(result.isError, undefined);
   assert.equal(calls.at(-1).method, 'setProgram');
   assert.equal(calls.at(-1).params.expectedRevision, 3);
+  assert.equal(calls.at(-1).params.expectedRevisionEpoch, 'epoch-a');
   assert.equal(calls.at(-1).params.program.basic, '10 PRINT "UPDATED"');
   assert.equal(response.revision, 4);
   assert.equal(response.basic, undefined);
   assert.equal(response.sections.basic.lineCount, 1);
+});
+
+test('set_program maps the exact legacy conflict message to bounded structured output', async () => {
+  compatibilityFailure = {
+    method: 'setProgram',
+    error: new Error('Revision conflict: expected 2, current 3'),
+  };
+  const result = await client.callTool({
+    name: 'x1pen_set_program',
+    arguments: {
+      sourceMode: 'basic+asm', basic: '10 END',
+      expectedRevision: 2, expectedRevisionEpoch: 'epoch-a',
+    },
+  });
+  const error = jsonContent(result).error;
+  assert.equal(error.code, 'REVISION_MISMATCH');
+  assert.equal(error.expectedRevision, 2);
+  assert.equal(error.conflictRevision, 3);
+  assert.equal(error.metadataAvailable, false);
+  assert.equal(error.observedMetadataAvailable, true);
+  assert.equal(error.observedRevisionEpoch, 'epoch-a');
+  assert.equal(error.current.basic, undefined);
 });
 
 test('apply_edits updates one section and preserves the other authoring source', async () => {
@@ -508,6 +649,7 @@ test('apply_edits updates one section and preserves the other authoring source',
     arguments: {
       section: 'basic',
       expectedRevision: 3,
+      expectedRevisionEpoch: 'epoch-a',
       edits: [
         { startLine: 1, deleteLineCount: 1, text: '10 PRINT "START"' },
         { startLine: 2, deleteLineCount: 1, text: '20 PRINT "EDITED"\n30 END' },
@@ -531,17 +673,22 @@ test('apply_edits rejects stale revisions and overlapping edits', async () => {
   const stale = await client.callTool({
     name: 'x1pen_apply_edits',
     arguments: {
-      section: 'basic', expectedRevision: 2, edits: [{ startLine: 1, deleteLineCount: 1, text: '10 END' }],
+      section: 'basic', expectedRevision: 2, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 1, deleteLineCount: 1, text: '10 END' }],
     },
   });
   assert.equal(stale.isError, true);
-  assert.match(stale.content[0].text, /Revision conflict/);
+  assert.equal(jsonContent(stale).error.code, 'REVISION_MISMATCH');
+  assert.equal(jsonContent(stale).error.expectedRevision, 2);
+  assert.equal(jsonContent(stale).error.observedRevision, 3);
+  assert.match(jsonContent(stale).error.current.authoringHash, /^sha256-authoring-v1:/);
 
   const overlapping = await client.callTool({
     name: 'x1pen_apply_edits',
     arguments: {
       section: 'basic',
       expectedRevision: 3,
+      expectedRevisionEpoch: 'epoch-a',
       edits: [
         { startLine: 1, deleteLineCount: 2, text: '10 END' },
         { startLine: 2, deleteLineCount: 1, text: '20 END' },
@@ -552,14 +699,32 @@ test('apply_edits rejects stale revisions and overlapping edits', async () => {
   assert.match(overlapping.content[0].text, /overlap/);
 });
 
+test('apply_edits rejects a colliding revision from another epoch', async () => {
+  const before = currentProgram.basic;
+  const result = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-before-reload',
+      edits: [{ startLine: 1, deleteLineCount: 1, text: '10 PRINT "STALE"' }],
+    },
+  });
+  const error = jsonContent(result).error;
+  assert.equal(error.code, 'REVISION_EPOCH_MISMATCH');
+  assert.equal(error.expectedRevisionEpoch, 'epoch-before-reload');
+  assert.equal(error.observedRevisionEpoch, 'epoch-a');
+  assert.equal(currentProgram.basic, before);
+});
+
 test('apply_edits clears generated ASM when editing SLANG', async () => {
   currentProgram = {
-    sourceMode: 'slang', basic: '', asm: 'generated asm', slang: 'main() BEGIN\nEND;', revision: 9, instanceId: 'tab-a',
+    sourceMode: 'slang', basic: '', asm: 'generated asm', slang: 'main() BEGIN\nEND;', revision: 9,
+    revisionEpoch: 'epoch-a', instanceId: 'tab-a',
   };
   const result = await client.callTool({
     name: 'x1pen_apply_edits',
     arguments: {
-      section: 'slang', expectedRevision: 9, edits: [{ startLine: 2, deleteLineCount: 0, text: '  PRINT("MCP");' }],
+      section: 'slang', expectedRevision: 9, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 2, deleteLineCount: 0, text: '  PRINT("MCP");' }],
     },
   });
   const response = jsonContent(result);

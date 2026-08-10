@@ -42,6 +42,10 @@ function createAutomationApi() {
       },
     }),
     getProgram: () => ({ revision: 1 }),
+    setProgram: async (program, expectedRevision, expectedRevisionEpoch) => {
+      calls.push({ setProgram: { program, expectedRevision, expectedRevisionEpoch } });
+      return { ...program, revision: expectedRevision + 1, revisionEpoch: expectedRevisionEpoch };
+    },
     run: async (options) => {
       calls.push({ run: options });
       return { ok: false, code: 'RUN_IN_PROGRESS', retryable: true, retryAfterMs: 500 };
@@ -103,6 +107,19 @@ test('page bridge allowlists debugger operations and retries Run setup races', a
   globalThis.window = { X1PenAutomation: api };
 
   assert.deepEqual(await invokeX1PenInPage('getProgram', {}), { revision: 1 });
+  const updated = await invokeX1PenInPage('setProgram', {
+    program: { sourceMode: 'basic+asm', basic: '10 END' },
+    expectedRevision: 1,
+    expectedRevisionEpoch: 'epoch-a',
+  });
+  assert.equal(updated.revisionEpoch, 'epoch-a');
+  assert.deepEqual(calls.at(-1), {
+    setProgram: {
+      program: { sourceMode: 'basic+asm', basic: '10 END' },
+      expectedRevision: 1,
+      expectedRevisionEpoch: 'epoch-a',
+    },
+  });
   const paused = await invokeX1PenInPage('debuggerPause', {});
   assert.equal(paused.runState, 'paused');
   assert.deepEqual(calls.filter((call) => call === 'pause'), ['pause', 'pause']);
@@ -110,7 +127,7 @@ test('page bridge allowlists debugger operations and retries Run setup races', a
     { locked: true, label: 'AI is pausing the debugger...' },
     { locked: false, label: undefined },
   ]);
-  assert.deepEqual(timeline, ['lock:on', 'pause:done', 'lock:off']);
+  assert.deepEqual(timeline.slice(-3), ['lock:on', 'pause:done', 'lock:off']);
 
   const stepped = await invokeX1PenInPage('debuggerStep', { count: 3 });
   assert.equal(stepped.stepsExecuted, 3);
@@ -297,11 +314,33 @@ test('connector serializes machine-readable errors without copying arbitrary fie
   Object.assign(error, {
     code: 'X1PEN_UPDATE_REQUIRED', component: 'x1pen', feature: 'debugger.vram',
     requiredVersion: '0.8.0', action: 'Reload X1Pen', secret: 'discard',
+    expectedRevision: 3, currentRevision: 4,
+    expectedRevisionEpoch: 'epoch-a', currentRevisionEpoch: 'epoch-b',
+    instanceId: 'tab-a', metadataAvailable: true,
   });
   assert.deepEqual(serializeExtensionError(error), {
     message: 'Update X1Pen', code: 'X1PEN_UPDATE_REQUIRED', component: 'x1pen',
     feature: 'debugger.vram', requiredVersion: '0.8.0', action: 'Reload X1Pen',
+    expectedRevision: 3, currentRevision: 4,
+    expectedRevisionEpoch: 'epoch-a', currentRevisionEpoch: 'epoch-b',
+    instanceId: 'tab-a', metadataAvailable: true,
   });
+});
+
+test('connector bounds structured error strings and drops invalid revision fields', () => {
+  const error = new Error('M'.repeat(2_000));
+  Object.assign(error, {
+    code: 'C'.repeat(200), action: 'A'.repeat(1_000),
+    expectedRevision: -1, currentRevision: Number.POSITIVE_INFINITY,
+    expectedRevisionEpoch: 'E'.repeat(200),
+  });
+  const serialized = serializeExtensionError(error);
+  assert.equal(serialized.message.length, 1_024);
+  assert.equal(serialized.code.length, 128);
+  assert.equal(serialized.action.length, 512);
+  assert.equal(serialized.expectedRevision, undefined);
+  assert.equal(serialized.currentRevision, undefined);
+  assert.equal(serialized.expectedRevisionEpoch, undefined);
 });
 
 test('extension update waits for active operations before disconnecting and reloading', async () => {

@@ -27,6 +27,7 @@ function sessionFromStatus(status, base = {}) {
     title: status.title,
     url: status.url,
     revision: status.revision,
+    revisionEpoch: status.revisionEpoch,
     x1pen: normalizeX1PenDescriptor(status),
   };
 }
@@ -38,6 +39,7 @@ function bridgeSession(session) {
     url: session.url,
     active: !!session.active,
     revision: session.revision,
+    revisionEpoch: session.revisionEpoch,
     x1pen: session.x1pen,
   };
 }

@@ -55,6 +55,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
       'x1pen-compatibility.mjs',
       'x1pen-reference.mjs',
       'x1pen-server.mjs',
+      'x1pen-source-sync.mjs',
     ]);
 
     const installRoot = join(tempRoot, 'consumer');
@@ -78,6 +79,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
       command: process.execPath,
       args: [serverPath],
       cwd: installRoot,
+      env: { ...process.env, X1PEN_BRIDGE_PORT: '0' },
       stderr: 'pipe',
     });
     client = new Client({ name: 'x1pen-package-test', version: '1.0.0' });
@@ -87,8 +89,9 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.match(client.getInstructions(), /x1pen_search_reference/);
 
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 29);
+    assert.equal(tools.tools.length, 30);
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_apply_edits'));
+    assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_diff_source'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_debug_get_state'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_debug_read_vram'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_search_reference'));
@@ -101,7 +104,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.match(info.pairingCode, /^\d{6}$/);
     assert.equal(info.components.mcp.version, '2.7.0');
     assert.deepEqual(info.components.mcp.features,
-      ['automation.core', 'automation.run-recovery', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram']);
+      ['automation.core', 'automation.run-recovery', 'automation.source-sync', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram']);
     assert.equal(info.components.connector, null);
 
     const reference = await client.callTool({
