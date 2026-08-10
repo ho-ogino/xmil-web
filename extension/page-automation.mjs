@@ -63,6 +63,21 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
     }
     return api.sendKey;
   };
+  const requirePadInput = () => {
+    const status = api.getStatus();
+    const features = status.x1pen?.features;
+    const available = Array.isArray(features) && features.includes('input.pad');
+    if (typeof api.setPad !== 'function' || !available) {
+      const error = new Error('The connected X1Pen does not provide pad input automation');
+      error.code = 'FEATURE_UNAVAILABLE';
+      error.component = 'x1pen';
+      error.feature = 'input.pad';
+      error.currentVersion = status.x1pen?.version || 'unknown';
+      error.action = 'Reload or update X1Pen and reconnect this tab.';
+      throw error;
+    }
+    return api.setPad;
+  };
   const runDebuggerControl = async (operation) => {
     const deadline = Date.now() + 10_000;
     while (true) {
@@ -88,6 +103,7 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
     run: 'AI is running the program...',
     stop: 'AI is stopping the program...',
     sendKey: 'AI is sending keyboard input...',
+    setPad: 'AI is setting controller input...',
     debuggerPause: 'AI is pausing the debugger...',
     debuggerResume: 'AI is resuming the debugger...',
     debuggerStep: 'AI is stepping the debugger...',
@@ -121,6 +137,19 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
     if (requestedMethod === 'stop') return await api.stop();
     if (requestedMethod === 'sendKey') {
       return await requireKeyboardInput()(requestedParams.code, requestedParams.durationMs);
+    }
+    if (requestedMethod === 'setPad') {
+      return await requirePadInput()(requestedParams.port, requestedParams.bits);
+    }
+    if (requestedMethod === 'releasePads') {
+      if (typeof api.releasePads !== 'function') {
+        const error = new Error('The connected X1Pen cannot release pad input');
+        error.code = 'FEATURE_UNAVAILABLE';
+        error.component = 'x1pen';
+        error.feature = 'input.pad';
+        throw error;
+      }
+      return api.releasePads();
     }
     if (requestedMethod === 'getStatus') return api.getStatus();
     if (requestedMethod === 'captureScreen') return api.captureScreen();

@@ -71,7 +71,7 @@ const fakeBridge = {
   listSessions() {
     return [{ sessionId: 'tab-a', title: 'X1Pen', selected: true, x1pen: { version: '0.8.0' } }];
   },
-  selectSession(sessionId) { return { sessionId }; },
+  async selectSession(sessionId, options) { return { sessionId, force: options?.force === true }; },
   getSessionCompatibility() {
     return {
       components: {
@@ -228,6 +228,7 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_search_source',
     'x1pen_select_session',
     'x1pen_send_key',
+    'x1pen_set_pad',
     'x1pen_set_program',
     'x1pen_stop',
     'x1pen_validate',
@@ -250,6 +251,26 @@ test('send_key routes an allowlisted VK with a bounded hold duration', async () 
   });
   assert.equal(rejected.isError, true);
   assert.equal(calls.some((call) => call.method === 'sendKey' && call.params.code === 0x10), false);
+});
+
+test('set_pad routes an active-low raw byte and validates both bounds', async () => {
+  const sent = await client.callTool({
+    name: 'x1pen_set_pad',
+    arguments: { sessionId: 'tab-a', port: 2, bits: 0xBF },
+  });
+  assert.deepEqual(jsonContent(sent), { ok: true });
+  assert.deepEqual(calls.at(-1), {
+    method: 'setPad', params: { port: 2, bits: 0xBF }, sessionId: 'tab-a',
+  });
+
+  for (const argumentsValue of [{ port: 0, bits: 255 }, { port: 1, bits: 256 }]) {
+    const rejected = await client.callTool({
+      name: 'x1pen_set_pad',
+      arguments: argumentsValue,
+    });
+    assert.equal(rejected.isError, true);
+  }
+  assert.equal(calls.filter((call) => call.method === 'setPad').length, 1);
 });
 
 test('Run admission and stalled recovery remain ordinary MCP content', async () => {

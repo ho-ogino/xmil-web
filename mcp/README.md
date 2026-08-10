@@ -40,11 +40,17 @@ The pairing code changes whenever the MCP server process restarts. One browser e
 
 Connection, session and status results report the versions and effective features of the MCP server, X1Pen Connector and connected X1Pen. Versions are diagnostic; commands are permitted from the exact feature IDs advertised by all required components. Unsupported debugger commands are rejected before they reach an older Connector and return a machine-readable update action.
 
-The current feature contracts are `automation.core`, `automation.run-recovery`, `screen.capture`, `input.keyboard`, `debugger.cpu` and `debugger.vram`. Feature IDs are immutable. A backward-incompatible successor uses a new ID such as `debugger.vram-v2` rather than changing the meaning of an existing ID.
+The current feature contracts are `automation.core`, `automation.run-recovery`, `screen.capture`, `input.keyboard`, `input.pad`, `debugger.cpu` and `debugger.vram`. Feature IDs are immutable. A backward-incompatible successor uses a new ID such as `debugger.vram-v2` rather than changing the meaning of an existing ID.
 
 ## Emulator keyboard input
 
 `x1pen_send_key` sends one allowlisted numeric Windows-compatible virtual key to the visible connected X1Pen emulator. For example, `65` is A, `13` is Enter, and `32` is Space. `durationMs` defaults to 80 and accepts integers through 2000. Modifier/latching keys, chords, text strings, OS input and arbitrary JavaScript are not supported. RUN, PROG and key requests share one non-interleaving queue; verify guest behavior with a screen capture or debugger state when needed.
+
+## Emulator pad input
+
+`x1pen_set_pad` sets joystick port 1 or 2 with one raw active-low byte (`bits` 0 through 255): bits 0–7 are Up, Down, Left, Right, Button 4, Button 2 (B), Button 1 (A), and Button 3. A zero bit means pressed; `255` releases every remote input on that port. Pad presses require a visible tab and share the RUN/PROG/key queue. Release bypasses visibility and busy admission so cleanup can supersede queued input.
+
+The two ports are independent and are ANDed with physical input after physical rapid/button-swap transforms, leaving the public raw bit contract stable. Disconnect, bridge shutdown, tab reload/session loss, session selection, and machine reset release held remote input. Session selection waits up to two seconds for the old live tab to release its pads; by default failure returns `PAD_RELEASE_FAILED` without switching. `force: true` is an explicit escape hatch and returns a warning that the old tab may remain held until disconnect or reload.
 
 ## Z80 debugger
 

@@ -122,7 +122,7 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
     name: 'x1pen',
     version: '0.8.1',
     automationApiVersion: 2,
-    features: ['automation.core', 'automation.run-recovery', 'screen.capture', 'input.keyboard', 'debugger.cpu', 'debugger.vram'],
+    features: ['automation.core', 'automation.run-recovery', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram'],
   });
   assert.equal(ready.capabilities.debugger.available, true);
   assert.equal(ready.capabilities.debugger.version, 2);
@@ -414,6 +414,169 @@ test('keyboard input is bounded, serialized with Run, and always releases owners
   assert.deepEqual(hidden, { errorCode: 'INPUT_TAB_NOT_VISIBLE', downCalls: 0 });
 });
 
+test('pad input is bounded, queued, superseded by release, and cleaned on disconnect', { timeout: 60_000 }, async () => {
+  const behavior = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const savedSet = module._js_set_automation_pad;
+    const savedRelease = module._js_release_automation_pads;
+    const calls = [];
+    module._js_set_automation_pad = (port, bits) => {
+      calls.push(['set', port, bits]);
+      return savedSet.call(module, port, bits);
+    };
+    module._js_release_automation_pads = () => {
+      calls.push(['release-all']);
+      return savedRelease.call(module);
+    };
+    try {
+      const first = api.setPad(1, 0xFE);
+      const busy = await api.setPad(2, 0xBF).then(
+        () => null,
+        (error) => error.code,
+      );
+      const firstResult = await first;
+      const released = await api.setPad(1, 0xFF);
+
+      const queued = api.setPad(1, 0xFE).then(
+        () => null,
+        (error) => error.code,
+      );
+      const supersedingRelease = await api.setPad(1, 0xFF);
+      const cancelled = await queued;
+
+      await api.setPad(2, 0xBF);
+      api.setConnectionState(false);
+      return {
+        firstResult, busy, released, supersedingRelease, cancelled, calls,
+      };
+    } finally {
+      module._js_set_automation_pad = savedSet;
+      module._js_release_automation_pads = savedRelease;
+      api.releasePads();
+    }
+  });
+  assert.deepEqual(behavior.firstResult, { ok: true, port: 1, bits: 0xFE });
+  assert.equal(behavior.busy, 'PAD_INPUT_IN_PROGRESS');
+  assert.deepEqual(behavior.released, { ok: true, port: 1, bits: 0xFF });
+  assert.deepEqual(behavior.supersedingRelease, { ok: true, port: 1, bits: 0xFF });
+  assert.equal(behavior.cancelled, 'PAD_INPUT_CANCELLED');
+  assert.deepEqual(behavior.calls, [
+    ['set', 1, 0xFE],
+    ['set', 1, 0xFF],
+    ['set', 1, 0xFF],
+    ['set', 2, 0xBF],
+    ['release-all'],
+  ]);
+
+  const ordering = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const savedDown = module._js_key_down;
+    const savedUp = module._js_key_up;
+    const savedSet = module._js_set_automation_pad;
+    const events = [];
+    module._js_key_down = (vk) => { events.push(['down', vk]); return savedDown.call(module, vk); };
+    module._js_key_up = (vk) => { events.push(['up', vk]); return savedUp.call(module, vk); };
+    module._js_set_automation_pad = (port, bits) => {
+      events.push(['pad', port, bits]);
+      return savedSet.call(module, port, bits);
+    };
+    try {
+      const run = api.run();
+      const pad = api.setPad(1, 0xFE);
+      await Promise.all([run, pad]);
+      await api.setPad(1, 0xFF);
+      return events;
+    } finally {
+      module._js_key_down = savedDown;
+      module._js_key_up = savedUp;
+      module._js_set_automation_pad = savedSet;
+      api.releasePads();
+    }
+  });
+  assert.deepEqual(ordering.slice(0, 8),
+    [0x52, 0x55, 0x4E, 0x0D].flatMap((vk) => [['down', vk], ['up', vk]]));
+  assert.deepEqual(ordering.slice(8), [['pad', 1, 0xFE], ['pad', 1, 0xFF]]);
+
+  const hidden = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const originalDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    try {
+      const pressError = await api.setPad(1, 0xFE).then(
+        () => null,
+        (error) => error.code,
+      );
+      const release = await api.setPad(1, 0xFF);
+      return { pressError, release };
+    } finally {
+      if (originalDescriptor) Object.defineProperty(document, 'visibilityState', originalDescriptor);
+      else delete document.visibilityState;
+      api.releasePads();
+    }
+  });
+  assert.deepEqual(hidden, {
+    pressError: 'INPUT_TAB_NOT_VISIBLE',
+    release: { ok: true, port: 1, bits: 0xFF },
+  });
+
+  const validation = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const invalid = [];
+    for (const args of [[0, 255], [3, 0], [1, -1], [2, 256], [1, 1.5]]) {
+      invalid.push(await api.setPad(args[0], args[1]).then(
+        () => null,
+        (error) => error.code,
+      ));
+    }
+    const savedSet = module._js_set_automation_pad;
+    let fail = true;
+    module._js_set_automation_pad = (port, bits) => {
+      if (fail) {
+        fail = false;
+        return 0;
+      }
+      return savedSet.call(module, port, bits);
+    };
+    try {
+      const failed = await api.setPad(1, 0xFE).then(
+        () => null,
+        (error) => error.code,
+      );
+      const recovered = await api.setPad(1, 0xFE);
+      return { invalid, failed, recovered };
+    } finally {
+      module._js_set_automation_pad = savedSet;
+      api.releasePads();
+    }
+  });
+  assert.deepEqual(validation.invalid, Array(5).fill('INVALID_INPUT'));
+  assert.equal(validation.failed, 'INPUT_UNAVAILABLE');
+  assert.deepEqual(validation.recovered, { ok: true, port: 1, bits: 0xFE });
+
+  const unavailable = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const savedRelease = module._js_release_automation_pads;
+    module._js_release_automation_pads = null;
+    try {
+      return {
+        advertised: api.getStatus().x1pen.features.includes('input.pad'),
+        errorCode: await api.setPad(1, 0xFE).then(
+          () => null,
+          (error) => error.code,
+        ),
+      };
+    } finally {
+      module._js_release_automation_pads = savedRelease;
+      api.releasePads();
+    }
+  });
+  assert.deepEqual(unavailable, { advertised: false, errorCode: 'INPUT_UNAVAILABLE' });
+});
+
 test('keyboard input changes captured guest screens for character entry and PRESS FIRE', { timeout: 60_000 }, async () => {
   const result = await page.evaluate(async () => {
     const api = window.X1PenAutomation;
@@ -470,6 +633,97 @@ test('keyboard input changes captured guest screens for character entry and PRES
   assert.equal(result.pressFireChanged, true);
   assert.equal(result.fireTransitionChanged, true);
   assert.deepEqual(result.capturePrefixes, Array(4).fill('data:image/png;base64,'));
+});
+
+test('pad input drives guest JOY edges and independent ports in captured screens', { timeout: 60_000 }, async () => {
+  const result = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const previousSettings = window.XmilControls.getSettings();
+    window.XmilControls.setJoystick(false);
+    window.XmilControls.setKeyMode(2);
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const waitForScreenChange = async (before, timeoutMs = 3000) => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const current = api.captureScreen();
+        if (current !== before) return current;
+        await sleep(50);
+      }
+      throw new Error('Timed out waiting for captured X1Pen pad screen to change');
+    };
+    const loadAndRun = async (basic) => {
+      api.releasePads();
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'basic+asm', basic, asm: '', slang: '' }, current.revision);
+      const validation = await api.validate();
+      if (!validation.ok) throw new Error('Pad acceptance program did not validate');
+      const run = await api.run();
+      if (!run.ok) throw new Error('Pad acceptance program did not run');
+      await sleep(300);
+    };
+
+    try {
+    await loadAndRun([
+      '10 CLS',
+      '20 O=JOY(0)',
+      '30 N=JOY(0)',
+      '40 E=(N XOR O) AND O',
+      '50 IF E=0 THEN 30',
+      '60 PRINT "EDGE";E',
+      '70 O=N',
+      '80 GOTO 30',
+    ].join('\n'));
+    const beforeEdge = api.captureScreen();
+    await api.setPad(1, 0xFE);
+    const afterUp = await waitForScreenChange(beforeEdge);
+    await api.setPad(1, 0xFF);
+    await api.setPad(1, 0xBF);
+    const afterButton = await waitForScreenChange(afterUp);
+
+    await loadAndRun([
+      '10 CLS',
+      '20 A=JOY(0)',
+      '30 B=JOY(1)',
+      '40 LOCATE 0,0',
+      '50 PRINT A;B;"   "',
+      '60 GOTO 20',
+    ].join('\n'));
+    const bothReleased = api.captureScreen();
+    await api.setPad(2, 0xBF);
+    const port2Held = await waitForScreenChange(bothReleased);
+    await api.setPad(1, 0xFE);
+    const bothHeld = await waitForScreenChange(port2Held);
+
+    window.Module._js_xmil_reset();
+    await sleep(100);
+    const rerun = await api.run();
+    if (!rerun.ok) throw new Error('Pad reset verification program did not rerun');
+    await sleep(300);
+    const afterReset = await waitForScreenChange(bothHeld);
+    return {
+      upEdgeChanged: beforeEdge !== afterUp,
+      buttonEdgeChanged: afterUp !== afterButton,
+      port2Changed: bothReleased !== port2Held,
+      port1IndependentChanged: port2Held !== bothHeld,
+      resetChangedHeldScreen: bothHeld !== afterReset,
+      capturePrefixes: [
+        beforeEdge, afterUp, afterButton, bothReleased, port2Held, bothHeld, afterReset,
+      ].map((value) => value.slice(0, 22)),
+    };
+    } finally {
+      api.releasePads();
+      window.XmilControls.setJoystick(previousSettings.joystickEnable !== false);
+      window.XmilControls.setKeyMode(previousSettings.keyMode);
+    }
+  });
+  assert.deepEqual(result, {
+    upEdgeChanged: true,
+    buttonEdgeChanged: true,
+    port2Changed: true,
+    port1IndependentChanged: true,
+    resetChangedHeldScreen: true,
+    capturePrefixes: Array(7).fill('data:image/png;base64,'),
+  });
 });
 
 test('automation operations are serialized and stale source modes are cleared', async () => {

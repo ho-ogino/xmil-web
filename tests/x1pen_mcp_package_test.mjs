@@ -87,12 +87,13 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.match(client.getInstructions(), /x1pen_search_reference/);
 
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 28);
+    assert.equal(tools.tools.length, 29);
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_apply_edits'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_debug_get_state'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_debug_read_vram'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_search_reference'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_send_key'));
+    assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_set_pad'));
     const connection = await client.callTool({ name: 'x1pen_connection_info', arguments: {} });
     const info = JSON.parse(connection.content[0].text);
     assert.equal(info.host, '127.0.0.1');
@@ -100,7 +101,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.match(info.pairingCode, /^\d{6}$/);
     assert.equal(info.components.mcp.version, '2.7.0');
     assert.deepEqual(info.components.mcp.features,
-      ['automation.core', 'automation.run-recovery', 'screen.capture', 'input.keyboard', 'debugger.cpu', 'debugger.vram']);
+      ['automation.core', 'automation.run-recovery', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram']);
     assert.equal(info.components.connector, null);
 
     const reference = await client.callTool({

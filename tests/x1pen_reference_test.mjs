@@ -342,6 +342,7 @@ test('X1 hardware reference matches emulator memory and VRAM constants', () => {
 
 test('PSG and joystick reference matches the emulator input contract', () => {
   const soundSource = readFileSync(join(repoRoot, 'src/OPMSOUND/Opmcore.cpp'), 'utf8');
+  const x1SoundSource = readFileSync(join(repoRoot, 'src/X1_SOUND.CPP'), 'utf8');
   const joystickSource = readFileSync(join(repoRoot, 'platform/platform_joystick.cpp'), 'utf8');
   const entries = new Map(validateReferenceData().entries.map((entry) => [entry.id, entry]));
   const [contract] = getReferenceEntries({
@@ -371,6 +372,19 @@ test('PSG and joystick reference matches the emulator input contract', () => {
     }),
   );
   assert.deepEqual(documentedInputs, sourceInputs);
+  assert.match(joystickSource,
+    /int js_set_automation_pad\(int port, int bits\)[\s\S]*port < 1 \|\| port > 2 \|\| bits < 0 \|\| bits > 0xFF[\s\S]*automation_joyflag\[port - 1\]/);
+  assert.match(joystickSource,
+    /void joy_releaseautomation\(void\)[\s\S]*automation_joyflag\[0\] = 0xFF;[\s\S]*automation_joyflag\[1\] = 0xFF;/);
+  assert.match(x1SoundSource,
+    /if \(xmilcfg\.BTN_MODE\)[\s\S]*ret &= joy_getautomation\(\(BYTE\)\(psgreg - 0x0e\)\);/,
+    'automation pad bits must be applied after the physical rapid/swap transforms');
+  assert.match(x1SoundSource,
+    /void x1_psg_reset\(void\)[\s\S]*joy_releaseautomation\(\);[\s\S]*opmreg = 0;/,
+    'machine reset must release both automation pads');
+  assert.match(x1SoundSource,
+    /if \(psgreg < 0x0e\)[\s\S]*psg\[psgreg\] = value;/,
+    'automation input must not replace the existing PSG sound-register write path');
   for (const fact of [
     '2,000,000 Hz', 'clock / (16 * frequency)', 'period 284',
     'register 0 (fine) = 1CH', 'register 1 (coarse) = 01H', 'limited to 12 bits',

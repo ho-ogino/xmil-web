@@ -36,7 +36,7 @@ function createAutomationApi() {
     version: 2,
     ready: async () => ({ ready: true }),
     getStatus: () => ({
-      x1pen: { version: '0.8.1', features: ['automation.core', 'input.keyboard', 'debugger.cpu', 'debugger.vram'] },
+      x1pen: { version: '0.8.1', features: ['automation.core', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram'] },
       capabilities: {
         debugger: { available: true, runPending: pendingReads-- > 0, vram: { available: true } },
       },
@@ -53,6 +53,14 @@ function createAutomationApi() {
     sendKey: async (code, durationMs) => {
       calls.push({ sendKey: { code, durationMs } });
       return { ok: true, code, durationMs };
+    },
+    setPad: async (port, bits) => {
+      calls.push({ setPad: { port, bits } });
+      return { ok: true, port, bits };
+    },
+    releasePads: () => {
+      calls.push('releasePads');
+      return { ok: true, released: true, bits: [255, 255] };
     },
     setInteractionLocked: (locked, label) => {
       locks.push({ locked, label });
@@ -179,6 +187,29 @@ test('page bridge allowlists keyboard input and requires its advertised capabili
   await assert.rejects(
     invokeX1PenInPage('sendKey', { code: 0x41, durationMs: 80 }),
     (error) => error.code === 'FEATURE_UNAVAILABLE' && error.feature === 'input.keyboard',
+  );
+});
+
+test('page bridge allowlists pad input and exposes cleanup without arbitrary routes', async () => {
+  const { api, calls, locks } = createAutomationApi();
+  globalThis.window = { X1PenAutomation: api };
+  assert.deepEqual(await invokeX1PenInPage('setPad', { port: 1, bits: 0xFE }), {
+    ok: true, port: 1, bits: 0xFE,
+  });
+  assert.deepEqual(calls.at(-1), { setPad: { port: 1, bits: 0xFE } });
+  assert.deepEqual(locks.slice(-2), [
+    { locked: true, label: 'AI is setting controller input...' },
+    { locked: false, label: undefined },
+  ]);
+  assert.deepEqual(await invokeX1PenInPage('releasePads', {}), {
+    ok: true, released: true, bits: [255, 255],
+  });
+  assert.equal(calls.at(-1), 'releasePads');
+
+  api.getStatus = () => ({ x1pen: { version: '0.8.1', features: ['automation.core'] } });
+  await assert.rejects(
+    invokeX1PenInPage('setPad', { port: 1, bits: 0xFE }),
+    (error) => error.code === 'FEATURE_UNAVAILABLE' && error.feature === 'input.pad',
   );
 });
 

@@ -3,6 +3,7 @@ export const FEATURE_IDS = Object.freeze([
   'automation.run-recovery',
   'screen.capture',
   'input.keyboard',
+  'input.pad',
   'debugger.cpu',
   'debugger.vram',
 ]);
@@ -26,6 +27,8 @@ const METHOD_FEATURES = Object.freeze({
   getStatus: 'automation.core',
   captureScreen: 'screen.capture',
   sendKey: 'input.keyboard',
+  setPad: 'input.pad',
+  releasePads: 'input.pad',
   debuggerGetState: 'debugger.cpu',
   debuggerPause: 'debugger.cpu',
   debuggerResume: 'debugger.cpu',

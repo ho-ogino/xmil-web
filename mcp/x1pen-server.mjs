@@ -421,10 +421,16 @@ export function createX1PenMcpServer(options = {}) {
   }, handleTool(async () => textResult({ sessions: bridge.listSessions() })));
 
   server.registerTool('x1pen_select_session', {
-    description: 'Select the X1Pen browser tab used by later tool calls.',
-    inputSchema: { sessionId: z.string().min(1) },
+    description: 'Select the X1Pen browser tab used by later tool calls. Pad input is released on the previously selected live tab first; force only when that cleanup cannot complete.',
+    inputSchema: {
+      sessionId: z.string().min(1),
+      force: z.boolean().default(false)
+        .describe('Select after pad-release failure; the old live tab may stay held until disconnect/reload'),
+    },
     annotations: { openWorldHint: false },
-  }, handleTool(async ({ sessionId }) => textResult(bridge.selectSession(sessionId))));
+  }, handleTool(async ({ sessionId, force }) => textResult(
+    await bridge.selectSession(sessionId, { force }),
+  )));
 
   server.registerTool('x1pen_get_language_profile', {
     description: 'Call before generating nontrivial code. Lists the bundled FuzzyBASIC, SLANG, built-in Z80 assembler and X1 hardware profiles and, when connected, compares language profiles with those reported by X1Pen.',
@@ -772,6 +778,18 @@ export function createX1PenMcpServer(options = {}) {
     await bridge.sendCommand('sendKey', { code, durationMs }, sessionId),
   )));
 
+  server.registerTool('x1pen_set_pad', {
+    description: 'Set one X1 joystick port as an active-low raw byte in the visible connected emulator. Ports 1/2 map to PSG registers 14/15; bits 0..7 are Up, Down, Left, Right, Button 4, Button 2 (B), Button 1 (A), Button 3. Zero means pressed and 255 releases the remote contribution.',
+    inputSchema: {
+      sessionId: sessionInput.sessionId,
+      port: z.union([z.literal(1), z.literal(2)]),
+      bits: z.number().int().min(0).max(0xFF),
+    },
+    annotations: { destructiveHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId, port, bits }) => textResult(
+    await bridge.sendCommand('setPad', { port, bits }, sessionId),
+  )));
+
   server.registerTool('x1pen_stop', {
     description: 'Send ESC to stop the program in the connected X1Pen tab.',
     inputSchema: sessionInput,
@@ -829,7 +847,10 @@ async function main() {
   };
   process.once('SIGINT', () => close().finally(() => process.exit(0)));
   process.once('SIGTERM', () => close().finally(() => process.exit(0)));
-  await server.connect(new StdioServerTransport());
+  const transport = new StdioServerTransport();
+  process.stdin.once('end', () => close().catch(() => {}));
+  process.stdin.once('close', () => close().catch(() => {}));
+  await server.connect(transport);
   console.error('[x1pen-mcp] server ready on stdio');
 }
 
