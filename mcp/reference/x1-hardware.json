@@ -334,8 +334,9 @@
     ],
     "notes": [
       "Use BC with OUT (C),A and IN A,(C); the X1 decodes the 16-bit port high byte, not only an 8-bit immediate port.",
-      "The AY-3-8910 receives a 2 MHz clock. Round clock / (16 * frequency) to the nearest supported 12-bit tone period; A4 at 440 Hz uses period 284 (011CH; register pair 01H:1CH) and produces about 440.14 Hz.",
-      "The Web emulator exposes external joystick flags on register 14 and applies JoyKey keyboard mapping to register 14 or 15 according to Key Mode.",
+      "The AY-3-8910 receives a 2 MHz clock. Round clock / (16 * frequency) to the nearest supported 12-bit tone period. For channel A, A4 at 440 Hz uses period 284 (011CH): register 0 (fine) = 1CH and register 1 (coarse) = 01H, producing about 440.14 Hz. The coarse register uses only its low four bits, so tone periods are limited to 12 bits.",
+      "The bit table applies identically to raw bytes read from register 14 or 15. The Web emulator combines physical gamepad state into register 14 and applies JoyKey keyboard mapping to register 14 or 15 according to Key Mode.",
+      "Buttons 3 and 4 are additional mappings exposed by the Web emulator platform layer; do not assume that a physical two-button X1 pad drives those lines.",
       "Joystick bits are active-low: 0 means pressed, and 255 (FFH) means that no direction or button is pressed.",
       "For successive raw samples, (NEW XOR OLD) AND OLD yields the newly pressed bits. For example, OLD=FFH and NEW=FEH produces 01H for a new Up press.",
       "Writes to registers 14 and 15 are not modeled as general-purpose output by this implementation.",

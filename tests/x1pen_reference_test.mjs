@@ -165,6 +165,8 @@ test('representative Japanese and English queries reach dedicated X1 hardware en
     ['PSG ジョイスティック', 'x1.io.psg-joystick'],
     ['PSG clock tone period', 'x1.io.psg-joystick'],
     ['ジョイスティック ビット割り当て', 'x1.io.psg-joystick'],
+    ['active-low input', 'x1.io.psg-joystick'],
+    ['押下検出', 'x1.io.psg-joystick'],
     ['FM音源 OPM', 'x1.io.opm'],
     ['CTC タイマー', 'x1.io.ctc'],
     ['タイマー割り込み', 'x1.io.ctc'],
@@ -342,27 +344,38 @@ test('PSG and joystick reference matches the emulator input contract', () => {
   const soundSource = readFileSync(join(repoRoot, 'src/OPMSOUND/Opmcore.cpp'), 'utf8');
   const joystickSource = readFileSync(join(repoRoot, 'platform/platform_joystick.cpp'), 'utf8');
   const entries = new Map(validateReferenceData().entries.map((entry) => [entry.id, entry]));
-  const details = JSON.stringify(getReferenceEntries({
+  const [contract] = getReferenceEntries({
     ids: ['x1.io.psg-joystick'],
     maxCharacters: 16 * 1024,
-  }).entries);
+  }).entries;
+  const details = JSON.stringify(contract);
 
   assert.match(soundSource, /AY8910_init\(2000000,/);
-  for (const [name, value] of [
-    ['JOY_UP_BIT', '0x01'],
-    ['JOY_DOWN_BIT', '0x02'],
-    ['JOY_LEFT_BIT', '0x04'],
-    ['JOY_RIGHT_BIT', '0x08'],
-    ['JOY_BTN4_BIT', '0x10'],
-    ['JOY_BTN2_BIT', '0x20'],
-    ['JOY_BTN1_BIT', '0x40'],
-    ['JOY_BTN3_BIT', '0x80'],
-  ]) {
-    assert.match(joystickSource, new RegExp(`#define\\s+${name}\\s+${value}`));
-  }
+  const inputLabels = {
+    UP: 'Up', DOWN: 'Down', LEFT: 'Left', RIGHT: 'Right',
+    BTN4: 'Button 4', BTN2: 'Button 2 (B)', BTN1: 'Button 1 (A)', BTN3: 'Button 3',
+  };
+  const sourceInputs = new Map(
+    [...joystickSource.matchAll(/^#define JOY_(UP|DOWN|LEFT|RIGHT|BTN[1-4])_BIT\s+(0x[0-9A-F]+)/gmi)]
+      .map(([, name, mask]) => {
+        const numericMask = Number.parseInt(mask, 16);
+        return [Math.log2(numericMask), { mask: numericMask, input: inputLabels[name] }];
+      }),
+  );
+  const documentedInputs = new Map(
+    contract.syntax.flatMap((row) => {
+      const match = row.match(/^(\d) \| ([0-9A-F]+)H \| (.+)$/);
+      return match
+        ? [[Number(match[1]), { mask: Number.parseInt(match[2], 16), input: match[3] }]]
+        : [];
+    }),
+  );
+  assert.deepEqual(documentedInputs, sourceInputs);
   for (const fact of [
     '2,000,000 Hz', 'clock / (16 * frequency)', 'period 284',
-    '14 | joystick 1', '15 | joystick 2', '0 | 01H | Up', '7 | 80H | Button 3',
+    'register 0 (fine) = 1CH', 'register 1 (coarse) = 01H', 'limited to 12 bits',
+    '14 | joystick 1', '15 | joystick 2', 'applies identically',
+    'physical gamepad state into register 14', 'Buttons 3 and 4 are additional mappings',
     '0 means pressed', '255 (FFH) means that no direction or button is pressed',
     '(NEW XOR OLD) AND OLD',
   ]) {
