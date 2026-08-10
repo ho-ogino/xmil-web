@@ -3,6 +3,6 @@
 
     window.X1PenBuild = Object.freeze({
         name: 'x1pen',
-        version: '0.8.0'
+        version: '0.8.1'
     });
 })();
