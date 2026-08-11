@@ -2148,7 +2148,7 @@
             var bn = builtinFuncs[bi][0], bpc = builtinFuncs[bi][1];
             var bpt = []; for (var j = 0; j < bpc; j++) bpt.push(SlangType.Word);
             var bsym = _symbols.define(bn, SymbolKind.MachineFunction, FunctionType(SlangType.Word, bpt));
-            bsym.isGlobal = true; bsym.asmLabel = bn;
+            bsym.isGlobal = true; bsym.asmLabel = bn; bsym.isRuntimeBuiltin = true;
         }
 
         // ---- Visit helpers ----
@@ -4059,9 +4059,24 @@
 
             var isUserFunc = funcSym && funcSym.kind === SymbolKind.Function;
             var isMachine = !isUserFunc;
+            var runtimeFunc = (isMachine && funcName && _irRm
+                && (!funcSym || funcSym.isRuntimeBuiltin)) ? _irRm.getFunction(funcName) : null;
+            var runtimeParamCount = runtimeFunc ? runtimeFunc.paramCount : null;
+            var runtimeArityMismatch = runtimeParamCount !== null
+                && node.arguments.length !== runtimeParamCount;
+            if (runtimeArityMismatch && diagnostics) {
+                diagnostics.error("Runtime function '" + funcName + "' expected "
+                    + runtimeParamCount + (runtimeParamCount === 1 ? ' argument' : ' arguments')
+                    + ', got ' + node.arguments.length, node.span);
+            }
             var machineParamCount = null;
             if (isMachine) {
-                if (funcSym && funcSym.type && funcSym.type.typeClass === 'Function')
+                // Keep rejected calls internally consistent: their IR retains the
+                // number of values actually pushed. Code generation is skipped by
+                // compile() when the diagnostic above is present.
+                if (runtimeArityMismatch)
+                    machineParamCount = node.arguments.length;
+                else if (funcSym && funcSym.type && funcSym.type.typeClass === 'Function')
                     machineParamCount = funcSym.type.parameterTypes.length;
                 else
                     machineParamCount = node.arguments.length;
@@ -4489,7 +4504,7 @@
     // ================================================================
     function RuntimeFunction() {
         return {
-            name: '', paramCount: 0, dependencies: [], code: '',
+            name: '', paramCount: null, dependencies: [], code: '',
             initCode: null, libName: null, sourceFile: '', loadOrder: 0,
             works: null, worksAlignment: 0, calleeCleanup: false, aliases: [],
         };
