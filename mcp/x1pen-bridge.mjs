@@ -152,6 +152,7 @@ export class X1PenBridge {
           url: String(session.url || ''),
           active: !!session.active,
           revision: Number.isInteger(session.revision) ? session.revision : 0,
+          revisionEpoch: typeof session.revisionEpoch === 'string' ? session.revisionEpoch : undefined,
           x1pen: normalizeX1PenDescriptor(session.x1pen),
         });
       }

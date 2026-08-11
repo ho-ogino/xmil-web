@@ -122,7 +122,7 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
     name: 'x1pen',
     version: '0.8.1',
     automationApiVersion: 2,
-    features: ['automation.core', 'automation.run-recovery', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram'],
+    features: ['automation.core', 'automation.run-recovery', 'automation.source-sync', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram'],
   });
   assert.equal(ready.capabilities.debugger.available, true);
   assert.equal(ready.capabilities.debugger.version, 2);
@@ -188,12 +188,13 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   };
   const loaded = await page.evaluate((value) => {
     const current = window.X1PenAutomation.getProgram();
-    return window.X1PenAutomation.setProgram(value, current.revision);
+    return window.X1PenAutomation.setProgram(value, current.revision, current.revisionEpoch);
   }, program);
   assert.equal(loaded.basic, program.basic);
   assert.equal(loaded.sourceMode, program.sourceMode);
   assert.equal(loaded.revision, 1);
   assert.equal(typeof loaded.instanceId, 'string');
+  assert.equal(typeof loaded.revisionEpoch, 'string');
 
   const validation = await page.evaluate(() => window.X1PenAutomation.validate());
   assert.equal(validation.ok, true);
@@ -606,7 +607,7 @@ test('keyboard input changes captured guest screens for character entry and PRES
       ].join('\n'),
       asm: '',
       slang: '',
-    }, current.revision);
+    }, current.revision, current.revisionEpoch);
     const validation = await api.validate();
     if (!validation.ok) throw new Error('Acceptance program did not validate');
     const run = await api.run();
@@ -654,7 +655,11 @@ test('pad input drives guest JOY edges and independent ports in captured screens
     const loadAndRun = async (basic) => {
       api.releasePads();
       const current = api.getProgram();
-      await api.setProgram({ sourceMode: 'basic+asm', basic, asm: '', slang: '' }, current.revision);
+      await api.setProgram(
+        { sourceMode: 'basic+asm', basic, asm: '', slang: '' },
+        current.revision,
+        current.revisionEpoch,
+      );
       const validation = await api.validate();
       if (!validation.ok) throw new Error('Pad acceptance program did not validate');
       const run = await api.run();
@@ -771,16 +776,85 @@ test('automation program updates persist across page reloads', { timeout: 60_000
 
 test('revision conflicts prevent stale AI updates', async () => {
   const result = await page.evaluate(async () => {
-    const stale = window.X1PenAutomation.getProgram().revision;
+    const stale = window.X1PenAutomation.getProgram();
     await window.X1PenAutomation.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT "HUMAN"' });
     try {
-      await window.X1PenAutomation.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT "AI"' }, stale);
+      await window.X1PenAutomation.setProgram(
+        { sourceMode: 'basic+asm', basic: '10 PRINT "AI"' },
+        stale.revision,
+        stale.revisionEpoch,
+      );
       return null;
     } catch (error) {
-      return error.message;
+      return {
+        message: error.message,
+        code: error.code,
+        expectedRevision: error.expectedRevision,
+        currentRevision: error.currentRevision,
+        revisionEpoch: error.currentRevisionEpoch,
+        source: window.X1PenAutomation.getProgram().basic,
+      };
     }
   });
-  assert.match(result, /Revision conflict/);
+  assert.match(result.message, /Revision conflict/);
+  assert.equal(result.code, 'REVISION_MISMATCH');
+  assert.equal(result.expectedRevision + 1, result.currentRevision);
+  assert.equal(typeof result.revisionEpoch, 'string');
+  assert.equal(result.source, '10 PRINT "HUMAN"');
+});
+
+test('reload epoch prevents colliding stale revisions from mutating source', async () => {
+  await page.reload();
+  await page.evaluate(() => window.X1PenAutomation.ready());
+  const stale = await page.evaluate(() => window.X1PenAutomation.getProgram());
+  await page.evaluate(() => window.X1PenAutomation.setProgram({
+    sourceMode: 'basic+asm', basic: '10 PRINT "HUMAN"',
+  }));
+  await page.reload();
+  await page.evaluate(() => window.X1PenAutomation.ready());
+
+  const result = await page.evaluate(async (baseline) => {
+    const before = window.X1PenAutomation.getProgram();
+    try {
+      await window.X1PenAutomation.setProgram(
+        { sourceMode: 'basic+asm', basic: '10 PRINT "STALE AI"' },
+        baseline.revision,
+        baseline.revisionEpoch,
+      );
+      return null;
+    } catch (error) {
+      return {
+        code: error.code,
+        before,
+        after: window.X1PenAutomation.getProgram(),
+        observedEpoch: error.currentRevisionEpoch,
+      };
+    }
+  }, stale);
+  assert.equal(result.code, 'REVISION_EPOCH_MISMATCH');
+  assert.equal(result.before.instanceId, stale.instanceId);
+  assert.notEqual(result.before.revisionEpoch, stale.revisionEpoch);
+  assert.equal(result.before.revision, stale.revision);
+  assert.equal(result.observedEpoch, result.before.revisionEpoch);
+  assert.equal(result.after.basic, '10 PRINT "HUMAN"');
+});
+
+test('revision-only guarded writes fail closed with migration guidance', async () => {
+  const result = await page.evaluate(async () => {
+    const current = window.X1PenAutomation.getProgram();
+    try {
+      await window.X1PenAutomation.setProgram(
+        { sourceMode: 'basic+asm', basic: '10 PRINT "NO EPOCH"' },
+        current.revision,
+      );
+      return null;
+    } catch (error) {
+      return { code: error.code, action: error.action, after: window.X1PenAutomation.getProgram().basic };
+    }
+  });
+  assert.equal(result.code, 'REVISION_EPOCH_REQUIRED');
+  assert.match(result.action, /expectedRevisionEpoch/);
+  assert.equal(result.after, '10 PRINT "HUMAN"');
 });
 
 test('connection state and AI interaction lock are visible', async () => {
@@ -1314,7 +1388,7 @@ test('embedded M8A data assembles and draws into graphics VRAM', { timeout: 60_0
           '  LOOP VSYNC1();',
           'END;',
         ].join('\n'),
-      }, current.revision);
+      }, current.revision, current.revisionEpoch);
       validation = await api.validate();
       if (!validation.ok) {
         throw new Error(`Embedded M8A validation failed: ${JSON.stringify(validation.diagnostics)}`);

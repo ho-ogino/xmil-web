@@ -95,8 +95,9 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 | `x1pen_get_program` | メタデータと明示指定した完全ソースを取得 |
 | `x1pen_get_source` | 1セクションを行範囲・文字数上限付きで取得 |
 | `x1pen_search_source` | 1セクションをリテラル検索し、限定した前後行を取得 |
-| `x1pen_apply_edits` | revision一致時だけ構造化された行編集を適用 |
-| `x1pen_set_program` | revision一致時だけプログラム全体を更新（新規作成・全置換用） |
+| `x1pen_diff_source` | 保持済みbaselineと現在の1セクションを上限付きline diffで比較 |
+| `x1pen_apply_edits` | revisionEpoch/revision一致時だけ構造化された行編集を適用 |
+| `x1pen_set_program` | revisionEpoch/revision一致時だけプログラム全体を更新（新規作成・全置換用） |
 | `x1pen_validate` | 実行せずにコンパイル、アセンブル、トークナイズ |
 | `x1pen_run` | ユーザーが開いているX1Penで実行 |
 | `x1pen_recover_stalled` | stallしたRun準備を、データ損失確認後のタブ再読込で復旧 |
@@ -116,7 +117,7 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 | `x1pen_debug_write_vram` | 停止中にVRAMへ連続16進データを書き込み |
 | `x1pen_debug_wait_for_pause` | 条件に一致する停止まで待機 |
 
-AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。`x1pen_set_program`と`x1pen_apply_edits`は取得済みの`revision`を要求し、途中で人間が編集していた場合は上書きを拒否します。
+AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。`x1pen_set_program`と`x1pen_apply_edits`は取得済みの`revisionEpoch`と`revision`を要求し、途中で人間が編集した場合やタブが再読込された場合は上書きを拒否します。`automation.source-sync`をadvertiseしない旧Connector/X1Penへepoch付き更新をdowngradeすることはありません。
 
 ### エミュレーターへのキー入力
 
@@ -208,7 +209,7 @@ X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分
 
 ### 大きなプログラムの扱い
 
-`x1pen_get_program`は引数なしの場合、`sourceMode`、`revision`、各セクションの行数・文字数だけを返します。完全ソースが必要な場合だけ`fields`を明示します。SLANGから生成されたASMは`includeGeneratedAsm: true`を明示しない限り返しません。完全取得には既定で128 KiBの上限があり、超えるソースは`x1pen_get_source`で分割取得します。
+`x1pen_get_program`は引数なしの場合、`sourceMode`、`revisionEpoch`、`revision`、`authoringHash`、各セクションの行数・文字数・UTF-8 byte数・hashを返します。hashはexact UTF-8 byte列の`sha256-utf8-v1`で、改行を正規化しないためLFとCRLFは異なります。完全ソースが必要な場合だけ`fields`を明示します。SLANGから生成されたASMは`generatedContentHash`としてauthoringHashから除外され、`includeGeneratedAsm: true`を明示しない限り本文を返しません。SLANGのRunだけでrevisionと生成ASM hashが変化し、authoringHashが変わらない場合がありますが、自動retryの許可にはなりません。完全取得には既定で128 KiBの上限があり、超えるソースは`x1pen_get_source`で分割取得します。
 
 ```json
 {
@@ -228,11 +229,12 @@ X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分
 }
 ```
 
-既存プログラムの変更には、全置換ではなく`x1pen_apply_edits`を使用します。行番号は1始まりで、同一リクエスト内の編集範囲は重複できません。応答には新しいrevisionと変更行数だけが含まれ、完全ソースは返りません。
+既存プログラムの変更には、全置換ではなく`x1pen_apply_edits`を使用します。行番号は1始まりで、同一リクエスト内の編集範囲は重複できません。応答には新しいepoch/revision、hash、変更行数だけが含まれ、完全ソースは返りません。
 
 ```json
 {
   "section": "slang",
+  "expectedRevisionEpoch": "取得時のrevisionEpoch",
   "expectedRevision": 3,
   "edits": [
     {
@@ -243,6 +245,31 @@ X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分
   ]
 }
 ```
+
+### 競合時の比較手順
+
+`REVISION_MISMATCH`は同じdocument epoch内の編集競合、`REVISION_EPOCH_MISMATCH`は再読込後の別epoch、`REVISION_EPOCH_REQUIRED`はrevisionだけを送った旧callerを表します。いずれも更新は適用されません。errorには取得可能な場合、競合発生時と再観測時のrevision、現在のepoch、hash、行数が含まれます。競合後にrevisionだけを差し替えて同じsourceを再送しないでください。
+
+1. 直前に保持した`revisionEpoch`、`revision`、section hash、`authoringHash`を確認します。
+2. 同一modeのbaselineなら`x1pen_diff_source`を呼び、人間／Run／別AIの変更を比較します。
+3. 変更を取り込んだ後、最新のepoch/revisionを使って別のguarded requestとして明示的にretryします。
+
+```json
+{
+  "section": "slang",
+  "baseHash": "sha256-utf8-v1:<64 hex>",
+  "baseSourceMode": "slang",
+  "baseRevisionEpoch": "取得時のrevisionEpoch",
+  "baseGenerated": false,
+  "contextLines": 3,
+  "maxHunks": 20,
+  "maxCharacters": 32768
+}
+```
+
+MCP processは観測したsectionを最大256 KiB/entry、合計4 MiB/64 entries、15分TTLのLRU cacheにだけ保持し、disk、browser storage、telemetryへ保存しません。disconnect、process終了、TTL/上限でbaselineが消えた場合は`BASE_SNAPSHOT_UNAVAILABLE`になります。caller自身が保持した`baseSource`をfallbackとして渡せますが、結果の`baseSourceOrigin: caller-supplied`はhashとの自己整合性だけを示し、そのsourceが過去にtabへ存在した証明ではありません。
+
+diffは1 source 256 KiB/20,000行、比較work、hunk数、context、出力文字数を制限します。上限超過は`DIFF_LIMIT_EXCEEDED`、sourceMode変更は`BASE_MODE_MISMATCH`です。前epochとのinformational diffは`epochChanged: true`を返しますが、write guardを緩和しません。SLANG生成ASMは両側とも`includeGeneratedAsm: true`が必要です。hunkはLF表示に統一し、CRLF/LF差はbounded side-band metadata、final newline欠落はmarkerで表します。
 
 SLANG編集中のASMは生成物として読み取り・編集とも既定で保護されます。SLANGへ編集を適用すると古い生成ASMは破棄され、次回の検証・実行時に再生成されます。
 

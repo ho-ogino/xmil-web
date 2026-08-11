@@ -50,6 +50,15 @@ window.__X1PEN_MODE = true;
             return 'x1pen-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
         }
     })();
+    // instanceId identifies the tab session and intentionally survives reloads.
+    // revisionEpoch binds the in-memory revision counter to this document load.
+    var automationRevisionEpoch = (function() {
+        try {
+            return crypto.randomUUID();
+        } catch(e) {
+            return 'epoch-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        }
+    })();
 
     function markProgramChanged() {
         automationRevision++;
@@ -1488,6 +1497,7 @@ window.__X1PEN_MODE = true;
             slang: slang,
             sourceMode: inferSourceMode(basic.trim(), asm.trim(), slang.trim()),
             revision: automationRevision,
+            revisionEpoch: automationRevisionEpoch,
             instanceId: automationInstanceId
         };
     }
@@ -1532,9 +1542,42 @@ window.__X1PEN_MODE = true;
         return { basic: basic, asm: asm, slang: slang, sourceMode: sourceMode };
     }
 
-    function setAutomationProgram(program, expectedRevision) {
+    function createProgramConflictError(code, message, details) {
+        var error = new Error(message);
+        error.code = code;
+        error.component = 'x1pen';
+        error.action = code === 'REVISION_EPOCH_REQUIRED'
+            ? 'Call getProgram again and retry with both expectedRevisionEpoch and expectedRevision.'
+            : 'Call getProgram, compare the current source identity, and reconcile changes before retrying.';
+        Object.keys(details || {}).forEach(function(key) { error[key] = details[key]; });
+        return error;
+    }
+
+    function setAutomationProgram(program, expectedRevision, expectedRevisionEpoch) {
+        if (expectedRevision !== undefined && expectedRevisionEpoch === undefined) {
+            throw createProgramConflictError(
+                'REVISION_EPOCH_REQUIRED',
+                'A revision epoch is required with expectedRevision',
+                { expectedRevision: expectedRevision, currentRevision: automationRevision,
+                    currentRevisionEpoch: automationRevisionEpoch, instanceId: automationInstanceId }
+            );
+        }
+        if (expectedRevisionEpoch !== undefined && expectedRevisionEpoch !== automationRevisionEpoch) {
+            throw createProgramConflictError(
+                'REVISION_EPOCH_MISMATCH',
+                'Revision epoch conflict: the program was reloaded after the caller read it',
+                { expectedRevision: expectedRevision, expectedRevisionEpoch: expectedRevisionEpoch,
+                    currentRevision: automationRevision, currentRevisionEpoch: automationRevisionEpoch,
+                    instanceId: automationInstanceId }
+            );
+        }
         if (expectedRevision !== undefined && expectedRevision !== automationRevision) {
-            throw new Error('Revision conflict: expected ' + expectedRevision + ', current ' + automationRevision);
+            throw createProgramConflictError(
+                'REVISION_MISMATCH',
+                'Revision conflict: expected ' + expectedRevision + ', current ' + automationRevision,
+                { expectedRevision: expectedRevision, currentRevision: automationRevision,
+                    currentRevisionEpoch: automationRevisionEpoch, instanceId: automationInstanceId }
+            );
         }
         if (!basicEditor || !asmEditor || !slangEditor) {
             throw new Error('X1Pen editors are not ready');
@@ -2163,7 +2206,7 @@ window.__X1PEN_MODE = true;
     var X1PEN_PRODUCT = window.X1PenBuild || { name: 'x1pen', version: 'unknown' };
 
     function getAutomationFeatures() {
-        var features = ['automation.core', 'automation.run-recovery', 'screen.capture'];
+        var features = ['automation.core', 'automation.run-recovery', 'automation.source-sync', 'screen.capture'];
         if (isAutomationKeyboardAvailable()) {
             features.push('input.keyboard');
         }
@@ -2230,6 +2273,7 @@ window.__X1PEN_MODE = true;
         return {
             instanceId: automationInstanceId,
             revision: automationRevision,
+            revisionEpoch: automationRevisionEpoch,
             ready: automationReadyState === 'ready',
             state: automationReadyState,
             busy: automationPendingOperations > 0,
@@ -2394,10 +2438,10 @@ window.__X1PEN_MODE = true;
             return automationReadyPromise.then(getAutomationStatus);
         },
         getProgram: getAutomationProgram,
-        setProgram: function(program, expectedRevision) {
+        setProgram: function(program, expectedRevision, expectedRevisionEpoch) {
             if (isRunSetupPending()) return Promise.reject(createRunPendingError('Program update'));
             return queueAutomationOperation(function() {
-                return setAutomationProgram(program, expectedRevision);
+                return setAutomationProgram(program, expectedRevision, expectedRevisionEpoch);
             });
         },
         validate: function() {

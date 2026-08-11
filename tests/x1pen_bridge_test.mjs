@@ -67,9 +67,13 @@ test('bridge pairs an extension and routes commands to one X1Pen tab', async () 
   const socket = await connectExtension(bridge);
   socket.send(JSON.stringify({
     type: 'sessions',
-    sessions: [{ sessionId: 'tab-a', title: 'X1Pen A', url: 'https://example.test/x1pen', active: true, revision: 4 }],
+    sessions: [{
+      sessionId: 'tab-a', title: 'X1Pen A', url: 'https://example.test/x1pen',
+      active: true, revision: 4, revisionEpoch: 'epoch-a',
+    }],
   }));
   await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(bridge.listSessions()[0].revisionEpoch, 'epoch-a');
 
   const commandMessage = waitForMessage(socket, (message) => message.type === 'command');
   const commandPromise = bridge.sendCommand('getProgram');
@@ -93,7 +97,7 @@ test('bridge negotiates component metadata and computes effective capabilities',
     extensionVersion: '1.3.0',
     connector: {
       name: 'x1pen-connector', version: '1.3.0', protocolVersion: 2,
-      features: ['automation.core', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram'],
+      features: ['automation.core', 'automation.source-sync', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram'],
     },
   });
   assert.equal(socket.pairedMessage.protocolVersion, 2);
@@ -102,10 +106,10 @@ test('bridge negotiates component metadata and computes effective capabilities',
   socket.send(JSON.stringify({
     type: 'sessions',
     sessions: [{
-      sessionId: 'tab-a', title: 'X1Pen', revision: 1,
+      sessionId: 'tab-a', title: 'X1Pen', revision: 1, revisionEpoch: 'epoch-a',
       x1pen: {
         version: '0.8.0', automationApiVersion: 2,
-        features: ['automation.core', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram'],
+        features: ['automation.core', 'automation.source-sync', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram'],
       },
     }],
   }));
@@ -117,6 +121,8 @@ test('bridge negotiates component metadata and computes effective capabilities',
   assert.equal(info.compatibility.capabilities['debugger.vram'].state, 'available');
   const [session] = bridge.listSessions();
   assert.equal(session.x1pen.version, '0.8.0');
+  assert.equal(session.revisionEpoch, 'epoch-a');
+  assert.equal(session.compatibility.capabilities['automation.source-sync'].available, true);
   assert.equal(session.compatibility.capabilities['debugger.cpu'].available, true);
 });
 
