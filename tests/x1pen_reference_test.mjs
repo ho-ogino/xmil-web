@@ -535,6 +535,79 @@ test('SLANG catalogs cover the exact runtime and include files loaded by X1Pen',
   );
 });
 
+test('SLANG STICK reference matches the X1 runtime and editor contract', () => {
+  const entries = validateReferenceData().entries;
+  const stick = entries.find((entry) => entry.id === 'slang.x1.input');
+  assert.ok(stick);
+  assert.deepEqual(stick.symbols, ['STICK']);
+  assert.ok(stick.syntax.includes('STICK(0)  // joystick 1, PSG register 14'));
+  assert.ok(stick.syntax.includes('STICK(1)  // joystick 2, PSG register 15'));
+  const details = [stick.summary, ...stick.syntax, ...stick.notes].join(' ');
+  for (const expected of [
+    'active-low', '255', 'Up', 'Down', 'Left', 'Right',
+    'Button 4', 'Button 2 (B)', 'Button 1 (A)', 'Button 3',
+    '(NEW XOR OLD) AND OLD', 'register 7', 'interrupts enabled',
+  ]) {
+    assert.match(details, new RegExp(expected.replace(/[()]/g, '\\$&')));
+  }
+  assert.ok(stick.relatedIds.includes('x1.io.psg-joystick'));
+  const hardware = entries.find((entry) => entry.id === 'x1.io.psg-joystick');
+  assert.ok(hardware.relatedIds.includes('slang.x1.input'));
+
+  const editorLanguage = readFileSync(join(repoRoot, 'src/x1pen_slang_lang.js'), 'utf8');
+  const builtinBlock = editorLanguage.match(/var SLANG_BUILTINS = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(builtinBlock);
+  assert.match(builtinBlock[1], /'STICK'/);
+
+  const runtime = readFileSync(join(repoRoot, 'assets/slang_runtime/libx1_base.asm'), 'utf8');
+  const runtimeBlock = runtime.match(/^; @name STICK\n([\s\S]*?)^; @name SETUPCTC$/m);
+  assert.ok(runtimeBlock);
+  assert.match(runtimeBlock[1], /^; @param_count 1$/m);
+  assert.match(runtimeBlock[1], /DI[\s\S]*LD BC,\$1C00[\s\S]*OUT \(C\),A[\s\S]*LD B,\$1B[\s\S]*IN L,\(C\)[\s\S]*LD H,0[\s\S]*EI[\s\S]*RET/);
+  assert.doesNotMatch(runtimeBlock[1], /LD A,I/);
+});
+
+test('SLANG STICK compiles, assembles and stays dependency-pruned', () => {
+  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const vfs = loadSlangVfs();
+  const options = {
+    defaultOrg: 0x100,
+    codeReadonly: false,
+    defines: { ENV_TYPE: 1 },
+  };
+
+  const unused = compiler.compile('MAIN() { LOOP { } }', vfs, options);
+  assert.equal(unused.errors.length, 0, JSON.stringify(unused.errors));
+  assert.doesNotMatch(unused.asm, /^STICK:$/m);
+
+  const probe = compiler.compile([
+    'MAIN()',
+    '{',
+    '  VAR I, BASE;',
+    '  I=0; BASE=3;',
+    '  LOOP',
+    '  {',
+    '    MEM[$4000+I]=BASE+STICK(0)*2;',
+    '    I=I+1;',
+    '    IF I==8 THEN EXIT;',
+    '  }',
+    '  MEM[$4008]=STICK(2);',
+    '  MEM[$4009]=STICK($100);',
+    '  MEM[$400A]=STICK($FFFF);',
+    '  LOOP { }',
+    '}',
+  ].join('\n'), vfs, options);
+  assert.equal(probe.errors.length, 0, JSON.stringify(probe.errors));
+  assert.match(probe.asm, /^STICK:$/m);
+  assert.doesNotMatch(probe.asm, /\[PSGLIB\]/);
+  const assembled = assembler.assemble(probe.asm, { ENV_TYPE: 1 });
+  assert.equal(assembled.errors.length, 0, JSON.stringify(assembled.errors));
+  assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.STICK'] >= assembled.org);
+  assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.SLANG_PROG_END'] < 0x4000);
+  assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.__WORKEND__'] < 0x4000);
+});
+
 test('LSX-Dodgers-specific file limitations are documented', () => {
   const result = getReferenceEntries({
     ids: ['fuzzybasic.files.lsx'],

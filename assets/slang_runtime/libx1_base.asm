@@ -52,6 +52,30 @@ EI
 RET
 
 
+; @name STICK
+; @param_count 1
+; HL = joystick index (0 or 1)
+; Valid calls return with interrupts enabled, matching the X1 runtime convention.
+LD A,H
+OR A
+JR NZ,.STICK_INVALID
+LD A,L
+CP 2
+JR NC,.STICK_INVALID
+ADD A,$0E
+DI
+LD BC,$1C00
+OUT (C),A
+LD B,$1B
+IN L,(C)
+LD H,0
+EI
+RET
+.STICK_INVALID
+LD HL,$00FF
+RET
+
+
 ; @name SETUPCTC
 ; @works CTCADR:2
 PUSH	BC
@@ -79,5 +103,4 @@ RET	NZ
 ; INC	C
 LD	(CTCADR),BC
 RET
-
 

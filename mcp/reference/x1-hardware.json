@@ -349,7 +349,7 @@
       "title": "Detect newly pressed active-low joystick bits",
       "source": "ORG 0100H\n; B=OLD, A=NEW\nXOR B\nAND B\nRET"
     }],
-    "relatedIds": ["x1.io.dispatch-map", "x1.io.ppi-subcpu", "x1.io.opm", "slang.x1.psg", "slang.runtime.lsx-io-files", "fuzzybasic.x1.input"],
+    "relatedIds": ["x1.io.dispatch-map", "x1.io.ppi-subcpu", "x1.io.opm", "slang.x1.input", "slang.x1.psg", "slang.runtime.lsx-io-files", "fuzzybasic.x1.input"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_SOUND.CPP",
       "https://github.com/ho-ogino/xmil-web/blob/main/src/OPMSOUND/Opmcore.cpp",

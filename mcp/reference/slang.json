@@ -508,6 +508,49 @@
     "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/libx1_psg.asm"]
   },
   {
+    "id": "slang.x1.input",
+    "language": "slang",
+    "kind": "x1-extension",
+    "title": "X1 joystick input with STICK",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "symbols": ["STICK"],
+    "aliases": ["joystick", "controller", "PSG port", "active-low input", "game input", "ジョイスティック", "ゲームパッド", "ゲーム入力", "押下検出"],
+    "summary": "STICK reads the raw active-low byte for X1 joystick port 1 or 2 through PSG register 14 or 15.",
+    "syntax": [
+      "STICK(0)  // joystick 1, PSG register 14",
+      "STICK(1)  // joystick 2, PSG register 15",
+      "bit | mask | active-low input",
+      "0 | 01H | Up",
+      "1 | 02H | Down",
+      "2 | 04H | Left",
+      "3 | 08H | Right",
+      "4 | 10H | Button 4",
+      "5 | 20H | Button 2 (B)",
+      "6 | 40H | Button 1 (A)",
+      "7 | 80H | Button 3"
+    ],
+    "notes": [
+      "Only the exact word arguments 0 and 1 are valid. Every other value returns 255 without selecting a PSG register or changing interrupt state.",
+      "The result is zero-extended to a SLANG word. Joystick bits are active-low: 0 means pressed, and 255 (FFH) means no direction or button is pressed.",
+      "The Web emulator combines JoyKey keyboard input, physical joystick input, and external Automation/MCP pad input before STICK reads the selected register.",
+      "For successive raw samples, (NEW XOR OLD) AND OLD yields the newly pressed bits. OLD=FFH and NEW=FEH produces 01H for a new Up press.",
+      "A valid call briefly disables interrupts so PSG selection and read are atomic, then returns with interrupts enabled. This matches the X1 runtime convention and prevents a concurrent PSG sound update from changing the selected register.",
+      "On real AY-3-8910 hardware, PSG register 7 must leave the selected I/O port configured for input. STICK does not rewrite register 7 because doing so would alter mixer and sound state.",
+      "Buttons 3 and 4 are additional mappings exposed by the Web emulator; do not assume every physical two-button X1 controller drives those lines."
+    ],
+    "examples": [
+      {
+        "title": "Detect newly pressed joystick 1 bits",
+        "source": "MAIN()\n{\n  VAR OLD, NEW, PRESSED;\n  OLD=STICK(0);\n  LOOP\n  {\n    NEW=STICK(0);\n    PRESSED=(NEW XOR OLD) AND OLD;\n    IF PRESSED!=0 THEN PRINT(HEX2$(PRESSED), /);\n    OLD=NEW;\n  }\n}"
+      }
+    ],
+    "relatedIds": ["slang.machine.system-access", "slang.runtime.catalog", "slang.x1.psg", "x1.io.psg-joystick"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/libx1_base.asm",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_SOUND.CPP"
+    ]
+  },
+  {
     "id": "slang.x1.timing",
     "language": "slang",
     "kind": "x1-extension",

@@ -20,7 +20,7 @@ var SLANG_BUILTINS = new Set([
     'MEM','MEMW','PORT','PORTW','SOS','SOSW',
     'BEEP','STOP','LOCATE','INKEY','INPUT','GETL','GETLIN','LINPUT',
     'WIDTH','SCREEN','PRMODE','BIT','SET','RESET',
-    'ABS','SEX','SGN','RND','VTOS','GETREG','CALL',
+    'ABS','SEX','SGN','RND','STICK','VTOS','GETREG','CALL',
 ]);
 
 var SLANG_STRFUNCS = new Set([
