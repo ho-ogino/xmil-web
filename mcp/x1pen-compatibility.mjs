@@ -20,7 +20,7 @@ const LEGACY_CONNECTOR_FEATURES = Object.freeze({
 
 const METHOD_FEATURES = Object.freeze({
   getProgram: 'automation.core',
-  setProgram: 'automation.source-sync',
+  setProgram: 'automation.core',
   validate: 'automation.core',
   run: 'automation.core',
   recoverStalled: 'automation.run-recovery',
@@ -43,9 +43,12 @@ const METHOD_FEATURES = Object.freeze({
 });
 
 const CONNECTOR_MINIMUMS = Object.freeze({
+  'automation.run-recovery': '1.2.0',
+  'automation.source-sync': '1.3.0',
   'debugger.cpu': '1.1.0',
   'debugger.vram': '1.2.0',
   'input.keyboard': '1.3.0',
+  'input.pad': '1.3.0',
 });
 
 export function normalizeFeatureList(value) {
@@ -133,10 +136,24 @@ export class X1PenCompatibilityError extends Error {
   }
 }
 
-export function assertMethodCompatible(method, compatibility, components) {
-  const feature = METHOD_FEATURES[method];
-  if (!feature || compatibility[feature]?.state !== 'unavailable') return;
-  const states = compatibility[feature].components;
+export function assertFeatureCompatible(feature, compatibility, components, options = {}) {
+  const capability = compatibility?.[feature];
+  if (!feature || capability?.state === 'available') return;
+  if (capability?.state !== 'unavailable') {
+    if (options.requireAvailable !== true) return;
+    const component = ['mcp', 'connector', 'x1pen']
+      .find((name) => capability?.components?.[name]?.state !== 'available') || 'connector';
+    const current = components?.[component];
+    throw new X1PenCompatibilityError({
+      code: 'FEATURE_STATUS_UNKNOWN',
+      component,
+      feature,
+      currentVersion: current?.version || 'unknown',
+      action: 'Reconnect all X1Pen components and inspect x1pen_get_status before retrying.',
+      message: `${feature} availability could not be verified for the connected ${component}.`,
+    });
+  }
+  const states = capability.components;
   const component = ['mcp', 'connector', 'x1pen']
     .find((name) => states[name].state === 'unavailable') || 'connector';
   const current = components[component];
@@ -174,6 +191,10 @@ export function assertMethodCompatible(method, compatibility, components) {
     action: 'Restart the MCP client with x1pen-mcp@latest.',
     message: `${feature} is not available in this X1Pen MCP server.`,
   });
+}
+
+export function assertMethodCompatible(method, compatibility, components) {
+  return assertFeatureCompatible(METHOD_FEATURES[method], compatibility, components);
 }
 
 export function deserializeBridgeError(value) {

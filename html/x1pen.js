@@ -1553,8 +1553,9 @@ window.__X1PEN_MODE = true;
         return error;
     }
 
-    function setAutomationProgram(program, expectedRevision, expectedRevisionEpoch) {
-        if (expectedRevision !== undefined && expectedRevisionEpoch === undefined) {
+    function setAutomationProgram(program, expectedRevision, expectedRevisionEpoch, transport) {
+        var requireRevisionEpoch = transport && transport.requireRevisionEpoch === true;
+        if (requireRevisionEpoch && expectedRevision !== undefined && expectedRevisionEpoch === undefined) {
             throw createProgramConflictError(
                 'REVISION_EPOCH_REQUIRED',
                 'A revision epoch is required with expectedRevision',
@@ -1594,7 +1595,11 @@ window.__X1PEN_MODE = true;
         clearSymbols();
         forceResyncEditorTab(normalized.sourceMode === 'basic+asm' ? 'basic' : normalized.sourceMode);
         elStatus.textContent = 'Program loaded';
-        return getAutomationProgram();
+        var result = getAutomationProgram();
+        var epochGuarded = expectedRevision !== undefined && expectedRevisionEpoch !== undefined;
+        result.guardedWritesReloadSafe = epochGuarded;
+        result.writeGuard = epochGuarded ? 'revision-epoch' : 'revision-only';
+        return result;
     }
 
     function makeAutomationDiagnostic(kind, message, details) {
@@ -2438,10 +2443,10 @@ window.__X1PEN_MODE = true;
             return automationReadyPromise.then(getAutomationStatus);
         },
         getProgram: getAutomationProgram,
-        setProgram: function(program, expectedRevision, expectedRevisionEpoch) {
+        setProgram: function(program, expectedRevision, expectedRevisionEpoch, transport) {
             if (isRunSetupPending()) return Promise.reject(createRunPendingError('Program update'));
             return queueAutomationOperation(function() {
-                return setAutomationProgram(program, expectedRevision, expectedRevisionEpoch);
+                return setAutomationProgram(program, expectedRevision, expectedRevisionEpoch, transport);
             });
         },
         validate: function() {

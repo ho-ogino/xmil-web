@@ -10,6 +10,11 @@ export const CONNECTOR_FEATURES = Object.freeze([
   'debugger.vram',
 ]);
 
+export function allComponentsAdvertiseFeature(feature, ...components) {
+  return components.every((component) =>
+    Array.isArray(component?.features) && component.features.includes(feature));
+}
+
 const FEATURE_PATTERN = /^[a-z][a-z0-9.-]{0,63}$/;
 
 export function normalizeFeatureList(value) {

@@ -3,6 +3,7 @@ import { afterEach, test } from 'node:test';
 import { WebSocket } from 'ws';
 import { X1PenBridge } from '../mcp/x1pen-bridge.mjs';
 import {
+  assertFeatureCompatible,
   assertMethodCompatible,
   createMcpDescriptor,
   evaluateCompatibility,
@@ -151,6 +152,29 @@ test('legacy Connector inference is frozen and blocks unsupported debugger RPCs 
       error.feature === 'debugger.vram' && error.currentVersion === '1.1.1' &&
       error.requiredVersion === '1.2.0',
   );
+
+  const mcp = createMcpDescriptor('2.7.0');
+  const connector = normalizeConnectorPair({ extensionVersion: '1.1.1' });
+  const x1pen = {
+    name: 'x1pen', version: '0.8.1', automationApiVersion: 2,
+    features: [...mcp.features], featureSource: 'advertised',
+  };
+  const capabilities = evaluateCompatibility({ mcp, connector, x1pen });
+  for (const [kind, value, requiredVersion] of [
+    ['method', 'recoverStalled', '1.2.0'],
+    ['method', 'setPad', '1.3.0'],
+    ['feature', 'automation.source-sync', '1.3.0'],
+  ]) {
+    assert.throws(
+      () => kind === 'method'
+        ? assertMethodCompatible(value, capabilities, { mcp, connector, x1pen })
+        : assertFeatureCompatible(value, capabilities, { mcp, connector, x1pen }, { requireAvailable: true }),
+      (error) => error.code === 'CONNECTOR_UPDATE_REQUIRED' &&
+        error.requiredVersion === requiredVersion && !error.message.includes('undefined'),
+    );
+  }
+  assert.doesNotThrow(() =>
+    assertMethodCompatible('setProgram', capabilities, { mcp, connector, x1pen }));
 });
 
 test('explicit feature advertisements are authoritative without semver inference', () => {

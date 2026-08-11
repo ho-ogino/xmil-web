@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as z from 'zod/v4';
 import { X1PenBridge } from './x1pen-bridge.mjs';
-import { createMcpDescriptor } from './x1pen-compatibility.mjs';
+import { assertFeatureCompatible, createMcpDescriptor } from './x1pen-compatibility.mjs';
 import {
   HASH_PATTERN,
   MAX_BASELINE_BYTES,
@@ -65,7 +65,7 @@ const SERVER_INSTRUCTIONS = [
   'Before writing or substantially editing a program, call x1pen_get_language_profile, search the bundled reference with x1pen_search_reference, and fetch only the needed IDs with x1pen_get_reference.',
   'After editing, call x1pen_validate. Run and inspect the visible emulator when behavior must be confirmed.',
   'Prefer bounded source and reference tools so generated ASM and unrelated manual sections do not consume context.',
-  'Retain revisionEpoch, revision and authoringHash together. On a source conflict, compare before retrying; never replace only the revision and blindly resend stale source.',
+  'Retain revisionEpoch when offered, revision and authoringHash together. Inspect writeGuard on every source result: revision-epoch is reload-safe, while revision-only is a visible compatibility fallback. On a source conflict, compare before retrying; never replace only the revision and blindly resend stale source.',
   'Connection and status results report MCP, Connector and X1Pen compatibility. Do not retry a feature that reports an update-required error until that component is updated.',
 ].join(' ');
 
@@ -78,7 +78,7 @@ function textResult(value) {
 function toolError(error) {
   if (error && typeof error.code === 'string') {
     const details = {};
-    for (const key of ['code', 'component', 'feature', 'message', 'currentVersion', 'requiredVersion', 'action']) {
+    for (const key of ['code', 'component', 'feature', 'section', 'message', 'currentVersion', 'requiredVersion', 'action']) {
       if (typeof error[key] === 'string') details[key] = error[key].slice(0, 1_024);
     }
     for (const key of ['expectedRevision', 'currentRevision', 'conflictRevision', 'observedRevision']) {
@@ -100,6 +100,12 @@ function toolError(error) {
       }
       if (Number.isSafeInteger(error.current.revision) && error.current.revision >= 0) {
         current.revision = error.current.revision;
+      }
+      if (typeof error.current.guardedWritesReloadSafe === 'boolean') {
+        current.guardedWritesReloadSafe = error.current.guardedWritesReloadSafe;
+      }
+      if (['revision-only', 'revision-epoch'].includes(error.current.writeGuard)) {
+        current.writeGuard = error.current.writeGuard;
       }
       if (error.current.sections && typeof error.current.sections === 'object') {
         current.sections = {};
@@ -155,9 +161,19 @@ function normalizeProgramSnapshot(value) {
     revisionEpoch: typeof value.revisionEpoch === 'string' && value.revisionEpoch.length <= 128
       ? value.revisionEpoch
       : undefined,
+    pageGuardedWritesReloadSafe: value.guardedWritesReloadSafe === true,
   };
   for (const section of SOURCE_SECTIONS) {
-    if (typeof value[section] !== 'string') throw new Error(`X1Pen returned invalid ${section} source`);
+    if (typeof value[section] !== 'string') {
+      const error = new Error(`X1Pen did not expose ${section} source content`);
+      Object.assign(error, {
+        code: 'SOURCE_CONTENT_UNAVAILABLE',
+        component: 'x1pen',
+        section,
+        action: 'Update or reload X1Pen, then read the program again. An absent source field is not treated as empty source.',
+      });
+      throw error;
+    }
     snapshot[section] = value[section];
   }
   return snapshot;
@@ -165,6 +181,14 @@ function normalizeProgramSnapshot(value) {
 
 function sourceLineCount(source) {
   return source.length === 0 ? 0 : source.split('\n').length;
+}
+
+function writeGuardFields(snapshot) {
+  const guardedWritesReloadSafe = snapshot.guardedWritesReloadSafe === true;
+  return {
+    guardedWritesReloadSafe,
+    writeGuard: guardedWritesReloadSafe ? 'revision-epoch' : 'revision-only',
+  };
 }
 
 function summarizeProgram(snapshot) {
@@ -185,7 +209,8 @@ function summarizeProgram(snapshot) {
   return {
     sourceMode: snapshot.sourceMode,
     revision: snapshot.revision,
-    ...(snapshot.revisionEpoch ? { revisionEpoch: snapshot.revisionEpoch } : { guardedWritesReloadSafe: false }),
+    ...(snapshot.revisionEpoch ? { revisionEpoch: snapshot.revisionEpoch } : {}),
+    ...writeGuardFields(snapshot),
     ...(snapshot.instanceId ? { instanceId: snapshot.instanceId } : {}),
     authoringHash: identities.authoringHash,
     sections,
@@ -231,6 +256,7 @@ function getSourceRange(snapshot, section, options) {
       section,
       revision: snapshot.revision,
       ...(snapshot.revisionEpoch ? { revisionEpoch: snapshot.revisionEpoch } : {}),
+      ...writeGuardFields(snapshot),
       contentHash: contentHash(snapshot[section]),
       startLine: 1,
       endLine: 0,
@@ -265,6 +291,7 @@ function getSourceRange(snapshot, section, options) {
     section,
     revision: snapshot.revision,
     ...(snapshot.revisionEpoch ? { revisionEpoch: snapshot.revisionEpoch } : {}),
+    ...writeGuardFields(snapshot),
     contentHash: contentHash(snapshot[section]),
     startLine: options.startLine,
     endLine,
@@ -322,6 +349,7 @@ function searchSource(snapshot, section, options) {
     section,
     revision: snapshot.revision,
     ...(snapshot.revisionEpoch ? { revisionEpoch: snapshot.revisionEpoch } : {}),
+    ...writeGuardFields(snapshot),
     contentHash: contentHash(snapshot[section]),
     query: options.query,
     totalMatches,
@@ -488,15 +516,50 @@ export function createX1PenMcpServer(options = {}) {
     return snapshot;
   }
 
-  async function readProgram(sessionId) {
-    return observeSnapshot(normalizeProgramSnapshot(
-      await bridge.sendCommand('getProgram', {}, sessionId),
-    ));
+  function sourceSyncContext(sessionId) {
+    let resolvedSessionId = sessionId;
+    if (typeof bridge.resolveSession === 'function') {
+      resolvedSessionId = bridge.resolveSession(sessionId);
+    } else if (!resolvedSessionId) {
+      const sessions = bridge.listSessions?.() || [];
+      if (sessions.length === 1) resolvedSessionId = sessions[0].sessionId;
+    }
+    const compatibility = typeof bridge.getSessionCompatibility === 'function'
+      ? bridge.getSessionCompatibility(resolvedSessionId)
+      : null;
+    return {
+      sessionId: resolvedSessionId,
+      compatibility,
+      sourceSyncAvailable:
+        compatibility?.capabilities?.['automation.source-sync']?.state === 'available',
+    };
+  }
+
+  function effectiveWriteGuard(snapshot, context, requirePageConfirmation = false) {
+    const guardedWritesReloadSafe = context.sourceSyncAvailable === true &&
+      typeof snapshot.revisionEpoch === 'string' &&
+      (!requirePageConfirmation || snapshot.pageGuardedWritesReloadSafe === true);
+    return {
+      ...snapshot,
+      guardedWritesReloadSafe,
+    };
+  }
+
+  async function readProgram(sessionOrContext) {
+    const context = sessionOrContext && typeof sessionOrContext === 'object'
+      ? sessionOrContext
+      : sourceSyncContext(sessionOrContext);
+    const snapshot = normalizeProgramSnapshot(
+      await bridge.sendCommand('getProgram', {}, context.sessionId),
+    );
+    return observeSnapshot(effectiveWriteGuard(snapshot, context));
   }
 
   function conflictError(code, details = {}) {
     let message;
-    if (code === 'REVISION_EPOCH_REQUIRED') {
+    if (code === 'REVISION_EPOCH_UNAVAILABLE') {
+      message = 'X1Pen advertises reload-safe source sync but did not expose a revision epoch';
+    } else if (code === 'REVISION_EPOCH_REQUIRED') {
       message = 'A revision epoch is required with expectedRevision';
     } else if (code === 'REVISION_EPOCH_MISMATCH') {
       message = 'Revision epoch conflict: the program was reloaded after the caller read it';
@@ -507,9 +570,11 @@ export function createX1PenMcpServer(options = {}) {
     Object.assign(error, {
       code,
       component: 'x1pen',
-      action: code === 'REVISION_EPOCH_REQUIRED'
-        ? 'Call x1pen_get_program and retry with both expectedRevisionEpoch and expectedRevision.'
-        : 'Call x1pen_diff_source or bounded source reads, reconcile changes, then retry with the newly observed epoch and revision.',
+      action: code === 'REVISION_EPOCH_UNAVAILABLE'
+        ? 'Update or reload X1Pen and read the program again; do not retry this write without a page-provided epoch.'
+        : (code === 'REVISION_EPOCH_REQUIRED'
+            ? 'Call x1pen_get_program and retry with both expectedRevisionEpoch and expectedRevision.'
+            : 'Call x1pen_diff_source or bounded source reads, reconcile changes, then retry with the newly observed epoch and revision.'),
       ...details,
     });
     return error;
@@ -534,15 +599,18 @@ export function createX1PenMcpServer(options = {}) {
     return error;
   }
 
-  async function enrichConflict(input, sessionId, knownSnapshot) {
+  async function enrichConflict(input, context, knownSnapshot) {
     const error = normalizeLegacyConflict(input);
-    if (!['REVISION_MISMATCH', 'REVISION_EPOCH_MISMATCH', 'REVISION_EPOCH_REQUIRED'].includes(error?.code)) {
+    if (![
+      'REVISION_MISMATCH', 'REVISION_EPOCH_MISMATCH',
+      'REVISION_EPOCH_REQUIRED', 'REVISION_EPOCH_UNAVAILABLE',
+    ].includes(error?.code)) {
       throw error;
     }
     if (Number.isSafeInteger(error.currentRevision)) error.conflictRevision = error.currentRevision;
     if (typeof error.currentRevisionEpoch === 'string') error.conflictRevisionEpoch = error.currentRevisionEpoch;
     try {
-      const current = knownSnapshot || await readProgram(sessionId);
+      const current = knownSnapshot || await readProgram(context);
       const summary = summarizeProgram(current);
       error.metadataAvailable = error.legacyConflictShape !== true;
       error.observedMetadataAvailable = true;
@@ -550,9 +618,13 @@ export function createX1PenMcpServer(options = {}) {
       if (current.revisionEpoch) error.observedRevisionEpoch = current.revisionEpoch;
       if (current.instanceId) error.instanceId = current.instanceId;
       error.current = summary;
-      error.action = error.code === 'REVISION_EPOCH_REQUIRED'
-        ? 'Retry with expectedRevisionEpoch and expectedRevision from the current summary.'
-        : 'Compare the retained baseline with the current hashes or x1pen_diff_source before retrying with the observed epoch and revision.';
+      error.action = error.code === 'REVISION_EPOCH_UNAVAILABLE'
+        ? 'Update or reload X1Pen and read the program again; the full-capability page did not provide an epoch.'
+        : (error.code === 'REVISION_EPOCH_REQUIRED'
+            ? 'Retry with expectedRevisionEpoch and expectedRevision from the current summary.'
+            : (context.sourceSyncAvailable
+            ? 'Compare the retained baseline with the current hashes or x1pen_diff_source before retrying with the observed epoch and revision.'
+            : 'Compare bounded current source reads and hashes before retrying with the observed numeric revision; reload-safe writes and source diff are unavailable in this compatibility mode.'));
     } catch {
       error.metadataAvailable = false;
       error.observedMetadataAvailable = false;
@@ -560,13 +632,88 @@ export function createX1PenMcpServer(options = {}) {
     throw error;
   }
 
-  async function sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, sessionId) {
+  async function assertWriteBaseline(context, expectedRevision, expectedRevisionEpoch, knownSnapshot) {
+    const current = knownSnapshot || await readProgram(context);
+    if (context.sourceSyncAvailable && current.revisionEpoch === undefined) {
+      return enrichConflict(conflictError('REVISION_EPOCH_UNAVAILABLE', {
+        expectedRevision,
+        currentRevision: current.revision,
+        instanceId: current.instanceId,
+      }), context, current);
+    }
+    if (context.sourceSyncAvailable && expectedRevisionEpoch === undefined) {
+      return enrichConflict(conflictError('REVISION_EPOCH_REQUIRED', {
+        expectedRevision,
+        currentRevision: current.revision,
+        currentRevisionEpoch: current.revisionEpoch,
+        instanceId: current.instanceId,
+      }), context, current);
+    }
+    if (expectedRevisionEpoch !== undefined && current.revisionEpoch !== undefined &&
+        expectedRevisionEpoch !== current.revisionEpoch) {
+      return enrichConflict(conflictError('REVISION_EPOCH_MISMATCH', {
+        expectedRevision,
+        expectedRevisionEpoch,
+        currentRevision: current.revision,
+        currentRevisionEpoch: current.revisionEpoch,
+        instanceId: current.instanceId,
+      }), context, current);
+    }
+    if (current.revision !== expectedRevision) {
+      return enrichConflict(conflictError('REVISION_MISMATCH', {
+        expectedRevision,
+        currentRevision: current.revision,
+        currentRevisionEpoch: current.revisionEpoch,
+        instanceId: current.instanceId,
+      }), context, current);
+    }
+    return current;
+  }
+
+  function sameAuthoringSnapshot(left, right) {
+    if (left.sourceMode !== right.sourceMode) return false;
+    const leftIdentities = sourceIdentities(left);
+    const rightIdentities = sourceIdentities(right);
+    return leftIdentities.authoringHash === rightIdentities.authoringHash;
+  }
+
+  async function assertApplySnapshotUnchanged(context, snapshot, expectedRevisionEpoch) {
+    const current = await readProgram(context);
+    if (expectedRevisionEpoch !== undefined && current.revisionEpoch !== undefined &&
+        expectedRevisionEpoch !== current.revisionEpoch) {
+      return enrichConflict(conflictError('REVISION_EPOCH_MISMATCH', {
+        expectedRevision: snapshot.revision,
+        expectedRevisionEpoch,
+        currentRevision: current.revision,
+        currentRevisionEpoch: current.revisionEpoch,
+        instanceId: current.instanceId,
+      }), context, current);
+    }
+    if (current.revision !== snapshot.revision || !sameAuthoringSnapshot(snapshot, current)) {
+      return enrichConflict(conflictError('REVISION_MISMATCH', {
+        expectedRevision: snapshot.revision,
+        currentRevision: current.revision,
+        currentRevisionEpoch: current.revisionEpoch,
+        instanceId: current.instanceId,
+      }), context, current);
+    }
+    return current;
+  }
+
+  async function sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, context) {
+    const latestContext = sourceSyncContext(context.sessionId);
+    if (latestContext.sourceSyncAvailable && expectedRevisionEpoch === undefined) {
+      return enrichConflict(conflictError('REVISION_EPOCH_REQUIRED', {
+        expectedRevision,
+      }), latestContext);
+    }
     try {
-      return observeSnapshot(normalizeProgramSnapshot(await bridge.sendCommand(
-        'setProgram', { program, expectedRevision, expectedRevisionEpoch }, sessionId,
-      )));
+      const snapshot = normalizeProgramSnapshot(await bridge.sendCommand(
+        'setProgram', { program, expectedRevision, expectedRevisionEpoch }, latestContext.sessionId,
+      ));
+      return observeSnapshot(effectiveWriteGuard(snapshot, latestContext, true));
     } catch (error) {
-      return enrichConflict(error, sessionId);
+      return enrichConflict(error, latestContext);
     }
   }
 
@@ -672,11 +819,11 @@ export function createX1PenMcpServer(options = {}) {
   }));
 
   server.registerTool('x1pen_set_program', {
-    description: 'Replace the complete program only when expectedRevisionEpoch and expectedRevision still match. On conflict, compare current hashes/diff before retrying; never refresh only the revision.',
+    description: 'Replace the complete program when its revision guard still matches. expectedRevisionEpoch is required when all connected components support reload-safe source sync; older peers visibly degrade to numeric revision guarding.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       expectedRevision: z.number().int().min(0),
-      expectedRevisionEpoch: z.string().min(1).max(128),
+      expectedRevisionEpoch: z.string().min(1).max(128).optional(),
       sourceMode: z.enum(['basic+asm', 'asm', 'slang']),
       basic: z.string().max(MAX_SOURCE_LENGTH).optional(),
       asm: z.string().max(MAX_SOURCE_LENGTH).optional(),
@@ -684,7 +831,9 @@ export function createX1PenMcpServer(options = {}) {
     },
     annotations: { destructiveHint: true, openWorldHint: false },
   }, handleTool(async ({ sessionId, expectedRevision, expectedRevisionEpoch, ...program }) => {
-    const snapshot = await sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, sessionId);
+    const context = sourceSyncContext(sessionId);
+    await assertWriteBaseline(context, expectedRevision, expectedRevisionEpoch);
+    const snapshot = await sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, context);
     return textResult({ ok: true, ...summarizeProgram(snapshot) });
   }));
 
@@ -742,7 +891,14 @@ export function createX1PenMcpServer(options = {}) {
     sessionId, section, baseHash, baseSourceMode, baseRevisionEpoch, baseGenerated,
     baseSource, includeGeneratedAsm, contextLines, maxHunks, maxCharacters,
   }) => {
-    const current = await readProgram(sessionId);
+    const context = sourceSyncContext(sessionId);
+    assertFeatureCompatible(
+      'automation.source-sync',
+      context.compatibility?.capabilities,
+      context.compatibility?.components,
+      { requireAvailable: true },
+    );
+    const current = await readProgram(context);
     if (!current.instanceId || !current.revisionEpoch) {
       throw new SourceSyncError(
         'FEATURE_UNAVAILABLE',
@@ -839,12 +995,12 @@ export function createX1PenMcpServer(options = {}) {
   }));
 
   server.registerTool('x1pen_apply_edits', {
-    description: 'Apply non-overlapping line edits only when expectedRevisionEpoch and expectedRevision match. Line numbers are 1-based; compare conflicts before retrying.',
+    description: 'Apply non-overlapping line edits when the current revision guard matches. expectedRevisionEpoch is required for reload-safe source sync; degraded revision-only mode is reported and has a narrow reload-collision risk between the final pre-read and write.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       section: z.enum(SOURCE_SECTIONS),
       expectedRevision: z.number().int().min(0),
-      expectedRevisionEpoch: z.string().min(1).max(128),
+      expectedRevisionEpoch: z.string().min(1).max(128).optional(),
       edits: z.array(z.object({
         startLine: z.number().int().min(1),
         deleteLineCount: z.number().int().min(0),
@@ -858,31 +1014,10 @@ export function createX1PenMcpServer(options = {}) {
       throw new Error(`Combined replacement text exceeds ${MAX_SOURCE_LENGTH} characters`);
     }
 
-    const snapshot = await readProgram(sessionId);
-    if (!snapshot.revisionEpoch) {
-      throw new SourceSyncError(
-        'FEATURE_UNAVAILABLE',
-        'The connected X1Pen does not report source revision epochs',
-        { component: 'x1pen', feature: 'automation.source-sync', action: 'Update/reload X1Pen and reconnect the tab.' },
-      );
-    }
-    if (snapshot.revisionEpoch !== expectedRevisionEpoch) {
-      return enrichConflict(conflictError('REVISION_EPOCH_MISMATCH', {
-        expectedRevision,
-        expectedRevisionEpoch,
-        currentRevision: snapshot.revision,
-        currentRevisionEpoch: snapshot.revisionEpoch,
-        instanceId: snapshot.instanceId,
-      }), sessionId, snapshot);
-    }
-    if (snapshot.revision !== expectedRevision) {
-      return enrichConflict(conflictError('REVISION_MISMATCH', {
-        expectedRevision,
-        currentRevision: snapshot.revision,
-        currentRevisionEpoch: snapshot.revisionEpoch,
-        instanceId: snapshot.instanceId,
-      }), sessionId, snapshot);
-    }
+    const context = sourceSyncContext(sessionId);
+    const snapshot = await assertWriteBaseline(
+      context, expectedRevision, expectedRevisionEpoch,
+    );
     assertEditableSection(snapshot, section);
     const applied = applyLineEdits(snapshot[section], edits);
     if (applied.source.length > MAX_SOURCE_LENGTH) {
@@ -906,7 +1041,8 @@ export function createX1PenMcpServer(options = {}) {
       [section]: applied.source,
     };
     const generatedAsmCleared = section === 'slang' && snapshot.asm.length > 0;
-    const updated = await sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, sessionId);
+    await assertApplySnapshotUnchanged(context, snapshot, expectedRevisionEpoch);
+    const updated = await sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, context);
     return textResult({
       ok: true,
       changed: true,

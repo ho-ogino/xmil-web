@@ -2,6 +2,13 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { after, before, beforeEach, test } from 'node:test';
+import {
+  assertMethodCompatible,
+  createMcpDescriptor,
+  evaluateCompatibility,
+  normalizeConnectorPair,
+  normalizeX1PenDescriptor,
+} from '../mcp/x1pen-compatibility.mjs';
 import { createX1PenMcpServer } from '../mcp/x1pen-server.mjs';
 
 const initialProgram = {
@@ -19,6 +26,35 @@ let debuggerState;
 let compatibilityFailure;
 let runResponse;
 let recoveryResponse;
+let compatibilityComponents;
+let stripRevisionEpoch;
+let getProgramCount;
+let beforeGetProgram;
+let selectedSessionId;
+
+const FULL_FEATURES = [
+  'automation.core', 'automation.run-recovery', 'automation.source-sync',
+  'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram',
+];
+
+function configureCompatibility({ connectorSourceSync = true, x1penSourceSync = true } = {}) {
+  compatibilityComponents = {
+    mcp: createMcpDescriptor('2.7.0'),
+    connector: normalizeConnectorPair({
+      extensionVersion: connectorSourceSync ? '1.3.0' : '1.2.0',
+      connector: {
+        name: 'x1pen-connector', version: connectorSourceSync ? '1.3.0' : '1.2.0',
+        protocolVersion: 2,
+        features: FULL_FEATURES.filter((feature) => connectorSourceSync || feature !== 'automation.source-sync'),
+      },
+    }),
+    x1pen: normalizeX1PenDescriptor({
+      version: x1penSourceSync ? '0.8.1' : '0.8.0', automationApiVersion: 2,
+      features: FULL_FEATURES.filter((feature) => x1penSourceSync || feature !== 'automation.source-sync'),
+    }),
+  };
+  stripRevisionEpoch = !connectorSourceSync;
+}
 
 const initialDebuggerState = {
   version: 1,
@@ -72,26 +108,39 @@ const fakeBridge = {
   listSessions() {
     return [{ sessionId: 'tab-a', title: 'X1Pen', selected: true, x1pen: { version: '0.8.0' } }];
   },
+  resolveSession(sessionId) { return sessionId || selectedSessionId; },
   async selectSession(sessionId, options) { return { sessionId, force: options?.force === true }; },
   getSessionCompatibility() {
+    const capabilities = evaluateCompatibility({ ...compatibilityComponents, connected: true });
     return {
-      components: {
-        mcp: { version: '2.7.0' }, connector: { version: '1.3.0' }, x1pen: { version: '0.8.0' },
-      },
-      capabilities: { 'debugger.vram': { state: 'available', available: true } },
+      components: compatibilityComponents,
+      capabilities,
     };
   },
   async sendCommand(method, params, sessionId) {
+    const compatibility = this.getSessionCompatibility();
+    assertMethodCompatible(method, compatibility.capabilities, compatibility.components);
     calls.push({ method, params: clone(params), sessionId });
-    if (compatibilityFailure && method === compatibilityFailure.method) throw compatibilityFailure.error;
-    if (method === 'getProgram') return clone(currentProgram);
+    if (compatibilityFailure && method === compatibilityFailure.method) {
+      compatibilityFailure.beforeThrow?.();
+      throw compatibilityFailure.error;
+    }
+    if (method === 'getProgram') {
+      getProgramCount++;
+      beforeGetProgram?.(getProgramCount);
+      return clone(currentProgram);
+    }
     if (method === 'setProgram') {
-      if (params.expectedRevisionEpoch !== currentProgram.revisionEpoch) {
+      const pageSupportsEpoch = compatibilityComponents.x1pen.features.includes('automation.source-sync');
+      const transportedEpoch = stripRevisionEpoch || !pageSupportsEpoch
+        ? undefined
+        : params.expectedRevisionEpoch;
+      if (transportedEpoch !== undefined && transportedEpoch !== currentProgram.revisionEpoch) {
         const error = new Error('Revision epoch conflict');
         Object.assign(error, {
           code: 'REVISION_EPOCH_MISMATCH', component: 'x1pen',
           expectedRevision: params.expectedRevision,
-          expectedRevisionEpoch: params.expectedRevisionEpoch,
+          expectedRevisionEpoch: transportedEpoch,
           currentRevision: currentProgram.revision,
           currentRevisionEpoch: currentProgram.revisionEpoch,
           instanceId: currentProgram.instanceId,
@@ -112,6 +161,7 @@ const fakeBridge = {
         revision: currentProgram.revision + 1,
         revisionEpoch: currentProgram.revisionEpoch,
         instanceId: currentProgram.instanceId,
+        guardedWritesReloadSafe: transportedEpoch !== undefined,
       };
       return clone(currentProgram);
     }
@@ -213,6 +263,10 @@ beforeEach(() => {
   compatibilityFailure = null;
   runResponse = { ok: true, status: 'Ready', revision: 3 };
   recoveryResponse = { ok: false, code: 'RECOVERY_CONFIRM_REQUIRED', status: 'Data loss warning' };
+  configureCompatibility();
+  getProgramCount = 0;
+  beforeGetProgram = null;
+  selectedSessionId = 'tab-a';
 });
 
 after(async () => {
@@ -330,7 +384,7 @@ test('connection and status tools report all component versions and effective ca
   assert.equal(sessions.sessions[0].x1pen.version, '0.8.0');
 
   const status = jsonContent(await client.callTool({ name: 'x1pen_get_status', arguments: {} }));
-  assert.equal(status.compatibility.components.x1pen.version, '0.8.0');
+  assert.equal(status.compatibility.components.x1pen.version, '0.8.1');
   assert.equal(status.compatibility.capabilities['debugger.vram'].available, true);
 });
 
@@ -427,6 +481,8 @@ test('get_program defaults to metadata only and excludes generated ASM', async (
   assert.deepEqual(selected.includedFields, []);
   assert.equal(selected.sections.asm.generated, true);
   assert.equal(selected.revisionEpoch, 'epoch-a');
+  assert.equal(selected.guardedWritesReloadSafe, true);
+  assert.equal(selected.writeGuard, 'revision-epoch');
   assert.match(selected.authoringHash, /^sha256-authoring-v1:[0-9a-f]{64}$/);
   assert.match(selected.sections.slang.contentHash, /^sha256-utf8-v1:[0-9a-f]{64}$/);
   assert.match(selected.sections.asm.generatedContentHash, /^sha256-utf8-v1:[0-9a-f]{64}$/);
@@ -475,6 +531,8 @@ test('get_source returns a bounded line range and protects generated ASM', async
   assert.equal(range.text, '50 PRINT 5\n60 PRINT 6\n70 PRINT 7');
   assert.equal(range.nextStartLine, 8);
   assert.equal(range.truncated, true);
+  assert.equal(range.guardedWritesReloadSafe, true);
+  assert.equal(range.writeGuard, 'revision-epoch');
 
   currentProgram = {
     sourceMode: 'slang', basic: '', asm: 'generated', slang: 'main() BEGIN\nEND;', revision: 4,
@@ -510,7 +568,34 @@ test('search_source finds literal text with bounded context', async () => {
   assert.equal(search.matches.length, 1);
   assert.equal(search.matches[0].line, 2);
   assert.equal(search.truncated, true);
+  assert.equal(search.guardedWritesReloadSafe, true);
+  assert.equal(search.writeGuard, 'revision-epoch');
   assert.deepEqual(search.matches[0].context.map((line) => line.line), [1, 2, 3]);
+});
+
+test('bounded source reads distinguish absent content from a present empty source', async () => {
+  configureCompatibility({ connectorSourceSync: true, x1penSourceSync: false });
+  currentProgram.basic = '';
+  const empty = jsonContent(await client.callTool({
+    name: 'x1pen_get_source',
+    arguments: { section: 'basic' },
+  }));
+  assert.equal(empty.text, '');
+  assert.equal(empty.totalLines, 0);
+  assert.equal(empty.writeGuard, 'revision-only');
+
+  delete currentProgram.basic;
+  for (const request of [
+    { name: 'x1pen_get_source', arguments: { section: 'basic' } },
+    { name: 'x1pen_search_source', arguments: { section: 'basic', query: 'PRINT' } },
+  ]) {
+    const result = await client.callTool(request);
+    const error = jsonContent(result).error;
+    assert.equal(result.isError, true);
+    assert.equal(error.code, 'SOURCE_CONTENT_UNAVAILABLE');
+    assert.equal(error.component, 'x1pen');
+    assert.equal(error.section, 'basic');
+  }
 });
 
 test('diff_source compares a cached baseline with bounded hunks', async () => {
@@ -616,14 +701,187 @@ test('set_program forwards the guarded epoch and revision but returns only a com
   assert.equal(calls.at(-1).params.expectedRevisionEpoch, 'epoch-a');
   assert.equal(calls.at(-1).params.program.basic, '10 PRINT "UPDATED"');
   assert.equal(response.revision, 4);
+  assert.equal(response.guardedWritesReloadSafe, true);
+  assert.equal(response.writeGuard, 'revision-epoch');
   assert.equal(response.basic, undefined);
   assert.equal(response.sections.basic.lineCount, 1);
 });
 
+test('source-sync capability requires all three advertised components', () => {
+  for (const mcpSourceSync of [false, true]) {
+    for (const connectorSourceSync of [false, true]) {
+      for (const x1penSourceSync of [false, true]) {
+        configureCompatibility({ connectorSourceSync, x1penSourceSync });
+        compatibilityComponents.mcp = {
+          ...compatibilityComponents.mcp,
+          features: FULL_FEATURES.filter((feature) => mcpSourceSync || feature !== 'automation.source-sync'),
+        };
+        const capability = evaluateCompatibility({ ...compatibilityComponents, connected: true })['automation.source-sync'];
+        assert.equal(
+          capability.available,
+          mcpSourceSync && connectorSourceSync && x1penSourceSync,
+          `mcp=${mcpSourceSync} connector=${connectorSourceSync} x1pen=${x1penSourceSync}`,
+        );
+      }
+    }
+  }
+});
+
+test('old Connector with new MCP and X1Pen permits visibly degraded writes but not diff', async () => {
+  configureCompatibility({ connectorSourceSync: false, x1penSourceSync: true });
+  const read = jsonContent(await client.callTool({
+    name: 'x1pen_get_program', arguments: { fields: ['basic'] },
+  }));
+  assert.equal(typeof read.revisionEpoch, 'string');
+  assert.equal(read.guardedWritesReloadSafe, false);
+  assert.equal(read.writeGuard, 'revision-only');
+
+  const range = jsonContent(await client.callTool({
+    name: 'x1pen_get_source', arguments: { section: 'basic', startLine: 1, lineCount: 1 },
+  }));
+  const search = jsonContent(await client.callTool({
+    name: 'x1pen_search_source', arguments: { section: 'basic', query: 'PRINT' },
+  }));
+  for (const summary of [range, search]) {
+    assert.equal(summary.guardedWritesReloadSafe, false);
+    assert.equal(summary.writeGuard, 'revision-only');
+  }
+
+  const set = jsonContent(await client.callTool({
+    name: 'x1pen_set_program',
+    arguments: {
+      sourceMode: 'basic+asm', basic: '10 PRINT "DEGRADED"',
+      expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+    },
+  }));
+  assert.equal(set.revision, 4);
+  assert.equal(set.guardedWritesReloadSafe, false);
+  assert.equal(set.writeGuard, 'revision-only');
+  assert.equal(calls.at(-1).params.expectedRevisionEpoch, 'epoch-a');
+
+  const diff = await client.callTool({
+    name: 'x1pen_diff_source',
+    arguments: {
+      section: 'basic', baseHash: read.sections.basic.contentHash,
+      baseSourceMode: 'basic+asm', baseRevisionEpoch: 'epoch-a',
+    },
+  });
+  const error = jsonContent(diff).error;
+  assert.equal(error.code, 'FEATURE_UNAVAILABLE');
+  assert.equal(error.component, 'connector');
+  assert.equal(error.feature, 'automation.source-sync');
+});
+
+test('unknown Connector capability degrades writes and blocks diff without inventing a version', async () => {
+  configureCompatibility();
+  compatibilityComponents.connector = normalizeConnectorPair({ extensionVersion: '1.2.0' });
+  const read = jsonContent(await client.callTool({ name: 'x1pen_get_program', arguments: {} }));
+  assert.equal(read.guardedWritesReloadSafe, false);
+  const diff = await client.callTool({
+    name: 'x1pen_diff_source',
+    arguments: {
+      section: 'basic', baseHash: read.sections.basic.contentHash,
+      baseSourceMode: 'basic+asm', baseRevisionEpoch: 'epoch-a',
+    },
+  });
+  const error = jsonContent(diff).error;
+  assert.equal(error.code, 'FEATURE_STATUS_UNKNOWN');
+  assert.equal(error.component, 'connector');
+  assert.equal(error.currentVersion, '1.2.0');
+  assert.equal(error.requiredVersion, undefined);
+});
+
+test('source writes pin the initially selected session across pre-read and dispatch', async () => {
+  beforeGetProgram = (count) => {
+    if (count === 1) selectedSessionId = 'tab-b';
+  };
+  const result = await client.callTool({
+    name: 'x1pen_set_program',
+    arguments: {
+      sourceMode: 'basic+asm', basic: '10 PRINT "PINNED"',
+      expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+    },
+  });
+  assert.equal(result.isError, undefined);
+  assert.equal(selectedSessionId, 'tab-b');
+  assert.ok(calls.length >= 2);
+  assert.ok(calls.every((call) => call.sessionId === 'tab-a'));
+});
+
+test('full source-sync requires epoch while old X1Pen degrades to numeric revision', async () => {
+  const missing = await client.callTool({
+    name: 'x1pen_set_program',
+    arguments: { sourceMode: 'basic+asm', basic: '10 END', expectedRevision: 3 },
+  });
+  assert.equal(jsonContent(missing).error.code, 'REVISION_EPOCH_REQUIRED');
+  assert.equal(currentProgram.revision, 3);
+
+  configureCompatibility({ connectorSourceSync: true, x1penSourceSync: false });
+  delete currentProgram.revisionEpoch;
+  const degraded = jsonContent(await client.callTool({
+    name: 'x1pen_set_program',
+    arguments: { sourceMode: 'basic+asm', basic: '10 PRINT "OLD PAGE"', expectedRevision: 3 },
+  }));
+  assert.equal(degraded.revision, 4);
+  assert.equal(degraded.guardedWritesReloadSafe, false);
+  assert.equal(degraded.writeGuard, 'revision-only');
+});
+
+test('full source-sync with an epoch-less snapshot returns a distinct no-mutation diagnostic', async () => {
+  delete currentProgram.revisionEpoch;
+  const read = jsonContent(await client.callTool({
+    name: 'x1pen_get_program', arguments: {},
+  }));
+  assert.equal(read.guardedWritesReloadSafe, false);
+  assert.equal(read.writeGuard, 'revision-only');
+
+  calls.length = 0;
+  const result = await client.callTool({
+    name: 'x1pen_set_program',
+    arguments: { sourceMode: 'basic+asm', basic: '10 END', expectedRevision: 3 },
+  });
+  const error = jsonContent(result).error;
+  assert.equal(result.isError, true);
+  assert.equal(error.code, 'REVISION_EPOCH_UNAVAILABLE');
+  assert.match(error.action, /Update or reload X1Pen/);
+  assert.equal(error.current.writeGuard, 'revision-only');
+  assert.equal(calls.some((call) => call.method === 'setProgram'), false);
+  assert.equal(currentProgram.revision, 3);
+});
+
+test('degraded set_program performs best-effort epoch and revision conflict enrichment', async () => {
+  configureCompatibility({ connectorSourceSync: false, x1penSourceSync: true });
+  const epochConflict = await client.callTool({
+    name: 'x1pen_set_program',
+    arguments: {
+      sourceMode: 'basic+asm', basic: '10 END', expectedRevision: 3,
+      expectedRevisionEpoch: 'epoch-before-reload',
+    },
+  });
+  let error = jsonContent(epochConflict).error;
+  assert.equal(error.code, 'REVISION_EPOCH_MISMATCH');
+  assert.equal(error.current.guardedWritesReloadSafe, false);
+  assert.equal(calls.some((call) => call.method === 'setProgram'), false);
+
+  calls.length = 0;
+  const revisionConflict = await client.callTool({
+    name: 'x1pen_set_program',
+    arguments: { sourceMode: 'basic+asm', basic: '10 END', expectedRevision: 2 },
+  });
+  error = jsonContent(revisionConflict).error;
+  assert.equal(error.code, 'REVISION_MISMATCH');
+  assert.equal(error.observedRevision, 3);
+  assert.equal(error.current.writeGuard, 'revision-only');
+  assert.match(error.action, /bounded current source reads/);
+  assert.doesNotMatch(error.action, /diff_source/);
+});
+
 test('set_program maps the exact legacy conflict message to bounded structured output', async () => {
+  currentProgram.revision = 2;
   compatibilityFailure = {
     method: 'setProgram',
     error: new Error('Revision conflict: expected 2, current 3'),
+    beforeThrow() { currentProgram.revision = 3; },
   };
   const result = await client.callTool({
     name: 'x1pen_set_program',
@@ -667,6 +925,75 @@ test('apply_edits updates one section and preserves the other authoring source',
     { startLine: 1, oldLineCount: 1, newLineCount: 1 },
     { startLine: 2, oldLineCount: 1, newLineCount: 2 },
   ]);
+});
+
+test('apply_edits handles boundaries and returns early for identical content', async () => {
+  currentProgram.basic = '10 PRINT "MCP"\n20 END';
+  const unchanged = jsonContent(await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 1, deleteLineCount: 1, text: '10 PRINT "MCP"' }],
+    },
+  }));
+  assert.equal(unchanged.changed, false);
+  assert.equal(unchanged.revision, 3);
+  assert.equal(unchanged.guardedWritesReloadSafe, true);
+  assert.equal(calls.some((call) => call.method === 'setProgram'), false);
+
+  calls.length = 0;
+  const boundary = jsonContent(await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+      edits: [
+        { startLine: 1, deleteLineCount: 0, text: '5 REM START' },
+        { startLine: 3, deleteLineCount: 0, text: '30 REM EOF' },
+      ],
+    },
+  }));
+  assert.equal(boundary.changed, true);
+  assert.equal(currentProgram.basic, '5 REM START\n10 PRINT "MCP"\n20 END\n30 REM EOF');
+  assert.deepEqual(boundary.changes, [
+    { startLine: 1, oldLineCount: 0, newLineCount: 1 },
+    { startLine: 3, oldLineCount: 0, newLineCount: 1 },
+  ]);
+});
+
+test('degraded apply_edits succeeds visibly and rejects a colliding reload on its final pre-read', async () => {
+  configureCompatibility({ connectorSourceSync: false, x1penSourceSync: true });
+  const degraded = jsonContent(await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 2, deleteLineCount: 1, text: '20 PRINT "DEGRADED"' }],
+    },
+  }));
+  assert.equal(degraded.changed, true);
+  assert.equal(degraded.guardedWritesReloadSafe, false);
+  assert.equal(degraded.writeGuard, 'revision-only');
+
+  currentProgram = clone(initialProgram);
+  calls.length = 0;
+  getProgramCount = 0;
+  beforeGetProgram = (count) => {
+    if (count === 2) {
+      currentProgram.revisionEpoch = 'epoch-after-reload';
+      currentProgram.basic = '10 PRINT "RELOADED"\n20 END';
+    }
+  };
+  const conflict = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 1, deleteLineCount: 1, text: '10 PRINT "STALE"' }],
+    },
+  });
+  const error = jsonContent(conflict).error;
+  assert.equal(error.code, 'REVISION_EPOCH_MISMATCH');
+  assert.equal(error.current.guardedWritesReloadSafe, false);
+  assert.equal(calls.some((call) => call.method === 'setProgram'), false);
+  assert.equal(currentProgram.basic, '10 PRINT "RELOADED"\n20 END');
 });
 
 test('apply_edits rejects stale revisions and overlapping edits', async () => {
@@ -716,6 +1043,7 @@ test('apply_edits rejects a colliding revision from another epoch', async () => 
 });
 
 test('apply_edits clears generated ASM when editing SLANG', async () => {
+  configureCompatibility({ connectorSourceSync: false, x1penSourceSync: true });
   currentProgram = {
     sourceMode: 'slang', basic: '', asm: 'generated asm', slang: 'main() BEGIN\nEND;', revision: 9,
     revisionEpoch: 'epoch-a', instanceId: 'tab-a',
@@ -729,6 +1057,7 @@ test('apply_edits clears generated ASM when editing SLANG', async () => {
   });
   const response = jsonContent(result);
   assert.equal(response.generatedAsmCleared, true);
+  assert.equal(response.guardedWritesReloadSafe, false);
   assert.equal(response.sections.asm.characterCount, 0);
   assert.equal(currentProgram.asm, '');
   assert.equal(currentProgram.slang, 'main() BEGIN\n  PRINT("MCP");\nEND;');

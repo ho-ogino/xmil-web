@@ -5,6 +5,7 @@ import { invokeX1PenInPage } from '../extension/page-automation.mjs';
 import { createUpdateCoordinator } from '../extension/update-coordinator.mjs';
 import {
   CONNECTOR_FEATURES,
+  allComponentsAdvertiseFeature,
   assertMcpProtocolSupported,
   createConnectorDescriptor,
   normalizeMcpServerDescriptor,
@@ -42,8 +43,8 @@ function createAutomationApi() {
       },
     }),
     getProgram: () => ({ revision: 1 }),
-    setProgram: async (program, expectedRevision, expectedRevisionEpoch) => {
-      calls.push({ setProgram: { program, expectedRevision, expectedRevisionEpoch } });
+    setProgram: async (program, expectedRevision, expectedRevisionEpoch, transport) => {
+      calls.push({ setProgram: { program, expectedRevision, expectedRevisionEpoch, transport } });
       return { ...program, revision: expectedRevision + 1, revisionEpoch: expectedRevisionEpoch };
     },
     run: async (options) => {
@@ -118,8 +119,16 @@ test('page bridge allowlists debugger operations and retries Run setup races', a
       program: { sourceMode: 'basic+asm', basic: '10 END' },
       expectedRevision: 1,
       expectedRevisionEpoch: 'epoch-a',
+      transport: { requireRevisionEpoch: false },
     },
   });
+  await invokeX1PenInPage('setProgram', {
+    program: { sourceMode: 'basic+asm', basic: '20 END' },
+    expectedRevision: 2,
+    expectedRevisionEpoch: 'epoch-b',
+    transport: { requireRevisionEpoch: true },
+  });
+  assert.equal(calls.at(-1).setProgram.transport.requireRevisionEpoch, true);
   const paused = await invokeX1PenInPage('debuggerPause', {});
   assert.equal(paused.runState, 'paused');
   assert.deepEqual(calls.filter((call) => call === 'pause'), ['pause', 'pause']);
@@ -307,6 +316,16 @@ test('feature IDs match across X1Pen, Connector and MCP', () => {
   assert.deepEqual([...new Set(x1penFeatures)].sort(), expected);
   assert.deepEqual([...CONNECTOR_FEATURES].sort(), expected);
   assert.deepEqual([...MCP_FEATURES].sort(), expected);
+});
+
+test('revision epoch transport is required only when every component advertises source sync', () => {
+  const current = { features: ['automation.core', 'automation.source-sync'] };
+  const legacy = { features: ['automation.core'] };
+  assert.equal(allComponentsAdvertiseFeature('automation.source-sync', current, current, current), true);
+  assert.equal(allComponentsAdvertiseFeature('automation.source-sync', legacy, current, current), false);
+  assert.equal(allComponentsAdvertiseFeature('automation.source-sync', current, legacy, current), false);
+  assert.equal(allComponentsAdvertiseFeature('automation.source-sync', current, current, legacy), false);
+  assert.equal(allComponentsAdvertiseFeature('automation.source-sync', current, null, current), false);
 });
 
 test('connector serializes machine-readable errors without copying arbitrary fields', () => {

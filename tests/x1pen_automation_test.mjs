@@ -839,13 +839,28 @@ test('reload epoch prevents colliding stale revisions from mutating source', asy
   assert.equal(result.after.basic, '10 PRINT "HUMAN"');
 });
 
-test('revision-only guarded writes fail closed with migration guidance', async () => {
+test('revision-only guarded writes degrade visibly for legacy transports', async () => {
+  const result = await page.evaluate(async () => {
+    const current = window.X1PenAutomation.getProgram();
+    return window.X1PenAutomation.setProgram(
+      { sourceMode: 'basic+asm', basic: '10 PRINT "NO EPOCH"' },
+      current.revision,
+    );
+  });
+  assert.equal(result.basic, '10 PRINT "NO EPOCH"');
+  assert.equal(result.guardedWritesReloadSafe, false);
+  assert.equal(result.writeGuard, 'revision-only');
+});
+
+test('source-sync transports still fail closed when revision epoch is missing', async () => {
   const result = await page.evaluate(async () => {
     const current = window.X1PenAutomation.getProgram();
     try {
       await window.X1PenAutomation.setProgram(
-        { sourceMode: 'basic+asm', basic: '10 PRINT "NO EPOCH"' },
+        { sourceMode: 'basic+asm', basic: '10 PRINT "MISSING EPOCH"' },
         current.revision,
+        undefined,
+        { requireRevisionEpoch: true },
       );
       return null;
     } catch (error) {
@@ -854,7 +869,7 @@ test('revision-only guarded writes fail closed with migration guidance', async (
   });
   assert.equal(result.code, 'REVISION_EPOCH_REQUIRED');
   assert.match(result.action, /expectedRevisionEpoch/);
-  assert.equal(result.after, '10 PRINT "HUMAN"');
+  assert.equal(result.after, '10 PRINT "NO EPOCH"');
 });
 
 test('connection state and AI interaction lock are visible', async () => {
