@@ -46,6 +46,8 @@ Program metadata includes exact UTF-8 SHA-256 section hashes, a mode-aware autho
 
 Source validation failures are structured: `EDIT_RANGE_INVALID`, `EDITS_OVERLAP`, `SOURCE_SECTION_NOT_EDITABLE`, `SOURCE_LIMIT_EXCEEDED`, `SOURCE_RANGE_INVALID`, and `GENERATED_SOURCE_REQUIRES_OPT_IN`. Known Connector feature minimums are returned as `requiredVersion` even when the Connector advertises an explicit feature list. Unmapped bridge RPC methods fail closed with `METHOD_FEATURE_UNMAPPED` before transport.
 
+`x1pen_set_program` is a complete replacement. Sections inactive for its `sourceMode` are cleared even when non-empty values are supplied; use `x1pen_apply_edits` to preserve other authoring content in the current mode. For SLANG validation, `output.generatedAsmLines` and `output.asmBytes` describe temporary compilation output only. Validation does not store that generated ASM in the program; Run does.
+
 ## Emulator keyboard input
 
 `x1pen_send_key` sends one allowlisted numeric Windows-compatible virtual key to the visible connected X1Pen emulator. For example, `65` is A, `13` is Enter, and `32` is Space. `durationMs` defaults to 80 and accepts integers through 2000. Modifier/latching keys, chords, text strings, OS input and arbitrary JavaScript are not supported. RUN, PROG and key requests share one non-interleaving queue; verify guest behavior with a screen capture or debugger state when needed.

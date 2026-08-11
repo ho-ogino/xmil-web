@@ -64,6 +64,8 @@ const SERVER_INSTRUCTIONS = [
   'The X1 has separate CPU-memory, I/O-port and video-memory spaces. Before direct memory, port, bank or VRAM work, search the bundled x1 hardware reference instead of inferring another machine architecture.',
   'Before writing or substantially editing a program, call x1pen_get_language_profile, search the bundled reference with x1pen_search_reference, and fetch only the needed IDs with x1pen_get_reference.',
   'After editing, call x1pen_validate. Run and inspect the visible emulator when behavior must be confirmed.',
+  'x1pen_set_program is a complete replacement: sections inactive for sourceMode are cleared even when supplied. Use x1pen_apply_edits for bounded edits within the current mode.',
+  'For SLANG, validation output.generatedAsmLines and asmBytes describe temporary compilation output only. Validation does not store generated ASM in the program; Run does.',
   'Prefer bounded source and reference tools so generated ASM and unrelated manual sections do not consume context.',
   'Retain revisionEpoch when offered, revision and authoringHash together. Inspect writeGuard on every source result: revision-epoch is reload-safe, while revision-only is a visible compatibility fallback. On a source conflict, compare before retrying; never replace only the revision and blindly resend stale source.',
   'Connection and status results report MCP, Connector and X1Pen compatibility. Do not retry a feature that reports an update-required error until that component is updated.',
@@ -881,7 +883,7 @@ export function createX1PenMcpServer(options = {}) {
   }));
 
   server.registerTool('x1pen_set_program', {
-    description: 'Replace the complete program when its revision guard still matches. expectedRevisionEpoch is required when all connected components support reload-safe source sync; older peers visibly degrade to numeric revision guarding.',
+    description: 'Replace the complete program when its revision guard still matches. Sources inactive for sourceMode are cleared even when supplied; use apply_edits to preserve the other active authoring section. expectedRevisionEpoch is required when all connected components support reload-safe source sync; older peers visibly degrade to numeric revision guarding.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       expectedRevision: z.number().int().min(0),
@@ -1133,7 +1135,7 @@ export function createX1PenMcpServer(options = {}) {
   }));
 
   server.registerTool('x1pen_validate', {
-    description: 'Compile or tokenize the current program without running it.',
+    description: 'Compile or tokenize the current program without running it. For SLANG, output.generatedAsmLines and asmBytes describe temporary compilation output; validate does not store generated ASM in the program, while Run does.',
     inputSchema: sessionInput,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, handleTool(async ({ sessionId }) => textResult(await bridge.sendCommand('validate', {}, sessionId))));

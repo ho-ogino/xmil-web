@@ -308,6 +308,10 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_stop',
     'x1pen_validate',
   ]);
+  const descriptions = Object.fromEntries(tools.tools.map((tool) => [tool.name, tool.description]));
+  assert.match(descriptions.x1pen_set_program, /inactive for sourceMode are cleared even when supplied/);
+  assert.match(descriptions.x1pen_validate, /temporary compilation output/);
+  assert.match(descriptions.x1pen_validate, /does not store generated ASM/);
 });
 
 test('send_key routes an allowlisted VK with a bounded hold duration', async () => {

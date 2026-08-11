@@ -97,8 +97,8 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 | `x1pen_search_source` | 1セクションをリテラル検索し、限定した前後行を取得 |
 | `x1pen_diff_source` | full source-sync時に保持済みbaselineと現在の1セクションを上限付きline diffで比較 |
 | `x1pen_apply_edits` | full時はepoch/revision、縮退時はrevisionをguardに構造化された行編集を適用 |
-| `x1pen_set_program` | full時はepoch/revision、縮退時はrevisionをguardにプログラム全体を更新（新規作成・全置換用） |
-| `x1pen_validate` | 実行せずにコンパイル、アセンブル、トークナイズ |
+| `x1pen_set_program` | full時はepoch/revision、縮退時はrevisionをguardにプログラム全体を更新（新規作成・全置換用。sourceModeで非対象のsectionは入力してもclear） |
+| `x1pen_validate` | 実行せずにコンパイル、アセンブル、トークナイズ（SLANG生成ASMは一時出力でprogramには保持しない） |
 | `x1pen_run` | ユーザーが開いているX1Penで実行 |
 | `x1pen_recover_stalled` | stallしたRun準備を、データ損失確認後のタブ再読込で復旧 |
 | `x1pen_send_key` | 表示中のX1Penエミュレーターへ許可済みの1キーを送信 |
@@ -120,6 +120,8 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。MCP・Connector・X1Penの3コンポーネントがすべて`automation.source-sync`をadvertiseする場合、`x1pen_set_program`と`x1pen_apply_edits`は取得済みの`revisionEpoch`と`revision`を要求し、途中の人間編集やタブ再読込を検出して上書きを拒否します。いずれかが旧版または判定不能の場合は従来のnumeric revision guardへ縮退します。読み取り・書き込み結果の`guardedWritesReloadSafe: false` / `writeGuard: "revision-only"`は、再読込後に同じrevision値へ戻る衝突を検出できないことを示します。
 
 縮退時も`get_program`、`get_source`、`search_source`、`set_program`、`apply_edits`は利用できます。`diff_source`だけは3コンポーネントすべてのsource-sync対応が必要です。旧Connector × 新MCP × 新X1Penでは、X1Penがepochを返しても旧Connectorが書き込み時のepochを転送しないため、書き込み結果は必ずrevision-onlyと表示されます。`apply_edits`は最終書き込み直前にもrevision・epoch（取得可能時）・mode・hashを再確認しますが、その再確認から書き込みまでの短い区間はatomicではありません。
+
+`x1pen_set_program`は完全置換です。`sourceMode: "slang"`では`basic`と`asm`、`sourceMode: "asm"`では`basic`と`slang`、`sourceMode: "basic+asm"`では`slang`が、非空で入力されても保持されずclearされます。現在modeの一部だけを安全に変更して他のauthoring sectionを保持する場合は`x1pen_apply_edits`を使います。SLANGの`x1pen_validate`が返す`output.generatedAsmLines`と`output.asmBytes`は一時compile/assemble結果の量であり、programのASM sectionには書き戻しません。生成ASMを保持して読む必要がある場合は`x1pen_run`後にprogramを再取得します。
 
 ### エミュレーターへのキー入力
 
