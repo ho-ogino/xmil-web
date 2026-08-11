@@ -731,6 +731,161 @@ test('pad input drives guest JOY edges and independent ports in captured screens
   });
 });
 
+test('SLANG STICK reads JoyKey and pad input with defined interrupt behavior', { timeout: 90_000 }, async () => {
+  const probeAddress = 0x4000;
+  const previousSettings = await page.evaluate(() => window.XmilControls.getSettings());
+  const readProbe = (length = 16) => page.evaluate(({ address, byteLength }) => (
+    window.X1PenAutomation.debugger.readMemory(address, byteLength).bytes
+  ), { address: probeAddress, byteLength: length });
+  const waitForProbe = async (expected, timeout = 5000) => {
+    await page.waitForFunction(({ address, values }) => {
+      const bytes = window.X1PenAutomation.debugger.readMemory(address, values.length).bytes;
+      return values.every((value, index) => value === null || bytes[index] === value);
+    }, { address: probeAddress, values: expected }, { timeout });
+    return readProbe(expected.length);
+  };
+  const loadAndRunSlang = (slang) => page.evaluate(async (source) => {
+    const api = window.X1PenAutomation;
+    api.releasePads();
+    const current = api.getProgram();
+    await api.setProgram({
+      sourceMode: 'slang', basic: '', asm: '', slang: source,
+    }, current.revision, current.revisionEpoch);
+    const validation = await api.validate();
+    if (!validation.ok) {
+      throw new Error(`STICK acceptance program did not validate: ${JSON.stringify(validation.diagnostics)}`);
+    }
+    const run = await api.run();
+    if (!run.ok) throw new Error(`STICK acceptance program did not run: ${JSON.stringify(run)}`);
+    return { validation, run };
+  }, slang);
+  const clearProbe = [
+    '  I=0;',
+    '  LOOP',
+    '  {',
+    '    MEM[$4000+I]=0;',
+    '    I=I+1;',
+    '    IF I==16 THEN EXIT;',
+    '  }',
+  ];
+
+  try {
+    await page.evaluate(() => {
+      window.XmilControls.setJoystick(false);
+      window.XmilControls.setKeyMode(1);
+      window.X1PenAutomation.releasePads();
+    });
+
+    await loadAndRunSlang([
+      'MAIN()',
+      '{',
+      '  VAR I, BASE;',
+      ...clearProbe,
+      '  BASE=3;',
+      '  LOOP',
+      '  {',
+      '    MEM[$4000]=STICK(0);',
+      '    MEM[$4001]=STICK(1);',
+      '    MEM[$4002]=STICK(2);',
+      '    MEM[$4003]=STICK($100);',
+      '    MEM[$4004]=STICK($FFFF);',
+      '    MEM[$4005]=BASE+STICK(0)*2;',
+      '    MEMW[$4006]=MEMW[$4006]+1;',
+      '  }',
+      '}',
+    ].join('\n'));
+
+    assert.deepEqual(await waitForProbe([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01]),
+      [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01]);
+
+    await page.evaluate(() => window.X1PenAutomation.setPad(1, 0xFE));
+    assert.deepEqual(await waitForProbe([0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
+      [0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+    await page.evaluate(() => window.X1PenAutomation.setPad(2, 0xBF));
+    assert.deepEqual((await waitForProbe([0xFE, 0xBF])).slice(0, 2), [0xFE, 0xBF]);
+    await page.evaluate(() => window.X1PenAutomation.releasePads());
+    await waitForProbe([0xFF, 0xFF]);
+
+    await page.keyboard.down('ArrowUp');
+    assert.equal((await waitForProbe([0xFE]))[0], 0xFE);
+    await page.keyboard.up('ArrowUp');
+    assert.equal((await waitForProbe([0xFF]))[0], 0xFF);
+
+    await loadAndRunSlang([
+      'MAIN()',
+      '{',
+      '  VAR I, BASE, SAMPLE;',
+      ...clearProbe,
+      '  PSG_INIT(1);',
+      '  LOOP',
+      '  {',
+      '    IF STICK(0)!=$FF THEN EXIT;',
+      '  }',
+      '  I=0; BASE=3;',
+      '  LOOP',
+      '  {',
+      '    SAMPLE=STICK(0);',
+      '    MEM[$4000]=SAMPLE;',
+      '    MEM[$4001]=BASE+STICK(0)*2;',
+      '    I=I+1;',
+      '    IF I==1000 THEN EXIT;',
+      '  }',
+      '  MEMW[$4002]=I;',
+      '  MEM[$4004]=$A5;',
+      '  LOOP { }',
+      '}',
+    ].join('\n'));
+    await page.evaluate(() => window.X1PenAutomation.setPad(1, 0xFE));
+    assert.deepEqual(await waitForProbe([0xFE, 0xFF, 0xE8, 0x03, 0xA5]),
+      [0xFE, 0xFF, 0xE8, 0x03, 0xA5]);
+    const ctcState = await page.evaluate(() => window.X1PenAutomation.debugger.pause());
+    assert.equal(ctcState.registers.iff1, true, 'valid STICK calls must leave interrupts enabled');
+
+    await loadAndRunSlang([
+      'FORCE_DI(0) { CODE($F3,$C9); }',
+      'MAIN()',
+      '{',
+      '  VAR I;',
+      ...clearProbe,
+      '  FORCE_DI();',
+      '  MEM[$4000]=STICK(0);',
+      '  MEM[$4001]=$A5;',
+      '  LOOP { }',
+      '}',
+    ].join('\n'));
+    await waitForProbe([0xFF, 0xA5]);
+    const validAfterDi = await page.evaluate(() => window.X1PenAutomation.debugger.pause());
+    assert.equal(validAfterDi.registers.iff1, true,
+      'a valid STICK call must re-enable interrupts even when the caller used DI');
+
+    await loadAndRunSlang([
+      'FORCE_DI(0) { CODE($F3,$C9); }',
+      'MAIN()',
+      '{',
+      '  VAR I;',
+      ...clearProbe,
+      '  FORCE_DI();',
+      '  MEM[$4000]=STICK(2);',
+      '  MEM[$4001]=$A5;',
+      '  LOOP { }',
+      '}',
+    ].join('\n'));
+    await waitForProbe([0xFF, 0xA5]);
+    const invalidAfterDi = await page.evaluate(() => window.X1PenAutomation.debugger.pause());
+    assert.equal(invalidAfterDi.registers.iff1, false,
+      'an invalid STICK call must return before changing interrupt state');
+  } finally {
+    await page.keyboard.up('ArrowUp').catch(() => {});
+    await page.evaluate((settings) => {
+      const api = window.X1PenAutomation;
+      api.releasePads();
+      window.Module._js_xmil_reset();
+      window.XmilControls.setJoystick(settings.joystickEnable !== false);
+      window.XmilControls.setKeyMode(settings.keyMode);
+    }, previousSettings);
+  }
+});
+
 test('automation operations are serialized and stale source modes are cleared', async () => {
   const programs = await page.evaluate(async () => {
     const first = window.X1PenAutomation.setProgram({ sourceMode: 'asm', asm: 'ORG $100\nRET' });
