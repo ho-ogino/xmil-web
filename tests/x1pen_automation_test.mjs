@@ -886,6 +886,146 @@ test('SLANG STICK reads JoyKey and pad input with defined interrupt behavior', {
   }
 });
 
+test('SLANG TATTR writes only the current visible text attribute cell', { timeout: 90_000 }, async () => {
+  const probeAddress = 0x4000;
+  const loadAndRunSlang = (slang) => page.evaluate(async (source) => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    await api.setProgram({
+      sourceMode: 'slang', basic: '', asm: '', slang: source,
+    }, current.revision, current.revisionEpoch);
+    const validation = await api.validate();
+    if (!validation.ok) {
+      throw new Error(`TATTR acceptance program did not validate: ${JSON.stringify(validation.diagnostics)}`);
+    }
+    const run = await api.run();
+    if (!run.ok) throw new Error(`TATTR acceptance program did not run: ${JSON.stringify(run)}`);
+    return { validation, run };
+  }, slang);
+  const waitForProbe = async (offset, expected, timeout = 5000) => {
+    await page.waitForFunction(({ address, values }) => {
+      const bytes = window.X1PenAutomation.debugger.readMemory(address, values.length).bytes;
+      return values.every((value, index) => value === null || bytes[index] === value);
+    }, { address: probeAddress + offset, values: expected }, { timeout });
+  };
+  const readMemory = (offset, length) => page.evaluate(({ address, byteLength }) => (
+    window.X1PenAutomation.debugger.readMemory(address, byteLength).bytes
+  ), { address: probeAddress + offset, byteLength: length });
+  const readVram = (region, offset, length = 1) => page.evaluate((request) => (
+    window.X1PenAutomation.debugger.readVram(request).bytes
+  ), { region, offset, length });
+
+  try {
+    // No WIDTH or LOCATE call: LSX's initialized cursor and the runtime's default
+    // 80-column mode must still make the current-cell operation well-defined.
+    await loadAndRunSlang([
+      'MAIN()',
+      '{',
+      '  MEM[$4000]=TATTR($5A);',
+      '  MEM[$4001]=$A5;',
+      '  LOOP { }',
+      '}',
+    ].join('\n'));
+    await waitForProbe(0, [1, 0xA5]);
+    const defaultAttributes = await readVram('attribute', 0, 2000);
+    assert.ok(defaultAttributes.includes(0x5A), 'standalone TATTR must write a visible default-mode cell');
+    const defaultInterrupts = await page.evaluate(() => window.X1PenAutomation.debugger.pause());
+    assert.equal(defaultInterrupts.registers.iff1, true);
+
+    await loadAndRunSlang([
+      'ARRAY BYTE GLYPH[] = {',
+      '  $3C,0,0, $7E,0,0, $DB,0,0, $FF,0,0,',
+      '  $A5,0,0, $FF,0,0, $66,0,0, $3C,0,0',
+      '};',
+      'MAIN()',
+      '{',
+      '  WIDTH(40);',
+      '  LOCATE(4,3);',
+      '  MEM[$4000]=TATTR($27);',
+      '  MEM[$4001]=PORT[$207C];',
+      '  WIDTH(40);',
+      '  MEM[$4002]=PORT[$207C];',
+      '  LOCATE(4,3);',
+      '  MEM[$4003]=TATTR($27);',
+      '  MEM[$4004]=PORT[$207C];',
+      '  LOCATE(39,24);',
+      '  MEM[$4005]=TATTR($FF);',
+      '  PORT[$23E8]=$66;',
+      '  MEM[$4011]=PORT[$23E8];',
+      '  LOCATE(0,25);',
+      '  MEM[$4006]=TATTR($22);',
+      '  MEM[$4012]=PORT[$23E8];',
+      '  LOCATE(3,3);',
+      '  TATTR($55);',
+      '  MEM[$4007]=TATTR($100);',
+      '  LOCATE(40,0);',
+      '  MEM[$4008]=TATTR($33);',
+      '  PCGDEFS(128,GLYPH,1);',
+      '  LOCATE(2,3);',
+      '  MEMW[$4009]=CSR();',
+      '  MEM[$400B]=TATTR($27);',
+      '  MEMW[$400C]=CSR();',
+      '  PRINT(CHR$(128));',
+      '  MEMW[$400E]=CSR();',
+      '  LOCATE(1,1);',
+      '  MEM[$4010]=TATTR(0);',
+      '  MEM[$4013]=$A5;',
+      '  LOOP { }',
+      '}',
+    ].join('\n'));
+    await waitForProbe(19, [0xA5]);
+    assert.deepEqual(await readMemory(0, 20), [
+      1, 0x27, 7, 1, 0x27, 1, 0, 0, 1,
+      0x02, 0x03, 1, 0x02, 0x03, 0x03, 0x03, 1,
+      0x66, 0x66, 0xA5,
+    ]);
+    assert.deepEqual(await readVram('attribute', 999), [0xFF]);
+    assert.deepEqual(await readVram('attribute', 123), [0x55]);
+    assert.deepEqual(await readVram('attribute', 40), [0x33]);
+    assert.deepEqual(await readVram('attribute', 41), [0]);
+    assert.deepEqual(await readVram('attribute', 122), [0x27]);
+    assert.deepEqual(await readVram('text', 122), [128]);
+
+    await loadAndRunSlang([
+      'MAIN()',
+      '{',
+      '  WIDTH(80);',
+      '  LOCATE(79,24);',
+      '  MEM[$4000]=TATTR($FF);',
+      '  PORT[$27D0]=$66;',
+      '  MEM[$4004]=PORT[$27D0];',
+      '  LOCATE(0,25);',
+      '  MEM[$4001]=TATTR($22);',
+      '  MEM[$4005]=PORT[$27D0];',
+      '  LOCATE(80,0);',
+      '  MEM[$4002]=TATTR($33);',
+      '  MEM[$4006]=$A5;',
+      '  LOOP { }',
+      '}',
+    ].join('\n'));
+    await waitForProbe(0, [1, 0, 1, null, 0x66, 0x66, 0xA5]);
+    assert.deepEqual(await readVram('attribute', 1999), [0xFF]);
+    assert.deepEqual(await readVram('attribute', 80), [0x33]);
+
+    await loadAndRunSlang([
+      'FORCE_DI(0) { CODE($F3,$C9); }',
+      'MAIN()',
+      '{',
+      '  FORCE_DI();',
+      '  MEM[$4000]=TATTR($27);',
+      '  MEM[$4001]=$A5;',
+      '  LOOP { }',
+      '}',
+    ].join('\n'));
+    await waitForProbe(0, [1, 0xA5]);
+    const disabledInterrupts = await page.evaluate(() => window.X1PenAutomation.debugger.pause());
+    assert.equal(disabledInterrupts.registers.iff1, false,
+      'TATTR must preserve a disabled interrupt state');
+  } finally {
+    await page.evaluate(() => window.Module._js_xmil_reset());
+  }
+});
+
 test('automation operations are serialized and stale source modes are cleared', async () => {
   const programs = await page.evaluate(async () => {
     const first = window.X1PenAutomation.setProgram({ sourceMode: 'asm', asm: 'ORG $100\nRET' });

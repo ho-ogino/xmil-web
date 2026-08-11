@@ -280,13 +280,15 @@
     "kind": "x1-extension",
     "title": "Defining X1 PCG characters with PCGDEF and PCGDEFS",
     "profiles": ["x1pen-slang-c9e8f53-lsx"],
-    "symbols": ["PCGDEF", "PCGDEFS", "WIDTH", "CHR$"],
+    "symbols": ["PCGDEF", "PCGDEFS", "WIDTH", "LOCATE", "TATTR", "CHR$"],
     "aliases": ["PCGDEF", "PCGDEFS", "programmable character generator", "BRG", "24-byte tile", "game graphics", "glyph", "PCG", "キャラクタ定義", "外字", "ゲームグラフィック", "タイル定義"],
     "summary": "The X1Pen runtime defines one PCG glyph with PCGDEF or a consecutive range with PCGDEFS. Each 8x8 glyph is a 24-byte Blue/Red/Green interleaved bitmap.",
     "syntax": [
       "WIDTH(40);",
       "PCGDEF(index, patternAddress);",
       "PCGDEFS(startIndex, patternAddress, count);",
+      "LOCATE(x, y);",
+      "TATTR(attribute);",
       "PRINT(CHR$(index));"
     ],
     "notes": [
@@ -295,18 +297,58 @@
       "PCGDEFS advances the source pointer by 24 and the character index by 1 for every glyph.",
       "Hardware registration consumes one vertical blank per glyph, approximately count/60 seconds for PCGDEFS. Load assets during initialization, not every frame.",
       "After registration the source pattern buffer can be reused. TILELIB map and index arrays, by contrast, remain referenced during drawing.",
-      "PCG indexes are 0 through 255 and share the text character-code space."
+      "PCG indexes are 0 through 255 and share the text character-code space.",
+      "Defining a PCG pattern does not select it for display. Set attribute bit 5 on the target text cell with TATTR before printing the PCG character code.",
+      "WIDTH and other screen clears refill text attributes; issue TATTR again after a clear."
     ],
     "examples": [
       {
         "title": "Define and display a blue PCG glyph",
-        "source": "ARRAY BYTE GLYPH[] = {\n  $3C,0,0, $7E,0,0, $DB,0,0, $FF,0,0,\n  $A5,0,0, $FF,0,0, $66,0,0, $3C,0,0\n};\n\nMAIN() BEGIN\n  WIDTH(40);\n  PCGDEFS(128, GLYPH, 1);\n  PRINT(CHR$(128), /);\nEND;"
+        "source": "ARRAY BYTE GLYPH[] = {\n  $3C,0,0, $7E,0,0, $DB,0,0, $FF,0,0,\n  $A5,0,0, $FF,0,0, $66,0,0, $3C,0,0\n};\n\nMAIN() BEGIN\n  WIDTH(40);\n  PCGDEFS(128, GLYPH, 1);\n  LOCATE(0, 0);\n  TATTR($27);\n  PRINT(CHR$(128), /);\nEND;"
       }
     ],
-    "relatedIds": ["slang.include.tile-sprite", "slang.x1.display-graphics", "slang.x1.sgl", "slang.runtime.catalog"],
+    "relatedIds": ["slang.include.tile-sprite", "slang.x1.display-graphics", "slang.x1.sgl", "slang.x1.text-attribute", "slang.runtime.catalog"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/libx1_pcg.asm",
       "https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/examples/tile/README.md"
+    ]
+  },
+  {
+    "id": "slang.x1.text-attribute",
+    "language": "slang",
+    "kind": "x1-extension",
+    "title": "Setting the current X1 text-cell attribute with TATTR",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "symbols": ["TATTR"],
+    "aliases": ["TATTR", "text attribute", "attribute VRAM", "PCG attribute", "current cell color", "文字属性", "属性VRAM", "PCG属性", "文字色"],
+    "summary": "TATTR(attribute) writes one attribute byte to the current LSX text cursor cell without changing its character code, kanji code or cursor position. It returns 1 on success and 0 when validation rejects the call.",
+    "syntax": [
+      "TATTR(attribute)",
+      "LOCATE(x, y); TATTR($27); PRINT(CHR$(128));"
+    ],
+    "notes": [
+      "The argument is passed in HL as one SLANG word. Values 0000H through 00FFH are accepted; any nonzero high byte is rejected with HL=0 and no VRAM write.",
+      "On success HL returns 1. The low argument byte is written unchanged, so bits are 7=X2, 6=Y2, 5=PCG, 4=blink, 3=reverse and 2..0=BRG color.",
+      "The target is exactly the current LSX text cursor cell established by LOCATE or prior text output. TATTR takes no coordinates and does not move the cursor; a following PRINT writes at that same cell and then advances normally.",
+      "TATTR samples the cursor once and is not synchronized with an interrupt handler that relocates the text cursor. Do not depend on the sampled target while an ISR changes the cursor; ordinary LSX interrupt handlers do not do so.",
+      "The runtime writes the canonical attribute port 2000H plus the cursor offset with exactly one OUT. It does not write the 2800H mirror, ANK text VRAM or kanji VRAM and performs no input-port access.",
+      "Visible offsets are 0 through 999 in WIDTH(40) and 0 through 1999 in WIDTH(80). An offset outside the active range returns 0 with no write. LOCATE itself does not validate coordinates, so an invalid coordinate whose arithmetic aliases a visible offset is treated as that visible cell.",
+      "A program that calls neither WIDTH nor LOCATE uses LSX's initialized current cursor and the runtime's default 80-column width, so TATTR is still defined.",
+      "TATTR clobbers A, flags, BC and DE as allowed by the SLANG runtime calling convention. It preserves IX, IY, SP, the current text cursor and other persistent runtime work state.",
+      "TATTR executes no DI, EI or interrupt-mode operation; interrupt enable state is unchanged.",
+      "PRINT preserves an attribute already written to its target cell. WIDTH and other screen-clear paths refill or erase attributes, so issue TATTR again after a clear.",
+      "TATTR selects attributes only. PCGDEF or PCGDEFS must separately define a glyph pattern, and PRINT or another text writer must separately place its character code.",
+      "This profile provides TATTR in X1Pen's bundled LSX runtime. Availability in upstream x1.env and x1native.env follows separately. On a profile without TATTR, PORT[$2000+offset]=attribute is the low-level equivalent, but the caller must calculate and validate the current logical offset and preserve the cursor contract itself."
+    ],
+    "examples": [
+      {
+        "title": "Select a white PCG glyph for the next printed cell",
+        "source": "MAIN() BEGIN\n  WIDTH(40);\n  LOCATE(10, 5);\n  IF TATTR($27) THEN PRINT(CHR$(128));\nEND;"
+      }
+    ],
+    "relatedIds": ["slang.x1.pcg-definition", "slang.output.print-strings", "slang.runtime.catalog", "x1.video.text-vram", "x1.video.pcg-palette"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/libx1_print.asm"
     ]
   },
   {
@@ -377,7 +419,7 @@
     "profiles": ["x1pen-slang-c9e8f53-lsx"],
     "symbols": ["UI_AT", "UI_SET_COLOR", "UI_PUTC", "UI_PUTS", "UI_FILL", "UI_BOX", "UI_FONT_ADDR"],
     "aliases": ["UI_AT", "UI_SET_COLOR", "UI_PUTC", "UI_PUTS", "UI_FILL", "UI_BOX", "UI_FONT_ADDR", "ユーザーインターフェース", "文字UI", "テキスト画面", "文字表示", "色を変える", "枠を描く"],
-    "summary": "UILIB provides cursor positioning, color, character/string output, fill and box operations for compact text-oriented interfaces.",
+    "summary": "UILIB provides cursor positioning and rasterized character/string drawing into graphics VRAM, plus color, fill and box operations for compact interfaces.",
     "syntax": [
       "#INCLUDE UILIB.LIB",
       "UI_AT(x,y)",
@@ -390,9 +432,10 @@
     ],
     "notes": [
       "UI_PUTS receives an address, normally a zero-terminated SLANG string literal or buffer.",
-      "The fill and box calls use compact packed arguments defined by UILIB; inspect its comments when constructing nontrivial layouts."
+      "The fill and box calls use compact packed arguments defined by UILIB; inspect its comments when constructing nontrivial layouts.",
+      "UI_SET_COLOR masks its argument to three bits and selects graphics-VRAM planes for UILIB's rasterizer. It does not write X1 text attribute VRAM; use TATTR for a hardware text cell attribute."
     ],
-    "relatedIds": ["slang.output.print-strings", "slang.x1.display-graphics", "slang.includes.catalog"],
+    "relatedIds": ["slang.output.print-strings", "slang.x1.display-graphics", "slang.x1.text-attribute", "slang.includes.catalog"],
     "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_include/UILIB.LIB"]
   },
   {

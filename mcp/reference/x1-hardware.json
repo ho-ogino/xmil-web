@@ -100,7 +100,7 @@
         "source": "ORG 0100H\nLD BC,01A02H\nIN A,(C)\nLD BC,03000H\nLD A,041H\nOUT (C),A\nLD BC,02000H\nLD A,07H\nOUT (C),A\nRET"
       }
     ],
-    "relatedIds": ["x1.architecture.address-spaces", "x1.video.pcg-palette", "x1.video.screen-control", "x1.video.graphics-vram"],
+    "relatedIds": ["x1.architecture.address-spaces", "x1.video.pcg-palette", "x1.video.screen-control", "x1.video.graphics-vram", "slang.x1.text-attribute"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/platform/x1_vram_port.cpp",
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_VRAM.H",
@@ -223,7 +223,7 @@
         "source": "ORG 0100H\nLD BC,01000H\nLD A,0FFH\nOUT (C),A\nRET"
       }
     ],
-    "relatedIds": ["x1.video.text-vram", "x1.video.screen-control", "x1.video.graphics-vram", "x1.video.turboz-controls", "x1.architecture.address-spaces"],
+    "relatedIds": ["x1.video.text-vram", "x1.video.screen-control", "x1.video.graphics-vram", "x1.video.turboz-controls", "x1.architecture.address-spaces", "slang.x1.text-attribute"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_PCG.CPP",
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_CRTC.CPP",

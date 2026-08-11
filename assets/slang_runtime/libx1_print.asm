@@ -146,6 +146,43 @@ POP	BC
 RET
 
 
+; @name TATTR
+; @param_count 1
+; @calls sWORK,X1WORK
+; HL = attribute word. Returns HL=1 on success, HL=0 if the
+; attribute is not a byte or the current cursor cell is not visible.
+LD A,H
+OR A
+JR NZ,.TATTR_INVALID
+PUSH HL
+LD HL,(_TXADR)
+LD A,(AT_WIDTH)
+CP 41
+LD BC,1000
+JR C,.TATTR_CHECK
+LD BC,2000
+.TATTR_CHECK
+OR A
+SBC HL,BC
+JR NC,.TATTR_INVALID_POP
+ADD HL,BC
+LD B,H
+LD C,L
+LD A,B
+OR $20
+LD B,A
+POP HL
+LD A,L
+OUT (C),A
+LD HL,1
+RET
+.TATTR_INVALID_POP
+POP HL
+.TATTR_INVALID
+LD HL,0
+RET
+
+
 ; @name AT_VRCALC
 ; @param_count 1
 ; @calls sWORK,X1WORK
@@ -524,5 +561,4 @@ DB	000H,00FH
 DW	0-40*CRTC_LINE,0-40
 DB	00DH
 DB	0A3H
-
 

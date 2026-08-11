@@ -535,6 +535,84 @@ test('SLANG catalogs cover the exact runtime and include files loaded by X1Pen',
   );
 });
 
+test('SLANG TATTR reference matches the runtime, editor and PCG contract', () => {
+  const entries = validateReferenceData().entries;
+  const tattr = entries.find((entry) => entry.id === 'slang.x1.text-attribute');
+  assert.ok(tattr);
+  assert.deepEqual(tattr.symbols, ['TATTR']);
+  const details = [tattr.summary, ...tattr.syntax, ...tattr.notes].join(' ');
+  for (const expected of [
+    '0000H through 00FFH', 'HL=0', 'HL returns 1',
+    '7=X2', '6=Y2', '5=PCG', '4=blink', '3=reverse', '2..0=BRG',
+    'current LSX text cursor cell', 'does not move the cursor',
+    '2000H', 'exactly one OUT', '2800H mirror', 'ANK text VRAM', 'kanji VRAM',
+    '0 through 999', '0 through 1999', 'default 80-column width',
+    'clobbers A, flags, BC and DE', 'preserves IX, IY, SP',
+    'interrupt enable state is unchanged', 'issue TATTR again after a clear',
+  ]) {
+    assert.match(details, new RegExp(expected.replace(/[()]/g, '\\$&')));
+  }
+  for (const id of ['x1.video.text-vram', 'x1.video.pcg-palette']) {
+    assert.ok(tattr.relatedIds.includes(id));
+    assert.ok(entries.find((entry) => entry.id === id).relatedIds.includes(tattr.id));
+  }
+
+  const pcg = entries.find((entry) => entry.id === 'slang.x1.pcg-definition');
+  assert.ok(pcg.symbols.includes('TATTR'));
+  assert.match(pcg.notes.join(' '), /attribute bit 5/);
+  const pcgSource = pcg.examples[0].source;
+  assert.match(pcgSource, /LOCATE\(0, 0\);[\s\S]*TATTR\(\$27\);[\s\S]*PRINT\(CHR\$\(128\)/);
+
+  const ui = entries.find((entry) => entry.id === 'slang.include.ui');
+  assert.match([ui.summary, ...ui.notes].join(' '), /graphics VRAM[\s\S]*does not write X1 text attribute VRAM/);
+
+  const editorLanguage = readFileSync(join(repoRoot, 'src/x1pen_slang_lang.js'), 'utf8');
+  const builtinBlock = editorLanguage.match(/var SLANG_BUILTINS = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(builtinBlock);
+  assert.match(builtinBlock[1], /'TATTR'/);
+
+  const runtime = readFileSync(join(repoRoot, 'assets/slang_runtime/libx1_print.asm'), 'utf8');
+  const runtimeBlock = runtime.match(/^; @name TATTR\n([\s\S]*?)^; @name AT_VRCALC$/m);
+  assert.ok(runtimeBlock);
+  assert.match(runtimeBlock[1], /^; @param_count 1$/m);
+  assert.match(runtimeBlock[1], /^; @calls sWORK,X1WORK$/m);
+  assert.match(runtimeBlock[1], /LD HL,\(_TXADR\)[\s\S]*LD A,\(AT_WIDTH\)[\s\S]*LD BC,1000[\s\S]*LD BC,2000/);
+  assert.equal((runtimeBlock[1].match(/OUT\s+\(C\),A/g) || []).length, 1);
+  assert.doesNotMatch(runtimeBlock[1], /\bIN\s+|DI|EI|LD\s+\(_TXADR\),/);
+});
+
+test('SLANG TATTR compiles, assembles and stays dependency-pruned', () => {
+  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const vfs = loadSlangVfs();
+  const options = {
+    defaultOrg: 0x100,
+    codeReadonly: false,
+    defines: { ENV_TYPE: 1 },
+  };
+
+  const unused = compiler.compile('MAIN() { LOOP { } }', vfs, options);
+  assert.equal(unused.errors.length, 0, JSON.stringify(unused.errors));
+  assert.doesNotMatch(unused.asm, /^TATTR:$/m);
+
+  const probe = compiler.compile([
+    'MAIN()',
+    '{',
+    '  MEM[$4000]=TATTR($27);',
+    '  MEM[$4001]=TATTR($FF);',
+    '  MEM[$4002]=TATTR($100);',
+    '  LOOP { }',
+    '}',
+  ].join('\n'), vfs, options);
+  assert.equal(probe.errors.length, 0, JSON.stringify(probe.errors));
+  assert.match(probe.asm, /^TATTR:$/m);
+  const assembled = assembler.assemble(probe.asm, { ENV_TYPE: 1 });
+  assert.equal(assembled.errors.length, 0, JSON.stringify(assembled.errors));
+  assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.TATTR'] >= assembled.org);
+  assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.SLANG_PROG_END'] < 0x4000);
+  assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.__WORKEND__'] < 0x4000);
+});
+
 test('SLANG STICK reference matches the X1 runtime and editor contract', () => {
   const entries = validateReferenceData().entries;
   const stick = entries.find((entry) => entry.id === 'slang.x1.input');
