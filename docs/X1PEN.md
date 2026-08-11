@@ -68,9 +68,9 @@ ORG 0C000h
 - ASM のルーチンが `&HC000` に配置され、BASIC の `USR(&HC000)` で呼び出されます
 - FuzzyBASIC では `USR` の戻り値は HL レジスタに入れます
 
-## PROGRAM ディスクと AUTORUN.BAS
+## PROGRAM ディスク、project disk、AUTORUN.BAS
 
-ASM タブに内容がある状態で RUN すると、FDD0 に「(PROGRAM)」ディスクがマウントされます。
+FDD0に通常のライブラリディスクをマウントしていない状態でRUNすると、従来どおり一時的な「(PROGRAM)」ディスクがマウントされます。
 このディスクには以下が含まれます:
 
 | ファイル | 内容 |
@@ -87,10 +87,25 @@ BASIC プログラムから自由に利用できます:
 | `PSGAKG.BIN` | Arkos Tracker AKG 形式の再生ドライバ |
 | `PSGAKM.BIN` | Arkos Tracker AKM 形式の再生ドライバ |
 
+### FDD0をproject diskとして使う
+
+書き込み可能なLSX-Dodgers形式のD88/2DディスクをライブラリからFDD0へマウントしてRUNすると、初回だけ確認後に`<元の名前>-X1Pen`という別のworking copyを作成します。同名時は連番が付きます。元ディスクへX1Pen管理ファイルを書き込まず、working copyへ`PROG.COM`、`PROGRAM.BIN`、`AUTORUN.BAS`、`AUTOEXEC.BAT`を更新します。
+
+- working copyにはproject metadataが付くため、X1Penを閉じて再度マウントしてもコピーは増えません
+- guestによるディスク書き込みとRUN結果はライブラリへ自動保存されます
+- FDD1は変更・イジェクトされず、2枚目のデータディスクとして利用できます
+- multi-disk D88、HuBASICなどLSX-Dodgers以外の形式、write-protectedまたは異常のあるディスクは拒否します
+- 検査するのはファイルシステム構造だけです。正常なbootやプログラム開始は保証しません
+- project diskのRUNは通常のcold power-onを行うため、現在のエミュレータRAMは消去されます
+
+MCP/Automationから通常ディスクを初めて使う場合は`PROJECT_DISK_SETUP_REQUIRED`になります。X1Pen画面で一度RUNしてworking copy作成を承認した後に再実行してください。
+
 ### ディスクイメージのダウンロード
 
-エミュレータ下部のコントロールバーで **FDD** → FDD0 の **Save** ボタンをクリックすると、
+一時PROGRAMディスクは、エミュレータ下部のコントロールバーで **FDD** → FDD0 の **Save** ボタンをクリックすると、
 `PROGRAM.d88` としてディスクイメージをダウンロードできます。
+
+project diskはRUNとguest writeのたびライブラリへ自動保存されます。外部D88として保存する場合はライブラリ一覧の **Download** を使用してください。
 
 このディスクには LSX-Dodgers と FuzzyBASIC が含まれており、そのままブートできる起動ディスクです。
 X millennium Web 本体のエミュレータで FDD にマウントして起動すれば、AUTORUN.BAS が自動実行されます。

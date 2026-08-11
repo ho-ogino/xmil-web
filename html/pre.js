@@ -26,6 +26,7 @@
     const slotDirtyPages = {};     // slotName → Set<pageIndex> (64KB pages for OPFS partial write)
     const slotDirtyEpoch = {};     // slotName → number (incremented per write, for safe dirty clearing)
     const PAGE_SIZE = 65536;       // 64KB
+    let projectDiskTransaction = null;
 
     var emmImportSlot = -1;       // インポート対象スロット番号
     var emmImportInput = null;    // 隠し file input (init() で生成)
@@ -201,6 +202,7 @@
     // ----------------------------------------------------------------
 
     async function createEmm(slotNum, sizeBytes) {
+        if (projectDiskTransaction) throw new Error('Media changes are locked during X1Pen project disk update');
         if (slotNum < 0 || slotNum > 9) return;
         if (sizeBytes <= 0 || sizeBytes > 16 * 1024 * 1024) return;
         // 256B 境界に丸める
@@ -463,6 +465,7 @@
 
     // ファイルをライブラリに追加 (OPFS + localStorage メタ)
     async function addToLibrary(file) {
+        if (projectDiskTransaction) throw new Error('Media changes are locked during X1Pen project disk update');
         var type = detectFileType(file.name);
         if (!type) {
             alert('不明なファイル形式です: ' + file.name + '\n対応: D88/2D/88D (FDD), HDD/HD (HDD), CAS/CMT/TAP/BAS/BIN (CMT)');
@@ -517,6 +520,7 @@
 
     // ライブラリからスロットにマウント
     async function mountFromLibrary(key, slotName) {
+        if (projectDiskTransaction) throw new Error('Media changes are locked during X1Pen project disk update');
         var entry = getLibrary().find(function(e) { return e.key === key; });
         if (!entry) { alert('ファイルが見つかりません'); return; }
 
@@ -595,6 +599,7 @@
 
     // スロットをeject (ファイルはライブラリに保持)
     async function ejectSlot(slotName) {
+        if (projectDiskTransaction) throw new Error('Media changes are locked during X1Pen project disk update');
         if (!slotState[slotName]) return;
 
         // 順序が重要:
@@ -666,8 +671,323 @@
         URL.revokeObjectURL(url);
     }
 
+    function projectDiskFailure(code, message, details) {
+        var error = new Error(message);
+        error.code = code;
+        Object.keys(details || {}).forEach(function(key) { error[key] = details[key]; });
+        return error;
+    }
+
+    async function sha256Hex(arrayBuffer) {
+        var digest = await crypto.subtle.digest('SHA-256', arrayBuffer);
+        return Array.from(new Uint8Array(digest)).map(function(value) {
+            return value.toString(16).padStart(2, '0');
+        }).join('');
+    }
+
+    function buffersEqual(left, right) {
+        if (!left || !right || left.byteLength !== right.byteLength) return false;
+        var a = new Uint8Array(left), b = new Uint8Array(right);
+        for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+        return true;
+    }
+
+    function cloneLibraryEntry(entry) {
+        return entry ? JSON.parse(JSON.stringify(entry)) : null;
+    }
+
+    function saveProjectLibraryStrict(library) {
+        var serialized = JSON.stringify(library);
+        localStorage.setItem(LS_LIBRARY, serialized);
+        if (localStorage.getItem(LS_LIBRARY) !== serialized) {
+            throw projectDiskFailure('PROJECT_DISK_METADATA_SAVE_FAILED', 'Project disk metadata could not be verified');
+        }
+    }
+
+    function saveProjectMountStateStrict() {
+        var serialized = JSON.stringify(slotState);
+        localStorage.setItem(LS_MOUNT_STATE, serialized);
+        if (localStorage.getItem(LS_MOUNT_STATE) !== serialized) {
+            throw projectDiskFailure('PROJECT_DISK_MOUNT_STATE_SAVE_FAILED', 'Project disk mount state could not be verified');
+        }
+    }
+
+    function mountedDrive0Entry() {
+        var key = slotState.drive0;
+        if (!key || key === '__x1pen_temp__') return null;
+        var entry = getLibrary().find(function(candidate) { return candidate.key === key; });
+        return entry ? cloneLibraryEntry(entry) : null;
+    }
+
+    async function inspectMountedProjectDisk() {
+        var entry = mountedDrive0Entry();
+        if (!entry || !window.XmilStorage) return null;
+        var bytes = await window.XmilStorage.read(entry.key);
+        if (!bytes) throw projectDiskFailure('PROJECT_DISK_READ_FAILED', 'Could not read the mounted FDD0 image');
+        return { entry: entry, bytes: bytes };
+    }
+
+    function assertNoProjectDiskAlias(key) {
+        for (var slotName in slotState) {
+            if (slotName !== 'drive0' && slotState[slotName] === key) {
+                throw projectDiskFailure(
+                    'PROJECT_DISK_ALIAS_CONFLICT',
+                    'The same disk is also mounted in ' + slotName + '; eject it there before Run',
+                    { conflictingSlot: slotName }
+                );
+            }
+        }
+    }
+
+    function uniqueProjectDiskName(sourceName, library) {
+        var dot = sourceName.lastIndexOf('.');
+        var stem = dot > 0 ? sourceName.slice(0, dot) : sourceName;
+        var ext = dot > 0 ? sourceName.slice(dot) : '.d88';
+        var used = {};
+        library.forEach(function(entry) { used[String(entry.name || '').toLowerCase()] = true; });
+        var candidate = stem + '-X1Pen' + ext;
+        var index = 2;
+        while (used[candidate.toLowerCase()]) candidate = stem + '-X1Pen-' + index++ + ext;
+        return candidate;
+    }
+
+    function clearDrive0Bookkeeping() {
+        slotState.drive0 = null;
+        slotVfsPath.drive0 = null;
+        slotDirty.drive0 = false;
+        slotDirtyPages.drive0 = null;
+        fddDiskType[0] = null;
+        saveProjectMountStateStrict();
+        updateSlotUI('drive0', null);
+        renderLibraryList();
+    }
+
+    async function mountProjectDiskBytes(key, entry, bytes) {
+        var ext = entry.ext != null ? entry.ext : (entry.name.split('.').pop() || 'd88');
+        var vfsPath = slotToVfsPath('drive0', ext);
+        writeFileToVFS(vfsPath, new Uint8Array(bytes));
+        if (module) module.ccall('js_insert_disk', null, ['string', 'number'], [vfsPath, 0]);
+        var arr = new Uint8Array(bytes);
+        fddDiskType[0] = (arr.length > 0x1C && arr[0x1B] === 0x20) ? '2hd' : '2d';
+        slotState.drive0 = key;
+        slotVfsPath.drive0 = vfsPath;
+        slotDirty.drive0 = false;
+        slotDirtyPages.drive0 = null;
+        saveProjectMountStateStrict();
+        updateSlotUI('drive0', entry.name);
+        renderLibraryList();
+    }
+
+    async function beginProjectDiskTransaction() {
+        if (projectDiskTransaction) {
+            throw projectDiskFailure('PROJECT_DISK_BUSY', 'Another project disk update is already running');
+        }
+        var entry = mountedDrive0Entry();
+        if (!entry) throw projectDiskFailure('PROJECT_DISK_NOT_MOUNTED', 'Mount an LSX-Dodgers disk in FDD0 first');
+        assertNoProjectDiskAlias(entry.key);
+        var tx = {
+            key: entry.key,
+            entry: entry,
+            library: getLibrary().map(cloneLibraryEntry),
+            wasRunning: isRunning,
+            detached: false,
+            committed: false,
+            restored: false,
+            writeAttempted: false,
+            metadataWriteAttempted: false,
+            targetKey: null,
+            targetEntry: null
+        };
+        projectDiskTransaction = tx;
+        try {
+            if (module && module._js_xmil_stop) module._js_xmil_stop();
+            isRunning = false;
+            updatePowerBtn();
+            await flushAllDirty({ strict: true });
+            if (slotState.drive0 !== tx.key || slotDirty.drive0) {
+                throw projectDiskFailure('PROJECT_DISK_CHANGED', 'FDD0 changed or became dirty during project disk capture');
+            }
+            assertNoProjectDiskAlias(tx.key);
+            tx.bytes = await window.XmilStorage.read(tx.key);
+            if (!tx.bytes) throw projectDiskFailure('PROJECT_DISK_READ_FAILED', 'Could not capture the flushed FDD0 image');
+            tx.hash = await sha256Hex(tx.bytes);
+            tx.otherSlots = {};
+            for (var slotName in slotState) {
+                if (slotName === 'drive0' || !slotState[slotName]) continue;
+                tx.otherSlots[slotName] = {
+                    key: slotState[slotName],
+                    vfsPath: slotVfsPath[slotName]
+                };
+            }
+            if (module && module._js_eject_disk) module._js_eject_disk(0);
+            tx.detached = true;
+            clearDrive0Bookkeeping();
+            return tx;
+        } catch (error) {
+            if (tx.detached && tx.bytes) {
+                try { await mountProjectDiskBytes(tx.key, tx.entry, tx.bytes); }
+                catch (rollbackError) {
+                    error.rollbackFailed = true;
+                    error.rollbackMessage = rollbackError.message;
+                }
+            }
+            projectDiskTransaction = null;
+            if (tx.wasRunning && module && module._js_xmil_start) {
+                module._js_xmil_start();
+                isRunning = true;
+                updatePowerBtn();
+            }
+            throw error;
+        }
+    }
+
+    async function restoreProjectDiskTransaction(tx) {
+        if (!tx || projectDiskTransaction !== tx || tx.restored) return;
+        try {
+            if (tx.targetKey && tx.targetKey !== tx.key) {
+                await window.XmilStorage.remove(tx.targetKey);
+            }
+            if (tx.writeAttempted && tx.targetKey === tx.key) {
+                await window.XmilStorage.write(tx.key, tx.bytes);
+            }
+            if (tx.metadataWriteAttempted) {
+                var library = getLibrary().map(cloneLibraryEntry);
+                if (tx.targetKey !== tx.key) {
+                    library = library.filter(function(entry) { return entry.key !== tx.targetKey; });
+                } else {
+                    var restoredEntry = false;
+                    for (var i = 0; i < library.length; i++) {
+                        if (library[i].key === tx.key) {
+                            library[i] = cloneLibraryEntry(tx.entry);
+                            restoredEntry = true;
+                            break;
+                        }
+                    }
+                    if (!restoredEntry) library.push(cloneLibraryEntry(tx.entry));
+                }
+                saveProjectLibraryStrict(library);
+            }
+            await mountProjectDiskBytes(tx.key, tx.entry, tx.bytes);
+            tx.restored = true;
+        } finally {
+            tx.committed = false;
+        }
+    }
+
+    async function commitProjectDiskTransaction(tx, newBytes, projectMode) {
+        if (!tx || projectDiskTransaction !== tx || !tx.detached) {
+            throw projectDiskFailure('PROJECT_DISK_TRANSACTION_INVALID', 'Project disk transaction is not active');
+        }
+        var bytes = newBytes instanceof ArrayBuffer
+            ? newBytes.slice(0)
+            : newBytes.buffer.slice(newBytes.byteOffset, newBytes.byteOffset + newBytes.byteLength);
+        var library = getLibrary().map(cloneLibraryEntry);
+        var liveSource = library.find(function(entry) { return entry.key === tx.key; });
+        if (!liveSource || JSON.stringify(liveSource) !== JSON.stringify(tx.entry)) {
+            throw projectDiskFailure('PROJECT_DISK_LIBRARY_CHANGED', 'The project disk library entry changed during Run');
+        }
+        var targetEntry;
+        if (tx.entry.x1penProject) {
+            targetEntry = cloneLibraryEntry(tx.entry);
+        } else {
+            var name = uniqueProjectDiskName(tx.entry.name, library);
+            targetEntry = {
+                key: makeLibraryKey('fdd', name),
+                name: name,
+                type: 'fdd',
+                ext: name.split('.').pop(),
+                size: bytes.byteLength,
+                addedAt: new Date().toISOString(),
+                favorite: false,
+                x1penProject: true,
+                sourceKey: tx.entry.key,
+                sourceHash: tx.hash,
+                projectCreatedAt: new Date().toISOString()
+            };
+            library.push(targetEntry);
+        }
+        targetEntry.size = bytes.byteLength;
+        targetEntry.projectMode = projectMode;
+        targetEntry.projectUpdatedAt = new Date().toISOString();
+        tx.targetKey = targetEntry.key;
+        tx.targetEntry = targetEntry;
+        try {
+            await window.XmilStorage.ensureCapacity(bytes.byteLength);
+            tx.writeAttempted = true;
+            await window.XmilStorage.write(targetEntry.key, bytes);
+            tx.committed = true;
+            var readBack = await window.XmilStorage.read(targetEntry.key);
+            if (!buffersEqual(bytes, readBack)) {
+                throw projectDiskFailure('PROJECT_DISK_VERIFY_FAILED', 'Stored project disk did not match the prepared image');
+            }
+            for (var i = 0; i < library.length; i++) {
+                if (library[i].key === targetEntry.key) { library[i] = targetEntry; break; }
+            }
+            tx.metadataWriteAttempted = true;
+            saveProjectLibraryStrict(library);
+            await mountProjectDiskBytes(targetEntry.key, targetEntry, readBack);
+            var mounted = module && module.FS ? module.FS.readFile(slotVfsPath.drive0) : null;
+            if (slotState.drive0 !== targetEntry.key || !mounted || !buffersEqual(readBack, mounted.buffer.slice(mounted.byteOffset, mounted.byteOffset + mounted.byteLength))) {
+                throw projectDiskFailure('PROJECT_DISK_MOUNT_VERIFY_FAILED', 'Mounted FDD0 did not match the committed project disk');
+            }
+            return cloneLibraryEntry(targetEntry);
+        } catch (error) {
+            try { await restoreProjectDiskTransaction(tx); }
+            catch (rollbackError) {
+                error.rollbackFailed = true;
+                error.rollbackMessage = rollbackError.message;
+            }
+            throw error;
+        }
+    }
+
+    function finishProjectDiskTransaction(tx, resumePrevious) {
+        if (!tx || projectDiskTransaction !== tx) return;
+        projectDiskTransaction = null;
+        if (resumePrevious && tx.wasRunning && module && module._js_xmil_start) {
+            module._js_xmil_start();
+            isRunning = true;
+            updatePowerBtn();
+        }
+    }
+
+    function coldPowerOnProjectDisk(modelValue, expectedOtherSlots) {
+        if (!module || !module._js_xmil_power_on || !module._js_set_rom_type || !module._js_get_rom_type) {
+            throw projectDiskFailure('PROJECT_DISK_MACHINE_UNAVAILABLE', 'Normal project disk power-on is unavailable');
+        }
+        module._js_set_rom_type(modelValue);
+        var settings = window.XmilControls ? window.XmilControls.getSettings() : {};
+        var dip = 0;
+        if (!settings.dipHighres) dip |= 0x01;
+        if (settings.dip2hd) dip |= 0x04;
+        if (module._js_set_dip_sw) module._js_set_dip_sw(dip);
+        if (module._js_set_sound_sw) module._js_set_sound_sw(settings.fmEnable ? 1 : 0);
+        if (module._js_get_rom_type() !== modelValue || (module._js_get_dip_sw && module._js_get_dip_sw() !== dip)) {
+            throw projectDiskFailure('PROJECT_DISK_MACHINE_MISMATCH', 'Project disk machine settings could not be applied');
+        }
+        if (module._js_xmil_power_off) module._js_xmil_power_off();
+        module._js_xmil_power_on();
+        for (var slotName in (expectedOtherSlots || {})) {
+            var expected = expectedOtherSlots[slotName];
+            if (slotState[slotName] !== expected.key || slotVfsPath[slotName] !== expected.vfsPath) {
+                if (module._js_xmil_stop) module._js_xmil_stop();
+                isRunning = false;
+                updatePowerBtn();
+                throw projectDiskFailure(
+                    'PROJECT_DISK_OTHER_SLOT_CHANGED',
+                    slotName + ' changed during project disk power-on',
+                    { conflictingSlot: slotName }
+                );
+            }
+        }
+        isRunning = true;
+        updatePowerBtn();
+        return { model: modelValue, dip: dip };
+    }
+
     // ライブラリから削除
     async function deleteFromLibrary(key) {
+        if (projectDiskTransaction) throw new Error('Media changes are locked during X1Pen project disk update');
         var entry = getLibrary().find(function(e) { return e.key === key; });
         if (!entry) return;
         if (!confirm('"' + entry.name + '" をライブラリから削除しますか？\nマウント中の場合は自動的にイジェクトされます。')) return;
@@ -3141,6 +3461,7 @@
     }
 
     function toggleFavorite(key) {
+        if (projectDiskTransaction) return;
         var lib = getLibrary();
         var entry = lib.find(function(e) { return e.key === key; });
         if (!entry) return;
@@ -3431,6 +3752,7 @@
                 return raw ? JSON.parse(raw) : {};
             } catch(e) { return {}; }
         },
+        coldPowerOnProjectDisk: coldPowerOnProjectDisk,
 
         // ROM/Font 管理
         onRomFileChange: onRomFileChange,
@@ -3559,6 +3881,12 @@
         toggleFavorite: toggleFavorite,
         renderLibraryList: renderLibraryList,
         autoRestoreMounts: autoRestoreMounts,
+        inspectMountedProjectDisk: inspectMountedProjectDisk,
+        beginProjectDiskTransaction: beginProjectDiskTransaction,
+        commitProjectDiskTransaction: commitProjectDiskTransaction,
+        restoreProjectDiskTransaction: restoreProjectDiskTransaction,
+        finishProjectDiskTransaction: finishProjectDiskTransaction,
+        isProjectDiskTransactionActive: function() { return !!projectDiskTransaction; },
         setSearch: function(v) { currentLibrarySearch = v; },
         setSort:   function(v) { currentLibrarySort = v; },
         setFavoritesOnly: function(v) { currentFavoritesOnly = v; },
