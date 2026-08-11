@@ -20,6 +20,7 @@ JP !VSYNC_PROC
 
 
 ; @name VSYNC
+; @param_count 1
 ; @calls VSYNC_CHECK
 ; HL = WAIT COUNT
 VSYNC_LOOP:
@@ -103,4 +104,3 @@ RET	NZ
 ; INC	C
 LD	(CTCADR),BC
 RET
-

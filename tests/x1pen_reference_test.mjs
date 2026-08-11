@@ -535,6 +535,243 @@ test('SLANG catalogs cover the exact runtime and include files loaded by X1Pen',
   );
 });
 
+test('SLANG runtime arity metadata matches the reviewed VFS and compiler builtin catalog', () => {
+  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
+  const x1penSource = readFileSync(join(repoRoot, 'html/x1pen.js'), 'utf8');
+  const compilerSource = readFileSync(join(repoRoot, 'html/x1pen_slang_compiler.js'), 'utf8');
+  const runtimeFiles = extractVfsFiles(x1penSource, 'runtimeFiles');
+  const manager = compiler._RuntimeManager();
+  const definitions = new Map();
+
+  for (const filename of runtimeFiles) {
+    const source = readFileSync(join(repoRoot, 'assets/slang_runtime', filename), 'utf8');
+    const functions = compiler._RuntimeParser.parse(source, filename);
+    manager.loadFromString(source, filename);
+    for (const func of functions) {
+      const key = func.name.toLowerCase();
+      if (!definitions.has(key)) definitions.set(key, []);
+      definitions.get(key).push(func);
+    }
+  }
+
+  const nullable = compiler._RuntimeParser.parse([
+    '; @name LEGACY',
+    '; @alias LEGACY_ALIAS',
+    'RET',
+    '; @name EXPLICIT_ZERO',
+    '; @param_count 0',
+    'RET',
+  ].join('\n'), 'arity-probe.asm');
+  assert.equal(nullable[0].paramCount, null);
+  assert.equal(nullable[0].aliases.join(','), 'LEGACY_ALIAS');
+  assert.equal(nullable[1].paramCount, 0);
+
+  const expectedSignatures = new Map([
+    ['ABS', 1],
+    ['ADECI', 0],
+    ['AT_VRCALC', 1],
+    ['BEEP', 0],
+    ['GETKY_DOINIT', 0],
+    ['GETL', 1],
+    ['GETLIN', 2],
+    ['GETREG', 0],
+    ['INKEY', 1],
+    ['INPUT', 0],
+    ['LINPUT', 2],
+    ['lLOC1', 0],
+    ['LOCATE', 2],
+    ['MULHLDE', 2],
+    ['P10', 1],
+    ['P10to5', 1],
+    ['P10toN', 2],
+    ['PCGDEFS', 3],
+    ['PCR', 1],
+    ['PCR1', 1],
+    ['PCRONE', 0],
+    ['PHEX', 1],
+    ['PHEX2', 1],
+    ['PHEX4', 1],
+    ['PRMODE', 1],
+    ['PRT', 1],
+    ['PSIGN', 1],
+    ['PSPC', 1],
+    ['PSTR', 2],
+    ['PSTR2', 2],
+    ['PTAB', 1],
+    ['RBIT', 2],
+    ['RCALL', 1],
+    ['RESET', 2],
+    ['RND', 1],
+    ['RSET', 2],
+    ['sASC', 0],
+    ['sBOOT', 0],
+    ['sBRKEY', 0],
+    ['sCAP', 0],
+    ['SCREEN', 2],
+    ['sCSR', 0],
+    ['sCTRL', 0],
+    ['SEX', 1],
+    ['sFGETL', 0],
+    ['sFLGET', 0],
+    ['sGETKY', 0],
+    ['sGETL', 0],
+    ['SGN', 1],
+    ['sHEX', 0],
+    ['sHLHEX', 0],
+    ['sINKBF', 0],
+    ['sINKEY', 0],
+    ['sKYBFC', 0],
+    ['sLOC', 0],
+    ['sLPRNT', 0],
+    ['sLPTOF', 0],
+    ['sLPTON', 0],
+    ['sLTNL', 0],
+    ['sMPRNT', 0],
+    ['sMSG', 0],
+    ['sMSX', 0],
+    ['sNL', 0],
+    ['sPAUSE', 0],
+    ['sPCLR', 0],
+    ['sPRINT', 0],
+    ['sPRINTS', 0],
+    ['sPRNT0', 0],
+    ['SRAND', 1],
+    ['sSCRN', 0],
+    ['sSYSTEM', 0],
+    ['STICK', 1],
+    ['STOP', 0],
+    ['sWIDCH', 0],
+    ['sWORK', 0],
+    ['sZPRINT', 0],
+    ['TATTR', 1],
+    ['VSYNC', 1],
+    ['VTOS', 2],
+    ['WIDTH', 1],
+  ].map(([name, count]) => [name.toLowerCase(), count]));
+  const actualSignatures = new Map();
+  for (const func of new Set(Object.values(manager.functions))) {
+    if (func.paramCount !== null) actualSignatures.set(func.name.toLowerCase(), func.paramCount);
+  }
+  assert.deepEqual([...actualSignatures].sort(), [...expectedSignatures].sort());
+
+  for (const [name, funcs] of definitions) {
+    const explicitCounts = new Set(funcs
+      .filter((func) => func.paramCount !== null)
+      .map((func) => func.paramCount));
+    assert.ok(explicitCounts.size <= 1,
+      `${name} has conflicting explicit @param_count values across loaded runtime files`);
+  }
+
+  const builtinBlock = compilerSource.match(/var builtinFuncs = \[([\s\S]*?)\n\s*\];/);
+  assert.ok(builtinBlock);
+  const builtins = [...builtinBlock[1].matchAll(/\['([^']+)',(\d+)\]/g)]
+    .map((match) => [match[1], Number(match[2])]);
+  assert.equal(builtins.length, 21);
+  for (const [name, count] of builtins) {
+    const runtime = manager.getFunction(name);
+    assert.ok(runtime, `${name} compiler builtin must resolve through the bundled runtime`);
+    assert.notEqual(runtime.paramCount, null, `${name} runtime must explicitly declare its arity`);
+    assert.equal(runtime.paramCount, count, `${name} compiler/runtime arity must agree`);
+  }
+});
+
+test('SLANG runtime arity validation rejects typed mismatches and preserves legacy calls', () => {
+  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const vfs = loadSlangVfs();
+  const options = {
+    defaultOrg: 0x100,
+    codeReadonly: false,
+    defines: { ENV_TYPE: 1 },
+  };
+  const compile = (source, customVfs = vfs) => compiler.compile(source, customVfs, options);
+  const assertArityError = (source, expected) => {
+    const result = compile(source);
+    assert.equal(result.asm, '');
+    assert.equal(result.errors.length, 1, JSON.stringify(result.errors));
+    assert.equal(result.errors[0].severity, 'Error');
+    assert.equal(result.errors[0].message, expected);
+    assert.ok(result.errors[0].span.start.line >= 1);
+  };
+
+  assertArityError(
+    'MAIN() BEGIN\n  VSYNC();\nEND;',
+    "Runtime function 'VSYNC' expected 1 argument, got 0",
+  );
+  assertArityError(
+    'MAIN() BEGIN\n  VSYNC(1,2);\nEND;',
+    "Runtime function 'VSYNC' expected 1 argument, got 2",
+  );
+  assertArityError(
+    'MAIN() BEGIN\n  BEEP(1);\nEND;',
+    "Runtime function 'BEEP' expected 0 arguments, got 1",
+  );
+  assertArityError(
+    'MAIN() BEGIN\n  BIT(1);\nEND;',
+    "Runtime function 'BIT' expected 2 arguments, got 1",
+  );
+  assertArityError(
+    'MAIN() BEGIN\n  CALL();\nEND;',
+    "Runtime function 'CALL' expected 1 argument, got 0",
+  );
+
+  const valid = compile([
+    'VSYNC_PROC() BEGIN',
+    'END;',
+    'MAIN() BEGIN',
+    '  MEM[$4000]=$5A;',
+    '  VSYNC(1);',
+    '  MEM[$4001]=$A5;',
+    '  LOOP { }',
+    'END;',
+  ].join('\n'));
+  assert.equal(valid.errors.length, 0, JSON.stringify(valid.errors));
+  const assembled = assembler.assemble(valid.asm, { ENV_TYPE: 1 });
+  assert.equal(assembled.errors.length, 0, JSON.stringify(assembled.errors));
+  assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.SLANG_PROG_END'] < 0x4000);
+  assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.__WORKEND__'] < 0x4000);
+
+  const legacyVfs = {
+    ...vfs,
+    'legacy-untyped.asm': '; @name LEGACY_RUNTIME\nLD HL,$1234\nRET\n',
+  };
+  const legacyRuntime = compile([
+    'MAIN() BEGIN',
+    '  LEGACY_RUNTIME();',
+    '  LEGACY_RUNTIME(1);',
+    '  LEGACY_RUNTIME(1,2);',
+    'END;',
+  ].join('\n'), legacyVfs);
+  assert.equal(legacyRuntime.errors.length, 0, JSON.stringify(legacyRuntime.errors));
+  assert.equal(assembler.assemble(legacyRuntime.asm, { ENV_TYPE: 1 }).errors.length, 0);
+
+  const legacyMachine = compile('MACHINE LEGACY_MACHINE; MAIN() BEGIN LEGACY_MACHINE(1,2); END;');
+  assert.equal(legacyMachine.errors.length, 0, JSON.stringify(legacyMachine.errors));
+
+  const userFunction = [
+    'VSYNC(WORD A, WORD B) BEGIN',
+    '  RETURN(A+B);',
+    'END;',
+  ].join('\n');
+  const userCall = 'MAIN() BEGIN\n  VSYNC(1,2);\nEND;';
+  for (const shadowSource of [
+    `${userFunction}\n${userCall}`,
+    `${userCall}\n${userFunction}`,
+  ]) {
+    const shadow = compile(shadowSource);
+    assert.equal(shadow.errors.length, 0, JSON.stringify(shadow.errors));
+    assert.equal(assembler.assemble(shadow.asm, { ENV_TYPE: 1 }).errors.length, 0);
+  }
+
+  for (const machineShadow of [
+    'MACHINE VSYNC(2);\nMAIN() BEGIN VSYNC(1,2); END;',
+    'MAIN() BEGIN VSYNC(1,2); END;\nMACHINE VSYNC(2);',
+  ]) {
+    const shadow = compile(machineShadow);
+    assert.equal(shadow.errors.length, 0, JSON.stringify(shadow.errors));
+  }
+});
+
 test('SLANG TATTR reference matches the runtime, editor and PCG contract', () => {
   const entries = validateReferenceData().entries;
   const tattr = entries.find((entry) => entry.id === 'slang.x1.text-attribute');

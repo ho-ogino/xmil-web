@@ -1026,6 +1026,65 @@ test('SLANG TATTR writes only the current visible text attribute cell', { timeou
   }
 });
 
+test('SLANG runtime arity is rejected by Validate while valid VSYNC still runs', { timeout: 60_000 }, async () => {
+  const probeAddress = 0x4000;
+  const setSlang = (source) => page.evaluate(async (slang) => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    return api.setProgram({
+      sourceMode: 'slang', basic: '', asm: '', slang,
+    }, current.revision, current.revisionEpoch);
+  }, source);
+
+  try {
+    await setSlang([
+      'MAIN() BEGIN',
+      '  VSYNC();',
+      'END;',
+    ].join('\n'));
+    const invalid = await page.evaluate(async () => ({
+      validation: await window.X1PenAutomation.validate(),
+      program: window.X1PenAutomation.getProgram(),
+    }));
+    assert.equal(invalid.validation.ok, false);
+    assert.equal(invalid.validation.diagnostics.length, 1);
+    assert.equal(invalid.validation.diagnostics[0].kind, 'slang');
+    assert.equal(invalid.validation.diagnostics[0].line, 2);
+    assert.match(invalid.validation.diagnostics[0].message, /expected 1 argument, got 0/);
+    assert.equal(invalid.program.asm, '');
+
+    await setSlang([
+      'VSYNC_PROC() BEGIN',
+      'END;',
+      'MAIN() BEGIN',
+      '  MEM[$4000]=$5A;',
+      '  VSYNC(1);',
+      '  MEM[$4001]=$A5;',
+      '  LOOP { }',
+      'END;',
+    ].join('\n'));
+    const valid = await page.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const validation = await api.validate();
+      if (!validation.ok) {
+        throw new Error(`VSYNC validation failed: ${JSON.stringify(validation.diagnostics)}`);
+      }
+      const run = await api.run();
+      if (!run.ok) throw new Error(`VSYNC run failed: ${JSON.stringify(run)}`);
+      return { validation, run };
+    });
+    assert.equal(valid.validation.ok, true);
+    assert.equal(valid.run.ok, true);
+    assert.equal(valid.run.sourceMode, 'slang');
+    await page.waitForFunction((address) => {
+      const bytes = window.X1PenAutomation.debugger.readMemory(address, 2).bytes;
+      return bytes[0] === 0x5A && bytes[1] === 0xA5;
+    }, probeAddress, { timeout: 5000 });
+  } finally {
+    await page.evaluate(() => window.Module._js_xmil_reset());
+  }
+});
+
 test('automation operations are serialized and stale source modes are cleared', async () => {
   const programs = await page.evaluate(async () => {
     const first = window.X1PenAutomation.setProgram({ sourceMode: 'asm', asm: 'ORG $100\nRET' });

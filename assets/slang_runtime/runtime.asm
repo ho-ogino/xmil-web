@@ -474,6 +474,7 @@ RET
 
 ; @name RCALL
 ; @alias CALL
+; @param_count 1
 ; @calls GETREG
 PUSH IY
 LD DE,.call1
@@ -497,6 +498,7 @@ RET
 
 
 ; @name GETREG
+; @param_count 0
 PUSH HL
 LD (_IY), IY
 LD (_IX), IX
@@ -616,5 +618,3 @@ ret           ; そのまま戻る
 ; 入れ替える
 ex de,hl
 ret
-
-
