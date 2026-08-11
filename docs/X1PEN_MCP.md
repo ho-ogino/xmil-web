@@ -95,10 +95,10 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 | `x1pen_get_program` | メタデータと明示指定した完全ソースを取得 |
 | `x1pen_get_source` | 1セクションを行範囲・文字数上限付きで取得 |
 | `x1pen_search_source` | 1セクションをリテラル検索し、限定した前後行を取得 |
-| `x1pen_diff_source` | 保持済みbaselineと現在の1セクションを上限付きline diffで比較 |
-| `x1pen_apply_edits` | revisionEpoch/revision一致時だけ構造化された行編集を適用 |
-| `x1pen_set_program` | revisionEpoch/revision一致時だけプログラム全体を更新（新規作成・全置換用） |
-| `x1pen_validate` | 実行せずにコンパイル、アセンブル、トークナイズ |
+| `x1pen_diff_source` | full source-sync時に保持済みbaselineと現在の1セクションを上限付きline diffで比較 |
+| `x1pen_apply_edits` | full時はepoch/revision、縮退時はrevisionをguardに構造化された行編集を適用 |
+| `x1pen_set_program` | full時はepoch/revision、縮退時はrevisionをguardにプログラム全体を更新（新規作成・全置換用。sourceModeで非対象のsectionは入力してもclear） |
+| `x1pen_validate` | 実行せずにコンパイル、アセンブル、トークナイズ（SLANG生成ASMは一時出力でprogramには保持しない） |
 | `x1pen_run` | ユーザーが開いているX1Penで実行 |
 | `x1pen_recover_stalled` | stallしたRun準備を、データ損失確認後のタブ再読込で復旧 |
 | `x1pen_send_key` | 表示中のX1Penエミュレーターへ許可済みの1キーを送信 |
@@ -117,7 +117,11 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 | `x1pen_debug_write_vram` | 停止中にVRAMへ連続16進データを書き込み |
 | `x1pen_debug_wait_for_pause` | 条件に一致する停止まで待機 |
 
-AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。`x1pen_set_program`と`x1pen_apply_edits`は取得済みの`revisionEpoch`と`revision`を要求し、途中で人間が編集した場合やタブが再読込された場合は上書きを拒否します。`automation.source-sync`をadvertiseしない旧Connector/X1Penへepoch付き更新をdowngradeすることはありません。
+AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。MCP・Connector・X1Penの3コンポーネントがすべて`automation.source-sync`をadvertiseする場合、`x1pen_set_program`と`x1pen_apply_edits`は取得済みの`revisionEpoch`と`revision`を要求し、途中の人間編集やタブ再読込を検出して上書きを拒否します。いずれかが旧版または判定不能の場合は従来のnumeric revision guardへ縮退します。読み取り・書き込み結果の`guardedWritesReloadSafe: false` / `writeGuard: "revision-only"`は、再読込後に同じrevision値へ戻る衝突を検出できないことを示します。
+
+縮退時も`get_program`、`get_source`、`search_source`、`set_program`、`apply_edits`は利用できます。`diff_source`だけは3コンポーネントすべてのsource-sync対応が必要です。旧Connector × 新MCP × 新X1Penでは、X1Penがepochを返しても旧Connectorが書き込み時のepochを転送しないため、書き込み結果は必ずrevision-onlyと表示されます。`apply_edits`は最終書き込み直前にもrevision・epoch（取得可能時）・mode・hashを再確認しますが、その再確認から書き込みまでの短い区間はatomicではありません。
+
+`x1pen_set_program`は完全置換です。`sourceMode: "slang"`では`basic`と`asm`、`sourceMode: "asm"`では`basic`と`slang`、`sourceMode: "basic+asm"`では`slang`が、非空で入力されても保持されずclearされます。現在modeの一部だけを安全に変更して他のauthoring sectionを保持する場合は`x1pen_apply_edits`を使います。SLANGの`x1pen_validate`が返す`output.generatedAsmLines`と`output.asmBytes`は一時compile/assemble結果の量であり、programのASM sectionには書き戻しません。生成ASMを保持して読む必要がある場合は`x1pen_run`後にprogramを再取得します。
 
 ### エミュレーターへのキー入力
 
@@ -209,7 +213,7 @@ X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分
 
 ### 大きなプログラムの扱い
 
-`x1pen_get_program`は引数なしの場合、`sourceMode`、`revisionEpoch`、`revision`、`authoringHash`、各セクションの行数・文字数・UTF-8 byte数・hashを返します。hashはexact UTF-8 byte列の`sha256-utf8-v1`で、改行を正規化しないためLFとCRLFは異なります。完全ソースが必要な場合だけ`fields`を明示します。SLANGから生成されたASMは`generatedContentHash`としてauthoringHashから除外され、`includeGeneratedAsm: true`を明示しない限り本文を返しません。SLANGのRunだけでrevisionと生成ASM hashが変化し、authoringHashが変わらない場合がありますが、自動retryの許可にはなりません。完全取得には既定で128 KiBの上限があり、超えるソースは`x1pen_get_source`で分割取得します。
+`x1pen_get_program`は引数なしの場合、`sourceMode`、利用可能なら`revisionEpoch`、`revision`、`guardedWritesReloadSafe`、`writeGuard`、`authoringHash`、各セクションの行数・文字数・UTF-8 byte数・hashを返します。hashはexact UTF-8 byte列の`sha256-utf8-v1`で、改行を正規化しないためLFとCRLFは異なります。完全ソースが必要な場合だけ`fields`を明示します。SLANGから生成されたASMは`generatedContentHash`としてauthoringHashから除外され、`includeGeneratedAsm: true`を明示しない限り本文を返しません。SLANGのRunだけでrevisionと生成ASM hashが変化し、authoringHashが変わらない場合がありますが、自動retryの許可にはなりません。完全取得には既定で128 KiBの上限があり、超えるソースは`x1pen_get_source`で分割取得します。
 
 ```json
 {
@@ -218,7 +222,7 @@ X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分
 }
 ```
 
-大きなソースは、まず`x1pen_search_source`で位置を探し、`x1pen_get_source`で必要な範囲だけを取得します。
+大きなソースは、まず`x1pen_search_source`で位置を探し、`x1pen_get_source`で必要な範囲だけを取得します。旧版またはcapability不明のページでも、Automation APIが対象sectionを文字列として返す限りbounded read/searchは利用できます。section自体が欠落している場合は、空文字の正当な空ソースと区別して`SOURCE_CONTENT_UNAVAILABLE`を返します。
 
 ```json
 {
@@ -229,7 +233,7 @@ X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分
 }
 ```
 
-既存プログラムの変更には、全置換ではなく`x1pen_apply_edits`を使用します。行番号は1始まりで、同一リクエスト内の編集範囲は重複できません。応答には新しいepoch/revision、hash、変更行数だけが含まれ、完全ソースは返りません。
+既存プログラムの変更には、全置換ではなく`x1pen_apply_edits`を使用します。行番号は1始まりで、同一リクエスト内の編集範囲は重複できません。`expectedRevisionEpoch`はschema上optionalですが、full source-sync時は必須です。縮退時は省略でき、指定されて現在のepochも得られる場合はbest-effortで事前照合します。応答には新しいepoch/revision、guard mode、hash、変更行数だけが含まれ、完全ソースは返りません。
 
 ```json
 {
@@ -248,10 +252,12 @@ X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分
 
 ### 競合時の比較手順
 
-`REVISION_MISMATCH`は同じdocument epoch内の編集競合、`REVISION_EPOCH_MISMATCH`は再読込後の別epoch、`REVISION_EPOCH_REQUIRED`はrevisionだけを送った旧callerを表します。いずれも更新は適用されません。errorには取得可能な場合、競合発生時と再観測時のrevision、現在のepoch、hash、行数が含まれます。競合後にrevisionだけを差し替えて同じsourceを再送しないでください。
+`REVISION_MISMATCH`はnumeric revisionの編集競合、`REVISION_EPOCH_MISMATCH`はcallerのepochと現在のprogram epochの不一致、`REVISION_EPOCH_REQUIRED`はfull source-sync接続なのにepochを省略したcallerを表します。epoch不一致の原因をreloadとは断定しません。全componentがsource-syncをadvertiseしているのにX1Pen snapshot自体にepochがない不整合は`REVISION_EPOCH_UNAVAILABLE`となり、callerに取得不能なepochを要求せずX1Penの更新／再読込を案内します。いずれも更新は適用されません。errorには取得可能な場合、競合発生時と再観測時のrevision、現在のepoch、guard mode、hash、行数が含まれます。縮退時は`diff_source`を案内せず、bounded read/hashで手動比較します。競合後にrevisionだけを差し替えて同じsourceを再送しないでください。
+
+Source toolのdomain validationもmachine-readableです。編集範囲は`EDIT_RANGE_INVALID`、重複hunkは`EDITS_OVERLAP`、現在modeで編集不能なsectionは`SOURCE_SECTION_NOT_EDITABLE`、文字数上限は`SOURCE_LIMIT_EXCEEDED`、read範囲は`SOURCE_RANGE_INVALID`、生成ASMの明示opt-in不足は`GENERATED_SOURCE_REQUIRES_OPT_IN`を返します。Connectorが既知featureをadvertiseしていない場合、判明している最小Connector版は`requiredVersion`にも含まれます。
 
 1. 直前に保持した`revisionEpoch`、`revision`、section hash、`authoringHash`を確認します。
-2. 同一modeのbaselineなら`x1pen_diff_source`を呼び、人間／Run／別AIの変更を比較します。
+2. `writeGuard`が`revision-epoch`で同一modeのbaselineなら`x1pen_diff_source`を呼び、人間／Run／別AIの変更を比較します。`revision-only`時はbounded read/hashで比較します。
 3. 変更を取り込んだ後、最新のepoch/revisionを使って別のguarded requestとして明示的にretryします。
 
 ```json

@@ -20,7 +20,7 @@ const LEGACY_CONNECTOR_FEATURES = Object.freeze({
 
 const METHOD_FEATURES = Object.freeze({
   getProgram: 'automation.core',
-  setProgram: 'automation.source-sync',
+  setProgram: 'automation.core',
   validate: 'automation.core',
   run: 'automation.core',
   recoverStalled: 'automation.run-recovery',
@@ -43,9 +43,12 @@ const METHOD_FEATURES = Object.freeze({
 });
 
 const CONNECTOR_MINIMUMS = Object.freeze({
+  'automation.run-recovery': '1.2.0',
+  'automation.source-sync': '1.3.0',
   'debugger.cpu': '1.1.0',
   'debugger.vram': '1.2.0',
   'input.keyboard': '1.3.0',
+  'input.pad': '1.3.0',
 });
 
 export function normalizeFeatureList(value) {
@@ -133,10 +136,24 @@ export class X1PenCompatibilityError extends Error {
   }
 }
 
-export function assertMethodCompatible(method, compatibility, components) {
-  const feature = METHOD_FEATURES[method];
-  if (!feature || compatibility[feature]?.state !== 'unavailable') return;
-  const states = compatibility[feature].components;
+export function assertFeatureCompatible(feature, compatibility, components, options = {}) {
+  const capability = compatibility?.[feature];
+  if (!feature || capability?.state === 'available') return;
+  if (capability?.state !== 'unavailable') {
+    if (options.requireAvailable !== true) return;
+    const component = ['mcp', 'connector', 'x1pen']
+      .find((name) => capability?.components?.[name]?.state !== 'available') || 'connector';
+    const current = components?.[component];
+    throw new X1PenCompatibilityError({
+      code: 'FEATURE_STATUS_UNKNOWN',
+      component,
+      feature,
+      currentVersion: current?.version || 'unknown',
+      action: 'Reconnect all X1Pen components and inspect x1pen_get_status before retrying.',
+      message: `${feature} availability could not be verified for the connected ${component}.`,
+    });
+  }
+  const states = capability.components;
   const component = ['mcp', 'connector', 'x1pen']
     .find((name) => states[name].state === 'unavailable') || 'connector';
   const current = components[component];
@@ -154,13 +171,17 @@ export function assertMethodCompatible(method, compatibility, components) {
     });
   }
   if (component === 'connector' || component === 'x1pen') {
+    const requiredVersion = component === 'connector' ? CONNECTOR_MINIMUMS[feature] : undefined;
     throw new X1PenCompatibilityError({
       code: 'FEATURE_UNAVAILABLE',
       component,
       feature,
       currentVersion: current?.version || 'unknown',
+      ...(requiredVersion ? { requiredVersion } : {}),
       action: component === 'connector'
-        ? 'Update X1Pen Connector and reconnect this tab.'
+        ? (requiredVersion
+            ? `Install X1Pen Connector ${requiredVersion} or later with ${feature}, then reconnect this tab.`
+            : 'Update X1Pen Connector and reconnect this tab.')
         : 'Reload or update X1Pen and reconnect this tab.',
       message: `${feature} is not advertised by the connected ${component === 'connector' ? 'Connector' : 'X1Pen'}.`,
     });
@@ -174,6 +195,20 @@ export function assertMethodCompatible(method, compatibility, components) {
     action: 'Restart the MCP client with x1pen-mcp@latest.',
     message: `${feature} is not available in this X1Pen MCP server.`,
   });
+}
+
+export function assertMethodCompatible(method, compatibility, components) {
+  const feature = METHOD_FEATURES[method];
+  if (!feature) {
+    throw new X1PenCompatibilityError({
+      code: 'METHOD_FEATURE_UNMAPPED',
+      component: 'mcp',
+      currentVersion: components?.mcp?.version || 'unknown',
+      action: 'Update the MCP method-to-feature mapping before exposing or sending this bridge command.',
+      message: `X1Pen bridge method ${String(method)} has no declared capability mapping.`,
+    });
+  }
+  return assertFeatureCompatible(feature, compatibility, components);
 }
 
 export function deserializeBridgeError(value) {

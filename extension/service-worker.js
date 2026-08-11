@@ -2,6 +2,7 @@ import { invokeX1PenInPage } from './page-automation.mjs';
 import { createUpdateCoordinator } from './update-coordinator.mjs';
 import {
   assertMcpProtocolSupported,
+  allComponentsAdvertiseFeature,
   createConnectorDescriptor,
   normalizeMcpServerDescriptor,
   normalizeX1PenDescriptor,
@@ -18,6 +19,12 @@ let serverDescriptor = null;
 
 function connectorDescriptor() {
   return createConnectorDescriptor(chrome.runtime.getManifest().version);
+}
+
+function requiresRevisionEpoch(session) {
+  return allComponentsAdvertiseFeature(
+    'automation.source-sync', serverDescriptor, connectorDescriptor(), session?.x1pen,
+  );
 }
 
 function sessionFromStatus(status, base = {}) {
@@ -243,7 +250,13 @@ async function handleCommand(message) {
     return;
   }
   try {
-    const result = await invokeX1Pen(session.tabId, message.method, message.params || {});
+    const params = message.method === 'setProgram'
+      ? {
+          ...(message.params || {}),
+          transport: { requireRevisionEpoch: requiresRevisionEpoch(session) },
+        }
+      : (message.params || {});
+    const result = await invokeX1Pen(session.tabId, message.method, params);
     if (message.method === 'recoverStalled' && result?.ok && result.reloadRequired) {
       send({ type: 'result', id: message.id, ok: true, result });
       setTimeout(() => {

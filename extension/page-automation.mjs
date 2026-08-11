@@ -119,6 +119,9 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
         requestedParams.program,
         requestedParams.expectedRevision,
         requestedParams.expectedRevisionEpoch,
+        {
+          requireRevisionEpoch: requestedParams.transport?.requireRevisionEpoch === true,
+        },
       );
     }
     if (requestedMethod === 'validate') return await api.validate();
