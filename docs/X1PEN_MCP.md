@@ -250,7 +250,9 @@ X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分
 
 ### 競合時の比較手順
 
-`REVISION_MISMATCH`はnumeric revisionの編集競合、`REVISION_EPOCH_MISMATCH`はepochを比較できた場合の再読込競合、`REVISION_EPOCH_REQUIRED`はfull source-sync接続なのにepochを省略したcallerを表します。全componentがsource-syncをadvertiseしているのにX1Pen snapshot自体にepochがない不整合は`REVISION_EPOCH_UNAVAILABLE`となり、callerに取得不能なepochを要求せずX1Penの更新／再読込を案内します。いずれも更新は適用されません。errorには取得可能な場合、競合発生時と再観測時のrevision、現在のepoch、guard mode、hash、行数が含まれます。縮退時は`diff_source`を案内せず、bounded read/hashで手動比較します。競合後にrevisionだけを差し替えて同じsourceを再送しないでください。
+`REVISION_MISMATCH`はnumeric revisionの編集競合、`REVISION_EPOCH_MISMATCH`はcallerのepochと現在のprogram epochの不一致、`REVISION_EPOCH_REQUIRED`はfull source-sync接続なのにepochを省略したcallerを表します。epoch不一致の原因をreloadとは断定しません。全componentがsource-syncをadvertiseしているのにX1Pen snapshot自体にepochがない不整合は`REVISION_EPOCH_UNAVAILABLE`となり、callerに取得不能なepochを要求せずX1Penの更新／再読込を案内します。いずれも更新は適用されません。errorには取得可能な場合、競合発生時と再観測時のrevision、現在のepoch、guard mode、hash、行数が含まれます。縮退時は`diff_source`を案内せず、bounded read/hashで手動比較します。競合後にrevisionだけを差し替えて同じsourceを再送しないでください。
+
+Source toolのdomain validationもmachine-readableです。編集範囲は`EDIT_RANGE_INVALID`、重複hunkは`EDITS_OVERLAP`、現在modeで編集不能なsectionは`SOURCE_SECTION_NOT_EDITABLE`、文字数上限は`SOURCE_LIMIT_EXCEEDED`、read範囲は`SOURCE_RANGE_INVALID`、生成ASMの明示opt-in不足は`GENERATED_SOURCE_REQUIRES_OPT_IN`を返します。Connectorが既知featureをadvertiseしていない場合、判明している最小Connector版は`requiredVersion`にも含まれます。
 
 1. 直前に保持した`revisionEpoch`、`revision`、section hash、`authoringHash`を確認します。
 2. `writeGuard`が`revision-epoch`で同一modeのbaselineなら`x1pen_diff_source`を呼び、人間／Run／別AIの変更を比較します。`revision-only`時はbounded read/hashで比較します。

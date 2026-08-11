@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { afterEach, test } from 'node:test';
 import { WebSocket } from 'ws';
 import { X1PenBridge } from '../mcp/x1pen-bridge.mjs';
@@ -196,8 +197,39 @@ test('explicit feature advertisements are authoritative without semver inference
   assert.throws(
     () => assertMethodCompatible('debuggerReadVram', capabilities, { mcp, connector, x1pen }),
     (error) => error.code === 'FEATURE_UNAVAILABLE' && error.component === 'connector' &&
-      error.currentVersion === '9.0.0' && error.requiredVersion === undefined,
+      error.currentVersion === '9.0.0' && error.requiredVersion === '1.2.0',
   );
+  assert.throws(
+    () => assertMethodCompatible('applyEdits', capabilities, { mcp, connector, x1pen }),
+    (error) => error.code === 'METHOD_FEATURE_UNMAPPED' && error.component === 'mcp' &&
+      /no declared capability mapping/.test(error.message),
+  );
+});
+
+test('every MCP server bridge command has an explicit capability mapping', () => {
+  const source = readFileSync(new URL('../mcp/x1pen-server.mjs', import.meta.url), 'utf8');
+  const calls = [...source.matchAll(/bridge\.sendCommand\(\s*['"]([^'"]+)['"]/g)]
+    .map((match) => match[1]);
+  assert.equal(calls.length, (source.match(/bridge\.sendCommand\(/g) || []).length,
+    'Every bridge.sendCommand call must use a statically auditable literal method');
+
+  const mcp = createMcpDescriptor('2.7.0');
+  const connector = normalizeConnectorPair({
+    connector: {
+      name: 'x1pen-connector', version: '1.3.0', protocolVersion: 2,
+      features: [...mcp.features],
+    },
+  });
+  const x1pen = {
+    name: 'x1pen', version: '0.8.1', automationApiVersion: 2,
+    features: [...mcp.features], featureSource: 'advertised',
+  };
+  const capabilities = evaluateCompatibility({ mcp, connector, x1pen });
+  assert.ok(calls.length > 0);
+  for (const method of new Set(calls)) {
+    assert.doesNotThrow(() =>
+      assertMethodCompatible(method, capabilities, { mcp, connector, x1pen }), method);
+  }
 });
 
 test('bridge preserves structured command errors from the Connector', async () => {

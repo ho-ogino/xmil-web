@@ -1566,7 +1566,7 @@ window.__X1PEN_MODE = true;
         if (expectedRevisionEpoch !== undefined && expectedRevisionEpoch !== automationRevisionEpoch) {
             throw createProgramConflictError(
                 'REVISION_EPOCH_MISMATCH',
-                'Revision epoch conflict: the program was reloaded after the caller read it',
+                'Revision epoch conflict: expectedRevisionEpoch does not match the current program epoch',
                 { expectedRevision: expectedRevision, expectedRevisionEpoch: expectedRevisionEpoch,
                     currentRevision: automationRevision, currentRevisionEpoch: automationRevisionEpoch,
                     instanceId: automationInstanceId }

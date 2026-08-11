@@ -81,7 +81,10 @@ function toolError(error) {
     for (const key of ['code', 'component', 'feature', 'section', 'message', 'currentVersion', 'requiredVersion', 'action']) {
       if (typeof error[key] === 'string') details[key] = error[key].slice(0, 1_024);
     }
-    for (const key of ['expectedRevision', 'currentRevision', 'conflictRevision', 'observedRevision']) {
+    for (const key of [
+      'expectedRevision', 'currentRevision', 'conflictRevision', 'observedRevision',
+      'editIndex', 'otherEditIndex', 'startLine', 'lineCount', 'limit', 'actual',
+    ]) {
       if (Number.isSafeInteger(error[key]) && error[key] >= 0) details[key] = error[key];
     }
     for (const key of [
@@ -233,7 +236,15 @@ function selectProgramFields(snapshot, fields, includeGeneratedAsm, maxCharacter
     }
     selectedCharacters += snapshot[section].length;
     if (selectedCharacters > maxCharacters) {
-      throw new Error(`Selected sources contain ${selectedCharacters} characters, exceeding maxCharacters ${maxCharacters}. Use x1pen_get_source or raise maxCharacters explicitly.`);
+      throw new SourceSyncError(
+        'SOURCE_LIMIT_EXCEEDED',
+        `Selected sources contain ${selectedCharacters} characters, exceeding maxCharacters ${maxCharacters}`,
+        {
+          limit: maxCharacters,
+          actual: selectedCharacters,
+          action: 'Use x1pen_get_source for bounded ranges or raise maxCharacters explicitly.',
+        },
+      );
     }
     result[section] = snapshot[section];
     result.includedFields.push(section);
@@ -243,7 +254,11 @@ function selectProgramFields(snapshot, fields, includeGeneratedAsm, maxCharacter
 
 function getReadableSection(snapshot, section, includeGeneratedAsm) {
   if (section === 'asm' && snapshot.sourceMode === 'slang' && snapshot.asm.length > 0 && !includeGeneratedAsm) {
-    throw new Error('ASM is generated from SLANG. Set includeGeneratedAsm to true to read it.');
+    throw new SourceSyncError(
+      'GENERATED_SOURCE_REQUIRES_OPT_IN',
+      'ASM is generated from SLANG and is excluded by default',
+      { section, action: 'Set includeGeneratedAsm to true only when generated output is required.' },
+    );
   }
   return snapshot[section];
 }
@@ -266,7 +281,16 @@ function getSourceRange(snapshot, section, options) {
     };
   }
   if (options.startLine > lines.length) {
-    throw new Error(`startLine ${options.startLine} exceeds ${section} line count ${lines.length}`);
+    throw new SourceSyncError(
+      'SOURCE_RANGE_INVALID',
+      `startLine ${options.startLine} exceeds ${section} line count ${lines.length}`,
+      {
+        section,
+        startLine: options.startLine,
+        lineCount: lines.length,
+        action: 'Read the current section metadata and request a startLine within its line count.',
+      },
+    );
   }
 
   const requested = lines.slice(options.startLine - 1, options.startLine - 1 + options.lineCount);
@@ -363,10 +387,28 @@ function applyLineEdits(source, edits) {
   const normalized = edits.map((edit, index) => {
     const startIndex = edit.startLine - 1;
     if (startIndex > lines.length || (edit.deleteLineCount > 0 && startIndex === lines.length)) {
-      throw new Error(`edit ${index + 1} starts beyond the source at line ${edit.startLine}`);
+      throw new SourceSyncError(
+        'EDIT_RANGE_INVALID',
+        `edit ${index + 1} starts beyond the source at line ${edit.startLine}`,
+        {
+          editIndex: index + 1,
+          startLine: edit.startLine,
+          lineCount: lines.length,
+          action: 'Read the current bounded source and submit an edit within its line range.',
+        },
+      );
     }
     if (startIndex + edit.deleteLineCount > lines.length) {
-      throw new Error(`edit ${index + 1} deletes beyond the end of the source`);
+      throw new SourceSyncError(
+        'EDIT_RANGE_INVALID',
+        `edit ${index + 1} deletes beyond the end of the source`,
+        {
+          editIndex: index + 1,
+          startLine: edit.startLine,
+          lineCount: lines.length,
+          action: 'Reduce deleteLineCount or re-read the current source before editing.',
+        },
+      );
     }
     return {
       index,
@@ -383,7 +425,15 @@ function applyLineEdits(source, edits) {
     const previous = ascending[index - 1];
     const current = ascending[index];
     if (current.startIndex === previous.startIndex || current.startIndex < previous.endIndex) {
-      throw new Error(`edits ${previous.index + 1} and ${current.index + 1} overlap`);
+      throw new SourceSyncError(
+        'EDITS_OVERLAP',
+        `edits ${previous.index + 1} and ${current.index + 1} overlap`,
+        {
+          editIndex: previous.index + 1,
+          otherEditIndex: current.index + 1,
+          action: 'Merge overlapping replacements or submit non-overlapping line ranges.',
+        },
+      );
     }
   }
 
@@ -406,13 +456,25 @@ function applyLineEdits(source, edits) {
 
 function assertEditableSection(snapshot, section) {
   if (snapshot.sourceMode === 'slang' && section !== 'slang') {
-    throw new Error('SLANG mode only allows edits to the SLANG source; generated ASM is read-only');
+    throw new SourceSyncError(
+      'SOURCE_SECTION_NOT_EDITABLE',
+      'SLANG mode only allows edits to the SLANG source; generated ASM is read-only',
+      { section, action: 'Edit the slang section; generated ASM is replaced by the next compile.' },
+    );
   }
   if (snapshot.sourceMode === 'asm' && section !== 'asm') {
-    throw new Error('ASM mode only allows edits to the ASM source');
+    throw new SourceSyncError(
+      'SOURCE_SECTION_NOT_EDITABLE',
+      'ASM mode only allows edits to the ASM source',
+      { section, action: 'Edit the asm section or replace the complete program with a different sourceMode.' },
+    );
   }
   if (snapshot.sourceMode === 'basic+asm' && section === 'slang') {
-    throw new Error('BASIC+ASM mode does not allow edits to the SLANG source');
+    throw new SourceSyncError(
+      'SOURCE_SECTION_NOT_EDITABLE',
+      'BASIC+ASM mode does not allow edits to the SLANG source',
+      { section, action: 'Edit the basic or asm section, or replace the complete program in slang mode.' },
+    );
   }
 }
 
@@ -562,7 +624,7 @@ export function createX1PenMcpServer(options = {}) {
     } else if (code === 'REVISION_EPOCH_REQUIRED') {
       message = 'A revision epoch is required with expectedRevision';
     } else if (code === 'REVISION_EPOCH_MISMATCH') {
-      message = 'Revision epoch conflict: the program was reloaded after the caller read it';
+      message = 'Revision epoch conflict: expectedRevisionEpoch does not match the current program epoch';
     } else {
       message = `Revision conflict: expected ${details.expectedRevision}, current ${details.currentRevision}`;
     }
@@ -1011,7 +1073,15 @@ export function createX1PenMcpServer(options = {}) {
   }, handleTool(async ({ sessionId, section, expectedRevision, expectedRevisionEpoch, edits }) => {
     const replacementSize = edits.reduce((total, edit) => total + edit.text.length, 0);
     if (replacementSize > MAX_SOURCE_LENGTH) {
-      throw new Error(`Combined replacement text exceeds ${MAX_SOURCE_LENGTH} characters`);
+      throw new SourceSyncError(
+        'SOURCE_LIMIT_EXCEEDED',
+        `Combined replacement text exceeds ${MAX_SOURCE_LENGTH} characters`,
+        {
+          limit: MAX_SOURCE_LENGTH,
+          actual: replacementSize,
+          action: 'Split the operation into smaller guarded edits whose combined replacement stays within the limit.',
+        },
+      );
     }
 
     const context = sourceSyncContext(sessionId);
@@ -1021,7 +1091,16 @@ export function createX1PenMcpServer(options = {}) {
     assertEditableSection(snapshot, section);
     const applied = applyLineEdits(snapshot[section], edits);
     if (applied.source.length > MAX_SOURCE_LENGTH) {
-      throw new Error(`Edited ${section} source exceeds ${MAX_SOURCE_LENGTH} characters`);
+      throw new SourceSyncError(
+        'SOURCE_LIMIT_EXCEEDED',
+        `Edited ${section} source exceeds ${MAX_SOURCE_LENGTH} characters`,
+        {
+          section,
+          limit: MAX_SOURCE_LENGTH,
+          actual: applied.source.length,
+          action: 'Reduce the resulting source size and retry against the same guarded snapshot.',
+        },
+      );
     }
     if (applied.source === snapshot[section]) {
       return textResult({

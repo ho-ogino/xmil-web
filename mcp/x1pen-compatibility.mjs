@@ -171,13 +171,17 @@ export function assertFeatureCompatible(feature, compatibility, components, opti
     });
   }
   if (component === 'connector' || component === 'x1pen') {
+    const requiredVersion = component === 'connector' ? CONNECTOR_MINIMUMS[feature] : undefined;
     throw new X1PenCompatibilityError({
       code: 'FEATURE_UNAVAILABLE',
       component,
       feature,
       currentVersion: current?.version || 'unknown',
+      ...(requiredVersion ? { requiredVersion } : {}),
       action: component === 'connector'
-        ? 'Update X1Pen Connector and reconnect this tab.'
+        ? (requiredVersion
+            ? `Install X1Pen Connector ${requiredVersion} or later with ${feature}, then reconnect this tab.`
+            : 'Update X1Pen Connector and reconnect this tab.')
         : 'Reload or update X1Pen and reconnect this tab.',
       message: `${feature} is not advertised by the connected ${component === 'connector' ? 'Connector' : 'X1Pen'}.`,
     });
@@ -194,7 +198,17 @@ export function assertFeatureCompatible(feature, compatibility, components, opti
 }
 
 export function assertMethodCompatible(method, compatibility, components) {
-  return assertFeatureCompatible(METHOD_FEATURES[method], compatibility, components);
+  const feature = METHOD_FEATURES[method];
+  if (!feature) {
+    throw new X1PenCompatibilityError({
+      code: 'METHOD_FEATURE_UNMAPPED',
+      component: 'mcp',
+      currentVersion: components?.mcp?.version || 'unknown',
+      action: 'Update the MCP method-to-feature mapping before exposing or sending this bridge command.',
+      message: `X1Pen bridge method ${String(method)} has no declared capability mapping.`,
+    });
+  }
+  return assertFeatureCompatible(feature, compatibility, components);
 }
 
 export function deserializeBridgeError(value) {

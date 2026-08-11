@@ -509,7 +509,7 @@ test('get_program defaults to metadata only and excludes generated ASM', async (
     arguments: { fields: ['asm'], includeGeneratedAsm: true },
   });
   assert.equal(generatedResult.isError, true);
-  assert.match(generatedResult.content[0].text, /exceeding maxCharacters/);
+  assert.equal(jsonContent(generatedResult).error.code, 'SOURCE_LIMIT_EXCEEDED');
 
   const deliberateResult = await client.callTool({
     name: 'x1pen_get_program',
@@ -543,7 +543,21 @@ test('get_source returns a bounded line range and protects generated ASM', async
     arguments: { section: 'asm' },
   });
   assert.equal(protectedResult.isError, true);
-  assert.match(protectedResult.content[0].text, /generated from SLANG/);
+  assert.equal(jsonContent(protectedResult).error.code, 'GENERATED_SOURCE_REQUIRES_OPT_IN');
+
+  currentProgram = {
+    sourceMode: 'basic+asm', basic: '10 END', asm: '', slang: '', revision: 5,
+    revisionEpoch: 'epoch-a', instanceId: 'tab-a',
+  };
+  const invalidRange = await client.callTool({
+    name: 'x1pen_get_source',
+    arguments: { section: 'basic', startLine: 2 },
+  });
+  const rangeError = jsonContent(invalidRange).error;
+  assert.equal(rangeError.code, 'SOURCE_RANGE_INVALID');
+  assert.equal(rangeError.section, 'basic');
+  assert.equal(rangeError.startLine, 2);
+  assert.equal(rangeError.lineCount, 1);
 });
 
 test('search_source finds literal text with bounded context', async () => {
@@ -770,6 +784,8 @@ test('old Connector with new MCP and X1Pen permits visibly degraded writes but n
   assert.equal(error.code, 'FEATURE_UNAVAILABLE');
   assert.equal(error.component, 'connector');
   assert.equal(error.feature, 'automation.source-sync');
+  assert.equal(error.requiredVersion, '1.3.0');
+  assert.match(error.action, /Connector 1\.3\.0 or later/);
 });
 
 test('unknown Connector capability degrades writes and blocks diff without inventing a version', async () => {
@@ -860,6 +876,8 @@ test('degraded set_program performs best-effort epoch and revision conflict enri
   });
   let error = jsonContent(epochConflict).error;
   assert.equal(error.code, 'REVISION_EPOCH_MISMATCH');
+  assert.match(error.message, /does not match the current program epoch/);
+  assert.doesNotMatch(error.message, /reloaded/);
   assert.equal(error.current.guardedWritesReloadSafe, false);
   assert.equal(calls.some((call) => call.method === 'setProgram'), false);
 
@@ -1023,7 +1041,73 @@ test('apply_edits rejects stale revisions and overlapping edits', async () => {
     },
   });
   assert.equal(overlapping.isError, true);
-  assert.match(overlapping.content[0].text, /overlap/);
+  const overlapError = jsonContent(overlapping).error;
+  assert.equal(overlapError.code, 'EDITS_OVERLAP');
+  assert.equal(overlapError.component, 'mcp');
+  assert.equal(overlapError.editIndex, 1);
+  assert.equal(overlapError.otherEditIndex, 2);
+  assert.match(overlapError.action, /non-overlapping/);
+});
+
+test('apply_edits returns structured domain validation errors', async () => {
+  let result = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 4, deleteLineCount: 0, text: '40 END' }],
+    },
+  });
+  let error = jsonContent(result).error;
+  assert.equal(error.code, 'EDIT_RANGE_INVALID');
+  assert.equal(error.editIndex, 1);
+  assert.equal(error.lineCount, 2);
+
+  currentProgram = {
+    sourceMode: 'slang', basic: '', asm: 'generated', slang: 'MAIN() BEGIN\nEND;', revision: 3,
+    revisionEpoch: 'epoch-a', instanceId: 'tab-a',
+  };
+  result = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'asm', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 1, deleteLineCount: 1, text: 'RET' }],
+    },
+  });
+  error = jsonContent(result).error;
+  assert.equal(error.code, 'SOURCE_SECTION_NOT_EDITABLE');
+  assert.equal(error.section, 'asm');
+
+  result = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'slang', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+      edits: [
+        { startLine: 1, deleteLineCount: 0, text: 'A'.repeat(300_000) },
+        { startLine: 2, deleteLineCount: 0, text: 'B'.repeat(300_000) },
+      ],
+    },
+  });
+  error = jsonContent(result).error;
+  assert.equal(error.code, 'SOURCE_LIMIT_EXCEEDED');
+  assert.equal(error.limit, 512 * 1024);
+  assert.equal(error.actual, 600_000);
+
+  currentProgram = {
+    sourceMode: 'basic+asm', basic: 'A'.repeat(400_000), asm: '', slang: '', revision: 3,
+    revisionEpoch: 'epoch-a', instanceId: 'tab-a',
+  };
+  result = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 1, deleteLineCount: 0, text: 'B'.repeat(200_000) }],
+    },
+  });
+  error = jsonContent(result).error;
+  assert.equal(error.code, 'SOURCE_LIMIT_EXCEEDED');
+  assert.equal(error.section, 'basic');
+  assert.equal(error.limit, 512 * 1024);
+  assert.equal(error.actual, 600_001);
 });
 
 test('apply_edits rejects a colliding revision from another epoch', async () => {
