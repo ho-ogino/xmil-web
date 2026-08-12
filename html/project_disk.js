@@ -32,23 +32,23 @@
         if (ArrayBuffer.isView(value)) {
             return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
         }
-        fail('PROJECT_DISK_INVALID_BYTES', 'Project disk data must be an ArrayBuffer or typed array');
+        fail('PROJECT_DISK_INVALID_BYTES', 'プロジェクトディスクのデータはArrayBufferまたはTypedArrayで指定してください');
     }
 
     function openValidated(arrayBuffer, filename) {
         var bytes = cloneBytes(arrayBuffer);
         var container = window.XmilDiskContainer.openContainer(bytes, filename || 'project.d88', 'fdd');
-        if (!container) fail('PROJECT_DISK_UNSUPPORTED_CONTAINER', 'FDD0 is not a supported D88 or raw 2D image');
-        if (container.isMultiDisk) fail('PROJECT_DISK_MULTI_D88', 'Multi-disk D88 images are not supported as X1Pen project disks');
-        if (container.protect) fail('PROJECT_DISK_WRITE_PROTECTED', 'The selected disk image is write-protected');
+        if (!container) fail('PROJECT_DISK_UNSUPPORTED_CONTAINER', 'FDD0のディスクは対応するD88またはraw 2D形式ではありません');
+        if (container.isMultiDisk) fail('PROJECT_DISK_MULTI_D88', '複数ディスクを含むD88はX1Penプロジェクトディスクとして使用できません');
+        if (container.protect) fail('PROJECT_DISK_WRITE_PROTECTED', '選択したディスクイメージは書き込み禁止です');
 
         var fs = window.XmilDiskFS.detectFilesystem(container);
         if (!fs || fs.fsType !== 'LSX-Dodgers') {
-            fail('PROJECT_DISK_NOT_LSX', 'The selected disk is not an LSX-Dodgers filesystem');
+            fail('PROJECT_DISK_NOT_LSX', '選択したディスクはLSX-Dodgers形式ではありません');
         }
         var info = fs.getInfo();
-        if (info.readOnly) fail('PROJECT_DISK_READ_ONLY', info.readOnlyReason || 'The selected filesystem is read-only');
-        if (info.anomaly) fail('PROJECT_DISK_ANOMALY', 'The selected filesystem has allocation anomalies');
+        if (info.readOnly) fail('PROJECT_DISK_READ_ONLY', '選択したファイルシステムは読み取り専用です');
+        if (info.anomaly) fail('PROJECT_DISK_ANOMALY', '選択したファイルシステムの領域割り当てに異常があります');
         return { container: container, fs: fs, info: info };
     }
 
@@ -93,7 +93,7 @@
 
     function updateAutoexec(existingBytes, mode) {
         var launch = MODE_LAUNCH[mode];
-        if (!launch) fail('PROJECT_DISK_MODE_INVALID', 'Unsupported project disk mode: ' + mode);
+        if (!launch) fail('PROJECT_DISK_MODE_INVALID', '未対応のプロジェクトディスクモードです: ' + mode);
         var decoded = decodeAutoexec(existingBytes);
         var launchLine = launch;
         var retained = [];
@@ -134,9 +134,9 @@
     function inspect(arrayBuffer, filename, mode) {
         var opened = openValidated(arrayBuffer, filename);
         var warnings = [];
-        if (!opened.fs.findByName('LD', 'BIN')) warnings.push('LD.BIN is missing; the disk may not boot LSX-Dodgers');
+        if (!opened.fs.findByName('LD', 'BIN')) warnings.push('LD.BINがありません。LSX-Dodgersを起動できない可能性があります');
         if (mode === 'fuzzybasic' && !opened.fs.findByName('FZBASIC', 'COM')) {
-            warnings.push('FZBASIC.COM is missing; FuzzyBASIC cannot start from this disk');
+            warnings.push('FZBASIC.COMがありません。このディスクからFuzzyBASICを起動できません');
         }
         return {
             fsType: opened.fs.fsType,
@@ -153,9 +153,9 @@
         var opened = openValidated(arrayBuffer, filename);
         var fs = opened.fs;
         var warnings = [];
-        if (!fs.findByName('LD', 'BIN')) warnings.push('LD.BIN is missing; the disk may not boot LSX-Dodgers');
+        if (!fs.findByName('LD', 'BIN')) warnings.push('LD.BINがありません。LSX-Dodgersを起動できない可能性があります');
         if (mode === 'fuzzybasic' && !fs.findByName('FZBASIC', 'COM')) {
-            warnings.push('FZBASIC.COM is missing; FuzzyBASIC cannot start from this disk');
+            warnings.push('FZBASIC.COMがありません。このディスクからFuzzyBASICを起動できません');
         }
 
         MANAGED_FILES.forEach(function(name) { deleteFile(fs, name); });
@@ -180,14 +180,14 @@
         for (var r = 0; r < required.length; r++) {
             var requiredParts = splitName(required[r]);
             if (!verified.fs.findByName(requiredParts.name, requiredParts.ext)) {
-                fail('PROJECT_DISK_VERIFY_FAILED', 'Managed file is missing after serialization: ' + required[r]);
+                fail('PROJECT_DISK_VERIFY_FAILED', '保存後のディスクに管理対象ファイルがありません: ' + required[r]);
             }
         }
         var verifiedAuto = verified.fs.findByName('AUTOEXEC', 'BAT');
-        if (!verifiedAuto) fail('PROJECT_DISK_VERIFY_FAILED', 'AUTOEXEC.BAT is missing after serialization');
+        if (!verifiedAuto) fail('PROJECT_DISK_VERIFY_FAILED', '保存後のディスクにAUTOEXEC.BATがありません');
         var verifiedText = decodeAutoexec(verified.fs.readFile(verifiedAuto)).lines;
         if (verifiedText.map(firstToken).indexOf(MODE_LAUNCH[mode]) < 0) {
-            fail('PROJECT_DISK_VERIFY_FAILED', 'AUTOEXEC.BAT does not contain the expected launch command');
+            fail('PROJECT_DISK_VERIFY_FAILED', 'AUTOEXEC.BATに必要な起動コマンドがありません');
         }
 
         return {

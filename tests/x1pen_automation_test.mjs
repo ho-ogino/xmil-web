@@ -1859,13 +1859,22 @@ test('mounted FDD0 is forked once into a persistent project disk', { timeout: 90
     const setupRequired = await projectPage.evaluate(() => window.X1PenAutomation.run());
     assert.equal(setupRequired.ok, false);
     assert.equal(setupRequired.code, 'PROJECT_DISK_SETUP_REQUIRED');
+    assert.match(setupRequired.status, /X1Pen画面で一度RUNしてください/);
+    assert.match(setupRequired.action, /作業用コピーの作成を承認/);
 
-    projectPage.on('dialog', (dialog) => dialog.accept());
+    const dialogMessages = [];
+    projectPage.on('dialog', (dialog) => {
+      dialogMessages.push(dialog.message());
+      dialog.accept();
+    });
     await projectPage.locator('#btn-run').click();
     await projectPage.waitForFunction(() => {
       const entry = window.XmilCore.getLibrary().find((candidate) => candidate.x1penProject);
       return entry && !window.X1PenAutomation.getStatus().capabilities.debugger.runPending;
     });
+    assert.equal(dialogMessages.length, 1);
+    assert.match(dialogMessages[0], /X1Pen用の作業ディスクを作成しますか/);
+    assert.match(dialogMessages[0], /起動やプログラム実行は確認されません/);
 
     const first = await projectPage.evaluate(async () => {
       const library = window.XmilCore.getLibrary();
@@ -1907,6 +1916,7 @@ test('mounted FDD0 is forked once into a persistent project disk', { timeout: 90
     assert.equal(rerun.bootVerified, false);
     assert.equal(rerun.executionVerified, false);
     assert.equal(rerun.verification, 'filesystem-only');
+    assert.match(rerun.status, /ファイルシステム検証済み、起動未確認/);
 
     const drive1AfterRerun = await projectPage.evaluate(() => window.XmilCore.getSlotState().drive1);
     assert.equal(drive1AfterRerun, first.data.key);

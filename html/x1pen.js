@@ -1290,7 +1290,7 @@ window.__X1PEN_MODE = true;
         if (mountedProjectSelection) {
             var projectApi = window.X1PenProjectDisk;
             if (!projectApi) {
-                elStatus.textContent = 'Project disk support is unavailable';
+                elStatus.textContent = 'プロジェクトディスク機能を利用できません';
                 lastRunDetails = { code: 'PROJECT_DISK_UNAVAILABLE' };
                 return false;
             }
@@ -1309,30 +1309,30 @@ window.__X1PEN_MODE = true;
             if (!mountedProjectSelection.entry.x1penProject) {
                 var origin = runAdmission ? runAdmission.origin : 'automation';
                 if (origin !== 'ui' && origin !== 'share') {
-                    elStatus.textContent = 'Run once from the X1Pen UI to create a project copy of the mounted FDD0 disk';
+                    elStatus.textContent = 'FDD0のディスクから作業用コピーを作成するため、X1Pen画面で一度RUNしてください';
                     lastRunDetails = {
                         code: 'PROJECT_DISK_SETUP_REQUIRED',
                         retryable: false,
-                        action: 'Run once interactively in X1Pen, confirm project-copy creation, then retry.'
+                        action: 'X1Pen画面でRUNし、作業用コピーの作成を承認してから再実行してください。'
                     };
                     return false;
                 }
-                var managedNames = isLsxMode ? 'PROG.COM and AUTOEXEC.BAT' :
-                    ((asmBytes ? 'PROGRAM.BIN, ' : '') + 'AUTORUN.BAS and AUTOEXEC.BAT');
+                var managedNames = isLsxMode ? 'PROG.COMとAUTOEXEC.BAT' :
+                    ((asmBytes ? 'PROGRAM.BIN、' : '') + 'AUTORUN.BASとAUTOEXEC.BAT');
                 var warningText = preview.warnings.length
-                    ? '\n\nWarnings:\n- ' + preview.warnings.join('\n- ')
+                    ? '\n\n警告:\n- ' + preview.warnings.join('\n- ')
                     : '';
                 var confirmed = confirm(
-                    'Create a persistent X1Pen project copy of "' + mountedProjectSelection.entry.name + '"?\n\n' +
-                    'The copy will be named <source>-X1Pen (with a number if needed).\n' +
-                    'X1Pen will update ' + managedNames + ' in the copy.\n' +
-                    'Guest writes already made to the source disk are flushed normally before copying.\n' +
-                    'The source is not changed by X1Pen program/AUTOEXEC edits.\n\n' +
-                    'Validation checks the LSX filesystem only; boot and program execution are NOT verified.\n' +
-                    'Starting the copy performs a cold power-on and clears emulator RAM.' + warningText
+                    '「' + mountedProjectSelection.entry.name + '」からX1Pen用の作業ディスクを作成しますか？\n\n' +
+                    '作業ディスク名は「<元の名前>-X1Pen」になります（同名がある場合は連番を付けます）。\n' +
+                    'X1Penは作業ディスク内の' + managedNames + 'を更新します。\n' +
+                    'コピー前に、元ディスク上でゲストが行った書き込みを通常どおり保存します。\n' +
+                    'X1PenによるプログラムやAUTOEXECの更新で、元ディスクが変更されることはありません。\n\n' +
+                    '検証対象はLSXファイルシステムの構造のみです。起動やプログラム実行は確認されません。\n' +
+                    '作業ディスクの起動時にコールドスタートを行うため、エミュレーターのRAMは消去されます。' + warningText
                 );
                 if (!confirmed) {
-                    elStatus.textContent = 'Project disk setup cancelled';
+                    elStatus.textContent = 'プロジェクトディスクの作成をキャンセルしました';
                     lastRunDetails = { code: 'PROJECT_DISK_SETUP_CANCELLED', bootVerified: false };
                     return false;
                 }
@@ -1370,7 +1370,7 @@ window.__X1PEN_MODE = true;
                 };
                 lastRunWasShared = isSharedRun;
                 updateAddrReference(actualColdState);
-                elStatus.textContent = 'Project disk started (filesystem verified; boot not verified)';
+                elStatus.textContent = 'プロジェクトディスクを起動しました（ファイルシステム検証済み、起動未確認）';
                 lastRunDetails = {
                     projectDisk: true,
                     projectDiskName: projectEntry.name,
@@ -1392,8 +1392,8 @@ window.__X1PEN_MODE = true;
                     }
                     window.XmilLibrary.finishProjectDiskTransaction(transaction, true);
                 }
-                console.error('[x1pen] Project disk Run failed:', e);
-                elStatus.textContent = e.message || 'Project disk update failed';
+                console.error('[x1pen] プロジェクトディスクのRUNに失敗:', e);
+                elStatus.textContent = e.message || 'プロジェクトディスクの更新に失敗しました';
                 lastRunDetails = {
                     code: e.code || 'PROJECT_DISK_UPDATE_FAILED',
                     committed: false,

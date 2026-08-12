@@ -101,18 +101,18 @@ test('multi-member, protected, and non-LSX images are rejected structurally', ()
   multi.set(first, first.length);
   assert.throws(
     () => X1PenProjectDisk.inspect(multi.buffer, 'multi.d88', 'lsx'),
-    (error) => error.code === 'PROJECT_DISK_MULTI_D88',
+    (error) => error.code === 'PROJECT_DISK_MULTI_D88' && /複数ディスク/.test(error.message),
   );
 
   const protectedDisk = new Uint8Array(first);
   protectedDisk[0x1a] = 0x10;
   assert.throws(
     () => X1PenProjectDisk.inspect(protectedDisk.buffer, 'protected.d88', 'lsx'),
-    (error) => error.code === 'PROJECT_DISK_WRITE_PROTECTED',
+    (error) => error.code === 'PROJECT_DISK_WRITE_PROTECTED' && /書き込み禁止/.test(error.message),
   );
 
   assert.throws(
     () => X1PenProjectDisk.inspect(new ArrayBuffer(327680), 'blank.2d', 'lsx'),
-    (error) => error.code === 'PROJECT_DISK_NOT_LSX',
+    (error) => error.code === 'PROJECT_DISK_NOT_LSX' && /LSX-Dodgers形式ではありません/.test(error.message),
   );
 });
