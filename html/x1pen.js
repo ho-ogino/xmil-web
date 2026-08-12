@@ -33,6 +33,7 @@ window.__X1PEN_MODE = true;
     var automationInputEpoch = 0;
     window.__X1PEN_SYNTHETIC_INPUT_LOCKED = false;
     var runAdmission = null;
+    var lastRunDetails = null;
     var RUN_QUEUE_TIMEOUT_MS = 20000;
     var RUN_STALL_WARNING_MS = 30000;
     var automationRevision = 0;
@@ -1024,6 +1025,7 @@ window.__X1PEN_MODE = true;
         if (retryable !== undefined) result.retryable = !!retryable;
         if (retryAfterMs !== undefined) result.retryAfterMs = retryAfterMs;
         if (!ok && runAdmission) result.activeOrigin = runAdmission.origin;
+        if (lastRunDetails) Object.keys(lastRunDetails).forEach(function(key) { result[key] = lastRunDetails[key]; });
         return result;
     }
 
@@ -1040,6 +1042,7 @@ window.__X1PEN_MODE = true;
     async function executeReservedRun(token) {
         if (!transitionRunToExecuting(token)) return makeRunBusyResult();
         try {
+            lastRunDetails = null;
             var ok = await performRun(token);
             return makeRunResult(ok);
         } finally {
@@ -1169,6 +1172,17 @@ window.__X1PEN_MODE = true;
             return false;
         }
 
+        var mountedProjectSelection = null;
+        if (window.XmilLibrary && window.XmilLibrary.inspectMountedProjectDisk) {
+            try {
+                mountedProjectSelection = await window.XmilLibrary.inspectMountedProjectDisk();
+            } catch(e) {
+                elStatus.textContent = e.message;
+                lastRunDetails = { code: e.code || 'PROJECT_DISK_READ_FAILED' };
+                return false;
+            }
+        }
+
         // 衝突チェック (Conflict check オプション ON 時のみ)
         var overlapChk = document.getElementById('ec-addr-overlap-check');
         if (runtime.relocAddrs && overlapChk && overlapChk.checked) {
@@ -1189,21 +1203,25 @@ window.__X1PEN_MODE = true;
         var actualColdState = runtime.coldState;
         var actualBootDisk = runtime.bootDisk;
 
-        var stateData = await loadRuntimeAsset(runtime.coldState);
-        if (!stateData && !isLsxMode && runtime.coldState !== COLD_STATE_FILE) {
-            // FuzzyBASIC モードのみ fallback（LSX モードでは fallback しない）
-            console.warn('[x1pen] Fallback to current cold state');
-            stateData = await loadRuntimeAsset(COLD_STATE_FILE);
-            if (stateData) actualColdState = COLD_STATE_FILE;
-        }
-        var bootData = await loadRuntimeAsset(runtime.bootDisk);
-        if (!bootData && !isLsxMode && runtime.bootDisk !== BOOT_DISK_FILE) {
-            console.warn('[x1pen] Fallback to current boot disk');
-            bootData = await loadRuntimeAsset(BOOT_DISK_FILE);
-            if (bootData) actualBootDisk = BOOT_DISK_FILE;
+        var stateData = null;
+        var bootData = null;
+        if (!mountedProjectSelection) {
+            stateData = await loadRuntimeAsset(runtime.coldState);
+            if (!stateData && !isLsxMode && runtime.coldState !== COLD_STATE_FILE) {
+                // FuzzyBASIC モードのみ fallback（LSX モードでは fallback しない）
+                console.warn('[x1pen] Fallback to current cold state');
+                stateData = await loadRuntimeAsset(COLD_STATE_FILE);
+                if (stateData) actualColdState = COLD_STATE_FILE;
+            }
+            bootData = await loadRuntimeAsset(runtime.bootDisk);
+            if (!bootData && !isLsxMode && runtime.bootDisk !== BOOT_DISK_FILE) {
+                console.warn('[x1pen] Fallback to current boot disk');
+                bootData = await loadRuntimeAsset(BOOT_DISK_FILE);
+                if (bootData) actualBootDisk = BOOT_DISK_FILE;
+            }
         }
 
-        if (!stateData) {
+        if (!stateData && !mountedProjectSelection) {
             elStatus.textContent = 'Failed to load cold state';
             return false;
         }
@@ -1259,6 +1277,138 @@ window.__X1PEN_MODE = true;
             }
         }
 
+        var asmBytes = (asmResult && asmResult.bytes.length > 0) ? asmResult.bytes : null;
+
+        // LSX モードで ASM バイナリが 0 byte なら実行不可
+        if (isLsxMode && !asmBytes) {
+            elStatus.textContent = 'Nothing to run (ASM produced no bytes)';
+            return false;
+        }
+
+        // Library-backed FDD0: fork/update the persistent X1Pen project copy,
+        // then boot it normally. No cold state or temporary disk is used here.
+        if (mountedProjectSelection) {
+            var projectApi = window.X1PenProjectDisk;
+            if (!projectApi) {
+                elStatus.textContent = 'プロジェクトディスク機能を利用できません';
+                lastRunDetails = { code: 'PROJECT_DISK_UNAVAILABLE' };
+                return false;
+            }
+            var preview;
+            try {
+                preview = projectApi.inspect(
+                    mountedProjectSelection.bytes,
+                    mountedProjectSelection.entry.name,
+                    runMode
+                );
+            } catch(e) {
+                elStatus.textContent = e.message;
+                lastRunDetails = { code: e.code || 'PROJECT_DISK_INVALID' };
+                return false;
+            }
+            if (!mountedProjectSelection.entry.x1penProject) {
+                var origin = runAdmission ? runAdmission.origin : 'automation';
+                if (origin !== 'ui' && origin !== 'share') {
+                    elStatus.textContent = 'FDD0のディスクから作業用コピーを作成するため、X1Pen画面で一度RUNしてください';
+                    lastRunDetails = {
+                        code: 'PROJECT_DISK_SETUP_REQUIRED',
+                        retryable: false,
+                        action: 'X1Pen画面でRUNし、作業用コピーの作成を承認してから再実行してください。'
+                    };
+                    return false;
+                }
+                var managedNames = isLsxMode ? 'PROG.COMとAUTOEXEC.BAT' :
+                    ((asmBytes ? 'PROGRAM.BIN、' : '') + 'AUTORUN.BASとAUTOEXEC.BAT');
+                var warningText = preview.warnings.length
+                    ? '\n\n警告:\n- ' + preview.warnings.join('\n- ')
+                    : '';
+                var confirmed = confirm(
+                    '「' + mountedProjectSelection.entry.name + '」からX1Pen用の作業ディスクを作成しますか？\n\n' +
+                    '作業ディスク名は「<元の名前>-X1Pen」になります（同名がある場合は連番を付けます）。\n' +
+                    'X1Penは作業ディスク内の' + managedNames + 'を更新します。\n' +
+                    'コピー前に、元ディスク上でゲストが行った書き込みを通常どおり保存します。\n' +
+                    'X1PenによるプログラムやAUTOEXECの更新で、元ディスクが変更されることはありません。\n\n' +
+                    '検証対象はLSXファイルシステムの構造のみです。起動やプログラム実行は確認されません。\n' +
+                    '作業ディスクの起動時にコールドスタートを行うため、エミュレーターのRAMは消去されます。' + warningText
+                );
+                if (!confirmed) {
+                    elStatus.textContent = 'プロジェクトディスクの作成をキャンセルしました';
+                    lastRunDetails = { code: 'PROJECT_DISK_SETUP_CANCELLED', bootVerified: false };
+                    return false;
+                }
+            }
+
+            var transaction = null;
+            try {
+                transaction = await window.XmilLibrary.beginProjectDiskTransaction();
+                var projectFiles = [];
+                if (asmBytes) {
+                    projectFiles.push({
+                        name: isLsxMode ? 'PROG.COM' : 'PROGRAM.BIN',
+                        data: new Uint8Array(asmBytes)
+                    });
+                }
+                if (tokenized) projectFiles.push({ name: 'AUTORUN.BAS', data: tokenized });
+                var relocationFiles = await collectRelocationDiskFiles(runtime.relocAddrs);
+                projectFiles = projectFiles.concat(relocationFiles);
+                var prepared = projectApi.prepare(transaction.bytes, transaction.entry.name, {
+                    mode: runMode,
+                    previousMode: transaction.entry.projectMode || null,
+                    files: projectFiles
+                });
+                var projectEntry = await window.XmilLibrary.commitProjectDiskTransaction(
+                    transaction, prepared.bytes, runMode
+                );
+                var machine = window.XmilControls.coldPowerOnProjectDisk(runtime.model, transaction.otherSlots);
+                if (module._js_debug_resume) module._js_debug_resume();
+                lastUsedRuntime = {
+                    model: machine.model,
+                    coldState: actualColdState,
+                    bootDisk: projectEntry.name,
+                    relocAddrs: runtime.relocAddrs,
+                    runMode: runMode
+                };
+                lastRunWasShared = isSharedRun;
+                updateAddrReference(actualColdState);
+                elStatus.textContent = 'プロジェクトディスクを起動しました';
+                lastRunDetails = {
+                    projectDisk: true,
+                    projectDiskName: projectEntry.name,
+                    committed: true,
+                    poweredOn: true,
+                    bootVerified: false,
+                    executionVerified: false,
+                    verification: 'filesystem-only',
+                    warnings: prepared.warnings
+                };
+                window.XmilLibrary.finishProjectDiskTransaction(transaction, false);
+                return true;
+            } catch(e) {
+                if (transaction) {
+                    try { await window.XmilLibrary.restoreProjectDiskTransaction(transaction); }
+                    catch(rollbackError) {
+                        e.rollbackFailed = true;
+                        e.rollbackMessage = rollbackError.message;
+                    }
+                    window.XmilLibrary.finishProjectDiskTransaction(transaction, true);
+                }
+                console.error('[x1pen] プロジェクトディスクのRUNに失敗:', e);
+                elStatus.textContent = e.message || 'プロジェクトディスクの更新に失敗しました';
+                lastRunDetails = {
+                    code: e.code || 'PROJECT_DISK_UPDATE_FAILED',
+                    committed: false,
+                    poweredOn: false,
+                    bootVerified: false,
+                    executionVerified: false,
+                    rollbackFailed: !!e.rollbackFailed,
+                    mismatchKind: e.mismatchKind,
+                    requestedDip: e.requestedDip,
+                    activeDip: e.activeDip
+                };
+                return false;
+            }
+        }
+
         // 6. コールドステート復元 (runtime 指定のステートを使用)
         if (!restoreColdState(stateData)) {
             elStatus.textContent = 'State restore failed';
@@ -1284,14 +1434,6 @@ window.__X1PEN_MODE = true;
         }
 
         // 7. ディスクイメージ作成 (ASM バイナリ and/or AUTORUN.BAS)
-        var asmBytes = (asmResult && asmResult.bytes.length > 0) ? asmResult.bytes : null;
-
-        // LSX モードで ASM バイナリが 0 byte なら実行不可
-        if (isLsxMode && !asmBytes) {
-            elStatus.textContent = 'Nothing to run (ASM produced no bytes)';
-            return false;
-        }
-
         if (asmBytes || tokenized) {
             if (bootData) {
                 if (!(await mountProgramDisk(asmBytes, tokenized, bootData, runtime.relocAddrs, { mode: runMode }))) {
@@ -1341,6 +1483,35 @@ window.__X1PEN_MODE = true;
     }
 
     // ── PROGRAM ディスク マウント ──
+
+    async function collectRelocationDiskFiles(relocAddresses) {
+        var files = [];
+        if (!relocAddresses) return files;
+        try {
+            var config = await loadRelocConfig();
+            if (!config) return files;
+            for (var key in config.binaries) {
+                var binInfo = config.binaries[key];
+                var relData = await loadREL(binInfo.rel_file);
+                if (!relData) {
+                    console.warn('[x1pen] REL not available: ' + binInfo.rel_file);
+                    continue;
+                }
+                var hasSelf = false;
+                for (var gi = 0; gi < binInfo.groups.length; gi++) {
+                    if (binInfo.groups[gi].name === 'SELF') { hasSelf = true; break; }
+                }
+                files.push({
+                    name: binInfo.output_file,
+                    data: patchREL(relData, binInfo.groups, relocAddresses),
+                    replaceOnly: !hasSelf
+                });
+            }
+        } catch(e) {
+            console.warn('[x1pen] Reloc disk patching failed (continuing):', e);
+        }
+        return files;
+    }
 
     async function mountProgramDisk(programBytes, basicTokenized, diskData, relocAddresses, options) {
         var mode = (options && options.mode) || 'fuzzybasic';

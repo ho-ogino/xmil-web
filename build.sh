@@ -78,6 +78,7 @@ cp "${SCRIPT_DIR}/html/storage.js"           ./storage.js
 cp "${SCRIPT_DIR}/html/drive_integration.js" ./drive_integration.js
 cp "${SCRIPT_DIR}/html/disk_container.js"   ./disk_container.js
 cp "${SCRIPT_DIR}/html/disk_fs.js"          ./disk_fs.js
+cp "${SCRIPT_DIR}/html/project_disk.js"     ./project_disk.js
 cp "${SCRIPT_DIR}/html/disk_editor.js"      ./disk_editor.js
 cp "${SCRIPT_DIR}/html/library.css"        ./library.css
 cp "${SCRIPT_DIR}/html/ui_fragments.js"   ./ui_fragments.js
@@ -165,6 +166,7 @@ cp ./storage.js           "${DIST_DIR}/"
 cp ./drive_integration.js "${DIST_DIR}/"
 cp ./disk_container.js   "${DIST_DIR}/"
 cp ./disk_fs.js          "${DIST_DIR}/"
+cp ./project_disk.js     "${DIST_DIR}/"
 cp ./disk_editor.js      "${DIST_DIR}/"
 cp ./library.css          "${DIST_DIR}/"
 cp ./ui_fragments.js      "${DIST_DIR}/"

@@ -37,6 +37,7 @@
     "pages:dev": "wrangler pages dev dist/",
     "pages:deploy": "wrangler pages deploy dist/",
     "test:automation": "node --test tests/x1pen_automation_test.mjs",
+    "test:project-disk": "node --test tests/project_disk_test.mjs",
     "test:bridge": "node --test tests/x1pen_bridge_test.mjs",
     "test:extension-package": "node --test tests/x1pen_extension_package_test.mjs tests/x1pen_extension_bridge_test.mjs",
     "test:mcp": "node --test tests/x1pen_mcp_test.mjs tests/x1pen_reference_test.mjs",

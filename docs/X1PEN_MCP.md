@@ -309,6 +309,8 @@ Runボタン、Ctrl+Enter、Share自動実行、Automation API、MCPの`x1pen_ru
 
 既存の`ok: true`は従来どおり「Run準備とコマンドキー注入が完了した」ことを示し、X1プログラムが実際に開始したことの確認までは含みません。Run準備中はpause/resume/step、プログラム更新、検証、デバッガ書込みを拒否または待機し、起動用キー注入への割込みを防ぎます。
 
+通常のライブラリディスクがFDD0にある場合、最初のMCP Runは`PROJECT_DISK_SETUP_REQUIRED`を返します。X1Pen画面で一度RUNし、別名のpersistent project copy作成を承認してください。metadata付きproject copyに対するRunは、managed fileのcommitとcold power-onが成功すると`committed: true`、`poweredOn: true`、`verification: "filesystem-only"`、`bootVerified: false`、`executionVerified: false`を返します。これはbootやguest program実行の確認ではありません。
+
 Run準備が`stalled`になった場合、`x1pen_get_status`は`runAdmission`のphase/origin/経過時間を返します。`x1pen_recover_stalled`を確認なしで呼ぶと警告を返し、`confirmDataLoss: true`でのみ再読込します。エディターの現在値は保存されますが、エミュレーターRAMと未永続化のディスク変更は失われます。
 
 Share機能はユーザーが開いているX1Pen自身から実行するため、本番X1Pen上では既存のShare APIと公開URLをそのまま利用できます。

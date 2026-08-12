@@ -1828,3 +1828,156 @@ test('embedded M8A data assembles and draws into graphics VRAM', { timeout: 60_0
   assert.equal(result.run.sourceMode, 'slang');
   assert.deepEqual(result.observed, { blue: 0xFF, red: 0x00, green: 0x00 });
 });
+
+test('mounted FDD0 is forked once into a persistent project disk', { timeout: 90_000 }, async () => {
+  const context = await browser.newContext();
+  const projectPage = await context.newPage();
+  try {
+    await projectPage.goto(`${baseUrl}/x1pen.html`);
+    await projectPage.evaluate(() => window.X1PenAutomation.ready());
+    await projectPage.evaluate(async () => {
+      const response = await fetch('fuzzybasic_boot.v2.d88');
+      const bytes = await response.arrayBuffer();
+      const entry = await window.XmilLibrary.addToLibrary(
+        new File([bytes], 'OWNER.D88', { type: 'application/octet-stream' }),
+      );
+      const dataEntry = await window.XmilLibrary.addToLibrary(
+        new File([bytes], 'DATA.D88', { type: 'application/octet-stream' }),
+      );
+      await window.XmilLibrary.mountFromLibrary(entry.key, 'drive0');
+      await window.XmilLibrary.mountFromLibrary(dataEntry.key, 'drive1');
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({
+        sourceMode: 'basic+asm',
+        basic: '10 PRINT "PROJECT DISK"\n20 END',
+        asm: '',
+        slang: '',
+      }, current.revision, current.revisionEpoch);
+    });
+
+    const setupRequired = await projectPage.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(setupRequired.ok, false);
+    assert.equal(setupRequired.code, 'PROJECT_DISK_SETUP_REQUIRED');
+    assert.match(setupRequired.status, /X1Pen画面で一度RUNしてください/);
+    assert.match(setupRequired.action, /作業用コピーの作成を承認/);
+
+    const dialogMessages = [];
+    projectPage.on('dialog', (dialog) => {
+      dialogMessages.push(dialog.message());
+      dialog.accept();
+    });
+    await projectPage.locator('#btn-run').click();
+    await projectPage.waitForFunction(() => {
+      const entry = window.XmilCore.getLibrary().find((candidate) => candidate.x1penProject);
+      return entry && !window.X1PenAutomation.getStatus().capabilities.debugger.runPending;
+    });
+    assert.equal(dialogMessages.length, 1);
+    assert.match(dialogMessages[0], /X1Pen用の作業ディスクを作成しますか/);
+    assert.match(dialogMessages[0], /起動やプログラム実行は確認されません/);
+
+    const first = await projectPage.evaluate(async () => {
+      const library = window.XmilCore.getLibrary();
+      const source = library.find((entry) => entry.name === 'OWNER.D88');
+      const data = library.find((entry) => entry.name === 'DATA.D88');
+      const project = library.find((entry) => entry.x1penProject);
+      const slots = window.XmilCore.getSlotState();
+      const bytes = await window.XmilStorage.read(project.key);
+      const container = window.XmilDiskContainer.openContainer(bytes, project.name, 'fdd');
+      const fs = window.XmilDiskFS.detectFilesystem(container);
+      const auto = fs.readFile(fs.findByName('AUTOEXEC', 'BAT'));
+      return {
+        source,
+        data,
+        project,
+        drive0: slots.drive0,
+        drive1: slots.drive1,
+        autorun: !!fs.findByName('AUTORUN', 'BAS'),
+        autoexec: String.fromCharCode(...auto).split(String.fromCharCode(0x1a))[0],
+      };
+    });
+    assert.ok(first.source);
+    assert.ok(first.data);
+    assert.equal(first.source.x1penProject, undefined);
+    assert.match(first.project.name, /^OWNER-X1Pen(?:-\d+)?\.D88$/);
+    assert.equal(first.project.sourceKey, first.source.key);
+    assert.equal(first.project.projectMode, 'fuzzybasic');
+    assert.equal(first.drive0, first.project.key);
+    assert.equal(first.drive1, first.data.key);
+    assert.equal(first.autorun, true);
+    assert.match(first.autoexec, /(^|\r?\n)FZBASIC(\r?\n|$)/);
+
+    const rerun = await projectPage.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(rerun.ok, true);
+    assert.equal(rerun.projectDisk, true);
+    assert.equal(rerun.projectDiskName, first.project.name);
+    assert.equal(rerun.committed, true);
+    assert.equal(rerun.poweredOn, true);
+    assert.equal(rerun.bootVerified, false);
+    assert.equal(rerun.executionVerified, false);
+    assert.equal(rerun.verification, 'filesystem-only');
+    assert.equal(rerun.status, 'プロジェクトディスクを起動しました');
+
+    const drive1AfterRerun = await projectPage.evaluate(() => window.XmilCore.getSlotState().drive1);
+    assert.equal(drive1AfterRerun, first.data.key);
+
+    const projectsAfterRerun = await projectPage.evaluate(
+      () => window.XmilCore.getLibrary().filter((entry) => entry.x1penProject).map((entry) => entry.name),
+    );
+    assert.deepEqual(projectsAfterRerun, [first.project.name], 'metadata must prevent a second project copy');
+
+    for (const selectedModel of [2, 3]) {
+      const modelRun = await projectPage.evaluate(async (model) => {
+        window.XmilControls.setRomType(model);
+        return {
+          result: await window.X1PenAutomation.run(),
+          activeModel: window.Module._js_get_rom_type(),
+        };
+      }, selectedModel);
+      assert.equal(modelRun.result.ok, true);
+      assert.equal(modelRun.result.verification, 'filesystem-only');
+      assert.equal(modelRun.result.bootVerified, false);
+      assert.equal(modelRun.result.executionVerified, false);
+      assert.equal(modelRun.activeModel, selectedModel);
+    }
+
+    const rollback = await projectPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const project = window.XmilCore.getLibrary().find((entry) => entry.x1penProject);
+      const original = await window.XmilStorage.read(project.key);
+      const originalHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', original)))
+        .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      const savedWrite = window.XmilStorage.write;
+      let failed = false;
+      window.XmilStorage.write = async function(key, bytes) {
+        await savedWrite.call(this, key, bytes);
+        if (key === project.key && !failed) {
+          failed = true;
+          throw new Error('forced post-write failure');
+        }
+      };
+      let result;
+      try {
+        result = await api.run();
+      } finally {
+        window.XmilStorage.write = savedWrite;
+      }
+      const restored = await window.XmilStorage.read(project.key);
+      const restoredHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', restored)))
+        .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      return {
+        result,
+        originalHash,
+        restoredHash,
+        drive0: window.XmilCore.getSlotState().drive0,
+        projectKey: project.key,
+      };
+    });
+    assert.equal(rollback.result.ok, false);
+    assert.equal(rollback.result.rollbackFailed, false);
+    assert.equal(rollback.restoredHash, rollback.originalHash);
+    assert.equal(rollback.drive0, rollback.projectKey);
+  } finally {
+    await context.close();
+  }
+});

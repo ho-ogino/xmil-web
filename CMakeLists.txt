@@ -215,6 +215,7 @@ set_property(TARGET xmillennium PROPERTY LINK_DEPENDS
     ${CMAKE_SOURCE_DIR}/html/drive_integration.js
     ${CMAKE_SOURCE_DIR}/html/disk_container.js
     ${CMAKE_SOURCE_DIR}/html/disk_fs.js
+    ${CMAKE_SOURCE_DIR}/html/project_disk.js
     ${CMAKE_SOURCE_DIR}/html/disk_editor.js
     ${CMAKE_SOURCE_DIR}/html/config.example.js
     ${CMAKE_SOURCE_DIR}/html/x1pen.html
@@ -237,6 +238,8 @@ add_custom_command(TARGET xmillennium POST_BUILD
     ${CMAKE_SOURCE_DIR}/html/disk_container.js ${CMAKE_BINARY_DIR}/disk_container.js
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/disk_fs.js ${CMAKE_BINARY_DIR}/disk_fs.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/html/project_disk.js ${CMAKE_BINARY_DIR}/project_disk.js
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/disk_editor.js ${CMAKE_BINARY_DIR}/disk_editor.js
     COMMAND ${CMAKE_COMMAND} -E copy
