@@ -277,13 +277,12 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   assert.equal(settings.keyMode, 1, 'automation run must preserve the JoyKey setting');
 });
 
-test('SLANG Import replaces a captured placeholder with compiler-valid binary values', { timeout: 180_000 }, async () => {
-  const slangTab = page.locator('.editor-tab[data-tab="slang"]');
-  const asmTab = page.locator('.editor-tab[data-tab="asm"]');
+test('SLANG Import inserts formatted values at the cursor', { timeout: 180_000 }, async () => {
   const basicTab = page.locator('.editor-tab[data-tab="basic"]');
-  const slangImport = page.locator('#btn-slang-import');
+  const asmTab = page.locator('.editor-tab[data-tab="asm"]');
+  const slangTab = page.locator('.editor-tab[data-tab="slang"]');
   const asmImport = page.locator('#btn-asm-import');
-  const status = page.locator('#x1pen-status');
+  const slangImport = page.locator('#btn-slang-import');
   const slangLines = page.locator('#slang-editor-container .cm-line');
 
   async function setProgram(sourceMode, source) {
@@ -299,31 +298,10 @@ test('SLANG Import replaces a captured placeholder with compiler-valid binary va
     }, { mode: sourceMode, text: source });
   }
 
-  async function getSlang() {
-    return page.evaluate(() => window.X1PenAutomation.getProgram().slang);
-  }
-
-  async function selectLine(lineNumber, characterCount) {
-    await slangLines.nth(lineNumber).click();
-    await page.keyboard.press('Home');
-    await page.keyboard.down('Shift');
-    if (characterCount === undefined) {
-      await page.keyboard.press('End');
-    } else {
-      for (let index = 0; index < characterCount; index++) {
-        await page.keyboard.press('ArrowRight');
-      }
-    }
-    await page.keyboard.up('Shift');
-  }
-
-  async function openChooser(button = slangImport) {
+  async function importFile(button, name, bytes, statusText) {
     const chooserPromise = page.waitForEvent('filechooser');
     await button.click();
-    return chooserPromise;
-  }
-
-  async function choose(chooser, name, bytes, expectedStatus) {
+    const chooser = await chooserPromise;
     await chooser.setFiles({
       name,
       mimeType: 'application/octet-stream',
@@ -331,7 +309,7 @@ test('SLANG Import replaces a captured placeholder with compiler-valid binary va
     });
     await page.waitForFunction(
       (expected) => document.getElementById('x1pen-status').textContent.includes(expected),
-      expectedStatus,
+      statusText,
     );
   }
 
@@ -345,127 +323,50 @@ test('SLANG Import replaces a captured placeholder with compiler-valid binary va
   assert.equal(await asmImport.isVisible(), false);
   assert.equal(await slangImport.isVisible(), true);
 
-  const validTemplate = (placeholder = '$00') => [
-    'ARRAY BYTE DATA[] = {',
-    placeholder,
-    '};',
-    'MAIN() BEGIN',
-    'END;',
-  ].join('\n');
-
-  await setProgram('slang', validTemplate());
-  await slangTab.click();
-  await selectLine(1);
-  let chooser = await openChooser();
-  await slangLines.nth(3).click();
-  await choose(chooser, 'captured.bin', [0x4d, 0x38], 'Imported: captured.bin (2 bytes)');
-  let source = await getSlang();
-  assert.equal(source, validTemplate('$4D,$38'));
-  let validation = await page.evaluate(() => window.X1PenAutomation.validate());
-  assert.equal(validation.ok, true, JSON.stringify(validation.diagnostics));
-
-  for (const length of [1, 16, 17]) {
-    await setProgram('slang', validTemplate());
-    await slangTab.click();
-    await selectLine(1);
-    chooser = await openChooser();
-    const bytes = Array.from({ length }, (_, index) => index);
-    await choose(chooser, `format-${length}.bin`, bytes, `Imported: format-${length}.bin (${length} bytes)`);
-    source = await getSlang();
-    assert.equal(source.match(/\$[0-9A-F]{2}/g).length, length);
-    assert.doesNotMatch(source, /,\s*};/);
-    if (length <= 16) assert.doesNotMatch(source.split('\n').slice(1, -3).join('\n'), /,\n/);
-    if (length === 17) assert.match(source, /\$0F,\n\$10/);
-    validation = await page.evaluate(() => window.X1PenAutomation.validate());
-    assert.equal(validation.ok, true, `length ${length}: ${JSON.stringify(validation.diagnostics)}`);
-  }
-
-  await setProgram('slang', validTemplate('$01,$02'));
+  await setProgram('slang', 'PREFIX\n\nSUFFIX');
   await slangTab.click();
   await slangLines.nth(1).click();
   await page.keyboard.press('Home');
-  for (let index = 0; index < 4; index++) await page.keyboard.press('ArrowRight');
-  chooser = await openChooser();
-  await choose(chooser, 'cursor.bin', [0xaa, 0xbb], 'Imported: cursor.bin (2 bytes)');
-  source = await getSlang();
-  assert.equal(source, validTemplate('$01,$AA,$BB,$02'));
-  validation = await page.evaluate(() => window.X1PenAutomation.validate());
-  assert.equal(validation.ok, true, JSON.stringify(validation.diagnostics));
+  const bytes = Array.from({ length: 17 }, (_, index) => index);
+  await importFile(slangImport, 'values.bin', bytes, 'Imported: values.bin (17 bytes)');
+  const values = Array.from({ length: 16 }, (_, index) =>
+    '$' + index.toString(16).toUpperCase().padStart(2, '0')).join(',') + ',\n$10';
+  let source = await page.evaluate(() => window.X1PenAutomation.getProgram().slang);
+  assert.equal(source, 'PREFIX\n' + values + '\nSUFFIX');
+  assert.doesNotMatch(values, /,$/);
 
-  const commentSource = [
-    'SHOW() BEGIN',
-    '  PRINT("http://x{");',
-    'END;',
-    'ARRAY BYTE DATA[] = {',
-    '$00 // placeholder',
-    '};',
-    'MAIN() BEGIN',
-    'END;',
-  ].join('\n');
-  await setProgram('slang', commentSource);
+  await importFile(slangImport, 'cursor.bin', [0xaa], 'Imported: cursor.bin (1 bytes)');
+  source = await page.evaluate(() => window.X1PenAutomation.getProgram().slang);
+  assert.equal(source, 'PREFIX\n' + values + '$AA\nSUFFIX', 'cursor moves to inserted end');
+
+  await setProgram('slang', 'PREFIX\nSELECTME\nSUFFIX');
   await slangTab.click();
-  await selectLine(4, 3);
-  chooser = await openChooser();
-  await choose(chooser, 'comment.bin', [0x7b, 0x2f], 'Imported: comment.bin (2 bytes)');
-  source = await getSlang();
-  assert.match(source, /\$7B,\$2F \/\/ placeholder\n};/);
-  validation = await page.evaluate(() => window.X1PenAutomation.validate());
-  assert.equal(validation.ok, true, JSON.stringify(validation.diagnostics));
+  await slangLines.nth(1).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await importFile(slangImport, 'selection.bin', [0xbb], 'Imported: selection.bin (1 bytes)');
+  source = await page.evaluate(() => window.X1PenAutomation.getProgram().slang);
+  assert.equal(source, 'PREFIX\nSELECTME$BB\nSUFFIX', 'selection remains and insertion uses its head');
 
-  const structuralSource = 'ARRAY BYTE DATA[] = { $00 };\nMAIN() BEGIN\nEND;';
-  await setProgram('slang', structuralSource);
-  await slangTab.click();
-  await selectLine(0);
-  chooser = await openChooser();
-  await choose(chooser, 'structural.bin', [1], 'Select only the placeholder values');
-  assert.equal(await getSlang(), structuralSource);
+  await importFile(slangImport, 'empty.bin', [], 'Empty file cannot be imported');
+  assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().slang), source);
+  await importFile(
+    slangImport,
+    'oversize.bin',
+    Buffer.alloc(128 * 1024 + 1),
+    'File too large (max 128KB)',
+  );
+  assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().slang), source);
 
-  await setProgram('slang', validTemplate());
-  await slangTab.click();
-  await selectLine(1);
-  chooser = await openChooser();
-  await choose(chooser, 'empty.bin', [], 'empty binary would remove the placeholder');
-  assert.equal(await getSlang(), validTemplate());
-
-  await selectLine(1);
-  chooser = await openChooser();
-  await choose(chooser, 'oversize.bin', Buffer.alloc(128 * 1024 + 1), 'File too large (max 128KB)');
-  assert.equal(await getSlang(), validTemplate());
-
-  await selectLine(1);
-  chooser = await openChooser();
-  const editedSource = '// changed while chooser was open\n' + validTemplate();
-  await setProgram('slang', editedSource);
-  await choose(chooser, 'stale.bin', [1, 2, 3], 'SLANG source changed; retry');
-  assert.equal(await getSlang(), editedSource);
-
-  await setProgram('slang', validTemplate());
-  await slangTab.click();
-  await selectLine(1);
-  chooser = await openChooser();
-  await basicTab.click();
-  await choose(chooser, 'tab-switch.bin', [1], 'return to SLANG and retry');
-  assert.equal(await getSlang(), validTemplate());
-  assert.equal(await page.locator('#slang-editor-container .cm-editor.cm-focused').count(), 0);
-
-  await setProgram('slang', validTemplate());
-  await slangTab.click();
-  await selectLine(1);
-  chooser = await openChooser();
-  const largeBytes = Buffer.alloc(64 * 1024 + 1, 0x5a);
-  await choose(chooser, 'large.bin', largeBytes, 'Warning: large file, may affect share');
-  source = await getSlang();
-  assert.equal(source.match(/\$5A/g).length, largeBytes.length);
-  assert.doesNotMatch(source, /,\s*};/);
-
-  await setProgram('asm', 'ORG $100\nRET');
+  await setProgram('asm', 'RET');
   await asmTab.click();
-  chooser = await openChooser(asmImport);
-  await choose(chooser, 'asm.bin', [1, 2], 'Imported: asm.bin (2 bytes)');
-  const asm = await page.evaluate(() => window.X1PenAutomation.getProgram().asm);
-  assert.match(asm, /; imported: asm\.bin \(2 bytes\)/);
-  assert.match(asm, /DB \$01,\$02/);
-  assert.match(await status.textContent(), /Imported: asm\.bin/);
+  await page.locator('#asm-editor-container .cm-line').first().click();
+  await page.keyboard.press('Home');
+  await importFile(asmImport, 'asm.bin', [1, 2], 'Imported: asm.bin (2 bytes)');
+  assert.equal(
+    await page.evaluate(() => window.X1PenAutomation.getProgram().asm),
+    '; imported: asm.bin (2 bytes)\nDB $01,$02\nRET',
+  );
 
   await setProgram('basic+asm', '10 PRINT "MCP READY"');
   await basicTab.click();

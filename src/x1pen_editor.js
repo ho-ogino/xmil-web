@@ -191,9 +191,6 @@ function createEditor(container, opts) {
         replaceSelection: function(text) {
             view.dispatch(view.state.replaceSelection(text));
         },
-        replaceRange: function(from, to, text) {
-            view.dispatch({ changes: { from: from, to: to, insert: text } });
-        },
         getCursor: function() {
             return view.state.selection.main.head;
         },

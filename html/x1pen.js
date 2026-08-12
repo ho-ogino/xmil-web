@@ -3780,100 +3780,15 @@ window.__X1PEN_MODE = true;
         return lines.join('\n');
     }
 
-    function binaryToSlangValues(uint8array, continuationIndent) {
+    function binaryToSlangValues(uint8array) {
         var lines = [];
-        var indent = continuationIndent || '';
         for (var i = 0; i < uint8array.length; i += 16) {
             var chunk = uint8array.slice(i, Math.min(i + 16, uint8array.length));
             lines.push(Array.from(chunk).map(function(b) {
                 return '$' + ('0' + b.toString(16).toUpperCase()).slice(-2);
             }).join(','));
         }
-        return lines.join(',\n' + indent);
-    }
-
-    function importStatus(filename, byteLength) {
-        var status = 'Imported: ' + filename + ' (' + byteLength + ' bytes)';
-        if (byteLength > 64 * 1024) status += ' — Warning: large file, may affect share';
-        return status;
-    }
-
-    function readBinaryImport(file, onLoad) {
-        if (file.size > 128 * 1024) {
-            elStatus.textContent = 'File too large (max 128KB)';
-            return;
-        }
-        var reader = new FileReader();
-        reader.onload = function() { onLoad(new Uint8Array(reader.result)); };
-        reader.onerror = function() { elStatus.textContent = 'Import failed: could not read file'; };
-        reader.onabort = function() { elStatus.textContent = 'Import cancelled: file read aborted'; };
-        reader.readAsArrayBuffer(file);
-    }
-
-    function slangSignificantPositions(source) {
-        var positions = [];
-        var i = 0;
-        while (i < source.length) {
-            var ch = source[i];
-            var next = source[i + 1];
-            if (/\s/.test(ch)) {
-                i++;
-            } else if (ch === '/' && next === '/') {
-                i += 2;
-                while (i < source.length && source[i] !== '\n') i++;
-            } else if (ch === '/' && next === '*') {
-                i += 2;
-                while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i++;
-                if (i < source.length) i += 2;
-            } else if (ch === '(' && next === '*') {
-                i += 2;
-                while (i < source.length && !(source[i] === '*' && source[i + 1] === ')')) i++;
-                if (i < source.length) i += 2;
-            } else if (ch === '"' || ch === "'") {
-                var quote = ch;
-                i++;
-                while (i < source.length) {
-                    if (source[i] === '\\') {
-                        i += Math.min(2, source.length - i);
-                    } else if (source[i] === quote) {
-                        i++;
-                        break;
-                    } else {
-                        i++;
-                    }
-                }
-            } else {
-                positions.push(i);
-                i++;
-            }
-        }
-        return positions;
-    }
-
-    function slangImportText(source, from, to, data) {
-        var positions = slangSignificantPositions(source);
-        var hasStructuralSelection = positions.some(function(pos) {
-            return pos >= from && pos < to && (source[pos] === '{' || source[pos] === '}');
-        });
-        if (hasStructuralSelection) {
-            return { error: 'Select only the placeholder values, without { or }' };
-        }
-
-        var left = null;
-        var right = null;
-        for (var i = 0; i < positions.length; i++) {
-            var pos = positions[i];
-            if (pos < from) left = source[pos];
-            if (pos >= to) { right = source[pos]; break; }
-        }
-        var lineStart = source.lastIndexOf('\n', Math.max(0, from - 1)) + 1;
-        var indentMatch = source.slice(lineStart).match(/^[ \t]*/);
-        var values = binaryToSlangValues(data, indentMatch ? indentMatch[0] : '');
-        var noLeadingComma = left === null || '{,=['.indexOf(left) >= 0 || left === '(';
-        var noTrailingComma = right === null || '},;]'.indexOf(right) >= 0 || right === ')';
-        return {
-            text: (noLeadingComma ? '' : ',') + values + (noTrailingComma ? '' : ','),
-        };
+        return lines.join(',\n');
     }
 
     var asmImportBtn = document.getElementById('btn-asm-import');
@@ -3885,7 +3800,19 @@ window.__X1PEN_MODE = true;
             e.target.value = '';
             if (!file || !asmEditor) return;
 
-            readBinaryImport(file, function(data) {
+            if (file.size > 128 * 1024) {
+                elStatus.textContent = 'File too large (max 128KB)';
+                return;
+            }
+
+            var reader = new FileReader();
+            reader.onload = function() {
+                var data = new Uint8Array(reader.result);
+
+                if (data.length > 64 * 1024) {
+                    elStatus.textContent = 'Warning: large file, may affect share';
+                }
+
                 var dbText = binaryToDbLines(data, file.name);
                 var pos = asmEditor.getCursor();
 
@@ -3897,55 +3824,42 @@ window.__X1PEN_MODE = true;
                 var insertText = prefix + dbText + suffix;
                 asmEditor.insertAt(pos, insertText);
                 asmEditor.setCursor(pos + insertText.length);
-                elStatus.textContent = importStatus(file.name, data.length);
-            });
+                elStatus.textContent = 'Imported: ' + file.name + ' (' + data.length + ' bytes)';
+            };
+            reader.readAsArrayBuffer(file);
         });
     }
 
     var slangImportBtn = document.getElementById('btn-slang-import');
     var slangImportFile = document.getElementById('slang-import-file');
-    var pendingSlangImport = null;
     if (slangImportBtn && slangImportFile) {
-        slangImportBtn.addEventListener('click', function() {
-            if (!slangEditor || activeTab !== 'slang') return;
-            var selection = slangEditor.getSelection();
-            pendingSlangImport = {
-                source: slangEditor.getValue(),
-                from: selection.from,
-                to: selection.to,
-            };
-            slangImportFile.click();
-        });
+        slangImportBtn.addEventListener('click', function() { slangImportFile.click(); });
         slangImportFile.addEventListener('change', function(e) {
             var file = e.target.files[0];
             e.target.value = '';
-            var captured = pendingSlangImport;
-            pendingSlangImport = null;
-            if (!file || !captured || !slangEditor) return;
-            readBinaryImport(file, function(data) {
-                if (activeTab !== 'slang') {
-                    elStatus.textContent = 'Import cancelled: return to SLANG and retry';
-                    return;
-                }
-                if (slangEditor.getValue() !== captured.source) {
-                    elStatus.textContent = 'Import cancelled: SLANG source changed; retry';
-                    return;
-                }
+            if (!file || !slangEditor) return;
+
+            if (file.size > 128 * 1024) {
+                elStatus.textContent = 'File too large (max 128KB)';
+                return;
+            }
+
+            var reader = new FileReader();
+            reader.onload = function() {
+                var data = new Uint8Array(reader.result);
                 if (data.length === 0) {
-                    elStatus.textContent = 'Import cancelled: empty binary would remove the placeholder';
+                    elStatus.textContent = 'Empty file cannot be imported';
                     return;
                 }
-                var replacement = slangImportText(
-                    captured.source, captured.from, captured.to, data
-                );
-                if (replacement.error) {
-                    elStatus.textContent = 'Import cancelled: ' + replacement.error;
-                    return;
-                }
-                slangEditor.replaceRange(captured.from, captured.to, replacement.text);
-                slangEditor.focus();
-                elStatus.textContent = importStatus(file.name, data.length);
-            });
+
+                var text = binaryToSlangValues(data);
+                var pos = slangEditor.getCursor();
+                slangEditor.insertAt(pos, text);
+                slangEditor.setCursor(pos + text.length);
+                elStatus.textContent = 'Imported: ' + file.name + ' (' + data.length + ' bytes)' +
+                    (data.length > 64 * 1024 ? ' — Warning: large file, may affect share' : '');
+            };
+            reader.readAsArrayBuffer(file);
         });
     }
 })();

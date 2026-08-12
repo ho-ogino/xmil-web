@@ -282,8 +282,7 @@ test('server exposes context-efficient source tools', async () => {
   assert.match(instructions, /source length alone never triggers/);
   assert.match(instructions, /Before explicit user approval, do not read, re-emit, or split/);
   assert.match(instructions, /ASM: the existing Import button for DB lines/);
-  assert.match(instructions, /SLANG: the existing Import button replaces a selected placeholder with array values/);
-  assert.match(instructions, /Disk Editor plus MAGLOAD\/FOPEN\/FREAD/);
+  assert.match(instructions, /SLANG: the existing Import button inserts array values at the cursor/);
   assert.match(instructions, /BASIC: Disk Editor plus BLOAD/);
   assert.match(instructions, /only for a complete prepared source section, not raw binary or a fragment/);
   assert.doesNotMatch(instructions, /Issue #112|#112/);
