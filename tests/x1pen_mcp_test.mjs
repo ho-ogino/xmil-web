@@ -275,6 +275,19 @@ after(async () => {
 });
 
 test('server exposes context-efficient source tools', async () => {
+  const instructions = client.getInstructions();
+  assert.match(instructions, /8 KiB/);
+  assert.match(instructions, /8,192 byte literals/);
+  assert.match(instructions, /50%/);
+  assert.match(instructions, /source length alone never triggers/);
+  assert.match(instructions, /Before explicit user approval, do not read, re-emit, or split/);
+  assert.match(instructions, /ASM: the existing Import button for DB lines/);
+  assert.match(instructions, /SLANG: Disk Editor plus MAGLOAD or FOPEN\/FREAD/);
+  assert.match(instructions, /BASIC: Disk Editor plus BLOAD/);
+  assert.match(instructions, /only for a complete prepared source section, not raw binary or a fragment/);
+  assert.doesNotMatch(instructions, /SLANG.{0,40}Import (?:button|ボタン)/i);
+  assert.doesNotMatch(instructions, /Issue #112|#112/);
+
   const tools = await client.listTools();
   assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
     'x1pen_apply_edits',
@@ -310,6 +323,8 @@ test('server exposes context-efficient source tools', async () => {
   ]);
   const descriptions = Object.fromEntries(tools.tools.map((tool) => [tool.name, tool.description]));
   assert.match(descriptions.x1pen_set_program, /inactive for sourceMode are cleared even when supplied/);
+  assert.match(descriptions.x1pen_set_program, /large-asset guidance; ordinary long code alone does not trigger/);
+  assert.match(descriptions.x1pen_apply_edits, /large-asset guidance; ordinary long code alone does not trigger/);
   assert.match(descriptions.x1pen_validate, /temporary compilation output/);
   assert.match(descriptions.x1pen_validate, /does not store generated ASM/);
 });
