@@ -48,6 +48,18 @@ Source validation failures are structured: `EDIT_RANGE_INVALID`, `EDITS_OVERLAP`
 
 `x1pen_set_program` is a complete replacement. Sections inactive for its `sourceMode` are cleared even when non-empty values are supplied; use `x1pen_apply_edits` to preserve other authoring content in the current mode. For SLANG validation, `output.generatedAsmLines` and `output.asmBytes` describe temporary compilation output only. Validation does not store that generated ASM in the program; Run does.
 
+### Large generated asset tables
+
+Large ordinary programs are not warnings by themselves. Before constructing a source write, the MCP guidance treats only asset-like replacement text as costly when either the write embeds substantially all of a known asset of at least 8 KiB (8,192 bytes), or the replacement contains at least 8,192 byte literals in table-like runs that occupy at least 50% of its non-whitespace characters. Table-like runs have at least eight comma-separated byte values: `$00`–`$FF`, `0x00`–`0xFF`, or decimal `0`–`255`. ASM counts only `DB`/`DEFB` data lines, BASIC counts `DATA` lines, and SLANG counts array-initializer lists.
+
+Before the user explicitly accepts the model token and time cost, the AI should not read and re-emit that asset body or split it into smaller writes. It should offer a current manual route:
+
+- ASM: use the existing **Import** button to convert a binary into `DB` lines.
+- SLANG: add the binary to the project disk with Disk Editor, then use `MAGLOAD` or `FOPEN`/`FREAD` as appropriate. For source embedding, ask the user to paste the prepared text at the named array location.
+- BASIC: add the binary to the project disk with Disk Editor, then use `BLOAD` or the applicable file workflow. For `DATA` embedding, ask the user to paste the prepared text at the named location.
+
+After explicit approval, prefer one guarded write and split only if the client output limit makes one write impossible. Use metadata-only `x1pen_get_program` and bounded source searches/reads for the insertion point; the existing source does not need to be read in full. A local UTF-8 source-file synchronization tool should be suggested only when the connected MCP actually provides one, the user configured its file access, and a complete prepared source section exists. It is not a raw-binary or source-fragment importer.
+
 ## Emulator keyboard input
 
 `x1pen_send_key` sends one allowlisted numeric Windows-compatible virtual key to the visible connected X1Pen emulator. For example, `65` is A, `13` is Enter, and `32` is Space. `durationMs` defaults to 80 and accepts integers through 2000. Modifier/latching keys, chords, text strings, OS input and arbitrary JavaScript are not supported. RUN, PROG and key requests share one non-interleaving queue; verify guest behavior with a screen capture or debugger state when needed.

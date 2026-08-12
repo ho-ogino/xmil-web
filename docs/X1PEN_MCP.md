@@ -123,6 +123,18 @@ AIによる更新、検証、実行、停止中はエディターとツールバ
 
 `x1pen_set_program`は完全置換です。`sourceMode: "slang"`では`basic`と`asm`、`sourceMode: "asm"`では`basic`と`slang`、`sourceMode: "basic+asm"`では`slang`が、非空で入力されても保持されずclearされます。現在modeの一部だけを安全に変更して他のauthoring sectionを保持する場合は`x1pen_apply_edits`を使います。SLANGの`x1pen_validate`が返す`output.generatedAsmLines`と`output.asmBytes`は一時compile/assemble結果の量であり、programのASM sectionには書き戻しません。生成ASMを保持して読む必要がある場合は`x1pen_run`後にprogramを再取得します。
 
+### 大きな生成アセット表
+
+通常のプログラムは、ソース全体が16 KiBやそれ以上でも長さだけでは警告対象にしません。書き込もうとする変更本文が、既知の8 KiB（8,192 bytes）以上のアセットをほぼ全量埋め込む場合、または8個以上連続するbyte値の表に合計8,192個以上のbyte literalがあり、その表が変更本文の非空白文字の50%以上を占める場合だけ、大きなアセット表として扱います。byte literalは`$00`〜`$FF`、`0x00`〜`0xFF`、10進の`0`〜`255`です。ASMは`DB`／`DEFB`行、BASICは`DATA`行、SLANGは配列初期値のカンマ区切りだけを数えます。
+
+この条件に該当した場合、AIは利用者がtoken・時間コストを明示的に了承するまで、アセット本文を読んで再出力したり、警告を避けるため分割したりしません。対象sectionに合わせて、現在利用できる手動経路を案内します。
+
+- ASM: 既存の **Import** ボタンでbinaryを`DB`行へ変換します。
+- SLANG: Disk Editorでproject diskへbinaryを追加し、用途に応じて`MAGLOAD`または`FOPEN`／`FREAD`を使います。source埋め込みが必要なら、用意済みtextを指定した配列位置へ利用者が貼り付けます。
+- BASIC: Disk Editorでproject diskへbinaryを追加し、`BLOAD`または該当するfile処理を使います。`DATA`埋め込みが必要なら、用意済みtextを指定位置へ利用者が貼り付けます。
+
+了承後はguardを維持した1回の書き込みを優先し、clientの出力上限で不可能な場合だけ分割します。既存source全文を読む必要はなく、metadata-onlyの`x1pen_get_program`と挿入位置周辺だけの検索・取得を使います。local UTF-8 source-file同期は、接続中MCPが実際に提供し、利用者がfile accessを設定済みで、完全なsource section fileがある場合だけ候補にします。raw binaryやsource断片のimportとしては案内しません。
+
 ### エミュレーターへのキー入力
 
 `x1pen_send_key`は、接続中かつ表示中のX1Penタブのエミュレーターだけへ、1つのdown／hold／upライフサイクルを送ります。OSキーボード入力、任意JavaScript、文字列、複数キーのchordは公開しません。`durationMs`は80〜2000 msの整数（既定80 ms）です。成功はローカルでkey-upまでdispatchしたことを表し、実行中プログラムがキーを消費したことまでは保証しません。必要な場合は`x1pen_capture_screen`またはデバッガ状態で結果を確認してください。
