@@ -1370,7 +1370,7 @@ window.__X1PEN_MODE = true;
                 };
                 lastRunWasShared = isSharedRun;
                 updateAddrReference(actualColdState);
-                elStatus.textContent = 'プロジェクトディスクを起動しました（ファイルシステム検証済み、起動未確認）';
+                elStatus.textContent = 'プロジェクトディスクを起動しました';
                 lastRunDetails = {
                     projectDisk: true,
                     projectDiskName: projectEntry.name,
@@ -1400,7 +1400,12 @@ window.__X1PEN_MODE = true;
                     poweredOn: false,
                     bootVerified: false,
                     executionVerified: false,
-                    rollbackFailed: !!e.rollbackFailed
+                    rollbackFailed: !!e.rollbackFailed,
+                    mismatchKind: e.mismatchKind,
+                    requestedModel: e.requestedModel,
+                    activeModel: e.activeModel,
+                    requestedDip: e.requestedDip,
+                    activeDip: e.activeDip
                 };
                 return false;
             }
