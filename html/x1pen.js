@@ -3666,14 +3666,16 @@ window.__X1PEN_MODE = true;
         var basicContainer = document.getElementById('basic-editor-container');
         var asmContainer = document.getElementById('asm-editor-container');
         var slangContainer = document.getElementById('slang-editor-container');
-        var importBtn = document.getElementById('btn-asm-import');
+        var asmImportAction = document.getElementById('btn-asm-import');
+        var slangImportAction = document.getElementById('btn-slang-import');
         var manualBtn = document.getElementById('btn-basic-manual');
 
         // 全エディタコンテナを非表示
         if (basicContainer) basicContainer.classList.add('hidden');
         if (asmContainer) asmContainer.classList.add('hidden');
         if (slangContainer) slangContainer.classList.add('hidden');
-        if (importBtn) importBtn.classList.add('hidden');
+        if (asmImportAction) asmImportAction.classList.add('hidden');
+        if (slangImportAction) slangImportAction.classList.add('hidden');
         if (manualBtn) manualBtn.classList.add('hidden');
 
         // 選択されたタブのコンテナを表示
@@ -3682,9 +3684,10 @@ window.__X1PEN_MODE = true;
             if (manualBtn) manualBtn.classList.remove('hidden');
         } else if (target === 'asm') {
             if (asmContainer) asmContainer.classList.remove('hidden');
-            if (importBtn) importBtn.classList.remove('hidden');
+            if (asmImportAction) asmImportAction.classList.remove('hidden');
         } else if (target === 'slang') {
             if (slangContainer) slangContainer.classList.remove('hidden');
+            if (slangImportAction) slangImportAction.classList.remove('hidden');
         }
     }
     if (editorTabs) {
@@ -3777,6 +3780,17 @@ window.__X1PEN_MODE = true;
         return lines.join('\n');
     }
 
+    function binaryToSlangValues(uint8array) {
+        var lines = [];
+        for (var i = 0; i < uint8array.length; i += 16) {
+            var chunk = uint8array.slice(i, Math.min(i + 16, uint8array.length));
+            lines.push(Array.from(chunk).map(function(b) {
+                return '$' + ('0' + b.toString(16).toUpperCase()).slice(-2);
+            }).join(','));
+        }
+        return lines.join(',\n');
+    }
+
     var asmImportBtn = document.getElementById('btn-asm-import');
     var asmImportFile = document.getElementById('asm-import-file');
     if (asmImportBtn && asmImportFile) {
@@ -3811,6 +3825,39 @@ window.__X1PEN_MODE = true;
                 asmEditor.insertAt(pos, insertText);
                 asmEditor.setCursor(pos + insertText.length);
                 elStatus.textContent = 'Imported: ' + file.name + ' (' + data.length + ' bytes)';
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    var slangImportBtn = document.getElementById('btn-slang-import');
+    var slangImportFile = document.getElementById('slang-import-file');
+    if (slangImportBtn && slangImportFile) {
+        slangImportBtn.addEventListener('click', function() { slangImportFile.click(); });
+        slangImportFile.addEventListener('change', function(e) {
+            var file = e.target.files[0];
+            e.target.value = '';
+            if (!file || !slangEditor) return;
+
+            if (file.size > 128 * 1024) {
+                elStatus.textContent = 'File too large (max 128KB)';
+                return;
+            }
+
+            var reader = new FileReader();
+            reader.onload = function() {
+                var data = new Uint8Array(reader.result);
+                if (data.length === 0) {
+                    elStatus.textContent = 'Empty file cannot be imported';
+                    return;
+                }
+
+                var text = binaryToSlangValues(data);
+                var pos = slangEditor.getCursor();
+                slangEditor.insertAt(pos, text);
+                slangEditor.setCursor(pos + text.length);
+                elStatus.textContent = 'Imported: ' + file.name + ' (' + data.length + ' bytes)' +
+                    (data.length > 64 * 1024 ? ' — Warning: large file, may affect share' : '');
             };
             reader.readAsArrayBuffer(file);
         });

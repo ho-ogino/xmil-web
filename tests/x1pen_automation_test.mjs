@@ -277,6 +277,101 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   assert.equal(settings.keyMode, 1, 'automation run must preserve the JoyKey setting');
 });
 
+test('SLANG Import inserts formatted values at the cursor', { timeout: 180_000 }, async () => {
+  const basicTab = page.locator('.editor-tab[data-tab="basic"]');
+  const asmTab = page.locator('.editor-tab[data-tab="asm"]');
+  const slangTab = page.locator('.editor-tab[data-tab="slang"]');
+  const asmImport = page.locator('#btn-asm-import');
+  const slangImport = page.locator('#btn-slang-import');
+  const slangLines = page.locator('#slang-editor-container .cm-line');
+
+  async function setProgram(sourceMode, source) {
+    await page.evaluate(({ mode, text }) => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      return api.setProgram({
+        sourceMode: mode,
+        basic: mode === 'basic+asm' ? text : '',
+        asm: mode === 'asm' ? text : '',
+        slang: mode === 'slang' ? text : '',
+      }, current.revision, current.revisionEpoch);
+    }, { mode: sourceMode, text: source });
+  }
+
+  async function importFile(button, name, bytes, statusText) {
+    const chooserPromise = page.waitForEvent('filechooser');
+    await button.click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({
+      name,
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from(bytes),
+    });
+    await page.waitForFunction(
+      (expected) => document.getElementById('x1pen-status').textContent.includes(expected),
+      statusText,
+    );
+  }
+
+  await basicTab.click();
+  assert.equal(await asmImport.isVisible(), false);
+  assert.equal(await slangImport.isVisible(), false);
+  await asmTab.click();
+  assert.equal(await asmImport.isVisible(), true);
+  assert.equal(await slangImport.isVisible(), false);
+  await slangTab.click();
+  assert.equal(await asmImport.isVisible(), false);
+  assert.equal(await slangImport.isVisible(), true);
+
+  await setProgram('slang', 'PREFIX\n\nSUFFIX');
+  await slangTab.click();
+  await slangLines.nth(1).click();
+  await page.keyboard.press('Home');
+  const bytes = Array.from({ length: 17 }, (_, index) => index);
+  await importFile(slangImport, 'values.bin', bytes, 'Imported: values.bin (17 bytes)');
+  const values = Array.from({ length: 16 }, (_, index) =>
+    '$' + index.toString(16).toUpperCase().padStart(2, '0')).join(',') + ',\n$10';
+  let source = await page.evaluate(() => window.X1PenAutomation.getProgram().slang);
+  assert.equal(source, 'PREFIX\n' + values + '\nSUFFIX');
+  assert.doesNotMatch(values, /,$/);
+
+  await importFile(slangImport, 'cursor.bin', [0xaa], 'Imported: cursor.bin (1 bytes)');
+  source = await page.evaluate(() => window.X1PenAutomation.getProgram().slang);
+  assert.equal(source, 'PREFIX\n' + values + '$AA\nSUFFIX', 'cursor moves to inserted end');
+
+  await setProgram('slang', 'PREFIX\nSELECTME\nSUFFIX');
+  await slangTab.click();
+  await slangLines.nth(1).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await importFile(slangImport, 'selection.bin', [0xbb], 'Imported: selection.bin (1 bytes)');
+  source = await page.evaluate(() => window.X1PenAutomation.getProgram().slang);
+  assert.equal(source, 'PREFIX\nSELECTME$BB\nSUFFIX', 'selection remains and insertion uses its head');
+
+  await importFile(slangImport, 'empty.bin', [], 'Empty file cannot be imported');
+  assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().slang), source);
+  await importFile(
+    slangImport,
+    'oversize.bin',
+    Buffer.alloc(128 * 1024 + 1),
+    'File too large (max 128KB)',
+  );
+  assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().slang), source);
+
+  await setProgram('asm', 'RET');
+  await asmTab.click();
+  await page.locator('#asm-editor-container .cm-line').first().click();
+  await page.keyboard.press('Home');
+  await importFile(asmImport, 'asm.bin', [1, 2], 'Imported: asm.bin (2 bytes)');
+  assert.equal(
+    await page.evaluate(() => window.X1PenAutomation.getProgram().asm),
+    '; imported: asm.bin (2 bytes)\nDB $01,$02\nRET',
+  );
+
+  await setProgram('basic+asm', '10 PRINT "MCP READY"');
+  await basicTab.click();
+});
+
 test('keyboard input is bounded, serialized with Run, and always releases ownership', { timeout: 60_000 }, async () => {
   const behavior = await page.evaluate(async () => {
     const api = window.X1PenAutomation;

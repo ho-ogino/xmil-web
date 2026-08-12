@@ -130,7 +130,7 @@ AIによる更新、検証、実行、停止中はエディターとツールバ
 この条件に該当した場合、AIは利用者がtoken・時間コストを明示的に了承するまで、アセット本文を読んで再出力したり、警告を避けるため分割したりしません。対象sectionに合わせて、現在利用できる手動経路を案内します。
 
 - ASM: 既存の **Import** ボタンでbinaryを`DB`行へ変換します。
-- SLANG: Disk Editorでproject diskへbinaryを追加し、用途に応じて`MAGLOAD`または`FOPEN`／`FREAD`を使います。source埋め込みが必要なら、用意済みtextを指定した配列位置へ利用者が貼り付けます。
+- SLANG: 既存の **Import** ボタンでbinary array値をcursor位置へ挿入します。byte列をAIへ送る必要はありません。runtime fileとして使う場合はDisk Editorでproject diskへbinaryを追加し、用途に応じて`MAGLOAD`または`FOPEN`／`FREAD`を使います。
 - BASIC: Disk Editorでproject diskへbinaryを追加し、`BLOAD`または該当するfile処理を使います。`DATA`埋め込みが必要なら、用意済みtextを指定位置へ利用者が貼り付けます。
 
 了承後はguardを維持した1回の書き込みを優先し、clientの出力上限で不可能な場合だけ分割します。既存source全文を読む必要はなく、metadata-onlyの`x1pen_get_program`と挿入位置周辺だけの検索・取得を使います。local UTF-8 source-file同期は、接続中MCPが実際に提供し、利用者がfile accessを設定済みで、完全なsource section fileがある場合だけ候補にします。raw binaryやsource断片のimportとしては案内しません。

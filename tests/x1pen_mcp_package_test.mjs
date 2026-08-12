@@ -90,7 +90,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.match(client.getInstructions(), /8,192 byte literals/);
     assert.match(client.getInstructions(), /source length alone never triggers/);
     assert.match(client.getInstructions(), /ASM: the existing Import button for DB lines/);
-    assert.match(client.getInstructions(), /SLANG: Disk Editor plus MAGLOAD or FOPEN\/FREAD/);
+    assert.match(client.getInstructions(), /SLANG: the existing Import button inserts array values at the cursor/);
     assert.match(client.getInstructions(), /BASIC: Disk Editor plus BLOAD/);
     assert.doesNotMatch(client.getInstructions(), /Issue #112|#112/);
 

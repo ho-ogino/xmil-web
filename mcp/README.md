@@ -55,7 +55,7 @@ Large ordinary programs are not warnings by themselves. Before constructing a so
 Before the user explicitly accepts the model token and time cost, the AI should not read and re-emit that asset body or split it into smaller writes. It should offer a current manual route:
 
 - ASM: use the existing **Import** button to convert a binary into `DB` lines.
-- SLANG: add the binary to the project disk with Disk Editor, then use `MAGLOAD` or `FOPEN`/`FREAD` as appropriate. For source embedding, ask the user to paste the prepared text at the named array location.
+- SLANG source embedding: use the existing **Import** button to insert binary array values at the cursor without sending the bytes through the AI. For a runtime file instead, add the binary to the project disk with Disk Editor and use `MAGLOAD` or `FOPEN`/`FREAD` as appropriate.
 - BASIC: add the binary to the project disk with Disk Editor, then use `BLOAD` or the applicable file workflow. For `DATA` embedding, ask the user to paste the prepared text at the named location.
 
 After explicit approval, prefer one guarded write and split only if the client output limit makes one write impossible. Use metadata-only `x1pen_get_program` and bounded source searches/reads for the insertion point; the existing source does not need to be read in full. A local UTF-8 source-file synchronization tool should be suggested only when the connected MCP actually provides one, the user configured its file access, and a complete prepared source section exists. It is not a raw-binary or source-fragment importer.

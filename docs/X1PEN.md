@@ -39,6 +39,12 @@ ORG 0E000h
 **Import ボタン**: バイナリファイルを読み込んで、`DB $xx,$xx,...` 形式でカーソル位置に挿入します。
 画像データや音楽データの取り込みに便利です。
 
+### SLANG タブ
+
+SLANGタブの **Import** ボタンは、binary fileを現在のcursor位置へ大文字の`$XX`値列として挿入します。16 bytesごとに改行し、値の間だけにカンマを入れます。末尾カンマ、label、`ARRAY`宣言、filename commentは生成しません。周囲のsourceは解析しないため、必要なカンマや括弧は利用者が用意してください。
+
+空fileは拒否します。最大読込sizeはASM Importと同じ128 KiBで、64 KiBを超える場合はshareへの影響を警告します。この上限はimporterがfileを読む上限であり、生成された配列がSLANG compilerやX1のaddress spaceへ収まることを保証しません。大きなassetはDisk Editorでproject diskへ追加し、`MAGLOAD`または`FOPEN`／`FREAD`で読む方法も検討してください。
+
 ## 実行
 
 **RUN ボタン** または **Ctrl+Enter** で実行します。
