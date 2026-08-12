@@ -1180,6 +1180,139 @@ test('SLANG runtime arity is rejected by Validate while valid VSYNC still runs',
   }
 });
 
+test('SLANG INKEY modes and documented inline assembly run with current X1 semantics', { timeout: 120_000 }, async () => {
+  const probeAddress = 0x7000;
+  const readMemory = (offset, length) => page.evaluate(({ address, byteLength }) => (
+    window.X1PenAutomation.debugger.readMemory(address, byteLength).bytes
+  ), { address: probeAddress + offset, byteLength: length });
+  const waitForMemory = async (offset, expected, timeout = 5000) => {
+    await page.waitForFunction(({ address, values }) => {
+      const bytes = window.X1PenAutomation.debugger.readMemory(address, values.length).bytes;
+      return values.every((value, index) => value === null || bytes[index] === value);
+    }, { address: probeAddress + offset, values: expected }, { timeout, polling: 20 });
+    return readMemory(offset, expected.length);
+  };
+  const loadAndRunSlang = (slang) => page.evaluate(async (source) => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    await api.setProgram({
+      sourceMode: 'slang', basic: '', asm: '', slang: source,
+    }, current.revision, current.revisionEpoch);
+    const validation = await api.validate();
+    if (!validation.ok) {
+      throw new Error(`INKEY/inline acceptance program did not validate: ${JSON.stringify(validation.diagnostics)}`);
+    }
+    const run = await api.run();
+    if (!run.ok) throw new Error(`INKEY/inline acceptance program did not run: ${JSON.stringify(run)}`);
+    return { validation, run };
+  }, slang);
+  const sendKey = (code, duration = 80) => page.evaluate(([vk, durationMs]) => (
+    window.X1PenAutomation.sendKey(vk, durationMs)
+  ), [code, duration]);
+
+  try {
+    await loadAndRunSlang([
+      'MAIN()',
+      '{',
+      '  VAR KEY, COUNT;',
+      '  MEM[$7000]=$A0; MEM[$7001]=0; MEM[$7002]=0; MEM[$7003]=0; MEMW[$7004]=0;',
+      '  COUNT=0;',
+      '  LOOP',
+      '  {',
+      '    KEY=INKEY(0);',
+      '    MEM[$7003]=KEY;',
+      '    MEMW[$7004]=MEMW[$7004]+1;',
+      '    IF KEY!=0',
+      '    {',
+      '      COUNT=COUNT+1;',
+      '      IF COUNT==1 THEN MEM[$7001]=KEY;',
+      '      IF COUNT==2 THEN MEM[$7002]=KEY;',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n'));
+    await waitForMemory(0, [0xA0]);
+    await page.waitForTimeout(200);
+    const idlePoll = await readMemory(3, 3);
+    assert.equal(idlePoll[0], 0, 'mode 0 must return zero when no key is held');
+    assert.ok((idlePoll[1] | (idlePoll[2] << 8)) > 0, 'mode 0 must keep progressing without input');
+    await sendKey(0x41, 900);
+    assert.deepEqual(await waitForMemory(0, [0xA0, 0x61, 0x61]), [0xA0, 0x61, 0x61]);
+
+    await loadAndRunSlang([
+      'MAIN()',
+      '{',
+      '  VAR I;',
+      '  MEM[$7000]=$A1; MEM[$7001]=0; MEM[$7002]=0;',
+      '  I=0;',
+      '  LOOP',
+      '  {',
+      '    MEM[$7010+I]=INKEY(1);',
+      '    I=I+1;',
+      '    MEM[$7001]=I;',
+      '    IF I==6 THEN EXIT;',
+      '  }',
+      '  MEM[$7002]=$A2;',
+      '  LOOP { }',
+      '}',
+    ].join('\n'));
+    await waitForMemory(0, [0xA1, 0]);
+    await sendKey(0x27, 900);
+    await waitForMemory(1, [1]);
+    await page.waitForTimeout(1200);
+    assert.deepEqual(await readMemory(1, 2), [1, 0],
+      'one held key must satisfy only one mode-1 call');
+    for (const [index, vk] of [[2, 0x25], [3, 0x26], [4, 0x28], [5, 0x70], [6, 0x41]]) {
+      await sendKey(vk);
+      await waitForMemory(1, [index]);
+    }
+    await waitForMemory(2, [0xA2]);
+    assert.deepEqual(await readMemory(0x10, 6), [0x1C, 0x1D, 0x1E, 0x1F, 0x71, 0x61]);
+
+    await loadAndRunSlang([
+      'MAIN()',
+      '{',
+      '  MEM[$7000]=$B2; MEM[$7001]=0; MEM[$7002]=0; MEM[$7003]=0;',
+      '  MEM[$7001]=INKEY(2);',
+      '  MEM[$7002]=INKEY(2);',
+      '  MEM[$7003]=$A3;',
+      '  LOOP { }',
+      '}',
+    ].join('\n'));
+    await waitForMemory(0, [0xB2, 0, 0, 0]);
+    await sendKey(0x41, 900);
+    assert.deepEqual(await waitForMemory(0, [0xB2, 0x61, 0x61, 0xA3]),
+      [0xB2, 0x61, 0x61, 0xA3]);
+
+    await loadAndRunSlang([
+      'MACHINE ASMFUNC(1):ASMROUTINE;',
+      'MAIN() BEGIN',
+      '  VAR VALUE;',
+      '  VALUE=ASMFUNC(100);',
+      '  PRINT(VALUE, /);',
+      '  MEMW[$7000]=VALUE;',
+      '  MEM[$7002]=$A5;',
+      '  LOOP { }',
+      'END;',
+      '#ASM',
+      'ASMROUTINE:',
+      '  LD DE,123',
+      '  ADD HL,DE',
+      '  RET',
+      '#END',
+    ].join('\n'));
+    assert.deepEqual(await waitForMemory(0, [223, 0, 0xA5]), [223, 0, 0xA5]);
+    const textBytes = await page.evaluate(() => (
+      window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes
+    ));
+    assert.ok(textBytes.some((value, index) => (
+      value === 0x32 && textBytes[index + 1] === 0x32 && textBytes[index + 2] === 0x33
+    )), 'text VRAM must contain the printed 223 sequence');
+  } finally {
+    await page.evaluate(() => window.Module._js_xmil_reset());
+  }
+});
+
 test('automation operations are serialized and stale source modes are cleared', async () => {
   const programs = await page.evaluate(async () => {
     const first = window.X1PenAutomation.setProgram({ sourceMode: 'asm', asm: 'ORG $100\nRET' });

@@ -95,16 +95,47 @@
     "summary": "MACHINE binds a SLANG function name to an external Z80 routine. Argument count controls whether values are passed in registers or on the stack.",
     "syntax": [
       "MACHINE MON(0):$1F8E;",
-      "MACHINE ROUTINE(2):address;",
-      "MACHINE VARARGS():address;"
+      "MACHINE ROUTINE(2):address;"
     ],
     "notes": [
-      "0 arguments: CALL only. 1: HL. 2: HL then DE. 3: HL, DE and BC. 4 or more: stack.",
-      "If the argument count is omitted, arguments go on the stack and HL receives the argument count.",
+      "Use an explicit argument count. 0 arguments: CALL only. 1: HL. 2: HL then DE. 3: HL, DE and BC. For 4 or more, every WORD argument is pushed on the stack left-to-right and the caller removes 2 bytes per argument after return.",
+      "Do not use MACHINE NAME():address with an omitted argument count. This compiler snapshot accepts it but generates unreliable calls; contrary to older guidance, it does not reliably pass a count in HL or clean up the argument stack.",
       "MACHINE functions return WORD only in this compiler snapshot; a FLOAT return annotation is rejected."
     ],
-    "relatedIds": ["slang.functions.typed", "slang.machine.system-access", "slang.preprocessor.includes", "slang.runtime.catalog"],
+    "relatedIds": ["slang.functions.typed", "slang.machine.system-access", "slang.machine.inline-assembly", "slang.preprocessor.includes", "slang.runtime.catalog"],
     "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"]
+  },
+  {
+    "id": "slang.machine.inline-assembly",
+    "language": "slang",
+    "kind": "runtime",
+    "title": "Inline Z80 assembly with MACHINE and #ASM",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "symbols": ["MACHINE", "#ASM", "#END", "HL", "DE", "BC", "IX", "IY", "SP"],
+    "aliases": ["inline assembly", "embedded assembler", "Z80 routine", "MACHINE label", "インラインアセンブラ", "埋め込みアセンブラ", "アセンブリ", "マシン語ルーチン"],
+    "summary": "Declare an explicit-arity MACHINE function and place its Z80 target in a #ASM ... #END block to call inline assembly from SLANG.",
+    "syntax": [
+      "MACHINE functionName(explicitArgumentCount):label;",
+      "#ASM\nlabel:\n  ...\n  RET\n#END"
+    ],
+    "notes": [
+      "A numeric MACHINE target calls that absolute address. A symbolic target is resolved in the combined compiler output, so it may name a label in a later #ASM block.",
+      "Explicit counts 0 through 3 pass WORD arguments in no registers, HL, HL then DE, or HL then DE then BC. A WORD result is returned in HL; AF, BC, DE, HL and IX are caller-clobbered.",
+      "For an explicit count of 4 or more, all WORD arguments are pushed left-to-right. At entry to a four-argument callee, after the CALL return address, argument 4 is at SP+2, argument 3 at SP+4, argument 2 at SP+6 and argument 1 at SP+8. After the call returns its WORD in HL, the caller exchanges HL with DE, adjusts SP by 2 bytes per argument through HL, then exchanges DE back into HL; the result is therefore restored to HL after cleanup.",
+      "IX is not a preserved compiler work pointer and may be clobbered; IY must be preserved because the generated program uses it as its work pointer. Restore SP so RET consumes the original return address, restore any alternate registers you touch, return in the normal register bank, and leave interrupt-enable state unchanged. Alternate registers are not a supported argument or result channel.",
+      "Do not omit the MACHINE argument count. MACHINE NAME():label is accepted by this compiler snapshot but generates unreliable calls; use an explicit argument count."
+    ],
+    "examples": [
+      {
+        "title": "Call an inline routine that prints 223",
+        "source": "MACHINE ASMFUNC(1):ASMROUTINE;\n\nMAIN() BEGIN\n  PRINT(ASMFUNC(100), /);\nEND;\n\n#ASM\nASMROUTINE:\n  LD DE,123\n  ADD HL,DE\n  RET\n#END"
+      }
+    ],
+    "relatedIds": ["slang.machine.calling-convention", "slang.machine.system-access", "slang.preprocessor.includes", "z80asm.syntax.source"],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md",
+      "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_slang_compiler.js"
+    ]
   },
   {
     "id": "slang.control.flow",
@@ -179,7 +210,7 @@
       "The compiler supports include nesting up to 8 levels.",
       "X1Pen bundles GRAPH.LIB, GRAPHF.LIB, SOROBAN.LIB, CHIPLIB.LIB, SPRLIB.LIB, TILELIB.LIB, TILESPR.LIB and UILIB.LIB. Other local files are not available through the browser VFS."
     ],
-    "relatedIds": ["slang.x1pen.build-profile", "slang.includes.catalog", "slang.machine.calling-convention", "slang.compiler.catalog"],
+    "relatedIds": ["slang.x1pen.build-profile", "slang.includes.catalog", "slang.machine.calling-convention", "slang.machine.inline-assembly", "slang.compiler.catalog"],
     "sourceUrls": [
       "https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen.js"
@@ -240,13 +271,12 @@
     "id": "slang.runtime.lsx-io-files",
     "language": "slang",
     "kind": "x1-extension",
-    "title": "X1Pen LSX input and file runtime",
+    "title": "X1Pen LSX line input and file runtime",
     "profiles": ["x1pen-slang-c9e8f53-lsx"],
-    "symbols": ["INKEY", "INPUT", "GETL", "GETLIN", "LINPUT", "FOPEN", "FSEEK", "FGETC", "FPUTC", "FCLOSE", "FREAD", "FWRITE"],
-    "aliases": ["INKEY", "INPUT", "GETL", "GETLIN", "LINPUT", "FOPEN", "FSEEK", "FGETC", "FPUTC", "FCLOSE", "FREAD", "FWRITE", "キー入力", "キーボード", "行入力", "ファイル", "ファイルを開く", "ファイルを読む", "ファイルに書く", "ファイル入出力"],
-    "summary": "The X1Pen LSX runtime provides keyboard/line input and LSX file operations in addition to the core SLANG functions.",
+    "symbols": ["INPUT", "GETL", "GETLIN", "LINPUT", "FOPEN", "FSEEK", "FGETC", "FPUTC", "FCLOSE", "FREAD", "FWRITE"],
+    "aliases": ["INPUT", "GETL", "GETLIN", "LINPUT", "FOPEN", "FSEEK", "FGETC", "FPUTC", "FCLOSE", "FREAD", "FWRITE", "行入力", "ファイル", "ファイルを開く", "ファイルを読む", "ファイルに書く", "ファイル入出力"],
+    "summary": "The X1Pen LSX runtime provides line input and LSX file operations in addition to the core SLANG functions.",
     "syntax": [
-      "INKEY(mode)",
       "INPUT()",
       "GETL(address)",
       "GETLIN(address,length)",
@@ -260,7 +290,7 @@
       "File numbers are 0 through 7. FOPEN returns 255 for an invalid file number; otherwise it returns the LSX operation result.",
       "FOPEN masks mode to two bits. Values below 3 open an existing file; mode 3 creates a file.",
       "FSEEK origin is 0 from the beginning, 1 from the current position, or 2 from the end.",
-      "INKEY takes one mode argument; INPUT takes none; GETL takes one; GETLIN and LINPUT take two."
+      "INPUT takes no arguments; GETL takes one; GETLIN and LINPUT take two. See the related INKEY entry for single-key polling and blocking modes."
     ],
     "examples": [
       {
@@ -268,10 +298,40 @@
         "source": "MAIN() BEGIN\n  VAR RESULT;\n  RESULT=FOPEN(0, \"A:DATA.BIN\", 0);\n  IF RESULT==0 THEN FCLOSE(0);\n  PRINT(RESULT, /);\nEND;"
       }
     ],
-    "relatedIds": ["slang.machine.system-access", "slang.x1.assets-compression", "slang.x1.display-graphics", "slang.runtime.catalog", "x1.io.psg-joystick"],
+    "relatedIds": ["slang.machine.system-access", "slang.x1.inkey", "slang.x1.assets-compression", "slang.x1.display-graphics", "slang.runtime.catalog", "x1.io.psg-joystick"],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/liblsx_input.asm",
       "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/liblsx_file.asm"
+    ]
+  },
+  {
+    "id": "slang.x1.inkey",
+    "language": "slang",
+    "kind": "x1-extension",
+    "title": "INKEY polling and blocking keyboard modes",
+    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "symbols": ["INKEY"],
+    "aliases": ["INKEY", "non-blocking keyboard", "blocking keyboard", "key code", "keyboard polling", "キー入力", "キーボード", "ノンブロッキング", "キーコード", "押しっぱなし"],
+    "summary": "INKEY(mode) reads one X1 keyboard code: mode 0 polls current key state, mode 1 waits for and consumes a direct-input event, and mode 2 or greater waits by polling until a key is nonzero.",
+    "syntax": ["key=INKEY(0);", "key=INKEY(1);", "key=INKEY(2);"],
+    "notes": [
+      "Mode 0 is non-blocking: it returns 0 when no key is pressed and polls current state, so a held key may be returned on consecutive calls. Use this mode in animation and game loops.",
+      "Mode 1 blocks for one direct-input event and consumes it. One held-key injection satisfies one call; a second call waits for another event.",
+      "Every mode value 2 or greater blocks by repeatedly polling mode-0 state until nonzero. A held key may therefore satisfy consecutive calls.",
+      "In X1Pen's current default base X1 keyboard layout, Right/Left/Up/Down return $1C/$1D/$1E/$1F. F1 is mapped by its X1 physical position and returns lowercase q ($71). These are guest-layout results, not universal host key codes.",
+      "Alphabetic keys use the current guest modifier state; the unshifted A key returns lowercase a ($61). X1Pen maps host keys to JIS physical positions before the X1 keyboard table is read."
+    ],
+    "examples": [
+      {
+        "title": "Poll INKEY without stopping a frame loop",
+        "source": "VAR FRAME;\n\nVSYNC_PROC() BEGIN\n  FRAME=FRAME+1;\nEND;\n\nMAIN() BEGIN\n  VAR KEY;\n  LOOP\n  {\n    KEY=INKEY(0);\n    LOCATE(0,0);\n    PRINT(FRAME, \" KEY=\", KEY, \"   \");\n    VSYNC(1);\n  }\nEND;"
+      }
+    ],
+    "relatedIds": ["slang.runtime.lsx-io-files", "slang.x1.timing", "slang.x1.input", "x1.io.ppi-subcpu"],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/liblsx_input.asm",
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/liblsx_base.asm",
+      "https://github.com/ho-ogino/xmil-web/blob/main/src/Input.cpp"
     ]
   },
   {
@@ -406,6 +466,7 @@
     ],
     "notes": [
       "Call CHIP_INIT before drawing. Configure offsets, sizes, map and VVRAM dimensions before the main draw loop.",
+      "For animation, call CHIP_ANIM_TICK from the program's VSYNC_PROC. A program that uses VSYNC must define that hook; an empty body is valid when no per-frame CHIP work is needed.",
       "The public declarations specify argument counts; use the bundled CHIPLIB.LIB comments and validation to confirm each argument's units."
     ],
     "relatedIds": ["slang.include.tile-sprite", "slang.x1.pcg-definition", "slang.x1.timing", "slang.includes.catalog"],
@@ -599,16 +660,23 @@
     "kind": "x1-extension",
     "title": "Vertical blank and CTC timing",
     "profiles": ["x1pen-slang-c9e8f53-lsx"],
-    "symbols": ["VSYNC_CHECK", "VSYNC", "VSYNC1", "SETUPCTC"],
+    "symbols": ["VSYNC_CHECK", "VSYNC", "VSYNC_PROC", "VSYNC1", "SETUPCTC"],
     "aliases": ["vertical blank", "frame timing", "CTC", "game loop", "垂直同期", "VBLANK", "フレーム待ち", "タイミング", "ゲームループ", "割り込み"],
     "summary": "The X1 runtime exposes vertical-blank polling/wait helpers and CTC setup used by frame loops and time-based subsystems.",
-    "syntax": ["VSYNC(count);", "VSYNC1();", "VSYNC_CHECK();", "SETUPCTC();"],
+    "syntax": ["VSYNC(frames);", "VSYNC_PROC() BEGIN ... END;", "VSYNC1();", "VSYNC_CHECK();", "SETUPCTC();"],
     "notes": [
-      "VSYNC waits for the requested number of counted vertical blanks and clears its internal counter afterward.",
+      "VSYNC(frames) waits for that many counted vertical blanks and clears its internal counter afterward. It requires exactly one argument; do not write VSYNC().",
+      "A program that links a vertical-blank path which references !VSYNC_PROC must define VSYNC_PROC(). This includes direct VSYNC use and SGL frame synchronization. The runtime calls the hook once for every counted frame; an empty body is valid.",
       "VSYNC1 waits directly for one vertical-blank transition.",
-      "Libraries can install work in the compiler's !VSYNC_PROC hook; use their documented update calls and setup order."
+      "TILE, CHIP and SGL libraries use the same !VSYNC_PROC hook; follow their documented update calls and setup order when composing frame work."
     ],
-    "relatedIds": ["slang.x1.psg", "slang.include.tile-sprite", "slang.include.chiplib", "slang.x1.sgl", "slang.runtime.catalog"],
+    "examples": [
+      {
+        "title": "Wait one frame with the required VSYNC hook",
+        "source": "VSYNC_PROC() BEGIN\nEND;\n\nMAIN() BEGIN\n  VSYNC(1);\nEND;"
+      }
+    ],
+    "relatedIds": ["slang.x1.inkey", "slang.x1.psg", "slang.include.tile-sprite", "slang.include.chiplib", "slang.x1.sgl", "slang.runtime.catalog"],
     "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/assets/slang_runtime/libx1_base.asm"]
   },
   {
@@ -668,6 +736,7 @@
       "SGL_SPRCREATE returns zero on failure. Preserve nonzero handles and destroy sprites when they are no longer needed.",
       "SGL_SPRDISP uses 0 for hidden and 1 for visible.",
       "SGL_PRINT draws on the current render page; SGL_PRINT2 draws on both pages. SGL_VSYNC processes characters and flips the screen.",
+      "SGL frame synchronization invokes the program's VSYNC_PROC hook. Define the hook before using SGL frame waits; an empty body is valid when no additional per-frame work is needed.",
       "This profile loads libx1_sgl_lsx.asm, not the separate non-LSX libx1_sgl.asm file also present in the repository."
     ],
     "relatedIds": ["slang.x1.pcg-definition", "slang.x1.display-graphics", "slang.x1.timing", "slang.runtime.catalog"],
