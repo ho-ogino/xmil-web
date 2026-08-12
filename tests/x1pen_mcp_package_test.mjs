@@ -53,6 +53,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
       'reference/z80asm.json',
       'x1pen-bridge.mjs',
       'x1pen-compatibility.mjs',
+      'x1pen-local-source.mjs',
       'x1pen-reference.mjs',
       'x1pen-server.mjs',
       'x1pen-source-sync.mjs',
@@ -89,7 +90,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.match(client.getInstructions(), /x1pen_search_reference/);
 
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 30);
+    assert.equal(tools.tools.length, 31);
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_apply_edits'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_diff_source'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_debug_get_state'));
@@ -97,6 +98,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_search_reference'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_send_key'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_set_pad'));
+    assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_set_source_file'));
     const connection = await client.callTool({ name: 'x1pen_connection_info', arguments: {} });
     const info = JSON.parse(connection.content[0].text);
     assert.equal(info.host, '127.0.0.1');

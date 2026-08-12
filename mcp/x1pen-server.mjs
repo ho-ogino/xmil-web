@@ -24,6 +24,11 @@ import {
   getReferenceManifest,
   searchReference,
 } from './x1pen-reference.mjs';
+import {
+  assertSourceRootsConfigured,
+  canonicalizeAllowedSourceRoots,
+  readLocalUtf8Source,
+} from './x1pen-local-source.mjs';
 
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const MAX_SOURCE_LENGTH = 512 * 1024;
@@ -65,6 +70,7 @@ const SERVER_INSTRUCTIONS = [
   'Before writing or substantially editing a program, call x1pen_get_language_profile, search the bundled reference with x1pen_search_reference, and fetch only the needed IDs with x1pen_get_reference.',
   'After editing, call x1pen_validate. Run and inspect the visible emulator when behavior must be confirmed.',
   'x1pen_set_program is a complete replacement: sections inactive for sourceMode are cleared even when supplied. Use x1pen_apply_edits for bounded edits within the current mode.',
+  'Use x1pen_set_source_file for a local UTF-8 source only when the user configured an allowed source root. The tool returns hashes and metadata, never the local path or source text.',
   'For SLANG, validation output.generatedAsmLines and asmBytes describe temporary compilation output only. Validation does not store generated ASM in the program; Run does.',
   'Prefer bounded source and reference tools so generated ASM and unrelated manual sections do not consume context.',
   'Retain revisionEpoch when offered, revision and authoringHash together. Inspect writeGuard on every source result: revision-epoch is reload-safe, while revision-only is a visible compatibility fallback. On a source conflict, compare before retrying; never replace only the revision and blindly resend stale source.',
@@ -568,6 +574,7 @@ export function createX1PenMcpServer(options = {}) {
   );
   const sessionInput = { sessionId: z.string().optional().describe('Connected X1Pen instance ID; omit when one tab is connected') };
   const baselines = new SourceBaselineCache(options.sourceBaselineOptions);
+  const allowedSourceRoots = canonicalizeAllowedSourceRoots(options.allowedSourceRoots || []);
 
   function pruneBaselinesToSessions() {
     const activeInstances = new Set((bridge.listSessions?.() || []).map((session) => session.sessionId));
@@ -899,6 +906,71 @@ export function createX1PenMcpServer(options = {}) {
     await assertWriteBaseline(context, expectedRevision, expectedRevisionEpoch);
     const snapshot = await sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, context);
     return textResult({ ok: true, ...summarizeProgram(snapshot) });
+  }));
+
+  server.registerTool('x1pen_set_source_file', {
+    description: 'Replace one editable source section from a local UTF-8 file under an explicitly configured allowed source root. The file content and host path are never returned. The same revision/epoch guard as other source writes applies.',
+    inputSchema: {
+      sessionId: sessionInput.sessionId,
+      path: z.string().min(1).max(4_096),
+      section: z.enum(SOURCE_SECTIONS),
+      expectedRevision: z.number().int().min(0),
+      expectedRevisionEpoch: z.string().min(1).max(128).optional(),
+    },
+    annotations: { destructiveHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId, path, section, expectedRevision, expectedRevisionEpoch }) => {
+    assertSourceRootsConfigured(allowedSourceRoots);
+    const context = sourceSyncContext(sessionId);
+    const snapshot = await assertWriteBaseline(
+      context, expectedRevision, expectedRevisionEpoch,
+    );
+    assertEditableSection(snapshot, section);
+    const file = await readLocalUtf8Source(path, { allowedRoots: allowedSourceRoots });
+    if (file.source.length > MAX_SOURCE_LENGTH) {
+      throw new SourceSyncError(
+        'SOURCE_LIMIT_EXCEEDED',
+        `Local ${section} source exceeds ${MAX_SOURCE_LENGTH} characters`,
+        {
+          section,
+          limit: MAX_SOURCE_LENGTH,
+          actual: file.source.length,
+          action: 'Reduce the local source file and retry against the same guarded snapshot.',
+        },
+      );
+    }
+    await assertApplySnapshotUnchanged(context, snapshot, expectedRevisionEpoch);
+    if (file.source === snapshot[section]) {
+      return textResult({
+        ok: true,
+        changed: false,
+        section,
+        byteCount: file.byteCount,
+        sha256: file.sha256,
+        generatedAsmCleared: false,
+        ...summarizeProgram(snapshot),
+      });
+    }
+
+    const program = {
+      sourceMode: snapshot.sourceMode,
+      basic: snapshot.basic,
+      asm: snapshot.asm,
+      slang: snapshot.slang,
+      [section]: file.source,
+    };
+    const generatedAsmCleared = section === 'slang' && snapshot.asm.length > 0;
+    const updated = await sendGuardedProgram(
+      program, expectedRevision, expectedRevisionEpoch, context,
+    );
+    return textResult({
+      ok: true,
+      changed: true,
+      section,
+      byteCount: file.byteCount,
+      sha256: file.sha256,
+      generatedAsmCleared,
+      ...summarizeProgram(updated),
+    });
   }));
 
   server.registerTool('x1pen_get_source', {
@@ -1352,16 +1424,36 @@ export function createX1PenMcpServer(options = {}) {
   return { server, bridge };
 }
 
+export function parseAllowedSourceRootArgs(argv) {
+  const roots = [];
+  for (let index = 0; index < argv.length; index++) {
+    const argument = argv[index];
+    if (argument === '--allow-source-root') {
+      const value = argv[++index];
+      if (!value || value.startsWith('--')) {
+        throw new Error('--allow-source-root requires a directory path');
+      }
+      roots.push(value);
+    } else if (argument.startsWith('--allow-source-root=')) {
+      const value = argument.slice('--allow-source-root='.length);
+      if (!value) throw new Error('--allow-source-root requires a directory path');
+      roots.push(value);
+    }
+  }
+  return roots;
+}
+
 async function main() {
   if (process.argv.includes('--version') || process.argv.includes('-v')) {
     console.log(PACKAGE.version);
     return;
   }
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log(`x1pen-mcp ${PACKAGE.version}\n\nLocal stdio MCP server and browser bridge for X1Pen.\n\nOptions:\n  -h, --help     Show this help\n  -v, --version  Show the package version`);
+    console.log(`x1pen-mcp ${PACKAGE.version}\n\nLocal stdio MCP server and browser bridge for X1Pen.\n\nOptions:\n  --allow-source-root <dir>  Allow x1pen_set_source_file to read under dir (repeatable)\n  -h, --help                 Show this help\n  -v, --version              Show the package version`);
     return;
   }
-  const { server, bridge } = createX1PenMcpServer();
+  const allowedSourceRoots = parseAllowedSourceRootArgs(process.argv.slice(2));
+  const { server, bridge } = createX1PenMcpServer({ allowedSourceRoots });
   await bridge.start();
   let closing = false;
   const close = async () => {
