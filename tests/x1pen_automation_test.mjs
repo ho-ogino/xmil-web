@@ -1926,14 +1926,20 @@ test('mounted FDD0 is forked once into a persistent project disk', { timeout: 90
     );
     assert.deepEqual(projectsAfterRerun, [first.project.name], 'metadata must prevent a second project copy');
 
-    await projectPage.evaluate(() => window.XmilControls.setRomType(2));
-    const modelMismatch = await projectPage.evaluate(() => window.X1PenAutomation.run());
-    assert.equal(modelMismatch.ok, false);
-    assert.equal(modelMismatch.code, 'PROJECT_DISK_MACHINE_MISMATCH');
-    assert.equal(modelMismatch.mismatchKind, 'model');
-    assert.equal(modelMismatch.requestedModel, 2);
-    assert.equal(modelMismatch.activeModel, 1);
-    assert.match(modelMismatch.status, /起動中と異なるMODELへ切り替えてRUNできません/);
+    for (const selectedModel of [2, 3]) {
+      const modelRun = await projectPage.evaluate(async (model) => {
+        window.XmilControls.setRomType(model);
+        return {
+          result: await window.X1PenAutomation.run(),
+          activeModel: window.Module._js_get_rom_type(),
+        };
+      }, selectedModel);
+      assert.equal(modelRun.result.ok, true);
+      assert.equal(modelRun.result.verification, 'filesystem-only');
+      assert.equal(modelRun.result.bootVerified, false);
+      assert.equal(modelRun.result.executionVerified, false);
+      assert.equal(modelRun.activeModel, selectedModel);
+    }
 
     const rollback = await projectPage.evaluate(async () => {
       const api = window.X1PenAutomation;

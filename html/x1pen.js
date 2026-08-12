@@ -1402,8 +1402,6 @@ window.__X1PEN_MODE = true;
                     executionVerified: false,
                     rollbackFailed: !!e.rollbackFailed,
                     mismatchKind: e.mismatchKind,
-                    requestedModel: e.requestedModel,
-                    activeModel: e.activeModel,
                     requestedDip: e.requestedDip,
                     activeDip: e.activeDip
                 };

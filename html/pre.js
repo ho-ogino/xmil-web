@@ -962,14 +962,6 @@
         if (settings.dip2hd) dip |= 0x04;
         if (module._js_set_dip_sw) module._js_set_dip_sw(dip);
         if (module._js_set_sound_sw) module._js_set_sound_sw(settings.fmEnable ? 1 : 0);
-        var activeModel = module._js_get_rom_type();
-        if (activeModel !== modelValue) {
-            throw projectDiskFailure(
-                'PROJECT_DISK_MACHINE_MISMATCH',
-                '現在、プロジェクトディスクは起動中と異なるMODELへ切り替えてRUNできません。MODELを元に戻してください',
-                { mismatchKind: 'model', requestedModel: modelValue, activeModel: activeModel }
-            );
-        }
         var activeDip = module._js_get_dip_sw ? module._js_get_dip_sw() : dip;
         if (activeDip !== dip) {
             throw projectDiskFailure(
@@ -995,7 +987,7 @@
         }
         isRunning = true;
         updatePowerBtn();
-        return { model: modelValue, dip: dip };
+        return { model: module._js_get_rom_type(), requestedModel: modelValue, dip: dip };
     }
 
     // ライブラリから削除
