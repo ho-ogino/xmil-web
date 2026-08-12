@@ -27,6 +27,20 @@ claude mcp add --transport stdio --scope user x1pen -- \
 
 Use `claude mcp list` or `/mcp` to check the connection.
 
+## Local source files
+
+`x1pen_set_source_file` can replace one editable BASIC, ASM, or SLANG section directly from a local UTF-8 file without returning its path or content to the model. File access is disabled by default. Add one or more explicit roots when starting the MCP server:
+
+```toml
+[mcp_servers.x1pen]
+command = "npx"
+args = ["-y", "x1pen-mcp@latest", "--allow-source-root", "/absolute/path/to/project/sources"]
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+```
+
+Repeat `--allow-source-root <dir>` to allow multiple source trees. Each root must already exist and be a directory; a bad root fails server startup with its configured value visible in the local startup error. The tool resolves canonical paths, rejects paths and symlinks that escape every root, accepts regular files only, and rejects invalid UTF-8, NUL, files over 512 KiB, and files that change during the read. It strips one leading UTF-8 BOM and normalizes CRLF or lone CR to LF before writing. It applies the same revision/epoch guard as other source writes, preserves the other authoring section, and clears generated ASM when replacing SLANG. Results contain only the section, raw-file byte count and SHA-256, changed state, and program metadata; the section summary hash describes the normalized stored text.
+
 ## Pairing
 
 1. Call `x1pen_connection_info` from the AI client.
@@ -42,7 +56,7 @@ Connection, session and status results report the versions and effective feature
 
 The current feature contracts are `automation.core`, `automation.run-recovery`, `automation.source-sync`, `screen.capture`, `input.keyboard`, `input.pad`, `debugger.cpu` and `debugger.vram`. `automation.source-sync` covers epoch-bound guarded writes and structured source conflicts. Feature IDs are immutable. A backward-incompatible successor uses a new ID such as `debugger.vram-v2` rather than changing the meaning of an existing ID.
 
-Program metadata includes exact UTF-8 SHA-256 section hashes, a mode-aware authoring hash, `revisionEpoch` when available, `revision`, `guardedWritesReloadSafe`, and `writeGuard`. Retain the epoch/revision pair before editing. When MCP, Connector, and X1Pen all advertise `automation.source-sync`, `x1pen_set_program` and `x1pen_apply_edits` require both values and fail closed after reload or concurrent edit. A full-capability snapshot that omits its own epoch fails writes with `REVISION_EPOCH_UNAVAILABLE` instead of asking the caller for an unobtainable value. Older or unknown peers visibly degrade to numeric revision guarding (`guardedWritesReloadSafe: false`, `writeGuard: revision-only`); reads and writes remain available, while `x1pen_diff_source` requires full source-sync support. Bounded source reads accept a present empty string but report `SOURCE_CONTENT_UNAVAILABLE` when the page omits a source field. Degraded `apply_edits` re-reads mode, hashes, epoch, and revision immediately before its whole-program write, but that check and write are not atomic. On conflict, compare hashes (or use diff only in full mode); never update only the revision and resend stale source. Diff baselines are held only in a bounded, expiring in-memory cache. An optional caller-supplied baseline is labeled self-attested, generated SLANG ASM requires explicit opt-in, and all diff inputs/work/hunks/output are bounded.
+Program metadata includes exact UTF-8 SHA-256 section hashes, a mode-aware authoring hash, `revisionEpoch` when available, `revision`, `guardedWritesReloadSafe`, and `writeGuard`. Retain the epoch/revision pair before editing. When MCP, Connector, and X1Pen all advertise `automation.source-sync`, `x1pen_set_program`, `x1pen_set_source_file`, and `x1pen_apply_edits` require both values and fail closed after reload or concurrent edit. A full-capability snapshot that omits its own epoch fails writes with `REVISION_EPOCH_UNAVAILABLE` instead of asking the caller for an unobtainable value. Older or unknown peers visibly degrade to numeric revision guarding (`guardedWritesReloadSafe: false`, `writeGuard: revision-only`); reads and writes remain available, while `x1pen_diff_source` requires full source-sync support. Bounded source reads accept a present empty string but report `SOURCE_CONTENT_UNAVAILABLE` when the page omits a source field. Degraded file replacement and `apply_edits` re-read mode, hashes, epoch, and revision immediately before their whole-program write, but that check and write are not atomic. On conflict, compare hashes (or use diff only in full mode); never replace only the revision and blindly retry a stale write. Diff baselines are held only in a bounded, expiring in-memory cache. An optional caller-supplied baseline is labeled self-attested, generated SLANG ASM requires explicit opt-in, and all diff inputs/work/hunks/output are bounded.
 
 Source validation failures are structured: `EDIT_RANGE_INVALID`, `EDITS_OVERLAP`, `SOURCE_SECTION_NOT_EDITABLE`, `SOURCE_LIMIT_EXCEEDED`, `SOURCE_RANGE_INVALID`, and `GENERATED_SOURCE_REQUIRES_OPT_IN`. Known Connector feature minimums are returned as `requiredVersion` even when the Connector advertises an explicit feature list. Unmapped bridge RPC methods fail closed with `METHOD_FEATURE_UNMAPPED` before transport.
 

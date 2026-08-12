@@ -53,6 +53,20 @@ claude mcp list
 }
 ```
 
+### ローカルソースファイルの許可root
+
+`x1pen_set_source_file`でローカルUTF-8ソースを直接反映する場合だけ、MCP起動引数へ許可rootを明示します。未指定時はfilesystem readを拒否します。
+
+```toml
+[mcp_servers.x1pen]
+command = "npx"
+args = ["-y", "x1pen-mcp@latest", "--allow-source-root", "/absolute/path/to/project/sources"]
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+```
+
+複数rootは`--allow-source-root <dir>`を繰り返します。rootは起動時に存在するdirectoryでなければならず、誤ったrootはローカル起動errorに設定値を示してfail fastします。canonical root外、symlink escape、非regular file、invalid UTF-8、NUL、512 KiB超過、読み取り中にidentity/size/mtimeが変わったfileは拒否します。relative pathもMCP processのcwdから解決した後、同じroot境界を適用します。先頭のUTF-8 BOMを1個除去し、CRLFと単独CRをLFへ正規化してからX1Penへ送ります。応答にはhost pathとsource本文を含めず、section、raw fileのbyte数・SHA-256、変更有無、revision/hash metadataだけを返します。section summaryのhashは正規化後に保存されたsourceを表します。
+
 ### 拡張機能
 
 Chrome Web Store版の公開後はストアからインストールする方式を推奨します。ストア審査中または拡張機能を開発する場合は、次の手順でunpacked extensionを読み込みます。
@@ -98,6 +112,7 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 | `x1pen_diff_source` | full source-sync時に保持済みbaselineと現在の1セクションを上限付きline diffで比較 |
 | `x1pen_apply_edits` | full時はepoch/revision、縮退時はrevisionをguardに構造化された行編集を適用 |
 | `x1pen_set_program` | full時はepoch/revision、縮退時はrevisionをguardにプログラム全体を更新（新規作成・全置換用。sourceModeで非対象のsectionは入力してもclear） |
+| `x1pen_set_source_file` | 許可root内のlocal UTF-8 fileから1つの編集可能sectionをguard付きで置換（path/contentは応答しない） |
 | `x1pen_validate` | 実行せずにコンパイル、アセンブル、トークナイズ（SLANG生成ASMは一時出力でprogramには保持しない） |
 | `x1pen_run` | ユーザーが開いているX1Penで実行 |
 | `x1pen_recover_stalled` | stallしたRun準備を、データ損失確認後のタブ再読込で復旧 |
@@ -117,7 +132,7 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 | `x1pen_debug_write_vram` | 停止中にVRAMへ連続16進データを書き込み |
 | `x1pen_debug_wait_for_pause` | 条件に一致する停止まで待機 |
 
-AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。MCP・Connector・X1Penの3コンポーネントがすべて`automation.source-sync`をadvertiseする場合、`x1pen_set_program`と`x1pen_apply_edits`は取得済みの`revisionEpoch`と`revision`を要求し、途中の人間編集やタブ再読込を検出して上書きを拒否します。いずれかが旧版または判定不能の場合は従来のnumeric revision guardへ縮退します。読み取り・書き込み結果の`guardedWritesReloadSafe: false` / `writeGuard: "revision-only"`は、再読込後に同じrevision値へ戻る衝突を検出できないことを示します。
+AIによる更新、検証、実行、停止中はエディターとツールバーを一時的にロックします。MCP・Connector・X1Penの3コンポーネントがすべて`automation.source-sync`をadvertiseする場合、`x1pen_set_program`、`x1pen_set_source_file`、`x1pen_apply_edits`は取得済みの`revisionEpoch`と`revision`を要求し、途中の人間編集やタブ再読込を検出して上書きを拒否します。いずれかが旧版または判定不能の場合は従来のnumeric revision guardへ縮退します。読み取り・書き込み結果の`guardedWritesReloadSafe: false` / `writeGuard: "revision-only"`は、再読込後に同じrevision値へ戻る衝突を検出できないことを示します。
 
 縮退時も`get_program`、`get_source`、`search_source`、`set_program`、`apply_edits`は利用できます。`diff_source`だけは3コンポーネントすべてのsource-sync対応が必要です。旧Connector × 新MCP × 新X1Penでは、X1Penがepochを返しても旧Connectorが書き込み時のepochを転送しないため、書き込み結果は必ずrevision-onlyと表示されます。`apply_edits`は最終書き込み直前にもrevision・epoch（取得可能時）・mode・hashを再確認しますが、その再確認から書き込みまでの短い区間はatomicではありません。
 
@@ -247,6 +262,17 @@ X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分
       "text": "replacement source"
     }
   ]
+}
+```
+
+ローカルファイル本文をAIへ展開せずに現在modeの1セクションを置換する場合は`x1pen_set_source_file`を使用します。先に`x1pen_get_program`でguardを取得し、設定済みroot内のpathと編集可能なsectionを指定します。BASIC+ASM modeではbasic/asmの他方を保持し、SLANG置換時はRunが生成したASMをclearします。
+
+```json
+{
+  "path": "/absolute/path/to/project/sources/main.slang",
+  "section": "slang",
+  "expectedRevisionEpoch": "取得時のrevisionEpoch",
+  "expectedRevision": 3
 }
 ```
 

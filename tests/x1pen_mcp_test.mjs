@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { after, before, beforeEach, test } from 'node:test';
@@ -9,7 +12,7 @@ import {
   normalizeConnectorPair,
   normalizeX1PenDescriptor,
 } from '../mcp/x1pen-compatibility.mjs';
-import { createX1PenMcpServer } from '../mcp/x1pen-server.mjs';
+import { createX1PenMcpServer, parseAllowedSourceRootArgs } from '../mcp/x1pen-server.mjs';
 
 const initialProgram = {
   sourceMode: 'basic+asm',
@@ -31,6 +34,7 @@ let stripRevisionEpoch;
 let getProgramCount;
 let beforeGetProgram;
 let selectedSessionId;
+let sourceRoot;
 
 const FULL_FEATURES = [
   'automation.core', 'automation.run-recovery', 'automation.source-sync',
@@ -249,7 +253,8 @@ let server;
 let client;
 
 before(async () => {
-  ({ server } = createX1PenMcpServer({ bridge: fakeBridge }));
+  sourceRoot = await mkdtemp(join(tmpdir(), 'x1pen-mcp-source-'));
+  ({ server } = createX1PenMcpServer({ bridge: fakeBridge, allowedSourceRoots: [sourceRoot] }));
   client = new Client({ name: 'x1pen-mcp-test', version: '1.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -272,6 +277,7 @@ beforeEach(() => {
 after(async () => {
   if (client) await client.close();
   if (server) await server.close();
+  await rm(sourceRoot, { recursive: true, force: true });
 });
 
 test('server exposes context-efficient source tools', async () => {
@@ -305,13 +311,172 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_send_key',
     'x1pen_set_pad',
     'x1pen_set_program',
+    'x1pen_set_source_file',
     'x1pen_stop',
     'x1pen_validate',
   ]);
   const descriptions = Object.fromEntries(tools.tools.map((tool) => [tool.name, tool.description]));
   assert.match(descriptions.x1pen_set_program, /inactive for sourceMode are cleared even when supplied/);
+  assert.match(descriptions.x1pen_set_source_file, /local UTF-8 file/);
   assert.match(descriptions.x1pen_validate, /temporary compilation output/);
   assert.match(descriptions.x1pen_validate, /does not store generated ASM/);
+});
+
+test('allowed source roots accept repeatable CLI forms and reject missing values', () => {
+  assert.deepEqual(parseAllowedSourceRootArgs([
+    '--allow-source-root', '/one', '--allow-source-root=/two', '--version',
+  ]), ['/one', '/two']);
+  assert.throws(
+    () => parseAllowedSourceRootArgs(['--allow-source-root']),
+    /requires a directory path/,
+  );
+  assert.throws(
+    () => parseAllowedSourceRootArgs(['--allow-source-root=']),
+    /requires a directory path/,
+  );
+});
+
+test('set_source_file defaults to deny when no source root is configured', async () => {
+  const { server: deniedServer } = createX1PenMcpServer({ bridge: fakeBridge });
+  const deniedClient = new Client({ name: 'x1pen-mcp-denied-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await deniedServer.connect(serverTransport);
+  await deniedClient.connect(clientTransport);
+  try {
+    const result = await deniedClient.callTool({
+      name: 'x1pen_set_source_file',
+      arguments: {
+        path: join(sourceRoot, 'program.bas'),
+        section: 'basic',
+        expectedRevision: 3,
+        expectedRevisionEpoch: 'epoch-a',
+      },
+    });
+    assert.equal(result.isError, true);
+    assert.equal(jsonContent(result).error.code, 'SOURCE_ROOT_NOT_CONFIGURED');
+    assert.equal(calls.some((call) => call.method === 'getProgram'), false);
+  } finally {
+    await deniedClient.close();
+    await deniedServer.close();
+  }
+});
+
+test('set_source_file replaces one authoring section without returning path or content', async () => {
+  currentProgram.asm = 'ORG $100\nRET';
+  const path = join(sourceRoot, 'program.bas');
+  const source = '10 PRINT "LOCAL FILE"\n20 END\n';
+  await writeFile(path, source);
+  const result = jsonContent(await client.callTool({
+    name: 'x1pen_set_source_file',
+    arguments: {
+      path,
+      section: 'basic',
+      expectedRevision: 3,
+      expectedRevisionEpoch: 'epoch-a',
+      sessionId: 'tab-a',
+    },
+  }));
+  assert.equal(result.changed, true);
+  assert.equal(result.section, 'basic');
+  assert.equal(result.byteCount, Buffer.byteLength(source));
+  assert.match(result.sha256, /^[0-9a-f]{64}$/);
+  assert.equal(result.revision, 4);
+  assert.equal(result.basic, undefined);
+  assert.equal(result.path, undefined);
+  assert.equal(JSON.stringify(result).includes(source), false);
+  assert.equal(JSON.stringify(result).includes(sourceRoot), false);
+  assert.equal(currentProgram.basic, source);
+  assert.equal(currentProgram.asm, 'ORG $100\nRET');
+  assert.equal(calls.at(-1).method, 'setProgram');
+  assert.equal(calls.at(-1).sessionId, 'tab-a');
+});
+
+test('set_source_file reports raw file metadata while storing normalized source text', async () => {
+  const path = join(sourceRoot, 'windows.bas');
+  const raw = Buffer.concat([
+    Buffer.from([0xEF, 0xBB, 0xBF]),
+    Buffer.from('10 PRINT "WINDOWS"\r\n20 END\r'),
+  ]);
+  await writeFile(path, raw);
+  const result = jsonContent(await client.callTool({
+    name: 'x1pen_set_source_file',
+    arguments: {
+      path, section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+    },
+  }));
+  assert.equal(result.byteCount, raw.byteLength);
+  assert.match(result.sha256, /^[0-9a-f]{64}$/);
+  assert.equal(currentProgram.basic, '10 PRINT "WINDOWS"\n20 END\n');
+  assert.equal(result.sections.basic.byteCount, Buffer.byteLength(currentProgram.basic));
+});
+
+test('set_source_file handles unchanged, SLANG generated ASM and a representative 63 KiB source', async () => {
+  const unchangedPath = join(sourceRoot, 'unchanged.bas');
+  await writeFile(unchangedPath, currentProgram.basic);
+  let result = jsonContent(await client.callTool({
+    name: 'x1pen_set_source_file',
+    arguments: {
+      path: unchangedPath, section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+    },
+  }));
+  assert.equal(result.changed, false);
+  assert.equal(calls.some((call) => call.method === 'setProgram'), false);
+
+  calls.length = 0;
+  currentProgram = {
+    sourceMode: 'slang', basic: '', asm: 'generated asm', slang: 'MAIN() BEGIN\nEND;', revision: 3,
+    revisionEpoch: 'epoch-a', instanceId: 'tab-a',
+  };
+  const slangPath = join(sourceRoot, 'program.slang');
+  await writeFile(slangPath, 'MAIN() BEGIN\n  PRINT("FILE");\nEND;\n');
+  result = jsonContent(await client.callTool({
+    name: 'x1pen_set_source_file',
+    arguments: {
+      path: slangPath, section: 'slang', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+    },
+  }));
+  assert.equal(result.changed, true);
+  assert.equal(result.generatedAsmCleared, true);
+  assert.equal(currentProgram.asm, '');
+
+  calls.length = 0;
+  currentProgram = clone(initialProgram);
+  const largeSource = `10 REM ${'A'.repeat((63 * 1024) - 11)}\n20 END\n`;
+  const largePath = join(sourceRoot, 'large.bas');
+  await writeFile(largePath, largeSource);
+  result = jsonContent(await client.callTool({
+    name: 'x1pen_set_source_file',
+    arguments: {
+      path: largePath, section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+    },
+  }));
+  assert.equal(result.changed, true);
+  assert.equal(result.byteCount, Buffer.byteLength(largeSource));
+  assert.equal(currentProgram.basic, largeSource);
+});
+
+test('set_source_file pins the session and rejects a program change during the file read window', async () => {
+  const path = join(sourceRoot, 'racy.bas');
+  await writeFile(path, '10 PRINT "RACE"\n20 END\n');
+  getProgramCount = 0;
+  beforeGetProgram = (count) => {
+    if (count === 2) {
+      selectedSessionId = 'tab-b';
+      currentProgram.revision = 4;
+      currentProgram.basic = '10 PRINT "CONCURRENT"\n20 END';
+    }
+  };
+  const result = await client.callTool({
+    name: 'x1pen_set_source_file',
+    arguments: {
+      path, section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+    },
+  });
+  assert.equal(result.isError, true);
+  assert.equal(jsonContent(result).error.code, 'REVISION_MISMATCH');
+  assert.equal(calls.some((call) => call.method === 'setProgram'), false);
+  assert.ok(calls.every((call) => call.sessionId === 'tab-a'));
+  assert.equal(currentProgram.basic, '10 PRINT "CONCURRENT"\n20 END');
 });
 
 test('send_key routes an allowlisted VK with a bounded hold duration', async () => {
