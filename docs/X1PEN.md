@@ -193,7 +193,7 @@ X millennium Web 本体のエミュレータで FDD にマウントして起動�
 
 | ボタン | 機能 |
 |--------|------|
-| **MACHINE** | IPL Reset / NMI Reset / Resolution / Start Disk |
+| **MACHINE** | IPL Reset / NMI（実 NMI。復旧が必要な場合は IPL Reset） / Resolution / Start Disk |
 | **FDD** | FDD0/1 のマウント・イジェクト・Save |
 | **HDD** | HDD0/1 のマウント・イジェクト |
 | **CMT** | カセットテープの操作 |

@@ -32,6 +32,7 @@
 #include "z80_debug.h"
 
 BYTE __fastcall Z80_RDMEM(WORD adrs);
+void Z80_NonMaskedInterrupt(void);
 
 // web_sound.cpp で定義されているサウンドパラメータ (dsounds.h より)
 extern WORD  ds_rate;
@@ -385,10 +386,10 @@ unsigned int js_get_cmt_freq() {
     return (unsigned int)tape.header.frequency;
 }
 
-// NMI リセット (Z80 NMI ライン; 暫定的に IPL リセットと同じ動作)
+// Z80 NMI ラインへエッジ要求を送る。CPU/device reset は行わない。
 EMSCRIPTEN_KEEPALIVE
 void js_xmil_nmi() {
-    reset_x1(xmilcfg.ROM_TYPE, xmilcfg.SOUND_SW, xmilcfg.DIP_SW);
+    Z80_NonMaskedInterrupt();
 }
 
 // 電源 OFF: エミュレータ停止 + 画面を黒にクリア
