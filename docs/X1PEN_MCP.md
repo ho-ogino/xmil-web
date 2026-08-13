@@ -370,8 +370,10 @@ npm publish ./mcp
 互換性機能を追加するリリースは、次の順序で公開します。
 
 1. `html/x1pen-version.js`を更新し、X1Penをデプロイ
-2. `extension/manifest.json`を更新し、ConnectorをChrome Web Storeへ提出・公開
-3. `mcp/package.json`を更新し、MCPサーバーをnpmへ公開
+2. `mcp/package.json`を確認し、MCPサーバーをnpmへ公開
+3. `extension/manifest.json`を確認し、ConnectorをChrome Web Storeへ提出・公開
+
+Connectorの審査中でも、旧Connector 1.2.0と新しいMCPを組み合わせて、sourceの読み書きを`revision-only` modeで継続できます。この組み合わせではreloadをまたぐ完全な競合防止は利用できず、`x1pen_diff_source`、remote key入力、remote pad入力も利用できません。MCPのstatusとerrorに更新案内が表示されたら、Connector 1.3.0以降へ更新してください。
 
 X1Pen製品バージョンの真実の源は`html/x1pen-version.js`です。X1Pen 0.8.0、Connector 1.2.0、MCP 2.6.0から明示的な3層互換性情報に対応します。X1Penのリリースタグは製品バージョンと同じ`v<version>`形式にします。
 
