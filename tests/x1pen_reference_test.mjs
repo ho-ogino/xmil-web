@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -89,6 +89,9 @@ test('reference search matches punctuation-only symbols without changing token n
     ['slang', '!=', 'slang.expressions.operators'],
     ['slang', '<<', 'slang.expressions.operators'],
     ['slang', '<>', 'slang.expressions.operators'],
+    ['z80asm', '&&', 'z80asm.syntax.expressions'],
+    ['z80asm', '||', 'z80asm.syntax.expressions'],
+    ['z80asm', '!', 'z80asm.syntax.expressions'],
     ['fuzzybasic', '<=', 'fuzzybasic.values.operators'],
     ['fuzzybasic', '>=', 'fuzzybasic.values.operators'],
   ]) {
@@ -433,6 +436,35 @@ test('every X1Pen assembler example assembles with the bundled assembler', () =>
       assert.ok(result.bytes.length > 0, `${entry.id}: ${example.title} must produce bytes`);
     }
   }
+});
+
+test('X1Pen assembler reference pins the portable logical-expression contract', () => {
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const entries = new Map(validateReferenceData().entries.map((entry) => [entry.id, entry]));
+  const expressions = entries.get('z80asm.syntax.expressions');
+  const conditionals = entries.get('z80asm.preprocessor.conditionals');
+  const expressionText = JSON.stringify(expressions);
+  const conditionalText = JSON.stringify(conditionals);
+
+  for (const symbol of ['!', '&&', '||', '^']) assert.ok(expressions.symbols.includes(symbol));
+  for (const fact of [
+    'comparisons; &&; ||',
+    'masking to 16 bits',
+    'left-associative',
+    'eager',
+    'DB, DW, DS',
+    'only conditional preprocessing substitutes zero',
+  ]) assert.ok(expressionText.includes(fact), `${fact} must remain documented`);
+  for (const fact of [
+    '#IF UNKNOWN==0 is true',
+    'real symbol table',
+    'leaves the chain unsatisfied',
+    'CALCSPEED != 0 && M8A_WIDTH == 40',
+  ]) assert.ok(conditionalText.includes(fact), `${fact} must remain documented`);
+
+  const assembled = assembler.assemble(conditionals.examples[0].source);
+  assert.equal(assembled.errors.length, 0);
+  assert.deepEqual(Array.from(assembled.bytes), [0x3E, 0x02, 0xC9]);
 });
 
 test('every assembler mnemonic is covered by the X1Pen assembler reference', () => {
@@ -1126,22 +1158,10 @@ test('documented embedded M8A example compiles and assembles with its standalone
     'M8ALOAD must pull X1WORK without requiring the caller to use WIDTH first');
 });
 
-test('M8A runtime conditionals use supported syntax and preserve both dormant width tables', () => {
+test('M8A runtime conditionals preserve both dormant width tables', () => {
   const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
   const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
   const vfs = loadSlangVfs();
-  const runtimeDir = join(repoRoot, 'assets/slang_runtime');
-  const unsupported = [];
-  for (const filename of readdirSync(runtimeDir).filter((name) => name.endsWith('.asm'))) {
-    const source = readFileSync(join(runtimeDir, filename), 'utf8');
-    source.split(/\r?\n/).forEach((line, index) => {
-      if (/^\s*#(?:IF|ELIF|ELSEIF)\b.*(?:&&|\|\|)/i.test(line)) {
-        unsupported.push(`${filename}:${index + 1}`);
-      }
-    });
-  }
-  assert.deepEqual(unsupported, [], 'assembler runtime directives must avoid unsupported logical tokens');
-
   const m8aSource = vfs['libm8a.asm'];
   const magSource = vfs['libmag.asm'];
   assert.match(m8aSource, /^; @calls X1WORK$/m);
