@@ -32,6 +32,20 @@ function testFail(name, source) {
     } else { passes++; }
 }
 
+function testErrorBytes(name, source, expectedBytes, expectedMessage) {
+    var result = asm.assemble(source);
+    var actual = Array.from(result.bytes);
+    var hasMessage = result.errors.some(function(error) { return error.msg === expectedMessage; });
+    if (!hasMessage || JSON.stringify(actual) !== JSON.stringify(expectedBytes)) {
+        console.error('FAIL:', name);
+        console.error('  expected error:', expectedMessage);
+        console.error('  actual errors: ', result.errors);
+        console.error('  expected bytes:', expectedBytes.map(hex).join(' '));
+        console.error('  actual bytes:  ', actual.map(hex).join(' '));
+        failures++;
+    } else { passes++; }
+}
+
 // ================================================================
 // 1. No-argument instructions
 // ================================================================
@@ -443,7 +457,7 @@ testOK('#IF false EQU hidden',
 testOK('#IF false ORG hidden',
     'ORG 0\n#IF 0\nORG 0x8000\n#ENDIF\nNOP', [0x00]);
 testOK('#IF UNDEF is false', '#IF UNDEF\nNOP\n#ENDIF', []);
-testOK('#IF UNDEF == 0 is true', '#IF UNDEF == 0\nNOP\n#ENDIF', []);
+testOK('#IF UNDEF == 0 is true', '#IF UNDEF == 0\nNOP\n#ENDIF', [0x00]);
 testOK('#IF nested false-true',
     '#IF 0\n#IF 1\nNOP\n#ENDIF\n#ENDIF', []);
 testOK('#IF nested true-false-else',
@@ -476,6 +490,60 @@ testOK('#ELIF: multiple (V=2)', 'V EQU 2\n#IF V==0\n DB 0\n#ELIF V==1\n DB 1\n#E
 testOK('#ELIF: none match, ELSE', 'V EQU 5\n#IF V==0\n DB 0\n#ELIF V==1\n DB 1\n#ELIF V==2\n DB 2\n#ELSE\n DB 99\n#ENDIF', [0x63]);
 testFail('#ELIF after #ELSE', '#IF 0\n NOP\n#ELSE\n NOP\n#ELIF 1\n NOP\n#ENDIF');
 testFail('#ELIF without #IF', '#ELIF 1\nNOP\n#ENDIF');
+
+// Logical expressions and conditional error recovery
+testOK('#IF compound M8A condition',
+    'CALCSPEED EQU 1\nM8A_WIDTH EQU 40\n#IF CALCSPEED != 0 && M8A_WIDTH == 40\n DB $28\n#ELSE\n DB $50\n#ENDIF',
+    [0x28]);
+testOK('logical truth and normalization',
+    'DB 0 && 1,2 && 4,0 || 0,0 || 7,!0,!5,!!4,!!!4',
+    [0, 1, 0, 1, 1, 0, 1, 0]);
+testOK('logical token boundaries and bitwise XOR',
+    'DB 6 & 3,6 && 3,4 | 2,4 || 2,1 != 0,!0,3 ^ 1',
+    [2, 1, 6, 1, 1, 1, 2]);
+testOK('logical precedence and left associativity',
+    'DB 0 || 1 && 0,1 || 0 || 0,1 == 1 == 1',
+    [0, 1, 1]);
+testOK('bitwise comparison operands are symmetric',
+    'DB 1 | 0 == 1,1 == 1 | 0',
+    [1, 1]);
+testOK('full expression parentheses',
+    'DB (1 == 1) && (0 || (2 ^ 3))',
+    [1]);
+testFail('missing expression close parenthesis', 'DB (1 == 1');
+testFail('unexpected expression close parenthesis', 'DB 1 == 1)');
+testFail('logical eager RHS syntax validation', '#IF 0 && (1 +)\nNOP\n#ENDIF');
+testOK('16-bit masked logical truthiness',
+    'DB !0x10000,-1 && 1,0x10000 || 0',
+    [1, 1, 0]);
+
+testOK('logical result in EQU and immediate operand',
+    'FLAG EQU 2 && 4\nLD A,FLAG || 0',
+    [0x3E, 0x01]);
+testOK('logical result in ORG', 'ORG 0\nORG (0 || 2)\nNOP', [0x00, 0x00]);
+testOK('logical result in DW', 'DW 0 || 7,2 && 3', [1, 0, 1, 0]);
+testOK('logical result in DS', 'DS 2 && 4,0', [0]);
+testFail('ordinary unresolved comparison remains unresolved', 'LD A,UNDEFINED == 0');
+
+testOK('EXISTS defined compound condition',
+    'DEFINED EQU 3\n#IF EXISTS(DEFINED) && DEFINED == 3\n DB 1\n#ELSE\n DB 0\n#ENDIF',
+    [1]);
+testOK('EXISTS undefined compound condition',
+    '#IF EXISTS(UNDEFINED) && UNDEFINED == 0\n DB 1\n#ELSE\n DB 0\n#ENDIF',
+    [0]);
+testOK('logical NOT EXISTS undefined',
+    '#IF !EXISTS(UNDEFINED)\n DB 1\n#ELSE\n DB 0\n#ENDIF',
+    [1]);
+testOK('logical NOT EXISTS defined',
+    'DEFINED EQU 1\n#IF !EXISTS(DEFINED)\n DB 1\n#ELSE\n DB 0\n#ENDIF',
+    [0]);
+
+testErrorBytes('invalid #IF leaves valid #ELIF eligible',
+    '#IF 1 +\n DB 1\n#ELIF 1\n DB 2\n#ELSE\n DB 3\n#ENDIF',
+    [2], 'Invalid #IF expression');
+testErrorBytes('invalid #ELIF leaves #ELSE eligible',
+    '#IF 0\n DB 1\n#ELIF 1 +\n DB 2\n#ELSE\n DB 3\n#ENDIF',
+    [3], 'Invalid #ELIF expression');
 
 // --- IX/IY half registers ---
 console.log('\n--- IX/IY half registers ---');
