@@ -233,6 +233,32 @@ test('reference detail output honors maxCharacters', () => {
   assert.equal(result.truncated, true);
 });
 
+test('MCP SLANG reference prefers brace bodies while retaining the BEGIN compatibility index', () => {
+  const entries = validateReferenceData().entries;
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const structure = byId.get('slang.program.structure');
+  const guidance = [
+    structure.summary,
+    ...structure.syntax,
+    ...byId.get('slang.functions.typed').syntax,
+    ...byId.get('slang.x1.timing').syntax,
+  ];
+
+  assert.ok(structure.symbols.includes('BEGIN'));
+  assert.ok(structure.aliases.includes('BEGIN END'));
+  assert.match(structure.summary, /Prefer \{ \.\.\. \} for new function bodies/);
+  assert.match(structure.summary, /legacy BEGIN \.\.\. END; blocks remain accepted/);
+  assert.equal(guidance.filter((text) => /\bBEGIN\b/.test(text)).length, 1);
+  assert.equal(guidance.filter((text) => /\bEND\s*;/.test(text)).length, 1);
+
+  for (const entry of entries.filter((candidate) => candidate.language === 'slang')) {
+    for (const example of entry.examples || []) {
+      assert.doesNotMatch(example.source, /\bBEGIN\b|\bEND\s*;/,
+        `${entry.id}: ${example.title} must prefer brace-delimited function bodies`);
+    }
+  }
+});
+
 test('bundled FuzzyBASIC examples are accepted by the X1Pen tokenizer', () => {
   const tokenizer = loadBrowserGlobal('html/x1pen_tokenizer.js', 'X1PenTokenizer');
   const { entries } = validateReferenceData();

@@ -7,9 +7,8 @@
     "profiles": ["x1pen-slang-c9e8f53-lsx"],
     "symbols": ["MAIN", "BEGIN", "END", "{", "}", "[", "]", "(", ")", "//", "/*", "*/", "(*", "*)"],
     "aliases": ["MAIN", "BEGIN END", "free format", "comments", "braces", "プログラム構造", "メイン関数", "ブロック", "コメント", "注釈"],
-    "summary": "SLANG is free-format and requires MAIN(). Blocks may use braces, brackets, parentheses, Japanese corner brackets, or BEGIN ... END;.",
+    "summary": "SLANG is free-format and requires MAIN(). Prefer { ... } for new function bodies. Brackets, Japanese corner brackets, and legacy BEGIN ... END; blocks remain accepted; parentheses delimit function argument lists, not blocks.",
     "syntax": [
-      "MAIN() BEGIN ... END;",
       "MAIN() { ... }",
       "// line comment",
       "/* block comment */",
@@ -23,7 +22,7 @@
     "examples": [
       {
         "title": "Minimal X1Pen SLANG program",
-        "source": "MAIN() BEGIN\n  PRINT(\"HELLO FROM X1PEN\", /);\nEND;"
+        "source": "MAIN()\n{\n  PRINT(\"HELLO FROM X1PEN\", /);\n}"
       }
     ],
     "relatedIds": ["slang.functions.typed", "slang.control.flow", "slang.compiler.catalog", "slang.x1pen.build-profile"],
@@ -64,8 +63,8 @@
     "aliases": ["function", "RETURN", "typed arguments", "FLOAT return", "local variables", "recursion", "recursive function", "関数", "サブルーチン", "再帰", "再帰関数", "引数", "戻り値", "ローカル変数"],
     "summary": "Functions can declare BYTE, WORD or FLOAT parameters and return types. WORD is the default; FLOAT functions return a 24-bit value and require explicit FTOI conversion when consumed as an integer.",
     "syntax": [
-      "SQUARE(X) BEGIN RETURN(X*X); END;",
-      "FSQUARE:FLOAT(FLOAT X) BEGIN RETURN(X*X); END;",
+      "SQUARE(X) { RETURN(X*X); }",
+      "FSQUARE:FLOAT(FLOAT X) { RETURN(X*X); }",
       "RETURN;",
       "RETURN(expression);",
       "END(expression);"
@@ -78,7 +77,7 @@
     "examples": [
       {
         "title": "Typed integer function",
-        "source": "DOUBLE(WORD X) BEGIN\n  RETURN(X*2);\nEND;\n\nMAIN() BEGIN\n  PRINT(DOUBLE(21), /);\nEND;"
+        "source": "DOUBLE(WORD X)\n{\n  RETURN(X*2);\n}\n\nMAIN()\n{\n  PRINT(DOUBLE(21), /);\n}"
       }
     ],
     "relatedIds": ["slang.program.structure", "slang.data.types-declarations", "slang.machine.calling-convention", "slang.runtime.float"],
@@ -128,7 +127,7 @@
     "examples": [
       {
         "title": "Call an inline routine that prints 223",
-        "source": "MACHINE ASMFUNC(1):ASMROUTINE;\n\nMAIN() BEGIN\n  PRINT(ASMFUNC(100), /);\nEND;\n\n#ASM\nASMROUTINE:\n  LD DE,123\n  ADD HL,DE\n  RET\n#END"
+        "source": "MACHINE ASMFUNC(1):ASMROUTINE;\n\nMAIN()\n{\n  PRINT(ASMFUNC(100), /);\n}\n\n#ASM\nASMROUTINE:\n  LD DE,123\n  ADD HL,DE\n  RET\n#END"
       }
     ],
     "relatedIds": ["slang.machine.calling-convention", "slang.machine.system-access", "slang.preprocessor.includes", "z80asm.syntax.source"],
@@ -295,7 +294,7 @@
     "examples": [
       {
         "title": "Open and close an LSX file",
-        "source": "MAIN() BEGIN\n  VAR RESULT;\n  RESULT=FOPEN(0, \"A:DATA.BIN\", 0);\n  IF RESULT==0 THEN FCLOSE(0);\n  PRINT(RESULT, /);\nEND;"
+        "source": "MAIN()\n{\n  VAR RESULT;\n  RESULT=FOPEN(0, \"A:DATA.BIN\", 0);\n  IF RESULT==0 THEN FCLOSE(0);\n  PRINT(RESULT, /);\n}"
       }
     ],
     "relatedIds": ["slang.machine.system-access", "slang.x1.inkey", "slang.x1.assets-compression", "slang.x1.display-graphics", "slang.runtime.catalog", "x1.io.psg-joystick"],
@@ -324,7 +323,7 @@
     "examples": [
       {
         "title": "Poll INKEY without stopping a frame loop",
-        "source": "VAR FRAME;\n\nVSYNC_PROC() BEGIN\n  FRAME=FRAME+1;\nEND;\n\nMAIN() BEGIN\n  VAR KEY;\n  LOOP\n  {\n    KEY=INKEY(0);\n    LOCATE(0,0);\n    PRINT(FRAME, \" KEY=\", KEY, \"   \");\n    VSYNC(1);\n  }\nEND;"
+        "source": "VAR FRAME;\n\nVSYNC_PROC()\n{\n  FRAME=FRAME+1;\n}\n\nMAIN()\n{\n  VAR KEY;\n  LOOP\n  {\n    KEY=INKEY(0);\n    LOCATE(0,0);\n    PRINT(FRAME, \" KEY=\", KEY, \"   \");\n    VSYNC(1);\n  }\n}"
       }
     ],
     "relatedIds": ["slang.runtime.lsx-io-files", "slang.x1.timing", "slang.x1.input", "x1.io.ppi-subcpu"],
@@ -364,7 +363,7 @@
     "examples": [
       {
         "title": "Define and display a blue PCG glyph",
-        "source": "ARRAY BYTE GLYPH[] = {\n  $3C,0,0, $7E,0,0, $DB,0,0, $FF,0,0,\n  $A5,0,0, $FF,0,0, $66,0,0, $3C,0,0\n};\n\nMAIN() BEGIN\n  WIDTH(40);\n  PCGDEFS(128, GLYPH, 1);\n  LOCATE(0, 0);\n  TATTR($27);\n  PRINT(CHR$(128), /);\nEND;"
+        "source": "ARRAY BYTE GLYPH[] = {\n  $3C,0,0, $7E,0,0, $DB,0,0, $FF,0,0,\n  $A5,0,0, $FF,0,0, $66,0,0, $3C,0,0\n};\n\nMAIN()\n{\n  WIDTH(40);\n  PCGDEFS(128, GLYPH, 1);\n  LOCATE(0, 0);\n  TATTR($27);\n  PRINT(CHR$(128), /);\n}"
       }
     ],
     "relatedIds": ["slang.include.tile-sprite", "slang.x1.display-graphics", "slang.x1.sgl", "slang.x1.text-attribute", "slang.runtime.catalog"],
@@ -403,7 +402,7 @@
     "examples": [
       {
         "title": "Select a white PCG glyph for the next printed cell",
-        "source": "MAIN() BEGIN\n  WIDTH(40);\n  LOCATE(10, 5);\n  IF TATTR($27) THEN PRINT(CHR$(128));\nEND;"
+        "source": "MAIN()\n{\n  WIDTH(40);\n  LOCATE(10, 5);\n  IF TATTR($27) THEN PRINT(CHR$(128));\n}"
       }
     ],
     "relatedIds": ["slang.x1.pcg-definition", "slang.output.print-strings", "slang.runtime.catalog", "x1.video.text-vram", "x1.video.pcg-palette"],
@@ -549,7 +548,7 @@
     "examples": [
       {
         "title": "Calculate a square root with native FLOAT",
-        "source": "MAIN() BEGIN\n  VAR FLOAT VALUE;\n  VALUE=FSQRT(81.0);\n  PRINT(FL$(VALUE), /);\nEND;"
+        "source": "MAIN()\n{\n  VAR FLOAT VALUE;\n  VALUE=FSQRT(81.0);\n  PRINT(FL$(VALUE), /);\n}"
       }
     ],
     "relatedIds": ["slang.data.types-declarations", "slang.functions.typed", "slang.include.graph-soroban", "slang.include.soroban", "slang.runtime.catalog"],
@@ -605,7 +604,7 @@
     "examples": [
       {
         "title": "Initialize and stop the PSG polling driver",
-        "source": "MAIN() BEGIN\n  PSG_INIT(0);\n  PSG_PROC();\n  PSG_STOP();\n  PSG_END();\nEND;"
+        "source": "MAIN()\n{\n  PSG_INIT(0);\n  PSG_PROC();\n  PSG_STOP();\n  PSG_END();\n}"
       }
     ],
     "relatedIds": ["slang.x1.timing", "slang.machine.system-access", "slang.x1pen.build-profile", "slang.runtime.catalog"],
@@ -663,7 +662,7 @@
     "symbols": ["VSYNC_CHECK", "VSYNC", "VSYNC_PROC", "VSYNC1", "SETUPCTC"],
     "aliases": ["vertical blank", "frame timing", "CTC", "game loop", "垂直同期", "VBLANK", "フレーム待ち", "タイミング", "ゲームループ", "割り込み"],
     "summary": "The X1 runtime exposes vertical-blank polling/wait helpers and CTC setup used by frame loops and time-based subsystems.",
-    "syntax": ["VSYNC(frames);", "VSYNC_PROC() BEGIN ... END;", "VSYNC1();", "VSYNC_CHECK();", "SETUPCTC();"],
+    "syntax": ["VSYNC(frames);", "VSYNC_PROC() { ... }", "VSYNC1();", "VSYNC_CHECK();", "SETUPCTC();"],
     "notes": [
       "VSYNC(frames) waits for that many counted vertical blanks and clears its internal counter afterward. It requires exactly one argument; do not write VSYNC().",
       "A program that links a vertical-blank path which references !VSYNC_PROC must define VSYNC_PROC(). This includes direct VSYNC use and SGL frame synchronization. The runtime calls the hook once for every counted frame; an empty body is valid.",
@@ -673,7 +672,7 @@
     "examples": [
       {
         "title": "Wait one frame with the required VSYNC hook",
-        "source": "VSYNC_PROC() BEGIN\nEND;\n\nMAIN() BEGIN\n  VSYNC(1);\nEND;"
+        "source": "VSYNC_PROC()\n{\n}\n\nMAIN()\n{\n  VSYNC(1);\n}"
       }
     ],
     "relatedIds": ["slang.x1.inkey", "slang.x1.psg", "slang.include.tile-sprite", "slang.include.chiplib", "slang.x1.sgl", "slang.runtime.catalog"],
@@ -706,7 +705,7 @@
     "examples": [
       {
         "title": "Draw an embedded M8A strip from memory",
-        "source": "ARRAY BYTE M8A_DATA[] = {\n  $4D,$38,$41,$00,$01,$01,$49,$49,$49,$49\n};\n\nMAIN() BEGIN\n  M8ALOAD(M8A_DATA,0,0);\n  LOOP VSYNC1();\nEND;"
+        "source": "ARRAY BYTE M8A_DATA[] = {\n  $4D,$38,$41,$00,$01,$01,$49,$49,$49,$49\n};\n\nMAIN()\n{\n  M8ALOAD(M8A_DATA,0,0);\n  LOOP VSYNC1();\n}"
       }
     ],
     "relatedIds": ["slang.runtime.lsx-io-files", "slang.machine.system-access", "slang.x1.display-graphics", "slang.runtime.catalog"],
