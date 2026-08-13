@@ -3488,7 +3488,7 @@ window.__X1PEN_MODE = true;
         var iplBtn = document.getElementById('ec-ipl-reset');
         var nmiBtn = document.getElementById('ec-nmi-reset');
         if (iplBtn) iplBtn.addEventListener('click', function() { ctrl.iplReset(); closeAllMenus(); });
-        if (nmiBtn) nmiBtn.addEventListener('click', function() { ctrl.nmiReset(); closeAllMenus(); });
+        if (nmiBtn) nmiBtn.addEventListener('click', function() { ctrl.nmi(); closeAllMenus(); });
 
         // FDD
         var fdd0Mount = document.getElementById('ec-fdd0-mount');

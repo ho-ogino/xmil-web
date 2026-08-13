@@ -204,6 +204,18 @@ static inline void handle_tick(void) {
     }
 }
 
+// Advance one CPU tick and turn a requested NMI level into a bounded pulse.
+// Keep NMI asserted until the current CPU operation completes so a future
+// wait-state tick cannot consume the only high sample before edge tracking.
+static inline void tick_cpu(void) {
+    const bool nmi_requested = (g_pins & Z80_NMI) != 0;
+    g_pins = z80_tick(&g_cpu, g_pins);
+    if (nmi_requested && z80_opdone(&g_cpu)) {
+        g_pins &= ~Z80_NMI;
+    }
+    handle_tick();
+}
+
 // Execute Z80 for cycles_to_run T-states
 void Z80_Execute(void) {
     // INT pin is managed reactively by irq_update_int_pin() in X1_irq.cpp.
@@ -220,9 +232,8 @@ void Z80_Execute(void) {
         }
         int inst_cycles = 0;
         do {
-            g_pins = z80_tick(&g_cpu, g_pins);
+            tick_cpu();
             inst_cycles++;
-            handle_tick();
         } while (!z80_opdone(&g_cpu));
         add_z80_icount((WORD)inst_cycles);
         g_cycles += inst_cycles;
@@ -272,9 +283,8 @@ void Z80_ExecuteOne(void) {
     }
     int inst_cycles = 0;
     do {
-        g_pins = z80_tick(&g_cpu, g_pins);
+        tick_cpu();
         inst_cycles++;
-        handle_tick();
     } while (!z80_opdone(&g_cpu));
     add_z80_icount((WORD)inst_cycles);
     g_cycles += inst_cycles;

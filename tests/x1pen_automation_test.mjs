@@ -2209,3 +2209,322 @@ test('mounted FDD0 is forked once into a persistent project disk', { timeout: 90
     await context.close();
   }
 });
+
+test('both NMI buttons generate repeatable real NMI edges without resetting machine state', { timeout: 120_000 }, async () => {
+  const counterAddress = 0x5200;
+  const ramSentinelAddress = 0x5000;
+  const vramSentinelOffset = 0x0012;
+  const loopSource = [
+    'ORG 0100h',
+    'LD SP,6000h',
+    'LD BC,1E00h',
+    'XOR A',
+    'OUT (C),A',
+    'EI',
+    'LD A,05Ah',
+    'LD (5000h),A',
+    'XOR A',
+    'LD (5200h),A',
+    'LOOP:',
+    'LD A,(5100h)',
+    'INC A',
+    'LD (5100h),A',
+    'JP LOOP',
+  ].join('\n');
+
+  const setup = await page.evaluate(async ({ source, counter }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([]);
+    await api.setProgram({ sourceMode: 'asm', asm: source });
+    const run = await api.run();
+    const handler = window.X1PenZ80Asm.assemble([
+      'ORG 0066h',
+      `LD A,(${counter.toString(16)}h)`,
+      'INC A',
+      `LD (${counter.toString(16)}h),A`,
+      'RETN',
+    ].join('\n'));
+    if (handler.errors.length) throw new Error(JSON.stringify(handler.errors));
+    return { run, handler: Array.from(handler.bytes) };
+  }, { source: loopSource, counter: counterAddress });
+  assert.equal(setup.run.ok, true);
+
+  await page.waitForFunction(({ sentinel, counter }) => {
+    const api = window.X1PenAutomation;
+    const state = api.debugger.getState();
+    return state.memory.lowMapping === 'main' &&
+      api.debugger.readMemory(sentinel, 1).bytes[0] === 0x5A &&
+      api.debugger.readMemory(counter, 1).bytes[0] === 0;
+  }, { sentinel: ramSentinelAddress, counter: counterAddress });
+
+  const injectHandler = () => page.evaluate(async ({ handler, vramOffset }) => {
+    const api = window.X1PenAutomation;
+    const paused = await api.debugger.pause();
+    const module = window.Module;
+    const ram = new Uint8Array(module.wasmMemory.buffer, module._js_get_main_ram(), 0x10000);
+    ram.set(handler, 0x0066);
+    await api.debugger.writeVram({
+      region: 'graphics', bank: 'access', plane: 'blue', offset: vramOffset, bytes: [0xA5],
+    });
+    return {
+      paused,
+      vector: api.debugger.readMemory(0x0066, handler.length).bytes,
+      mapping: api.debugger.getState().memory.lowMapping,
+    };
+  }, { handler: setup.handler, vramOffset: vramSentinelOffset });
+
+  const verifyEntry = (state, expectedCounter) => {
+    assert.equal(state.runState, 'paused');
+    assert.equal(state.stopReason, 'breakpoint');
+    assert.equal(state.registers.pc, 0x0066);
+    assert.equal(state.registers.sp, 0x5FFE);
+    assert.equal(state.registers.iff1, false);
+    assert.equal(state.registers.iff2, true);
+    assert.equal(state.counterBeforeHandler, expectedCounter);
+    assert.ok(state.returnAddress >= 0x0100 && state.returnAddress < 0x0120,
+      `NMI return address must be in the main loop, got ${state.returnAddress.toString(16)}`);
+  };
+
+  const enterFromClick = (buttonId, whilePaused) => page.evaluate(async ({ button, paused, counter }) => {
+    const api = window.X1PenAutomation;
+    const debuggerApi = api.debugger;
+    await debuggerApi.setBreakpoints([0x0066]);
+    if (paused) {
+      const beforeClick = debuggerApi.getState();
+      document.getElementById(button).click();
+      const queued = debuggerApi.getState();
+      if (queued.cycles !== beforeClick.cycles || queued.runState !== 'paused') {
+        throw new Error('paused NMI request must not execute or resume the CPU');
+      }
+    }
+    const running = await debuggerApi.resume();
+    if (!paused) document.getElementById(button).click();
+    const state = await debuggerApi.waitForPause({
+      afterSequence: running.sequence,
+      stopReason: 'breakpoint',
+      address: 0x0066,
+      timeoutMs: 5000,
+    });
+    const stack = debuggerApi.readMemory(state.registers.sp, 2).bytes;
+    return {
+      ...state,
+      returnAddress: stack[0] | (stack[1] << 8),
+      counterBeforeHandler: debuggerApi.readMemory(counter, 1).bytes[0],
+    };
+  }, { button: buttonId, paused: whilePaused, counter: counterAddress });
+
+  const finishHandler = (expectedCounter) => page.evaluate(async ({ counter, expected, ramSentinel, vramOffset }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([]);
+    await api.debugger.resume();
+    const deadline = performance.now() + 5000;
+    while (performance.now() < deadline) {
+      if (api.debugger.readMemory(counter, 1).bytes[0] === expected) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const paused = await api.debugger.pause();
+    return {
+      paused,
+      counter: api.debugger.readMemory(counter, 1).bytes[0],
+      ram: api.debugger.readMemory(ramSentinel, 1).bytes[0],
+      vram: api.debugger.readVram({
+        region: 'graphics', bank: 'access', plane: 'blue', offset: vramOffset, length: 1,
+      }).bytes[0],
+    };
+  }, {
+    counter: counterAddress,
+    expected: expectedCounter,
+    ramSentinel: ramSentinelAddress,
+    vramOffset: vramSentinelOffset,
+  });
+
+  const firstInjection = await injectHandler();
+  assert.equal(firstInjection.mapping, 'main');
+  assert.deepEqual(firstInjection.vector, setup.handler);
+  const x1penEntry = await enterFromClick('ec-nmi-reset', false);
+  verifyEntry(x1penEntry, 0);
+  const afterX1Pen = await finishHandler(1);
+  assert.equal(afterX1Pen.counter, 1);
+  assert.equal(afterX1Pen.ram, 0x5A);
+  assert.equal(afterX1Pen.vram, 0xA5);
+  assert.equal(afterX1Pen.paused.registers.iff1, true, 'RETN must restore IFF1 from IFF2');
+
+  const secondInjection = await injectHandler();
+  assert.equal(secondInjection.mapping, 'main');
+  assert.deepEqual(secondInjection.vector, setup.handler);
+  const semanticEntry = await page.evaluate(async ({ counter }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([0x0066]);
+    const before = api.debugger.getState();
+    window.XmilControls.nmi();
+    const queued = api.debugger.getState();
+    if (queued.cycles !== before.cycles || queued.runState !== 'paused') {
+      throw new Error('paused NMI request must not execute or resume the CPU');
+    }
+    const running = await api.debugger.resume();
+    const state = await api.debugger.waitForPause({
+      afterSequence: running.sequence, stopReason: 'breakpoint', address: 0x0066, timeoutMs: 5000,
+    });
+    const stack = api.debugger.readMemory(state.registers.sp, 2).bytes;
+    return {
+      ...state,
+      returnAddress: stack[0] | (stack[1] << 8),
+      counterBeforeHandler: api.debugger.readMemory(counter, 1).bytes[0],
+    };
+  }, { counter: counterAddress });
+  verifyEntry(semanticEntry, 1);
+  const afterSemantic = await finishHandler(2);
+  assert.equal(afterSemantic.counter, 2);
+  assert.equal(afterSemantic.ram, 0x5A);
+  assert.equal(afterSemantic.vram, 0xA5);
+
+  const stoppedEntry = await page.evaluate(async ({ counter }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([0x0066]);
+    await api.debugger.resume();
+    window.Module._js_xmil_stop();
+    const stopped = api.debugger.getState();
+    window.XmilControls.nmiReset();
+    window.XmilControls.nmiReset();
+    const queued = api.debugger.getState();
+    if (queued.cycles !== stopped.cycles || queued.emulatorRunning) {
+      throw new Error('stopped NMI requests must coalesce without starting the CPU');
+    }
+    window.Module._js_xmil_start();
+    const state = await api.debugger.waitForPause({
+      afterSequence: queued.sequence,
+      stopReason: 'breakpoint',
+      address: 0x0066,
+      timeoutMs: 5000,
+    });
+    return { state, counter: api.debugger.readMemory(counter, 1).bytes[0] };
+  }, { counter: counterAddress });
+  assert.equal(stoppedEntry.counter, 2, 'coalesced request pauses before one handler execution');
+  assert.equal(stoppedEntry.state.registers.pc, 0x0066);
+  const afterStopped = await finishHandler(3);
+  assert.equal(afterStopped.counter, 3, 'two stopped requests coalesce into one NMI edge');
+
+  const labels = await page.evaluate(() => ({
+    x1penText: document.getElementById('ec-nmi-reset').textContent.trim(),
+    x1penTitle: document.getElementById('ec-nmi-reset').title,
+    semanticControl: typeof window.XmilControls.nmi,
+    compatibilityControl: typeof window.XmilControls.nmiReset,
+  }));
+  const physicalPage = await browser.newPage();
+  let physicalControl;
+  try {
+    physicalPage.on('dialog', (dialog) => dialog.accept());
+    await physicalPage.goto(`${baseUrl}/xmillennium.html`);
+    await physicalPage.waitForFunction(() => window.Module &&
+      typeof window.Module._js_xmil_nmi === 'function' &&
+      typeof window.XmilControls?.nmi === 'function' &&
+      !document.getElementById('main-content')?.classList.contains('hidden'));
+    physicalControl = await physicalPage.evaluate(() => {
+      const original = window.Module._js_xmil_nmi;
+      let calls = 0;
+      window.Module._js_xmil_nmi = () => {
+        calls += 1;
+        return original();
+      };
+      try {
+        const button = document.getElementById('ctrl-nmi');
+        button.click();
+        return { calls, title: button.title };
+      } finally {
+        window.Module._js_xmil_nmi = original;
+      }
+    });
+  } finally {
+    await physicalPage.close();
+  }
+  assert.equal(labels.x1penText, 'NMI');
+  assert.match(labels.x1penTitle, /non-maskable interrupt/);
+  assert.equal(physicalControl.calls, 1, 'physical NMI button must invoke the shared real-NMI handler');
+  assert.match(physicalControl.title, /non-maskable interrupt/);
+  assert.equal(labels.semanticControl, 'function');
+  assert.equal(labels.compatibilityControl, 'function');
+
+  const haltSource = [
+    'ORG 0100h',
+    'LD SP,6000h',
+    'LD BC,1E00h',
+    'XOR A',
+    'OUT (C),A',
+    'EI',
+    'HALT',
+    'AFTER_HALT:',
+    'LD A,077h',
+    'LD (5300h),A',
+    'HALT_LOOP:',
+    'JP HALT_LOOP',
+  ].join('\n');
+  const haltSetup = await page.evaluate(async ({ source, handler }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([]);
+    await api.setProgram({ sourceMode: 'asm', asm: source });
+    const assembled = window.X1PenZ80Asm.assemble(source);
+    const expectedReturn = assembled.symbols['NAME_SPACE_DEFAULT.AFTER_HALT'];
+    const run = await api.run();
+    const deadline = performance.now() + 10_000;
+    while (performance.now() < deadline) {
+      const state = api.debugger.getState();
+      if (state.registers.sp === 0x6000 && state.registers.pc === expectedReturn - 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await api.debugger.pause();
+    const preNmiState = api.debugger.getState();
+    if (preNmiState.registers.sp !== 0x6000 || preNmiState.registers.pc !== expectedReturn - 1) {
+      throw new Error(`HALT precondition was not reached: ${JSON.stringify(preNmiState)}`);
+    }
+    const module = window.Module;
+    new Uint8Array(module.wasmMemory.buffer, module._js_get_main_ram(), 0x10000).set(handler, 0x0066);
+    const precondition = {
+      mapping: api.debugger.getState().memory.lowMapping,
+      vector: api.debugger.readMemory(0x0066, handler.length).bytes,
+    };
+    await api.debugger.setBreakpoints([0x0066]);
+    const running = await api.debugger.resume();
+    window.XmilControls.nmi();
+    const state = await api.debugger.waitForPause({
+      afterSequence: running.sequence, stopReason: 'breakpoint', address: 0x0066, timeoutMs: 5000,
+    });
+    const stack = api.debugger.readMemory(state.registers.sp, 2).bytes;
+    return {
+      run,
+      state,
+      preNmiState,
+      expectedReturn,
+      returnAddress: stack[0] | (stack[1] << 8),
+      ...precondition,
+    };
+  }, { source: haltSource, handler: setup.handler });
+  assert.equal(haltSetup.run.ok, true);
+  assert.equal(haltSetup.mapping, 'main');
+  assert.deepEqual(haltSetup.vector, setup.handler);
+  assert.equal(haltSetup.state.registers.sp, 0x5FFE,
+    `NMI from HALT must use the configured stack: ${JSON.stringify(haltSetup)}`);
+  assert.equal(haltSetup.returnAddress, haltSetup.expectedReturn, 'NMI must resume at HALT+1');
+  await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([]);
+    await api.debugger.resume();
+  });
+  await page.waitForFunction(() => window.X1PenAutomation.debugger.readMemory(0x5300, 1).bytes[0] === 0x77);
+
+  const resetCancellation = await page.evaluate(async ({ counter, handler }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.pause();
+    const module = window.Module;
+    const ram = new Uint8Array(module.wasmMemory.buffer, module._js_get_main_ram(), 0x10000);
+    ram.set(handler, 0x0066);
+    ram[counter] = 0;
+    window.XmilControls.nmi();
+    await window.XmilControls.iplReset();
+    await api.debugger.setBreakpoints([]);
+    await api.debugger.resume();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await api.debugger.pause();
+    return ram[counter];
+  }, { counter: counterAddress, handler: setup.handler });
+  assert.equal(resetCancellation, 0, 'IPL reset must cancel a queued NMI');
+});

@@ -2551,7 +2551,7 @@
         // コントロールボタン
         if (elements.ctrlPower)   elements.ctrlPower.addEventListener('click',   onPowerToggle);
         if (elements.ctrlIpl)     elements.ctrlIpl.addEventListener('click',     onIplResetClick);
-        if (elements.ctrlNmi)     elements.ctrlNmi.addEventListener('click',     onNmiResetClick);
+        if (elements.ctrlNmi)     elements.ctrlNmi.addEventListener('click',     onNmiClick);
 
         // ハードウェアトグルスイッチ
         if (elements.swDiskToggle) elements.swDiskToggle.addEventListener('click', onDiskTypeToggle);
@@ -3698,7 +3698,8 @@
     window.XmilControls = {
         // Reset
         iplReset: onIplResetClick,
-        nmiReset: onNmiResetClick,
+        nmi: onNmiClick,
+        nmiReset: onNmiClick, // compatibility alias; this now requests a real NMI
 
         // 設定変更 (C export + localStorage 永続化)
         setRomType: function(v) {
@@ -4121,10 +4122,10 @@
         updateStatus('IPL リセット');
     }
 
-    function onNmiResetClick() {
+    function onNmiClick() {
         if (!module) return;
         if (module._js_xmil_nmi) { module._js_xmil_nmi(); }
-        updateStatus('NMI リセット');
+        updateStatus('NMI');
     }
 
     function updatePowerBtn() {
