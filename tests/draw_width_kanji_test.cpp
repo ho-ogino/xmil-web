@@ -98,10 +98,51 @@ static void set_row_coded_glyph() {
     }
 }
 
+static void set_row_coded_ank() {
+    for (int row = 0; row < 16; row++) {
+        KNJ_FNT[row] = static_cast<BYTE>(row + 1);
+    }
+}
+
+static void set_row_coded_ank8() {
+    for (int row = 0; row < 8; row++) {
+        ANK_FNT[0][row] = static_cast<BYTE>(row + 1);
+    }
+}
+
+static void set_row_coded_pcg8() {
+    for (int row = 0; row < 8; row++) {
+        pcg.B[0][row] = static_cast<BYTE>(row + 1);
+    }
+}
+
+static void set_row_coded_pcg16() {
+    for (int row = 0; row < 16; row++) {
+        pcg.B[row / 8][row % 8] = static_cast<BYTE>(row + 1);
+    }
+}
+
 static void set_cell(int addr, bool kanji, bool underline) {
     TXT_RAM[TEXT_ANK + addr] = 0;
     TXT_RAM[TEXT_ATR + addr] = 7;
     TXT_RAM[TEXT_KNJ + addr] = static_cast<BYTE>((kanji ? 0x80 : 0) |
+                                                 (underline ? X1KNJ_ULINE : 0));
+    updatetmp[addr] = UPDATE_TVRAM;
+}
+
+static void set_ank_cell(int addr, bool underline, bool reverse = false) {
+    TXT_RAM[TEXT_ANK + addr] = 0;
+    TXT_RAM[TEXT_ATR + addr] = static_cast<BYTE>(7 |
+        (reverse ? X1ATR_REVERSE : 0));
+    TXT_RAM[TEXT_KNJ + addr] = underline ? X1KNJ_ULINE : 0;
+    updatetmp[addr] = UPDATE_TVRAM;
+}
+
+static void set_pcg_cell(int addr, bool pcg16, bool underline,
+                         BYTE color = 1) {
+    TXT_RAM[TEXT_ANK + addr] = 0;
+    TXT_RAM[TEXT_ATR + addr] = static_cast<BYTE>(X1ATR_PCG | color);
+    TXT_RAM[TEXT_KNJ + addr] = static_cast<BYTE>((pcg16 ? 0x10 : 0) |
                                                  (underline ? X1KNJ_ULINE : 0));
     updatetmp[addr] = UPDATE_TVRAM;
 }
@@ -115,6 +156,10 @@ static BYTE decode_text_pattern(int scanline, int x = 0) {
         }
     }
     return pattern;
+}
+
+static BYTE pixel_value(int scanline, int bit, int x = 0) {
+    return screenmap[scanline * SCREEN_WIDTH + x + bit];
 }
 
 static bool has_underline_mask(int scanline, int x = 0) {
@@ -133,12 +178,73 @@ static int count_nonzero_text_rows(int first, int count) {
     return nonzero;
 }
 
-static void expect_row_sequence(int physical_rows, int repeat,
-                                const std::string& label) {
+static void expect_row_sequence_at(int first, int physical_rows, int repeat,
+                                   const std::string& label) {
     for (int y = 0; y < physical_rows; y++) {
         const int source_row = y / repeat;
-        expect_equal(decode_text_pattern(y), static_cast<BYTE>(source_row + 1),
+        expect_equal(decode_text_pattern(first + y),
+                     static_cast<BYTE>(source_row + 1),
                      label + " scanline " + std::to_string(y));
+    }
+}
+
+static void expect_row_sequence(int physical_rows, int repeat,
+                                const std::string& label) {
+    expect_row_sequence_at(0, physical_rows, repeat, label);
+}
+
+static void test_24khz_ank_pcg_geometry() {
+    reset_renderer(6, 8);
+    set_row_coded_ank();
+    set_ank_cell(0, false);
+    width80x20_24khz();
+    const int ank_normal = count_nonzero_text_rows(0, 16);
+    expect_row_sequence(16, 1, "24kHz ANK row identity");
+
+    reset_renderer(6, 8);
+    set_row_coded_ank();
+    set_ank_cell(0, false);
+    width80x10_24khz();
+    const int ank_doubled = count_nonzero_text_rows(0, 32);
+    expect_row_sequence(32, 2, "24kHz doubled ANK row identity");
+
+    reset_renderer(6, 8);
+    set_row_coded_pcg8();
+    set_pcg_cell(0, false, false);
+    width80x20_24khz();
+    const int pcg8_normal = count_nonzero_text_rows(0, 16);
+    expect_row_sequence(16, 2, "24kHz PCG8 row identity");
+
+    reset_renderer(6, 8);
+    set_row_coded_pcg8();
+    set_pcg_cell(0, false, false);
+    width80x10_24khz();
+    const int pcg8_doubled = count_nonzero_text_rows(0, 32);
+    expect_row_sequence(32, 4, "24kHz doubled PCG8 row identity");
+
+    reset_renderer(6, 8);
+    set_row_coded_pcg16();
+    set_pcg_cell(0, true, false);
+    width80x20_24khz();
+    const int pcg16_normal = count_nonzero_text_rows(0, 16);
+    expect_row_sequence(16, 1, "24kHz PCG16 row identity");
+
+    reset_renderer(6, 8);
+    set_row_coded_pcg16();
+    set_pcg_cell(0, true, false);
+    width80x10_24khz();
+    const int pcg16_doubled = count_nonzero_text_rows(0, 32);
+    expect_row_sequence(32, 2, "24kHz doubled PCG16 row identity");
+
+    if (ank_normal != 16 || ank_doubled != 32 ||
+        pcg8_normal != 16 || pcg8_doubled != 32 ||
+        pcg16_normal != 16 || pcg16_doubled != 32) {
+        std::ostringstream out;
+        out << "24kHz baseline pixels: ANK=" << ank_normal << "/16,"
+            << ank_doubled << "/32; PCG8=" << pcg8_normal << "/16,"
+            << pcg8_doubled << "/32; PCG16=" << pcg16_normal << "/16,"
+            << pcg16_doubled << "/32";
+        fail(out.str());
     }
 }
 
@@ -177,6 +283,110 @@ static void test_unaffected_geometries() {
         const int source_row = (y / 2) * 2;
         expect_equal(decode_text_pattern(y), static_cast<BYTE>(source_row + 1),
                      "15kHz underline row identity " + std::to_string(y));
+    }
+}
+
+static void test_ank_pcg_unaffected_geometries() {
+    reset_renderer(8, 8);
+    set_row_coded_ank();
+    set_ank_cell(0, false);
+    width80x25_400line();
+    expect_row_sequence(16, 1, "24kHz non-underline ANK identity");
+
+    reset_renderer(8, 8);
+    set_row_coded_pcg8();
+    set_pcg_cell(0, false, false);
+    width80x25_400line();
+    expect_row_sequence(16, 2, "24kHz non-underline PCG8 identity");
+
+    reset_renderer(8, 8);
+    set_row_coded_pcg16();
+    set_pcg_cell(0, true, false);
+    width80x25_400line();
+    expect_row_sequence(16, 1, "24kHz non-underline PCG16 identity");
+
+    reset_renderer(8, 10);
+    fonttype = KNJ_24KHz;
+    set_row_coded_ank8();
+    set_ank_cell(0, false);
+    width80x20_15khz();
+    expect_row_sequence(16, 2, "15kHz underline ANK identity");
+
+    reset_renderer(8, 10);
+    fonttype = KNJ_24KHz;
+    set_row_coded_pcg8();
+    set_pcg_cell(0, false, false);
+    width80x20_15khz();
+    expect_row_sequence(16, 2, "15kHz underline PCG8 identity");
+
+    reset_renderer(8, 10);
+    fonttype = KNJ_24KHz;
+    set_row_coded_pcg16();
+    set_pcg_cell(0, true, false);
+    width80x20_15khz();
+    expect_row_sequence(16, 1, "15kHz underline PCG16 identity");
+}
+
+static void test_ank_pcg_underline_merge() {
+    reset_renderer(6, 8);
+    set_row_coded_ank();
+    set_ank_cell(0, true);
+    width80x20_24khz();
+    expect_row_sequence(16, 1, "24kHz underlined ANK identity");
+    if (!has_underline_mask(13)) fail("24kHz ANK underline mask missing");
+
+    reset_renderer(6, 8);
+    set_row_coded_pcg16();
+    set_pcg_cell(0, true, true);
+    width80x10_24khz();
+    expect_row_sequence(32, 2, "24kHz doubled underlined PCG16 identity");
+    if (!has_underline_mask(26) || !has_underline_mask(27)) {
+        fail("24kHz doubled PCG16 underline mask missing");
+    }
+
+    reset_renderer(6, 8);
+    pcg.B[0][6] = 0x90;
+    pcg.R[0][6] = 0x50;
+    pcg.G[0][6] = 0x30;
+    set_pcg_cell(0, false, true, 7);
+    width80x20_24khz();
+    const BYTE expected[8] = {0x09, 0x11, 0x21, 0x39,
+                              0x01, 0x01, 0x01, 0x01};
+    for (int bit = 0; bit < 8; bit++) {
+        expect_equal(static_cast<BYTE>(pixel_value(13, bit) & 0x39),
+                     expected[bit],
+                     "multicolor PCG underline pixel " + std::to_string(bit));
+    }
+
+    reset_renderer(6, 8);
+    set_ank_cell(0, true, true);
+    width80x20_24khz();
+    for (int y = 0; y < 16; y++) {
+        expect_equal(decode_text_pattern(y), static_cast<BYTE>(0xFF),
+                     "reverse ANK background row " + std::to_string(y));
+    }
+    if (!has_underline_mask(13)) {
+        fail("reverse ANK underline position changed");
+    }
+}
+
+static void test_render_row_boundaries() {
+    reset_renderer(10, 12);
+    set_row_coded_ank();
+    set_ank_cell(0, false);
+    width80x20_24khz();
+    expect_equal(count_nonzero_text_rows(0, 20), 20,
+                 "tall cell must not shrink the existing loop");
+
+    reset_renderer(2, 2);
+    std::memset(&screenmap[4 * SCREEN_WIDTH], 0x55, 4 * SCREEN_WIDTH);
+    set_ank_cell(0, false);
+    width80x20_24khz();
+    for (int y = 4; y < 8; y++) {
+        for (int bit = 0; bit < 8; bit++) {
+            expect_equal(pixel_value(y, bit), static_cast<BYTE>(0),
+                         "legacy tail clear row " + std::to_string(y));
+        }
     }
 }
 
@@ -259,16 +469,68 @@ static void test_short_cell_bounds() {
                      static_cast<BYTE>(y + 1),
                      "last short cell row " + std::to_string(y));
     }
+
+    reset_renderer(2, 4);
+    set_row_coded_ank();
+    std::memset(&screenmap[8 * SCREEN_WIDTH], 0x55, SCREEN_WIDTH);
+    set_ank_cell(0, true);
+    width80x20_24khz();
+    expect_row_sequence(8, 1, "short-cell ANK identity");
+    expect_equal(screenmap[8 * SCREEN_WIDTH], static_cast<BYTE>(0x55),
+                 "short-cell ANK following row sentinel");
+
+    reset_renderer(2, 4);
+    set_row_coded_pcg8();
+    std::memset(&screenmap[8 * SCREEN_WIDTH], 0x55, SCREEN_WIDTH);
+    set_pcg_cell(0, false, true);
+    width80x20_24khz();
+    expect_row_sequence(8, 2, "short-cell PCG8 identity");
+    expect_equal(screenmap[8 * SCREEN_WIDTH], static_cast<BYTE>(0x55),
+                 "short-cell PCG8 following row sentinel");
+
+    reset_renderer(2, 4);
+    set_row_coded_pcg16();
+    std::memset(&screenmap[8 * SCREEN_WIDTH], 0x55, SCREEN_WIDTH);
+    set_pcg_cell(0, true, true);
+    width80x20_24khz();
+    expect_row_sequence(8, 1, "short-cell PCG16 identity");
+    expect_equal(screenmap[8 * SCREEN_WIDTH], static_cast<BYTE>(0x55),
+                 "short-cell PCG16 following row sentinel");
+
+    reset_renderer(2, 4, rows);
+    set_row_coded_ank();
+    set_ank_cell(rows - 1, false);
+    width80x20_24khz();
+    expect_row_sequence_at(last_cell_top, 8, 1,
+                           "last short ANK cell identity");
+
+    reset_renderer(2, 4, rows);
+    set_row_coded_pcg8();
+    set_pcg_cell(rows - 1, false, false);
+    width80x20_24khz();
+    expect_row_sequence_at(last_cell_top, 8, 2,
+                           "last short PCG8 cell identity");
+
+    reset_renderer(2, 4, rows);
+    set_row_coded_pcg16();
+    set_pcg_cell(rows - 1, true, false);
+    width80x20_24khz();
+    expect_row_sequence_at(last_cell_top, 8, 1,
+                           "last short PCG16 cell identity");
 }
 
 int main() {
     try {
+        test_24khz_ank_pcg_geometry();
         test_24khz_doubled_geometry();
         test_24khz_underlined_geometry();
         test_unaffected_geometries();
+        test_ank_pcg_unaffected_geometries();
         test_underline_positions_and_merge();
+        test_ank_pcg_underline_merge();
+        test_render_row_boundaries();
         test_short_cell_bounds();
-        std::cout << "draw_width Kanji tests passed\n";
+        std::cout << "draw_width text glyph tests passed\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

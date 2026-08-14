@@ -245,11 +245,10 @@ static inline BYTE effect16_fetch_knj(const BYTE* src32, BYTE eff4, BYTE row_fyc
 }
 
 // Underline-capable 24kHz modes reserve two logical rows from fontlpcnt.
-// A ROM Kanji still has up to 16 source rows, so let it use the remaining
-// cell rows without ever exceeding either the CRTC cell or the 32-byte glyph.
-static inline int kanji24_render_rows(BYTE knj_code, int default_rows) {
-    if (!(knj_code & 0x80) || !(fonttype & KNJ_24KHz) ||
-        vramylpcnt <= default_rows) {
+// Text glyphs still use the complete cell, bounded to their 8 logical rows.
+// Never shorten a taller configuration that the existing renderer accepted.
+static inline int underline24_render_rows(int default_rows) {
+    if (vramylpcnt <= default_rows) {
         return default_rows;
     }
 
@@ -1689,9 +1688,8 @@ void width80x20_24khz(void) {
             BYTE color_idx = (attr & X1ATR_REVERSE)
                            ? (BYTE)((attr & X1ATR_COLOR) + 8)
                            : (BYTE)(attr & X1ATR_COLOR);
-            const int kanji_rows = kanji24_render_rows(knj_code, chr_h);
-            const bool full_cell_kanji = !(src_attr & X1ATR_PCG) &&
-                                         (kanji_rows > chr_h);
+            const int render_rows = underline24_render_rows(chr_h);
+            const bool full_cell_glyph = render_rows > chr_h;
             int sx = col * 8;
             BYTE* base = &screenmap[sy * SCREEN_WIDTH + sx];
 
@@ -1708,7 +1706,7 @@ void width80x20_24khz(void) {
                 const bool pcg16 = (knj_code & 0x90) != 0;
                 BYTE pcg_chr = pcg16 ? (BYTE)(char_code & 0xFE) : char_code;
 
-                for (int y = 0; y < chr_h; y++) {
+                for (int y = 0; y < render_rows; y++) {
                     for (int ys = 0; ys < 2; ys++) {
                         int subline = y * 2 + ys;
                         DWORD pl = 0, pr = 0;
@@ -1740,7 +1738,6 @@ void width80x20_24khz(void) {
                     }
                 }
             } else {
-                const int render_rows = full_cell_kanji ? kanji_rows : chr_h;
                 for (int y = 0; y < render_rows; y++) {
                     for (int ys = 0; ys < 2; ys++) {
                         BYTE pf = 0;
@@ -1773,7 +1770,7 @@ void width80x20_24khz(void) {
             BYTE ul = (TXT_RAM[addr + TEXT_KNJ] & X1KNJ_ULINE) ? 0x01 : 0x00;
             DWORD ulv = (DWORD)ul * 0x01010101u;
             int tail = (int)fontlpcnt * 2;
-            if (full_cell_kanji) {
+            if (full_cell_glyph) {
                 *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 0) |= ulv;
                 *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 4) |= ulv;
             } else {
@@ -1853,9 +1850,8 @@ void width80x10_24khz(void) {
             BYTE color_idx = (attr & X1ATR_REVERSE)
                            ? (BYTE)((attr & X1ATR_COLOR) + 8)
                            : (BYTE)(attr & X1ATR_COLOR);
-            const int kanji_rows = kanji24_render_rows(knj_code, chr_h);
-            const bool full_cell_kanji = !(src_attr & X1ATR_PCG) &&
-                                         (kanji_rows > chr_h);
+            const int render_rows = underline24_render_rows(chr_h);
+            const bool full_cell_glyph = render_rows > chr_h;
             int sx = col * 8;
             BYTE* base = &screenmap[sy * SCREEN_WIDTH + sx];
 
@@ -1872,7 +1868,7 @@ void width80x10_24khz(void) {
                 const bool pcg16 = (knj_code & 0x90) != 0;
                 BYTE pcg_chr = pcg16 ? (BYTE)(char_code & 0xFE) : char_code;
 
-                for (int y = 0; y < chr_h; y++) {
+                for (int y = 0; y < render_rows; y++) {
                     for (int ys = 0; ys < 4; ys++) {
                         int subline = (y * 4 + ys) / 2;  // TEXT_DOUBLERASTER equivalent
                         DWORD pl = 0, pr = 0;
@@ -1904,7 +1900,6 @@ void width80x10_24khz(void) {
                     }
                 }
             } else {
-                const int render_rows = full_cell_kanji ? kanji_rows : chr_h;
                 for (int y = 0; y < render_rows; y++) {
                     for (int ys = 0; ys < 4; ys++) {
                         BYTE pf = 0;
@@ -1937,7 +1932,7 @@ void width80x10_24khz(void) {
             BYTE ul = (TXT_RAM[addr + TEXT_KNJ] & X1KNJ_ULINE) ? 0x01 : 0x00;
             DWORD ulv = (DWORD)ul * 0x01010101u;
             int tail = (int)fontlpcnt * 4;
-            if (full_cell_kanji) {
+            if (full_cell_glyph) {
                 *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 0) |= ulv;
                 *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 4) |= ulv;
                 *(DWORD*)(base + (tail + 3) * SCREEN_WIDTH + 0) |= ulv;

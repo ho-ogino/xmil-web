@@ -17,7 +17,7 @@ function findCompiler() {
   assert.fail('C++ compiler required for test:draw (tried CXX, c++, clang++, g++)');
 }
 
-test('24kHz text Kanji renderer preserves all glyph rows', async () => {
+test('24kHz text renderer preserves ANK, PCG, and Kanji glyph rows', async () => {
   const compiler = findCompiler();
   const workDir = await mkdtemp(join(tmpdir(), 'xmil-draw-width-'));
   const executable = join(workDir, 'draw-width-kanji-test');
@@ -62,7 +62,7 @@ test('24kHz text Kanji renderer preserves all glyph rows', async () => {
       0,
       `native draw test failed\n${run.stdout}${run.stderr}`,
     );
-    assert.match(run.stdout, /draw_width Kanji tests passed/);
+    assert.match(run.stdout, /draw_width text glyph tests passed/);
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }
