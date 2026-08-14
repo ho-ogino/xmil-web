@@ -1658,6 +1658,42 @@ window.__X1PEN_MODE = true;
 
     // ── Share ──
 
+    var SHARE_MEDIA_BLOCKED_STATUS = '保存済みメディアが挿入されているためShareできません。メディアを取り出してから再試行してください';
+    var SHARE_MEDIA_UNKNOWN_STATUS = 'メディア状態を確認できないためShareできません。ページを再読み込みしてください';
+    var SHARE_MEDIA_SLOTS = [
+        'drive0', 'drive1', 'hdd0', 'hdd1', 'cmt',
+        'emm0', 'emm1', 'emm2', 'emm3', 'emm4',
+        'emm5', 'emm6', 'emm7', 'emm8', 'emm9'
+    ];
+
+    function inspectShareMediaState() {
+        try {
+            if (!window.XmilCore || typeof window.XmilCore.getSlotState !== 'function') {
+                return { available: false, mountedSlots: [] };
+            }
+            var state = window.XmilCore.getSlotState();
+            if (!state || typeof state !== 'object') {
+                return { available: false, mountedSlots: [] };
+            }
+            var mountedSlots = [];
+            for (var i = 0; i < SHARE_MEDIA_SLOTS.length; i++) {
+                var slotName = SHARE_MEDIA_SLOTS[i];
+                if (!Object.prototype.hasOwnProperty.call(state, slotName)) {
+                    return { available: false, mountedSlots: [] };
+                }
+                var value = state[slotName];
+                if (value === null || value === '__x1pen_temp__') continue;
+                if (typeof value !== 'string') {
+                    return { available: false, mountedSlots: [] };
+                }
+                mountedSlots.push(slotName);
+            }
+            return { available: true, mountedSlots: mountedSlots };
+        } catch(e) {
+            return { available: false, mountedSlots: [] };
+        }
+    }
+
     var lastShareHash = null;
     var lastShareId = null;
 
@@ -2828,6 +2864,16 @@ window.__X1PEN_MODE = true;
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
         var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
         if (!src && !asmSrc && !slangSrc) { elStatus.textContent = 'Nothing to share'; return; }
+
+        var shareMediaState = inspectShareMediaState();
+        if (!shareMediaState.available) {
+            elStatus.textContent = SHARE_MEDIA_UNKNOWN_STATUS;
+            return;
+        }
+        if (shareMediaState.mountedSlots.length > 0) {
+            elStatus.textContent = SHARE_MEDIA_BLOCKED_STATUS;
+            return;
+        }
 
         var shareSourceMode = slangSrc ? 'slang' : (!src && asmSrc ? 'asm' : 'basic+asm');
         var shareRunMode = (shareSourceMode === 'slang' || shareSourceMode === 'asm') ? 'lsx' : detectRunMode(src, asmSrc);

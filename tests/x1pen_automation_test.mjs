@@ -2269,6 +2269,112 @@ test('mounted FDD0 is forked once into a persistent project disk', { timeout: 90
   }
 });
 
+test('Share refuses persistent media without posting disk-dependent source', { timeout: 180_000 }, async () => {
+  const blockedStatus = '保存済みメディアが挿入されているためShareできません。メディアを取り出してから再試行してください';
+  const unknownStatus = 'メディア状態を確認できないためShareできません。ページを再読み込みしてください';
+
+  for (const project of [false, true]) {
+    const context = await browser.newContext();
+    const ownerPage = await context.newPage();
+    let postCount = 0;
+    try {
+      await context.route('**/api/share', (route) => {
+        postCount += 1;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: project ? 'project-blocked' : 'ordinary-blocked' }),
+        });
+      });
+      await seedX1PenPersistentDiskState(ownerPage, { project });
+
+      await ownerPage.locator('#btn-share').click();
+      await ownerPage.waitForFunction((expected) =>
+        document.getElementById('x1pen-status').textContent === expected, blockedStatus);
+      assert.equal(postCount, 0, 'persistent media must prevent Share POST');
+      assert.equal(await ownerPage.locator('#share-dialog').evaluate((element) =>
+        element.classList.contains('hidden')), true);
+      assert.equal(await ownerPage.locator('#share-dialog-url').inputValue(), '');
+    } finally {
+      await context.close();
+    }
+  }
+
+  const context = await browser.newContext();
+  const ownerPage = await context.newPage();
+  let postCount = 0;
+  try {
+    await context.route('**/api/share', (route) => {
+      postCount += 1;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'allowed-share' }),
+      });
+    });
+    await ownerPage.goto(`${baseUrl}/x1pen.html`);
+    await ownerPage.evaluate(() => window.X1PenAutomation.ready());
+    await ownerPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({
+        sourceMode: 'basic+asm',
+        basic: '10 PRINT "SHARE GUARD"\n20 END',
+        asm: '',
+        slang: '',
+      }, current.revision, current.revisionEpoch);
+    });
+
+    await ownerPage.locator('#btn-share').click();
+    await ownerPage.waitForFunction(() =>
+      !document.getElementById('share-dialog').classList.contains('hidden'));
+    assert.equal(postCount, 1, 'empty slot state must allow Share POST');
+    await ownerPage.locator('#share-dialog-close').click();
+
+    await ownerPage.evaluate(async () => {
+      const response = await fetch('fuzzybasic_boot.v2.d88');
+      await window.XmilControls.mountTempDisk(await response.arrayBuffer(), 'drive0');
+    });
+    await ownerPage.locator('#btn-share').click();
+    await ownerPage.waitForFunction(() =>
+      !document.getElementById('share-dialog').classList.contains('hidden'));
+    assert.equal(postCount, 1, 'the internal temporary disk must allow cached Share reuse');
+    assert.equal(await ownerPage.locator('#x1pen-status').textContent(), 'Same content - URL reused');
+    await ownerPage.locator('#share-dialog-close').click();
+
+    await ownerPage.evaluate(async () => {
+      await window.XmilCore.ejectSlot('drive0');
+      const entry = await window.XmilLibrary.addToLibrary(
+        new File([new Uint8Array(256)], 'EMM0.MEM', { type: 'application/octet-stream' }),
+      );
+      await window.XmilLibrary.mountFromLibrary(entry.key, 'emm0');
+    });
+    await ownerPage.locator('#btn-share').click();
+    await ownerPage.waitForFunction((expected) =>
+      document.getElementById('x1pen-status').textContent === expected, blockedStatus);
+    assert.equal(postCount, 1, 'non-FDD persistent media must prevent Share POST');
+    assert.equal(await ownerPage.locator('#share-dialog').evaluate((element) =>
+      element.classList.contains('hidden')), true);
+
+    await ownerPage.evaluate(() => {
+      window.__savedXmilCoreForShareTest = window.XmilCore;
+      window.XmilCore = undefined;
+    });
+    await ownerPage.locator('#btn-share').click();
+    await ownerPage.waitForFunction((expected) =>
+      document.getElementById('x1pen-status').textContent === expected, unknownStatus);
+    await ownerPage.evaluate(() => {
+      window.XmilCore = window.__savedXmilCoreForShareTest;
+      delete window.__savedXmilCoreForShareTest;
+    });
+    assert.equal(postCount, 1, 'unknown media state must fail closed without Share POST');
+    assert.equal(await ownerPage.locator('#share-dialog').evaluate((element) =>
+      element.classList.contains('hidden')), true);
+  } finally {
+    await context.close();
+  }
+});
+
 test('Share runs isolate ordinary and project disks from persistent state', { timeout: 180_000 }, async () => {
   for (const project of [false, true]) {
     const context = await browser.newContext();
