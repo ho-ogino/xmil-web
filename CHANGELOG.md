@@ -1,5 +1,10 @@
 # Changelog
 
+## X1Pen Web 0.9.1
+
+- 24kHzアンダーライン対応テキスト経路で、ANK、8-dot PCG、16-dot PCG、ROM漢字の下部がクリッピングされる問題を修正しました。
+- Webのみのパッチリリースです。x1pen-mcp 2.7.0とX1Pen Connector 1.3.0に変更はなく、再公開・再提出は不要です。
+
 ## X1Pen 0.9.0 / x1pen-mcp 2.7.0 / Connector 1.3.0
 
 ### X1Pen Web 0.9.0
