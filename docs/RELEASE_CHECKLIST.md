@@ -1,20 +1,141 @@
-# X1Pen 0.9.0 公開前チェックリスト
+# X1Pen リリースチェックリスト
 
-OwnerがWeb deploy → npm publish → Chrome Web Store提出の直前に実行するチェックリストです。失敗項目が1つでもあれば次の公開工程へ進みません。
+X1Pen Web、x1pen-mcp、X1Pen Connector の協調リリースと、パッチ／単一コンポーネントリリースに共通で使うOwner向けチェックリストです。各リリースで選択したgateが1つでも失敗したら、次の公開工程へ進みません。
 
-## 1. Release candidate
+この文書は、旧 `docs/RELEASE_CHECKLIST_0.9.0.md` を汎用化したものです。0.9.0時点のチェックリストは [v0.9.0 tagの履歴](https://github.com/ho-ogino/xmil-web/blob/v0.9.0/docs/RELEASE_CHECKLIST_0.9.0.md) で参照できます。
 
-- [ ] PR #111が含まれておらず、PR #118を含むrelease準備PRのmerge commitを記録した。
-- [ ] `html/x1pen-version.js`は`0.9.0`、`mcp/package.json`は`2.7.0`、`extension/manifest.json`は`1.3.0`である。
-- [ ] `npm run test:project-disk`、`npm run test:bridge`、`npm run test:mcp`、`npm run test:mcp-package`、`npm run test:extension-package`が成功した。
-- [ ] `./build.sh`と`npm run test:automation`が成功した。
-- [ ] **最終の`./build.sh`とテストより後に**`npm run pack:extension`を実行した。`./build.sh`は`dist/`を作り直し、先にpackしたConnector ZIPを削除するため、以後は提出までbuildしない。
-- [ ] MCP tarballとConnector ZIPのversion／内容を確認し、公開するartifactを固定した。Connector ZIPは、存在、ZIP直下のmanifest version、ZIP全体のSHA256、下記のcontent digestを記録した。
+## 0. Release identity と scope matrix
 
-Connector ZIPはpackのたびにstagingへファイルをcopyするため、同じ内容でもZIP entryのtimestampとZIP全体のSHA256が変わり得ます。再pack後は古いZIP SHA256との不一致だけで内容変更と判断せず、timestampに依存しない「entry名＋各entry SHA256」のcontent digestも比較し、新しいZIP SHA256を提出記録に採用します。
+開始時に次をrelease logへ記録します。
+
+- Release version／tag:
+- Release commit:
+- Owner:
+- 実施日時:
+- GitHub Release draft URL:
+- 前回の正常なtag／deployment／公開artifact:
+
+各componentは必ず `changed` または `unchanged` のどちらかにします。空欄のまま開始しません。
+
+| Component | Scope | Current | Target | 変更概要 | 公開channel／artifact |
+| --- | --- | --- | --- | --- | --- |
+| X1Pen Web | `changed` / `unchanged` |  |  |  | Cloudflare Pages |
+| x1pen-mcp | `changed` / `unchanged` |  |  |  | npm package |
+| X1Pen Connector | `changed` / `unchanged` |  |  |  | Chrome Web Store ZIP |
+
+Canonical version sourceは次の3つです。
+
+- X1Pen Web: `html/x1pen-version.js`
+- x1pen-mcp: `mcp/package.json`
+- X1Pen Connector: `extension/manifest.json`
+
+Scopeの規則:
+
+- `changed`: canonical version、CHANGELOG、対象test、artifactを更新し、この文書の対象channel節を実施します。
+- `unchanged`: versionを据え置き、再pack／再publish／再提出しません。変更componentとの互換性監査と必要最小限の接続smokeは省略できません。
+- protocol、feature ID、transport、権限、serialization contractの変更は、影響componentをscopeへ追加するか、mixed-versionで安全なrollout順とfallbackをrelease logへ記録します。
+- docs-onlyなど全runtime componentが`unchanged`の場合は、product tag／GitHub Releaseが本当に必要かを明示的に判断します。自動的に3channelを公開しません。
+
+## 1. 未変更componentの互換性監査
+
+1つでも`unchanged`がある場合の必須gateです。version bump、tag、artifact公開より前に完了します。
+
+- [ ] page、Connector、MCPで、変更componentのproduct versionを完全一致比較していないか確認した。
+- [ ] minimum version比較、手動parse、文字列の大小比較を洗い出した。
+- [ ] semantic versionの大小が必要な箇所は、文字列比較ではなくtested semver comparatorを使い、`0.9.10`と`0.9.2`のようなmulti-digit segmentをtestした。
+- [ ] product versionと、Automation API／bridge protocol／debugger state／save-state formatなどの整数versionを区別して記録した。
+- [ ] legacy componentのversion辞書がある場合、対象、fallback条件、変更componentへの影響を記録した。
+- [ ] advertised feature IDs／protocol capabilitiesが互換性の根拠なら、changed／unchangedの組み合わせで必要featureがavailableになることをtestした。
+- [ ] 解消できない完全一致、誤った文字列比較、mixed-version非互換が見つかった場合、version変更と公開を止めてscopeまたは実装方針を再決定した。
+
+検索の出発点:
 
 ```sh
-ZIP=dist/x1pen-connector-1.3.0.zip
+rg -n -g '*.js' -g '*.mjs' -g '*.ts' -g '*.cpp' -g '*.h' \
+  '(version|Version|VERSION).{0,80}(===|!==|==|!=|>=|<=|>|<)|(===|!==|==|!=|>=|<=|>|<).{0,80}(version|Version|VERSION)' \
+  html mcp extension platform src tests
+```
+
+検索結果だけで安全と判断せず、descriptor生成、normalization、feature negotiation、error pathも読みます。
+
+## 2. Release candidate
+
+- [ ] releaseに含むPR／commitと、意図的に除外する変更を記録した。
+- [ ] scope matrixと3つのcanonical version sourceが一致した。
+- [ ] changed componentだけversionを更新し、unchanged componentのversionと公開artifact内容を変更していない。
+- [ ] CHANGELOG／release notesにchanged／unchangedと更新不要なcomponentを明記した。
+- [ ] `./build.sh`が成功した。
+- [ ] `npm test`が成功した。
+- [ ] 変更箇所に対応するtargeted test／manual acceptance pathを追加し、結果を記録した。
+- [ ] 省略したfeature-specific gateと、その影響ベースの理由を記録した。
+- [ ] 最終diffにversion、generated artifact、権限、依存関係の意図しない変更がない。
+
+Connectorが`changed`の場合だけ、最終の`./build.sh`とtestより後に`npm run pack:extension`を実行します。`./build.sh`は`dist/`を作り直し、先にpackしたConnector ZIPを削除するため、pack後は提出までbuildしません。Connectorが`unchanged`なら再packしません。
+
+## 3. Tag と GitHub Release draft
+
+- [ ] final release commitが意図したbase branchにあり、scope matrixとtest結果を指している。
+- [ ] final release commitへannotated tag `v<version>`を作り、tag objectとpeeled commit SHAを記録した。
+- [ ] tagをpushした。
+- [ ] tagを対象にGitHub Releaseを**draft**で作成した。
+- [ ] draft本文にchanged component、unchanged componentとその更新不要、公開予定channel、既知の制約を記載した。
+- [ ] draftのtarget commitがannotated tagのpeeled commitと一致した。
+- [ ] 全selected channelのproduction確認が終わるまでdraftを公開しない。
+
+push済みtagは削除・移動しません。tag後に問題が見つかった場合は「8. 中止と復旧」に従い、新しいpatch versionでfix forwardします。
+
+## 4. X1Pen Web channel
+
+Webが`changed`の場合:
+
+- [ ] deploy前に直前正常なCloudflare Pages deployment URL／IDとtagを記録した。
+- [ ] deployment情報を取得できない場合、代替の復旧点とOwnerのrisk acceptanceをrelease logへ記録した。
+- [ ] 最終release commitで`./build.sh`を実行した。
+- [ ] `dist/x1pen-version.js`とbuild outputがtarget versionを示した。
+- [ ] `npm run pages:deploy`を実行し、deployment URL／IDを記録した。
+- [ ] productionをhard reload／cache無効化した。
+- [ ] page表示、`X1PenAutomation.ready().x1pen.version`、status／feature descriptorがtarget versionと必要featureを示した。
+- [ ] editor、通常RUN、変更featureのtargeted production smokeを実行した。
+- [ ] unchangedのMCP／Connectorがある場合、現在公開中のversionとの接続と必要featureをsmoke testした。
+
+Webが`unchanged`の場合はversion bumpとdeployを行いません。別componentの変更がWeb contractへ触れる場合だけmixed-version smokeを実施します。
+
+## 5. x1pen-mcp channel
+
+MCPが`changed`の場合:
+
+- [ ] `mcp/package.json`、CHANGELOG、package内容、dependency graphを確認した。
+- [ ] `npm whoami`と`npm run test:mcp-package`が成功した。
+- [ ] `npm pack ./mcp`でtarball内容とversionを確認した。
+- [ ] `npm publish ./mcp`を実行した。
+- [ ] installを伴わない`npm view x1pen-mcp@<version> version`がtarget versionを示した。
+- [ ] `npm view x1pen-mcp dist-tags --json`の`latest`が意図したversionを示した。
+
+このprojectの`.npmrc`は公開から7日未満のpackageを除外するため、公開直後の`npx -y x1pen-mcp@<version> --version`は`ETARGET`になり得ます。原則7日後に確認します。どうしても公開直後に1回だけ必要なら、package内容とdependency graphを確認したうえで次を実行します。
+
+```sh
+npm_config_min_release_age=0 npx -y x1pen-mcp@<version> --version
+```
+
+このoverrideはtransitive dependencies全体のrelease-age制限を解除します。shell profileやCIへexportせず、`.npmrc`も変更しません。
+
+MCPが`unchanged`の場合はpack／publish／dist-tag変更を行わず、scope matrixのversion据え置きと互換性監査だけを記録します。
+
+## 6. X1Pen Connector channel
+
+Connectorが`changed`の場合:
+
+- [ ] Chrome Web Store Dashboardで現在公開中のversionと別の審査中draftがないことを確認した。
+- [ ] 最終build／test後に`npm run pack:extension`を実行した。
+- [ ] ZIP直下のmanifest version、ZIP全体SHA256、timestamp非依存のcontent digestを記録した。
+- [ ] Store提出直前に同じ3項目を再確認し、不一致なら提出を止めて原因を調査した。
+- [ ] ZIPを提出し、提出日時、artifact hashes、Dashboard statusを記録した。
+- [ ] 審査用手順でtarget Web／MCPとの変更featureを再現した。
+- [ ] Store公開後、実際のConnector versionとmixed-component statusを確認した。
+
+```sh
+CONNECTOR_VERSION=$(node -p "require('./extension/manifest.json').version")
+ZIP="dist/x1pen-connector-${CONNECTOR_VERSION}.zip"
 test -f "$ZIP"
 unzip -p "$ZIP" manifest.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version"
 shasum -a 256 "$ZIP"
@@ -25,76 +146,72 @@ unzip -Z1 "$ZIP" | LC_ALL=C sort | while IFS= read -r entry; do
 done | shasum -a 256
 ```
 
-## 2. Project diskのexact click path
+ZIP entry timestampによりwhole-file SHA256は再packごとに変わり得ます。content digestはentry名と各entry内容を比較するため、両方を記録します。
 
-### BASIC
+Connectorが`unchanged`の場合は再pack／hash固定／Store提出を行いません。再packは同じsourceでも新しいZIP hashを作るため「変更なし」とは扱いません。
 
-- [ ] FDD0／FDD1を空にし、`10 PRINT "HELLO, WORLD"`をRUNした。
-- [ ] **FDD → FDD0 → Save** で`PROGRAM.d88`を保存した。
-- [ ] 保存したdiskをライブラリへ追加し、FDD0へマウントした。
-- [ ] MODELを選んでRUNし、`<元名>-X1Pen` working copy作成を承認した。
-- [ ] cold start後にHELLOプログラムが実行された。
-- [ ] working copyに`LD.BIN`、`AUTOEXEC.BAT`、`FZBASIC.COM`、`MAGIC.BIN`、`PSGAKM.BIN`、`PSGAKG.BIN`が残っている。
+## 7. Feature-specific regression addenda
 
-### SLANG
+scopeの影響に応じて選択します。選ばなかったaddendumは理由をrelease logへ記録します。versionはscope matrixのprevious／current／targetを使い、ここへ固定値を持ち込みません。
 
-- [ ] FDD0／FDD1を空にし、短いHELLOプログラムをSLANGでRUNした。
-- [ ] FDD0をSaveしてライブラリへ再登録し、project working copyを作成した。
-- [ ] cold start後に`PROG.COM`が実行された。
-- [ ] `LD.BIN`、`AUTOEXEC.BAT`、`MAGIC.BIN`、`PSGAKM.BIN`、`PSGAKG.BIN`が残っている。
+### Project disk／MODEL／ROMを変更した場合
 
-## 3. MODEL／ROM
+- [ ] BASICでFDD0／FDD1を空にし、短いprogramをRUN、FDD0 Save、library再登録、working copy作成、cold-start実行までexact click pathを確認した。
+- [ ] BASIC working copyに`LD.BIN`、`AUTOEXEC.BAT`、`FZBASIC.COM`と必要な同梱fileが残ることを確認した。
+- [ ] SLANGでもSave、再登録、working copy、`PROG.COM` cold-start実行を確認した。
+- [ ] X1、X1turbo、X1turboZでcold-startし、MODEL変更時のRAM／VRAM／PCG初期化を確認した。
+- [ ] stub BIOSと、利用可能なら`IPLROM.X1`／`IPLROM.X1T`を別結果として記録した。
+- [ ] 通常の一時PROGRAM disk RUNへMODEL選択を誤って広げていない。
 
-- [ ] X1、X1turbo、X1turboZをproject diskのcold-start RUNで順に起動した。
-- [ ] MODEL変更ごとにRAM／VRAM／PCGが初期化されることを確認した。
-- [ ] 通常の一時PROGRAM disk RUNではMODEL切り替えを案内しないことを確認した。
-- [ ] ROM未登録のstub BIOS環境で起動結果を記録した。
-- [ ] 利用可能なら、X1は`IPLROM.X1`、turbo／turboZは`IPLROM.X1T`でも起動結果を記録した。stubと実ROMの結果は別々に扱った。
+### MCP／Connector／page contractを変更した場合
 
-## 4. MCP／Connector互換性
+- [ ] scope matrixのprevious componentとrelease candidateを組み合わせ、backward-compatible機能とdegraded表示を確認した。
+- [ ] previous componentで利用不能な新featureがfail closedし、target version／featureへの更新案内を返した。
+- [ ] target component同士でfull feature setが成功した。
+- [ ] input ownershipを変更した場合、disconnect／reload／session変更／resetでkey／padが解放された。
+- [ ] mixed-versionの公開順と、各段階で許容するfeature setをrelease logへ記録した。
 
-- [ ] X1Pen 0.9.0 + MCP 2.7.0 + Connector 1.2.0でsource read/writeが成功し、statusが`revision-only`／degradedを示した。
-- [ ] 上記の旧Connector構成で`x1pen_diff_source`、remote key、remote padが利用不可となり、1.3.0への更新案内が表示された。
-- [ ] Connector 1.3.0でfull source-sync、`x1pen_diff_source`、remote key、remote padが成功した。
-- [ ] padを保持した状態からdisconnect／reload／session変更／resetを行い、入力が解放された。
+## 8. 中止と復旧
 
-## 5. Web deploy（Owner）
+selected gateが失敗したらRelease公開を止め、理由と時刻をrelease logへ記録します。
 
-- [ ] deploy前に直前正常なCloudflare Pages deployment IDと`v0.8.1`を記録した。
-- [ ] release merge commitにannotated tag `v0.9.0`を付けた。
-- [ ] tag作成後、`v0.9.0`を対象とするGitHub Releaseを**draft**で作成し、3コンポーネントのrelease notesと公開状況を記載した。公開物がすべて揃うまではdraftのままにした。
-- [ ] X1Pen Webをdeployし、hard reload／cache無効化を行った。
-- [ ] `x1pen-version.js`、page status、feature descriptorがすべて`0.9.0`相当を示した。
-- [ ] editor、RUN、project disk、MCP coreを本番でsmoke testした。
+- Tag／draft前: 問題を修正してrelease candidateを作り直します。
+- Tag／draft後: pushed tagを削除・移動せず、Releaseをdraftのまま保持します。修正版は新しいpatch version／tagで作ります。
+- Web deploy後: 記録したprior deploymentへrollbackします。deployment IDがない場合は、事前にOwnerが承認したprior tagなどの代替復旧点を使います。
+- npm publish後: 公開versionは削除でなかったことにせず、必要なら`npm deprecate`で警告し、新versionを公開します。
+- Connector審査失敗／却下: 現在公開中のConnectorを維持し、修正版を新versionで再提出します。
+- 1channelだけ先に公開された場合: 公開済み／rollback済み／pendingをdraftへ明記し、mixed-version安全性が回復するまでReleaseを公開しません。
 
-## 6. npm publish（Owner）
+## 9. Production reconciliation と GitHub Release公開
 
-- [ ] `npm whoami`と`npm run test:mcp-package`を再確認した。
-- [ ] `npm publish ./mcp`を実行した。
-- [ ] installを伴わない`npm view x1pen-mcp@2.7.0 version`が`2.7.0`を示し、`npm view x1pen-mcp dist-tags --json`で`latest`が`2.7.0`を示した。
+- [ ] scopeで選択した全channelがliveで、targeted production smokeが成功した。
+- [ ] unchanged componentの公開versionがscope matrixどおりで、必要なmixed-version接続が成功した。
+- [ ] draft本文を実際の公開状態へ更新し、`pending`／`審査中`など古い前提を削除した。
+- [ ] draftのtag／target commit、component versions、artifact hashes、既知の制約が実物と一致した。
+- [ ] rollbackやabort中ではない。
+- [ ] Releaseをdraftからpublishし、公開URLと日時をrelease logへ記録した。
 
-このprojectの`.npmrc`は公開から7日未満のpackageを除外するため、公開直後の`npx -y x1pen-mcp@2.7.0 --version`や`npx -y x1pen-mcp@latest --version`は`ETARGET`になり得ます。実行確認は原則として7日後へ延期します。どうしても公開直後に一回だけ必要なら、package内容とdependency graphを確認したうえで次を手動実行できます。
+## 10. Worked example: X1Pen Web 0.9.1
 
-```sh
-npm_config_min_release_age=0 npx -y x1pen-mcp@2.7.0 --version
-```
+以下は非normativeなWeb-only patchの実例です。
 
-このoverrideは`x1pen-mcp`だけでなく、この呼び出しで解決するtransitive dependencies全体のrelease-age制限を解除します。shell profileやCIへexportせず、`.npmrc`の`min-release-age=7`／`strict-allow-scripts=true`も変更しません。package単位の`min-release-age-exclude`は、現行npm 12.0.2の`npx`が除外を反映しない既知バグの修正待ちです。
+| Component | Scope | Version | 実施内容 |
+| --- | --- | --- | --- |
+| X1Pen Web | `changed` | 0.9.0 → 0.9.1 | version／CHANGELOG、build、全test、deploy、hard reload、text rendering smoke |
+| x1pen-mcp | `unchanged` | 2.7.0 | version比較／feature互換性監査、現行接続smoke。pack／publishなし |
+| X1Pen Connector | `unchanged` | 1.3.0 | version比較／feature互換性監査、現行接続smoke。pack／Store提出なし |
 
-## 7. Chrome Web Store（Owner）
+実施した共通gate:
 
-- [ ] 公開中が`1.2.0`で、別の審査中draftがないことをDashboardで再確認した。
-- [ ] 提出直前に`dist/x1pen-connector-1.3.0.zip`の存在、manifest version `1.3.0`、ZIP SHA256、content digestがRelease candidate節で固定した記録と一致することを再確認した。不一致なら提出せず、`./build.sh`、再pack、source変更の有無を調べ、再生成・全entry内容確認・両hashの再固定からやり直す。
-- [ ] `dist/x1pen-connector-1.3.0.zip`を提出した。
-- [ ] 審査手順で本番X1Pen 0.9.0と`x1pen-mcp@latest`を使って新機能を再現できることを確認した。
-- [ ] 提出日時、artifact checksum、Dashboard statusを記録した。
-- [ ] Connector 1.3.0がChrome Web Storeで公開され、MCP接続からもConnector 1.3.0／MCP 2.7.0の組み合わせを確認した。
+- `./build.sh`と`npm test`
+- product versionの完全一致、minimum比較、lexicographic比較の監査
+- annotated tag → GitHub Release draft → Web deploy → hard reload／下切れ修正確認 → Release公開
 
-## 8. GitHub Release公開（Owner）
+省略したgateと理由:
 
-- [ ] X1Pen Web 0.9.0、x1pen-mcp 2.7.0、Connector 1.3.0がすべて公開済みで、production smoke testが完了した。
-- [ ] draft本文を最終状態に更新した。`審査中`／`pending`や「Web／MCPを先に公開する」といった古い前提を除き、自動更新がまだ届いていない旧Connector利用者向けの`revision-only`注意だけを残した。
-- [ ] draftがtag `v0.9.0`と最終release commitを指し、version、artifact checksum、既知の制約が実際の公開物と一致することを確認した。
-- [ ] GitHub Releaseをdraftからpublishし、公開URLと公開日時をrelease logへ記録した。
+- Project disk exact click pathと全MODEL／ROM matrix: renderer patchの影響外。自動testと通常RUN smokeは実施。
+- MCP tarball／npm publish: MCP sourceとversionが変更されていないため。
+- Connector pack／ZIP hashes／Chrome Web Store: Connector source、manifest、公開artifactが変更されていないため。
+- 旧Connectorを含むfull compatibility matrix: protocol／feature変更がなく、version比較監査と自動互換性testで非回帰を確認したため。公開中MCP／Connectorとの接続smokeは省略しなかった。
 
-GitHub Releaseを作る運用は`v0.9.0`から開始します。過去のtagへ遡ってReleaseを作る必要はありません。
+Deployment URL／IDは記録されませんでしたが、Ownerがproduction修正確認後に今回だけriskを受容しました。通常は「4. X1Pen Web channel」のrollback情報を先に記録します。
