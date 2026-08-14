@@ -1006,7 +1006,8 @@ test('SLANG VSYNC, INKEY and inline-assembly references match shipped contracts'
   const inkeyDetails = [inkey.summary, ...inkey.syntax, ...inkey.notes].join(' ');
   for (const expected of [
     'Mode 0 is non-blocking', 'returns 0', 'held key may be returned on consecutive calls',
-    'Mode 1 blocks', 'consumes it', 'mode value 2 or greater',
+    'Mode 1 delegates', 'LSX DIRIN', 'buffered input result', 'empty buffer',
+    'not a one-physical-press edge guarantee', 'key repeat', 'mode value 2 or greater',
     'Right/Left/Up/Down return $1C/$1D/$1E/$1F', 'F1', '$71', '$61',
   ]) assert.ok(inkeyDetails.includes(expected), expected);
   assert.ok(inkey.relatedIds.includes('slang.runtime.lsx-io-files'));

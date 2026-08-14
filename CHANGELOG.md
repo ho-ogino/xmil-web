@@ -30,6 +30,8 @@
 
 Connector 1.2.0ではsource read/writeを`revision-only` modeで継続できますが、reloadをまたぐ完全な競合防止、`x1pen_diff_source`、remote key入力、remote pad入力は利用できません。完全な機能にはConnector 1.3.0以降が必要です。
 
+既知の制約: `x1pen_send_key`の成功は指定時間のkey down／up dispatch完了を表し、guestが入力を消費したことまでは保証しません。background tabや高負荷では短い入力を取りこぼす一方、長い`durationMs`はresponsiveなguestの`INKEY(1)`などでkey repeatとして複数回返る場合があります。画面またはdebugger memoryでguest側の反応を確認し、program側でrelease待ち／debounceを行ってください。反応がなく、同じkeyの再送がprogram上安全な場合だけ再送してください。
+
 ### X1Pen Connector 1.3.0
 
 - X1Penの表示中emulatorへ送る、許可済みのbounded key入力とactive-low joystick pad入力を追加しました。

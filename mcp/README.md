@@ -62,7 +62,7 @@ After explicit approval, prefer one guarded write and split only if the client o
 
 ## Emulator keyboard input
 
-`x1pen_send_key` sends one allowlisted numeric Windows-compatible virtual key to the visible connected X1Pen emulator. For example, `65` is A, `13` is Enter, and `32` is Space. `durationMs` defaults to 80 and accepts integers through 2000. Modifier/latching keys, chords, text strings, OS input and arbitrary JavaScript are not supported. RUN, PROG and key requests share one non-interleaving queue; verify guest behavior with a screen capture or debugger state when needed.
+`x1pen_send_key` sends one allowlisted numeric Windows-compatible virtual key to the visible connected X1Pen emulator. For example, `65` is A, `13` is Enter, and `32` is Space. `durationMs` defaults to 80 and accepts integers through 2000. Modifier/latching keys, chords, text strings, OS input and arbitrary JavaScript are not supported. RUN, PROG and key requests share one non-interleaving queue. Success confirms local key-up dispatch, not guest consumption. A throttled guest can miss a short bounded hold, while a long hold can repeat across responsive guest input calls such as `INKEY(1)`. Use the shortest adequate duration, verify a screen or debugger-memory acknowledgement, debounce in the guest, and retry only when duplicate input is safe.
 
 ## Emulator pad input
 
