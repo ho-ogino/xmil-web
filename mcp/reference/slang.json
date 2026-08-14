@@ -311,11 +311,11 @@
     "profiles": ["x1pen-slang-c9e8f53-lsx"],
     "symbols": ["INKEY"],
     "aliases": ["INKEY", "non-blocking keyboard", "blocking keyboard", "key code", "keyboard polling", "キー入力", "キーボード", "ノンブロッキング", "キーコード", "押しっぱなし"],
-    "summary": "INKEY(mode) reads one X1 keyboard code: mode 0 polls current key state, mode 1 waits for one direct-input result, and mode 2 or greater waits by polling until a key is nonzero.",
+    "summary": "INKEY(mode) reads one X1 keyboard code: mode 0 polls current key state, mode 1 delegates one read to LSX DIRIN, and mode 2 or greater waits by polling until a key is nonzero.",
     "syntax": ["key=INKEY(0);", "key=INKEY(1);", "key=INKEY(2);"],
     "notes": [
       "Mode 0 is non-blocking: it returns 0 when no key is pressed and polls current state, so a held key may be returned on consecutive calls. Use this mode in animation and game loops.",
-      "Mode 1 blocks until DIRIN yields one direct-input result. Each call returns one result, but this is not a one-physical-press edge guarantee: keyboard auto-repeat or a long synthetic hold may make following calls return the same key while it remains held. Programs that require one action per press must debounce or wait for release.",
+      "Mode 1 delegates each call to LSX DIRIN. A buffered input result can return immediately; with an empty buffer, the call waits for DIRIN input. One bounded host hold may reach no call, one call, or multiple following calls depending on guest speed, buffering, and key repeat, so this mode is not a one-physical-press edge guarantee. Programs that require one action per press must debounce or wait for release.",
       "Every mode value 2 or greater blocks by repeatedly polling mode-0 state until nonzero. A held key may therefore satisfy consecutive calls.",
       "In X1Pen's current default base X1 keyboard layout, Right/Left/Up/Down return $1C/$1D/$1E/$1F. F1 is mapped by its X1 physical position and returns lowercase q ($71). These are guest-layout results, not universal host key codes.",
       "Alphabetic keys use the current guest modifier state; the unshifted A key returns lowercase a ($61). X1Pen maps host keys to JIS physical positions before the X1 keyboard table is read."
