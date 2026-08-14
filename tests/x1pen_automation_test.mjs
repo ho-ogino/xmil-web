@@ -153,7 +153,15 @@ async function assertEphemeralShareDocument(targetPage) {
     tabChannel: null,
   });
   await assert.doesNotReject(() => targetPage.locator('#x1pen-share-mode').waitFor({ state: 'visible' }));
-  assert.match(await targetPage.locator('#x1pen-share-mode').textContent(), /edits are not saved/i);
+  assert.equal(await targetPage.locator('#x1pen-share-mode').textContent(), 'Share モード');
+  assert.equal(
+    await targetPage.locator('#x1pen-share-mode').getAttribute('title'),
+    'このタブでの編集内容は保存されず、保存済みディスクもマウントされません',
+  );
+  assert.equal(
+    await targetPage.locator('#x1pen-share-mode').getAttribute('aria-label'),
+    'Share モード。このタブでの編集内容は保存されず、保存済みディスクもマウントされません',
+  );
 }
 
 async function runWithRecordedKeyEvents() {
@@ -2345,6 +2353,10 @@ test('Share runs isolate ordinary and project disks from persistent state', { ti
         return window.XmilLibrary.mountFromLibrary(ownerKey, 'drive1');
       }, { ownerKey: keys.ownerKey });
       assert.equal(refusedMount, null);
+      assert.equal(
+        await sharePage.locator('#x1pen-status').textContent(),
+        'Share モードでは保存済みメディアをマウントできません',
+      );
       await sharePage.locator('.editor-tab[data-tab="asm"]').click();
       await sharePage.locator('#asm-editor-container .cm-content').click();
       await sharePage.keyboard.press('End');

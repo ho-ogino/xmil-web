@@ -526,7 +526,10 @@
     // ライブラリからスロットにマウント
     async function mountFromLibrary(key, slotName) {
         if (isEphemeralX1PenShare()) {
-            updateStatus('Share modeでは保存済みメディアをマウントできません');
+            var message = 'Share モードでは保存済みメディアをマウントできません';
+            updateStatus(message);
+            var x1penStatus = document.getElementById('x1pen-status');
+            if (x1penStatus) x1penStatus.textContent = message;
             return null;
         }
         if (projectDiskTransaction) throw new Error('X1Penプロジェクトディスクの更新中はメディアを変更できません');
