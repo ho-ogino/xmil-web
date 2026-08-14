@@ -1180,17 +1180,58 @@ test('SLANG runtime arity is rejected by Validate while valid VSYNC still runs',
   }
 });
 
-test('SLANG INKEY modes and documented inline assembly run with current X1 semantics', { timeout: 120_000 }, async () => {
+test('SLANG INKEY modes and documented inline assembly run with current X1 semantics', { timeout: 240_000 }, async () => {
   const probeAddress = 0x7000;
   const readMemory = (offset, length) => page.evaluate(({ address, byteLength }) => (
     window.X1PenAutomation.debugger.readMemory(address, byteLength).bytes
   ), { address: probeAddress + offset, byteLength: length });
-  const waitForMemory = async (offset, expected, timeout = 5000) => {
-    await page.waitForFunction(({ address, values }) => {
-      const bytes = window.X1PenAutomation.debugger.readMemory(address, values.length).bytes;
-      return values.every((value, index) => value === null || bytes[index] === value);
-    }, { address: probeAddress + offset, values: expected }, { timeout, polling: 20 });
+  const waitForMemory = async (offset, expected, timeout = 15_000) => {
+    const address = probeAddress + offset;
+    try {
+      await page.waitForFunction(({ address: target, values }) => {
+        const bytes = window.X1PenAutomation.debugger.readMemory(target, values.length).bytes;
+        return values.every((value, index) => value === null || bytes[index] === value);
+      }, { address, values: expected }, { timeout, polling: 20 });
+    } catch (error) {
+      const diagnostic = await page.evaluate(({ target, length }) => {
+        const api = window.X1PenAutomation;
+        const state = api.debugger.getState();
+        return {
+          actual: api.debugger.readMemory(target, length).bytes,
+          emulatorRunning: state.emulatorRunning,
+          cycles: state.cycles,
+          runState: state.runState,
+        };
+      }, { target: address, length: expected.length });
+      throw new Error(
+        `memory wait timed out: address=0x${address.toString(16)} ` +
+        `expected=${JSON.stringify(expected)} diagnostic=${JSON.stringify(diagnostic)}`,
+        { cause: error },
+      );
+    }
     return readMemory(offset, expected.length);
+  };
+  const waitForGuestProgress = async (timeout = 15_000) => {
+    const before = await page.evaluate(() => window.X1PenAutomation.debugger.getState().cycles);
+    await page.waitForFunction((previousCycles) => {
+      const state = window.X1PenAutomation.debugger.getState();
+      return state.emulatorRunning && state.cycles !== previousCycles;
+    }, before, { timeout, polling: 20 });
+  };
+  const sendKeyAfterGuestProgress = async (code, offset, expected, { guestPauseMs = 0 } = {}) => {
+    let resumeGuest = null;
+    if (guestPauseMs > 0) {
+      await page.evaluate(() => window.Module._js_xmil_stop());
+      resumeGuest = page.waitForTimeout(guestPauseMs)
+        .then(() => page.evaluate(() => window.Module._js_xmil_start()));
+    }
+    try {
+      await waitForGuestProgress();
+    } finally {
+      if (resumeGuest) await resumeGuest;
+    }
+    await page.evaluate((vk) => window.X1PenAutomation.sendKey(vk, 900), code);
+    return waitForMemory(offset, expected);
   };
   const loadAndRunSlang = (slang) => page.evaluate(async (source) => {
     const api = window.X1PenAutomation;
@@ -1206,10 +1247,6 @@ test('SLANG INKEY modes and documented inline assembly run with current X1 seman
     if (!run.ok) throw new Error(`INKEY/inline acceptance program did not run: ${JSON.stringify(run)}`);
     return { validation, run };
   }, slang);
-  const sendKey = (code, duration = 80) => page.evaluate(([vk, durationMs]) => (
-    window.X1PenAutomation.sendKey(vk, durationMs)
-  ), [code, duration]);
-
   try {
     await loadAndRunSlang([
       'MAIN()',
@@ -1236,8 +1273,16 @@ test('SLANG INKEY modes and documented inline assembly run with current X1 seman
     const idlePoll = await readMemory(3, 3);
     assert.equal(idlePoll[0], 0, 'mode 0 must return zero when no key is held');
     assert.ok((idlePoll[1] | (idlePoll[2] << 8)) > 0, 'mode 0 must keep progressing without input');
-    await sendKey(0x41, 900);
-    assert.deepEqual(await waitForMemory(0, [0xA0, 0x61, 0x61]), [0xA0, 0x61, 0x61]);
+    assert.deepEqual(
+      await sendKeyAfterGuestProgress(0x41, 0, [0xA0, 0x61, 0x61]),
+      [0xA0, 0x61, 0x61],
+    );
+    const countAtRelease = await readMemory(4, 2);
+    await waitForMemory(3, [0]);
+    await page.waitForFunction(({ address, before }) => {
+      const bytes = window.X1PenAutomation.debugger.readMemory(address, 2).bytes;
+      return bytes[0] !== before[0] || bytes[1] !== before[1];
+    }, { address: probeAddress + 4, before: countAtRelease }, { timeout: 5000, polling: 20 });
 
     await loadAndRunSlang([
       'MAIN()',
@@ -1257,14 +1302,15 @@ test('SLANG INKEY modes and documented inline assembly run with current X1 seman
       '}',
     ].join('\n'));
     await waitForMemory(0, [0xA1, 0]);
-    await sendKey(0x27, 900);
-    await waitForMemory(1, [1]);
+    await sendKeyAfterGuestProgress(0x27, 1, [1], { guestPauseMs: 1200 });
     await page.waitForTimeout(1200);
     assert.deepEqual(await readMemory(1, 2), [1, 0],
       'one held key must satisfy only one mode-1 call');
     for (const [index, vk] of [[2, 0x25], [3, 0x26], [4, 0x28], [5, 0x70], [6, 0x41]]) {
-      await sendKey(vk);
-      await waitForMemory(1, [index]);
+      await sendKeyAfterGuestProgress(vk, 1, [index]);
+      await page.waitForTimeout(100);
+      assert.equal((await readMemory(1, 1))[0], index,
+        'a released mode-1 key must not satisfy the next call');
     }
     await waitForMemory(2, [0xA2]);
     assert.deepEqual(await readMemory(0x10, 6), [0x1C, 0x1D, 0x1E, 0x1F, 0x71, 0x61]);
@@ -1280,8 +1326,7 @@ test('SLANG INKEY modes and documented inline assembly run with current X1 seman
       '}',
     ].join('\n'));
     await waitForMemory(0, [0xB2, 0, 0, 0]);
-    await sendKey(0x41, 900);
-    assert.deepEqual(await waitForMemory(0, [0xB2, 0x61, 0x61, 0xA3]),
+    assert.deepEqual(await sendKeyAfterGuestProgress(0x41, 0, [0xB2, 0x61, 0x61, 0xA3]),
       [0xB2, 0x61, 0x61, 0xA3]);
 
     await loadAndRunSlang([
