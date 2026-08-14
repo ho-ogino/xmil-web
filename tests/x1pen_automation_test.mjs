@@ -153,7 +153,7 @@ async function assertEphemeralShareDocument(targetPage) {
     tabChannel: null,
   });
   await assert.doesNotReject(() => targetPage.locator('#x1pen-share-mode').waitFor({ state: 'visible' }));
-  assert.equal(await targetPage.locator('#x1pen-share-mode').textContent(), 'Share モード');
+  assert.equal(await targetPage.locator('#x1pen-share-mode').textContent(), 'Share mode');
   assert.equal(
     await targetPage.locator('#x1pen-share-mode').getAttribute('title'),
     'このタブでの編集内容は保存されず、保存済みディスクもマウントされません',
