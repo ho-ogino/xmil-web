@@ -1286,13 +1286,13 @@ export function createX1PenMcpServer(options = {}) {
   )));
 
   server.registerTool('x1pen_send_key', {
-    description: 'Send one allowlisted X1 virtual key down/hold/up lifecycle to the visible connected X1Pen emulator. Success confirms dispatch, not guest consumption; for a throttled guest, use a longer hold and verify a screen or debugger-memory acknowledgement before a duplicate-safe retry. code is a numeric Windows-compatible VK (for example 0x41=A, 0x0D=Enter, 0x20=Space); modifiers, chords and text strings are not supported.',
+    description: 'Send one allowlisted X1 virtual key down/hold/up lifecycle to the visible connected X1Pen emulator. Success confirms dispatch, not guest consumption; a short hold may be missed by a throttled guest, while a long hold may repeat across responsive guest input calls. Use the shortest adequate hold and verify acknowledgement before a duplicate-safe retry. code is a numeric Windows-compatible VK (for example 0x41=A, 0x0D=Enter, 0x20=Space); modifiers, chords and text strings are not supported.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       code: z.number().int().min(0).max(0xFF)
         .refine((value) => X1PEN_KEY_CODE_SET.has(value), 'code is not an allowlisted X1Pen virtual key'),
       durationMs: z.number().int().min(80).max(2_000).default(80)
-        .describe('Requested hold duration in milliseconds; background tabs are rejected, but a throttled guest may need a longer hold'),
+        .describe('Requested hold duration in milliseconds; short holds may be missed when throttled and long holds may repeat when responsive'),
     },
     annotations: { destructiveHint: true, openWorldHint: false },
   }, handleTool(async ({ sessionId, code, durationMs }) => textResult(

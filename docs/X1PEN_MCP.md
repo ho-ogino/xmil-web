@@ -139,7 +139,7 @@ AIによる更新、検証、実行、停止中はエディターとツールバ
 
 `x1pen_send_key`は、接続中かつ表示中のX1Penタブのエミュレーターだけへ、1つのdown／hold／upライフサイクルを送ります。OSキーボード入力、任意JavaScript、文字列、複数キーのchordは公開しません。`durationMs`は80〜2000 msの整数（既定80 ms）です。成功はローカルでkey-upまでdispatchしたことを表し、実行中プログラムがキーを消費したことまでは保証しません。
 
-background tabや高負荷でguest実行が遅れると、bounded hold中にguestがkeyを読めず、key-up後に入力が残らない場合があります。blocking `INKEY`などへ送るときは長めの`durationMs`を指定し、`x1pen_capture_screen`またはdebugger memoryでguest側のacknowledgementを確認してください。ackがなく、同じkeyを複数回処理しても安全なprogramである場合だけ再送します。
+background tabや高負荷でguest実行が遅れると、bounded hold中にguestがkeyを読めず、key-up後に入力が残らない場合があります。一方、長い`durationMs`はresponsiveなguestの`INKEY(1)`などでkey repeatとして複数回返る場合があります。用途に足りる短い保持時間から調整し、`x1pen_capture_screen`またはdebugger memoryでguest側のacknowledgementを確認するとともに、program側でrelease待ち／debounceを行ってください。ackがなく、同じkeyを複数回処理しても安全なprogramである場合だけ再送します。
 
 `code`はX1Penが内部で使用するWindows互換virtual-key整数です。主な値は`0x30`〜`0x39`（数字）、`0x41`〜`0x5A`（A〜Z）、`0x70`〜`0x7B`（F1〜F12）、`0x0D`（Enter）、`0x1B`（ESC）、`0x20`（Space）、`0x25`〜`0x28`（矢印）です。numpadとJIS/OEM記号キーも許可済みですが、Shift／Control／Alt、Caps／Kana／IMEのようなmodifier・latchキーは対象外です。たとえば文字Aの入力は次のように指定します。
 

@@ -26,7 +26,7 @@ x1pen-mcp 2.7.0では、`x1pen_send_key`／`x1pen_set_pad`、bounded source read
 
 Connector 1.2.0の審査待ち環境でもsource read/writeは`revision-only` modeで継続できます。ただしreloadをまたぐ完全な競合防止、`x1pen_diff_source`、remote key入力、remote pad入力は利用できません。MCPのstatusにdegraded表示が出た場合は、Connector 1.3.0以降へ更新すると全機能を利用できます。
 
-`x1pen_send_key`はbounded hold後に必ずkeyを解放するため、background tabや高負荷でguest実行が遅れた場合、guestがkeyを読む前に入力が終了することがあります。blocking `INKEY`へ送る場合は長めの`durationMs`を使い、画面またはdebugger memoryでguest側の反応を確認してください。反応がない場合は、同じkeyを複数回処理しても安全なprogramか確認してから再送してください。
+`x1pen_send_key`はbounded hold後に必ずkeyを解放します。background tabや高負荷では短い入力を取りこぼす一方、長い`durationMs`はresponsiveなguestの`INKEY(1)`などでkey repeatとして複数回返る場合があります。画面またはdebugger memoryでguest側の反応を確認し、program側でrelease待ち／debounceを行ってください。反応がない場合は、同じkeyを複数回処理しても安全なprogramか確認してから再送してください。
 
 ## Chrome Web Store: X1Pen Connector 1.3.0
 

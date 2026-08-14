@@ -1185,6 +1185,11 @@ test('SLANG INKEY modes and documented inline assembly run with current X1 seman
   const readMemory = (offset, length) => page.evaluate(({ address, byteLength }) => (
     window.X1PenAutomation.debugger.readMemory(address, byteLength).bytes
   ), { address: probeAddress + offset, byteLength: length });
+  const writeMemory = (offset, values) => page.evaluate(({ address, bytes }) => {
+    const module = window.Module;
+    const ram = new Uint8Array(module.wasmMemory.buffer, module._js_get_main_ram(), 0x10000);
+    ram.set(bytes, address);
+  }, { address: probeAddress + offset, bytes: values });
   const waitForMemory = async (offset, expected, timeout = 15_000) => {
     const address = probeAddress + offset;
     try {
@@ -1218,20 +1223,21 @@ test('SLANG INKEY modes and documented inline assembly run with current X1 seman
       return state.emulatorRunning && state.cycles !== previousCycles;
     }, before, { timeout, polling: 20 });
   };
-  const sendKeyAfterGuestProgress = async (code, offset, expected, { guestPauseMs = 0 } = {}) => {
-    let resumeGuest = null;
-    if (guestPauseMs > 0) {
-      await page.evaluate(() => window.Module._js_xmil_stop());
-      resumeGuest = page.waitForTimeout(guestPauseMs)
-        .then(() => page.evaluate(() => window.Module._js_xmil_start()));
-    }
-    try {
-      await waitForGuestProgress();
-    } finally {
-      if (resumeGuest) await resumeGuest;
-    }
+  const sendKeyAfterGuestProgress = async (code) => {
+    await waitForGuestProgress();
     await page.evaluate((vk) => window.X1PenAutomation.sendKey(vk, 900), code);
-    return waitForMemory(offset, expected);
+  };
+  const sendKeyUntilMemory = async (code, offset, expected, maxAttempts = 3) => {
+    let lastError = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      await sendKeyAfterGuestProgress(code);
+      try {
+        return await waitForMemory(offset, expected, 3000);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
   };
   const loadAndRunSlang = (slang) => page.evaluate(async (source) => {
     const api = window.X1PenAutomation;
@@ -1273,10 +1279,7 @@ test('SLANG INKEY modes and documented inline assembly run with current X1 seman
     const idlePoll = await readMemory(3, 3);
     assert.equal(idlePoll[0], 0, 'mode 0 must return zero when no key is held');
     assert.ok((idlePoll[1] | (idlePoll[2] << 8)) > 0, 'mode 0 must keep progressing without input');
-    assert.deepEqual(
-      await sendKeyAfterGuestProgress(0x41, 0, [0xA0, 0x61, 0x61]),
-      [0xA0, 0x61, 0x61],
-    );
+    assert.deepEqual(await sendKeyUntilMemory(0x41, 0, [0xA0, 0x61]), [0xA0, 0x61]);
     const countAtRelease = await readMemory(4, 2);
     await waitForMemory(3, [0]);
     await page.waitForFunction(({ address, before }) => {
@@ -1288,13 +1291,15 @@ test('SLANG INKEY modes and documented inline assembly run with current X1 seman
       'MAIN()',
       '{',
       '  VAR I;',
-      '  MEM[$7000]=$A1; MEM[$7001]=0; MEM[$7002]=0;',
+      '  MEM[$7000]=$A1; MEM[$7001]=0; MEM[$7002]=0; MEM[$7003]=0; MEM[$7004]=0;',
       '  I=0;',
       '  LOOP',
       '  {',
+      '    MEM[$7003]=I+1;',
       '    MEM[$7010+I]=INKEY(1);',
       '    I=I+1;',
       '    MEM[$7001]=I;',
+      '    LOOP { IF MEM[$7004]==I THEN EXIT; }',
       '    IF I==6 THEN EXIT;',
       '  }',
       '  MEM[$7002]=$A2;',
@@ -1302,15 +1307,34 @@ test('SLANG INKEY modes and documented inline assembly run with current X1 seman
       '}',
     ].join('\n'));
     await waitForMemory(0, [0xA1, 0]);
-    await sendKeyAfterGuestProgress(0x27, 1, [1], { guestPauseMs: 1200 });
-    await page.waitForTimeout(1200);
-    assert.deepEqual(await readMemory(1, 2), [1, 0],
-      'one held key must satisfy only one mode-1 call');
-    for (const [index, vk] of [[2, 0x25], [3, 0x26], [4, 0x28], [5, 0x70], [6, 0x41]]) {
-      await sendKeyAfterGuestProgress(vk, 1, [index]);
+    await assert.rejects(waitForMemory(0, [0xFF], 100), (error) => {
+      assert.match(error.message, /address=0x7000/);
+      assert.match(error.message, /expected=\[255\]/);
+      assert.match(error.message, /"actual":\[161\]/);
+      assert.match(error.message, /"emulatorRunning":true/);
+      assert.match(error.message, /"cycles":/);
+      assert.match(error.message, /"runState":"running"/);
+      return true;
+    });
+    // DIRIN returns one result per INKEY(1) call, but a held key may repeat and
+    // satisfy later calls too. Gate the guest between calls until sendKey has
+    // completed its key-up, so host speed cannot turn one hold into six results.
+    for (const [index, vk, expectedKey] of [
+      [1, 0x27, 0x1C], [2, 0x25, 0x1D], [3, 0x26, 0x1E],
+      [4, 0x28, 0x1F], [5, 0x70, 0x71], [6, 0x41, 0x61],
+    ]) {
+      await waitForMemory(3, [index]);
       await page.waitForTimeout(100);
-      assert.equal((await readMemory(1, 1))[0], index,
-        'a released mode-1 key must not satisfy the next call');
+      assert.equal((await readMemory(1, 1))[0], index - 1,
+        'mode 1 must block before a direct-input result is available');
+      assert.deepEqual(await sendKeyUntilMemory(vk, 1, [index]), [index]);
+      assert.equal((await readMemory(0x0F + index, 1))[0], expectedKey);
+      if (index === 1) {
+        await page.waitForTimeout(100);
+        assert.deepEqual(await readMemory(1, 3), [1, 0, 1],
+          'without the host ack, mode 1 must not enter the next call');
+      }
+      await writeMemory(4, [index]);
     }
     await waitForMemory(2, [0xA2]);
     assert.deepEqual(await readMemory(0x10, 6), [0x1C, 0x1D, 0x1E, 0x1F, 0x71, 0x61]);
@@ -1318,15 +1342,22 @@ test('SLANG INKEY modes and documented inline assembly run with current X1 seman
     await loadAndRunSlang([
       'MAIN()',
       '{',
-      '  MEM[$7000]=$B2; MEM[$7001]=0; MEM[$7002]=0; MEM[$7003]=0;',
+      '  MEM[$7000]=$B2; MEM[$7001]=0; MEM[$7002]=0; MEM[$7003]=0; MEM[$7004]=1; MEM[$7005]=0;',
       '  MEM[$7001]=INKEY(2);',
+      '  LOOP { IF MEM[$7005]==1 THEN EXIT; }',
+      '  MEM[$7004]=2;',
       '  MEM[$7002]=INKEY(2);',
       '  MEM[$7003]=$A3;',
       '  LOOP { }',
       '}',
     ].join('\n'));
-    await waitForMemory(0, [0xB2, 0, 0, 0]);
-    assert.deepEqual(await sendKeyAfterGuestProgress(0x41, 0, [0xB2, 0x61, 0x61, 0xA3]),
+    await waitForMemory(0, [0xB2, 0, 0, 0, 1, 0]);
+    assert.deepEqual(await sendKeyUntilMemory(0x41, 1, [0x61]), [0x61]);
+    assert.equal((await readMemory(4, 1))[0], 1,
+      'mode 2 must wait at the host gate after the first bounded lifecycle');
+    await writeMemory(5, [1]);
+    await waitForMemory(4, [2]);
+    assert.deepEqual(await sendKeyUntilMemory(0x41, 0, [0xB2, 0x61, 0x61, 0xA3]),
       [0xB2, 0x61, 0x61, 0xA3]);
 
     await loadAndRunSlang([
