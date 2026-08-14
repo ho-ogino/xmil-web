@@ -116,6 +116,25 @@ project diskはRUNとguest writeのたびライブラリへ自動保存されま
 このディスクには LSX-Dodgers と FuzzyBASIC が含まれており、そのままブートできる起動ディスクです。
 X millennium Web 本体のエミュレータで FDD にマウントして起動すれば、AUTORUN.BAS が自動実行されます。
 
+### 安全なproject diskベースを作る
+
+手元にboot可能なLSX-Dodgers diskがない場合は、X1Pen自身が作る一時PROGRAM diskをベースにできます。
+
+1. FDD0とFDD1を空にし、BASICまたはSLANGで短いプログラムを書いてRUNします。
+2. **FDD** → FDD0の **Save** で`PROGRAM.d88`を保存します。
+3. `PROGRAM.d88`をファイルライブラリへ追加し、FDD0へマウントします。
+4. MODELを選び、もう一度RUNして`<元の名前>-X1Pen` working copyの作成を承認します。
+5. cold start後にプログラムが実行されることを確認します。元の`PROGRAM.d88`は再利用できる安全なベースとして保管してください。
+
+この方法では元ディスクに含まれる`LD.BIN`、`AUTOEXEC.BAT`、`MAGIC.BIN`、`PSGAKM.BIN`、`PSGAKG.BIN`が保持されます。BASIC用ディスクには`FZBASIC.COM`も含まれます。X1PenはBASICで`PROGRAM.BIN`／`AUTORUN.BAS`、SLANGで`PROG.COM`をworking copyへ書き込みます。
+
+### MODEL切り替えの制約
+
+- MODEL切り替えを適用できるのは、libraryのproject diskから行うcold-start RUNです。通常の一時PROGRAM disk／cold stateを使うRUNの途中ではMODELを切り替えられません。
+- cold startではCPU stateに加えてRAM、VRAM、PCGが初期化され、未保存の内容は消えます。必要なdisk writeを保存してから切り替えてください。
+- X1では`IPLROM.X1`、X1turbo／X1turboZでは`IPLROM.X1T`を使用します。ROM未登録時は内蔵stub BIOSで最低限の起動ができますが、実IPL ROMと動作が異なるsoftwareがあります。stubでの起動確認は実ROMでの互換性保証ではなく、その逆も同様です。利用者が合法的に用意した実IPL ROMでの確認を推奨します。
+- project diskの検証はfilesystem構造、保存、mountまでです。任意のdiskが選択MODEL／ROMでbootし、guest programを開始することまでは保証しません。
+
 ## Share（共有）
 
 **Share ボタン**をクリックすると、BASIC と ASM の内容が共有用 URL としてクリップボードにコピーされます。

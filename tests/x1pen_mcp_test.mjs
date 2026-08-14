@@ -49,7 +49,7 @@ function configureCompatibility({ connectorSourceSync = true, x1penSourceSync = 
       },
     }),
     x1pen: normalizeX1PenDescriptor({
-      version: x1penSourceSync ? '0.8.1' : '0.8.0', automationApiVersion: 2,
+      version: x1penSourceSync ? '0.9.0' : '0.8.0', automationApiVersion: 2,
       features: FULL_FEATURES.filter((feature) => x1penSourceSync || feature !== 'automation.source-sync'),
     }),
   };
@@ -402,7 +402,7 @@ test('connection and status tools report all component versions and effective ca
   assert.equal(sessions.sessions[0].x1pen.version, '0.8.0');
 
   const status = jsonContent(await client.callTool({ name: 'x1pen_get_status', arguments: {} }));
-  assert.equal(status.compatibility.components.x1pen.version, '0.8.1');
+  assert.equal(status.compatibility.components.x1pen.version, '0.9.0');
   assert.equal(status.compatibility.capabilities['debugger.vram'].available, true);
 });
 

@@ -110,7 +110,7 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
 
 test('X1Pen product version is declared once and copied into browser builds', async () => {
   const versionSource = await readFile(join(repoRoot, 'html/x1pen-version.js'), 'utf8');
-  assert.match(versionSource, /version:\s*'0\.8\.1'/);
+  assert.match(versionSource, /version:\s*'0\.9\.0'/);
   assert.match(versionSource, /name:\s*'x1pen'/);
 
   const x1penHtml = await readFile(join(repoRoot, 'html/x1pen.html'), 'utf8');
