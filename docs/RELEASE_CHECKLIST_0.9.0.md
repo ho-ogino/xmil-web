@@ -62,6 +62,7 @@ done | shasum -a 256
 
 - [ ] deploy前に直前正常なCloudflare Pages deployment IDと`v0.8.1`を記録した。
 - [ ] release merge commitにannotated tag `v0.9.0`を付けた。
+- [ ] tag作成後、`v0.9.0`を対象とするGitHub Releaseを**draft**で作成し、3コンポーネントのrelease notesと公開状況を記載した。公開物がすべて揃うまではdraftのままにした。
 - [ ] X1Pen Webをdeployし、hard reload／cache無効化を行った。
 - [ ] `x1pen-version.js`、page status、feature descriptorがすべて`0.9.0`相当を示した。
 - [ ] editor、RUN、project disk、MCP coreを本番でsmoke testした。
@@ -87,3 +88,13 @@ npm_config_min_release_age=0 npx -y x1pen-mcp@2.7.0 --version
 - [ ] `dist/x1pen-connector-1.3.0.zip`を提出した。
 - [ ] 審査手順で本番X1Pen 0.9.0と`x1pen-mcp@latest`を使って新機能を再現できることを確認した。
 - [ ] 提出日時、artifact checksum、Dashboard statusを記録した。
+- [ ] Connector 1.3.0がChrome Web Storeで公開され、MCP接続からもConnector 1.3.0／MCP 2.7.0の組み合わせを確認した。
+
+## 8. GitHub Release公開（Owner）
+
+- [ ] X1Pen Web 0.9.0、x1pen-mcp 2.7.0、Connector 1.3.0がすべて公開済みで、production smoke testが完了した。
+- [ ] draft本文を最終状態に更新した。`審査中`／`pending`や「Web／MCPを先に公開する」といった古い前提を除き、自動更新がまだ届いていない旧Connector利用者向けの`revision-only`注意だけを残した。
+- [ ] draftがtag `v0.9.0`と最終release commitを指し、version、artifact checksum、既知の制約が実際の公開物と一致することを確認した。
+- [ ] GitHub Releaseをdraftからpublishし、公開URLと公開日時をrelease logへ記録した。
+
+GitHub Releaseを作る運用は`v0.9.0`から開始します。過去のtagへ遡ってReleaseを作る必要はありません。
