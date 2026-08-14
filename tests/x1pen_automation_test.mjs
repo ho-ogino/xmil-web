@@ -53,6 +53,109 @@ async function launchChromium() {
   }
 }
 
+async function snapshotX1PenPersistence(targetPage) {
+  return targetPage.evaluate(async () => {
+    async function hashBytes(bytes) {
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    const entries = (await window.XmilStorage.list())
+      .map(({ key, name, size }) => ({ key, name, size }))
+      .sort((left, right) => left.key.localeCompare(right.key));
+    const stored = [];
+    for (const entry of entries) {
+      const bytes = await window.XmilStorage.read(entry.key);
+      stored.push({ key: entry.key, size: bytes.byteLength, hash: await hashBytes(bytes) });
+    }
+    const allLocalStorage = {};
+    for (let index = 0; index < localStorage.length; index++) {
+      const key = localStorage.key(index);
+      allLocalStorage[key] = localStorage.getItem(key);
+    }
+    return {
+      allLocalStorage: Object.fromEntries(Object.entries(allLocalStorage).sort(([left], [right]) =>
+        left.localeCompare(right))),
+      editor: localStorage.getItem('x1pen_editor'),
+      editorAsm: localStorage.getItem('x1pen_editor_asm'),
+      editorSlang: localStorage.getItem('x1pen_editor_slang'),
+      mountState: localStorage.getItem('x1pen_mount_state'),
+      library: localStorage.getItem('xmil_library'),
+      storageManifest: localStorage.getItem('xmil_opfs_manifest'),
+      entries,
+      stored,
+    };
+  });
+}
+
+async function seedX1PenPersistentDiskState(targetPage, { project = false } = {}) {
+  await targetPage.goto(`${baseUrl}/x1pen.html`);
+  await targetPage.evaluate(() => window.X1PenAutomation.ready());
+  return targetPage.evaluate(async ({ makeProject }) => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    await api.setProgram({
+      sourceMode: 'basic+asm',
+      basic: '10 PRINT "PERSISTENT ORIGINAL"\n20 END',
+      asm: '; PERSISTENT ASM',
+      slang: '',
+    }, current.revision, current.revisionEpoch);
+
+    const response = await fetch('fuzzybasic_boot.v2.d88');
+    const bytes = await response.arrayBuffer();
+    const owner = await window.XmilLibrary.addToLibrary(
+      new File([bytes], makeProject ? 'PROJECT.D88' : 'OWNER.D88', { type: 'application/octet-stream' }),
+    );
+    const data = await window.XmilLibrary.addToLibrary(
+      new File([bytes], 'DATA.D88', { type: 'application/octet-stream' }),
+    );
+    if (makeProject) {
+      const library = window.XmilCore.getLibrary();
+      const entry = library.find((candidate) => candidate.key === owner.key);
+      entry.x1penProject = true;
+      entry.sourceKey = 'seed-source';
+      entry.sourceHash = 'seed-hash';
+      entry.projectMode = 'fuzzybasic';
+      entry.projectUpdatedAt = '2026-08-15T00:00:00.000Z';
+      window.XmilCore.saveLibrary(library);
+    }
+    await window.XmilLibrary.mountFromLibrary(owner.key, 'drive0');
+    await window.XmilLibrary.mountFromLibrary(data.key, 'drive1');
+    return { ownerKey: owner.key, dataKey: data.key };
+  }, { makeProject: project });
+}
+
+function installShareRoute(context, id, payload, status = 200) {
+  return context.route(`**/api/share/${id}`, (route) => route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: status === 200 ? JSON.stringify(payload) : JSON.stringify({ error: 'not found' }),
+  }));
+}
+
+async function assertEphemeralShareDocument(targetPage) {
+  const state = await targetPage.evaluate(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, '__X1PEN_EPHEMERAL_SHARE');
+    return {
+      flag: window.__X1PEN_EPHEMERAL_SHARE,
+      writable: descriptor.writable,
+      configurable: descriptor.configurable,
+      multiTabPromise: window.__multiTabPromise,
+      tabChannel: window.__tabChannel,
+    };
+  });
+  assert.deepEqual(state, {
+    flag: true,
+    writable: false,
+    configurable: false,
+    multiTabPromise: null,
+    tabChannel: null,
+  });
+  await assert.doesNotReject(() => targetPage.locator('#x1pen-share-mode').waitFor({ state: 'visible' }));
+  assert.match(await targetPage.locator('#x1pen-share-mode').textContent(), /edits are not saved/i);
+}
+
 async function runWithRecordedKeyEvents() {
   return page.evaluate(async () => {
     const module = window.Module;
@@ -2153,6 +2256,259 @@ test('mounted FDD0 is forked once into a persistent project disk', { timeout: 90
     assert.equal(rollback.result.rollbackFailed, false);
     assert.equal(rollback.restoredHash, rollback.originalHash);
     assert.equal(rollback.drive0, rollback.projectKey);
+  } finally {
+    await context.close();
+  }
+});
+
+test('Share runs isolate ordinary and project disks from persistent state', { timeout: 180_000 }, async () => {
+  for (const project of [false, true]) {
+    const context = await browser.newContext();
+    const ownerPage = await context.newPage();
+    const shareId = project ? 'project-isolation' : 'ordinary-isolation';
+    const dialogs = [];
+    try {
+      const keys = await seedX1PenPersistentDiskState(ownerPage, { project });
+      await ownerPage.evaluate(async () => {
+        window.Module._js_xmil_stop();
+        await window.XmilCore.flushSlot('drive0');
+        await window.XmilCore.flushSlot('drive1');
+      });
+      const baseline = await snapshotX1PenPersistence(ownerPage);
+
+      await installShareRoute(context, shareId, {
+        basic: '',
+        asm: 'ORG 0100h\nRET',
+        slang: null,
+        meta: {
+          model: 1,
+          coldState: 'lsxdodgers_cold.v1.xmst',
+          bootDisk: 'lsxdodgers_boot.v1.d88',
+          runMode: 'lsx',
+          sourceMode: 'asm',
+        },
+      });
+      ownerPage.on('dialog', async (dialog) => {
+        dialogs.push(`owner: ${dialog.message()}`);
+        await dialog.dismiss();
+      });
+      const sharePage = await context.newPage();
+      sharePage.on('dialog', async (dialog) => {
+        dialogs.push(`share: ${dialog.message()}`);
+        await dialog.dismiss();
+      });
+      await sharePage.goto(`${baseUrl}/x1pen.html?id=${shareId}`);
+      await sharePage.evaluate(() => window.X1PenAutomation.ready());
+      await sharePage.waitForFunction(() =>
+        document.getElementById('x1pen-status').textContent === 'LSX-Dodgers mode' &&
+        !window.X1PenAutomation.getStatus().capabilities.debugger.runPending,
+      );
+      await assertEphemeralShareDocument(sharePage);
+
+      const shareRun = await sharePage.evaluate(() => {
+        const slots = window.XmilCore.getSlotState();
+        const vfsPath = window.XmilCore.getSlotVfsPath().drive0;
+        const bytes = window.Module.FS.readFile(vfsPath);
+        const container = window.XmilDiskContainer.openContainer(
+          bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+          'share.d88',
+          'fdd',
+        );
+        const fs = window.XmilDiskFS.detectFilesystem(container);
+        return {
+          program: window.X1PenAutomation.getProgram(),
+          model: window.Module._js_get_rom_type(),
+          drive0: slots.drive0,
+          drive1: slots.drive1,
+          filesystem: fs && fs.fsType,
+          hasProgram: !!(fs && fs.findByName('PROG', 'COM')),
+          hasLsxLoader: !!(fs && fs.findByName('LD', 'BIN')),
+          hasFuzzyBasic: !!(fs && fs.findByName('FZBASIC', 'COM')),
+        };
+      });
+      assert.equal(shareRun.program.sourceMode, 'asm');
+      assert.equal(shareRun.program.asm, 'ORG 0100h\nRET');
+      assert.equal(shareRun.model, 1);
+      assert.equal(shareRun.drive0, '__x1pen_temp__');
+      assert.equal(shareRun.drive1, null);
+      assert.equal(shareRun.filesystem, 'LSX-Dodgers');
+      assert.equal(shareRun.hasProgram, true);
+      assert.equal(shareRun.hasLsxLoader, true);
+      assert.equal(shareRun.hasFuzzyBasic, false);
+      assert.deepEqual(await snapshotX1PenPersistence(sharePage), baseline);
+
+      const refusedMount = await sharePage.evaluate(async ({ ownerKey }) => {
+        const api = window.X1PenAutomation;
+        const current = api.getProgram();
+        await api.setProgram({ sourceMode: 'asm', asm: 'ORG 0100h\nNOP\nRET' },
+          current.revision, current.revisionEpoch);
+        return window.XmilLibrary.mountFromLibrary(ownerKey, 'drive1');
+      }, { ownerKey: keys.ownerKey });
+      assert.equal(refusedMount, null);
+      await sharePage.locator('.editor-tab[data-tab="asm"]').click();
+      await sharePage.locator('#asm-editor-container .cm-content').click();
+      await sharePage.keyboard.press('End');
+      await sharePage.keyboard.type('\n; TRANSIENT TYPING');
+      const repeatedRun = await sharePage.evaluate(() => window.X1PenAutomation.run());
+      assert.equal(repeatedRun.ok, true);
+      assert.equal(await sharePage.evaluate(() => window.XmilCore.getSlotState().drive0), '__x1pen_temp__');
+      await sharePage.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
+
+      assert.deepEqual(await snapshotX1PenPersistence(sharePage), baseline);
+      const isolatedSlots = await sharePage.evaluate(() => window.XmilCore.getSlotState());
+      assert.deepEqual(isolatedSlots, {
+        drive0: '__x1pen_temp__', drive1: null, hdd0: null, hdd1: null, cmt: null,
+        emm0: null, emm1: null, emm2: null, emm3: null, emm4: null,
+        emm5: null, emm6: null, emm7: null, emm8: null, emm9: null,
+      });
+      assert.deepEqual(await ownerPage.evaluate(() => window.XmilCore.getSlotState()), {
+        drive0: keys.ownerKey,
+        drive1: keys.dataKey,
+        hdd0: null, hdd1: null, cmt: null,
+        emm0: null, emm1: null, emm2: null, emm3: null, emm4: null,
+        emm5: null, emm6: null, emm7: null, emm8: null, emm9: null,
+      });
+      assert.deepEqual(await snapshotX1PenPersistence(ownerPage), baseline);
+      assert.deepEqual(dialogs, [], 'Share must not trigger multi-tab or project-disk dialogs');
+      await sharePage.close();
+
+      await ownerPage.reload();
+      await ownerPage.evaluate(() => window.X1PenAutomation.ready());
+      const restored = await ownerPage.evaluate(() => ({
+        program: window.X1PenAutomation.getProgram(),
+        slots: window.XmilCore.getSlotState(),
+      }));
+      assert.equal(restored.program.basic, '10 PRINT "PERSISTENT ORIGINAL"\n20 END');
+      assert.equal(restored.program.asm, '; PERSISTENT ASM');
+      assert.equal(restored.slots.drive0, keys.ownerKey);
+      assert.equal(restored.slots.drive1, keys.dataKey);
+      assert.deepEqual(await snapshotX1PenPersistence(ownerPage), baseline);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test('legacy Share payloads use an ephemeral FuzzyBASIC runtime', { timeout: 90_000 }, async () => {
+  const context = await browser.newContext();
+  const ownerPage = await context.newPage();
+  try {
+    await ownerPage.goto(`${baseUrl}/x1pen.html`);
+    await ownerPage.evaluate(() => window.X1PenAutomation.ready());
+    await ownerPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({
+        sourceMode: 'basic+asm',
+        basic: '10 PRINT "NO MOUNT ORIGINAL"\n20 END',
+        asm: '',
+        slang: '',
+      }, current.revision, current.revisionEpoch);
+      window.Module._js_xmil_stop();
+    });
+    const baseline = await snapshotX1PenPersistence(ownerPage);
+    await installShareRoute(context, 'legacy-isolation', {
+      basic: '10 PRINT "LEGACY SHARE"\n20 END',
+      asm: null,
+      slang: null,
+    });
+    const sharePage = await context.newPage();
+    await sharePage.goto(`${baseUrl}/x1pen.html?id=legacy-isolation`);
+    await sharePage.evaluate(() => window.X1PenAutomation.ready());
+    await sharePage.waitForFunction(() =>
+      window.X1PenAutomation.getProgram().basic.includes('LEGACY SHARE') &&
+      window.XmilCore.getSlotState().drive0 === '__x1pen_temp__' &&
+      !window.X1PenAutomation.getStatus().capabilities.debugger.runPending,
+    );
+    await assertEphemeralShareDocument(sharePage);
+    const result = await sharePage.evaluate(() => {
+      const vfsPath = window.XmilCore.getSlotVfsPath().drive0;
+      const bytes = window.Module.FS.readFile(vfsPath);
+      const container = window.XmilDiskContainer.openContainer(
+        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        'legacy-share.d88',
+        'fdd',
+      );
+      const fs = window.XmilDiskFS.detectFilesystem(container);
+      return {
+        program: window.X1PenAutomation.getProgram(),
+        slots: window.XmilCore.getSlotState(),
+        model: window.Module._js_get_rom_type(),
+        filesystem: fs && fs.fsType,
+        hasAutorun: !!(fs && fs.findByName('AUTORUN', 'BAS')),
+        hasFuzzyBasic: !!(fs && fs.findByName('FZBASIC', 'COM')),
+      };
+    });
+    assert.equal(result.program.basic, '10 PRINT "LEGACY SHARE"\n20 END');
+    assert.equal(result.slots.drive0, '__x1pen_temp__');
+    assert.equal(result.slots.drive1, null);
+    assert.equal(result.model, 1);
+    assert.equal(result.filesystem, 'LSX-Dodgers');
+    assert.equal(result.hasAutorun, true);
+    assert.equal(result.hasFuzzyBasic, true);
+    assert.deepEqual(await snapshotX1PenPersistence(sharePage), baseline);
+  } finally {
+    await context.close();
+  }
+});
+
+test('failed Share links remain visibly ephemeral and cannot overwrite saved source', { timeout: 90_000 }, async () => {
+  const context = await browser.newContext();
+  const ownerPage = await context.newPage();
+  try {
+    const keys = await seedX1PenPersistentDiskState(ownerPage);
+    await ownerPage.evaluate(() => window.Module._js_xmil_stop());
+    const baseline = await snapshotX1PenPersistence(ownerPage);
+    await installShareRoute(context, 'missing-share', null, 404);
+    const sharePage = await context.newPage();
+    await sharePage.goto(`${baseUrl}/x1pen.html?id=missing-share`);
+    await sharePage.evaluate(() => window.X1PenAutomation.ready());
+    await sharePage.waitForFunction(() =>
+      document.getElementById('x1pen-status').textContent === 'Shared code not found',
+    );
+    await assertEphemeralShareDocument(sharePage);
+    const initial = await sharePage.evaluate(() => ({
+      program: window.X1PenAutomation.getProgram(),
+      slots: window.XmilCore.getSlotState(),
+    }));
+    assert.equal(initial.program.basic, '');
+    assert.equal(initial.program.asm, '');
+    assert.equal(initial.program.slang, '');
+    assert.equal(initial.slots.drive0, null);
+    assert.equal(initial.slots.drive1, null);
+
+    await sharePage.evaluate(async ({ ownerKey }) => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT "TRANSIENT"', asm: '', slang: '' },
+        current.revision, current.revisionEpoch);
+      await window.XmilLibrary.mountFromLibrary(ownerKey, 'drive0');
+      window.dispatchEvent(new PageTransitionEvent('pagehide'));
+    }, { ownerKey: keys.ownerKey });
+    assert.deepEqual(await snapshotX1PenPersistence(sharePage), baseline);
+    assert.deepEqual(await snapshotX1PenPersistence(ownerPage), baseline);
+
+    await installShareRoute(context, 'compile-failure', {
+      basic: '',
+      asm: 'THIS IS NOT VALID ASSEMBLY',
+      slang: null,
+      meta: {
+        model: 1,
+        coldState: 'lsxdodgers_cold.v1.xmst',
+        bootDisk: 'lsxdodgers_boot.v1.d88',
+        runMode: 'lsx',
+        sourceMode: 'asm',
+      },
+    });
+    const compileFailurePage = await context.newPage();
+    await compileFailurePage.goto(`${baseUrl}/x1pen.html?id=compile-failure`);
+    await compileFailurePage.evaluate(() => window.X1PenAutomation.ready());
+    await compileFailurePage.waitForFunction(() =>
+      document.getElementById('x1pen-status').textContent.startsWith('ASM error'),
+    );
+    await assertEphemeralShareDocument(compileFailurePage);
+    assert.equal(await compileFailurePage.evaluate(() => window.XmilCore.getSlotState().drive0), null);
+    assert.deepEqual(await snapshotX1PenPersistence(compileFailurePage), baseline);
   } finally {
     await context.close();
   }
