@@ -244,6 +244,20 @@ static inline BYTE effect16_fetch_knj(const BYTE* src32, BYTE eff4, BYTE row_fyc
     return apply_upt_hfx(v, eff4);
 }
 
+// Underline-capable 24kHz modes reserve two logical rows from fontlpcnt.
+// A ROM Kanji still has up to 16 source rows, so let it use the remaining
+// cell rows without ever exceeding either the CRTC cell or the 32-byte glyph.
+static inline int kanji24_render_rows(BYTE knj_code, int default_rows) {
+    if (!(knj_code & 0x80) || !(fonttype & KNJ_24KHz) ||
+        vramylpcnt <= default_rows) {
+        return default_rows;
+    }
+
+    int rows = (int)vramylpcnt;
+    if (rows > 8) rows = 8;
+    return (rows > default_rows) ? rows : default_rows;
+}
+
 // DRAW8.CPP の各モードが持つ差分（更新マスク/縦倍率/TRAM上限）を
 // 共通 C++ 描画器に反映する。
 static void draw_text_graph_common(BYTE update_mask, WORD tram_limit, int max_rows, int y_scale,
@@ -1675,6 +1689,9 @@ void width80x20_24khz(void) {
             BYTE color_idx = (attr & X1ATR_REVERSE)
                            ? (BYTE)((attr & X1ATR_COLOR) + 8)
                            : (BYTE)(attr & X1ATR_COLOR);
+            const int kanji_rows = kanji24_render_rows(knj_code, chr_h);
+            const bool full_cell_kanji = !(src_attr & X1ATR_PCG) &&
+                                         (kanji_rows > chr_h);
             int sx = col * 8;
             BYTE* base = &screenmap[sy * SCREEN_WIDTH + sx];
 
@@ -1723,7 +1740,8 @@ void width80x20_24khz(void) {
                     }
                 }
             } else {
-                for (int y = 0; y < chr_h; y++) {
+                const int render_rows = full_cell_kanji ? kanji_rows : chr_h;
+                for (int y = 0; y < render_rows; y++) {
                     for (int ys = 0; ys < 2; ys++) {
                         BYTE pf = 0;
                         if (knj_code & 0x80) {
@@ -1755,14 +1773,19 @@ void width80x20_24khz(void) {
             BYTE ul = (TXT_RAM[addr + TEXT_KNJ] & X1KNJ_ULINE) ? 0x01 : 0x00;
             DWORD ulv = (DWORD)ul * 0x01010101u;
             int tail = (int)fontlpcnt * 2;
-            *(DWORD*)(base + (tail + 0) * SCREEN_WIDTH + 0) = 0;
-            *(DWORD*)(base + (tail + 0) * SCREEN_WIDTH + 4) = 0;
-            *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 0) = ulv;
-            *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 4) = ulv;
-            *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 0) = 0;
-            *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 4) = 0;
-            *(DWORD*)(base + (tail + 3) * SCREEN_WIDTH + 0) = 0;
-            *(DWORD*)(base + (tail + 3) * SCREEN_WIDTH + 4) = 0;
+            if (full_cell_kanji) {
+                *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 0) |= ulv;
+                *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 4) |= ulv;
+            } else {
+                *(DWORD*)(base + (tail + 0) * SCREEN_WIDTH + 0) = 0;
+                *(DWORD*)(base + (tail + 0) * SCREEN_WIDTH + 4) = 0;
+                *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 0) = ulv;
+                *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 4) = ulv;
+                *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 0) = 0;
+                *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 4) = 0;
+                *(DWORD*)(base + (tail + 3) * SCREEN_WIDTH + 0) = 0;
+                *(DWORD*)(base + (tail + 3) * SCREEN_WIDTH + 4) = 0;
+            }
 
             tram_pos++;
         }
@@ -1830,6 +1853,9 @@ void width80x10_24khz(void) {
             BYTE color_idx = (attr & X1ATR_REVERSE)
                            ? (BYTE)((attr & X1ATR_COLOR) + 8)
                            : (BYTE)(attr & X1ATR_COLOR);
+            const int kanji_rows = kanji24_render_rows(knj_code, chr_h);
+            const bool full_cell_kanji = !(src_attr & X1ATR_PCG) &&
+                                         (kanji_rows > chr_h);
             int sx = col * 8;
             BYTE* base = &screenmap[sy * SCREEN_WIDTH + sx];
 
@@ -1878,7 +1904,8 @@ void width80x10_24khz(void) {
                     }
                 }
             } else {
-                for (int y = 0; y < chr_h; y++) {
+                const int render_rows = full_cell_kanji ? kanji_rows : chr_h;
+                for (int y = 0; y < render_rows; y++) {
                     for (int ys = 0; ys < 4; ys++) {
                         BYTE pf = 0;
                         if (knj_code & 0x80) {
@@ -1910,22 +1937,29 @@ void width80x10_24khz(void) {
             BYTE ul = (TXT_RAM[addr + TEXT_KNJ] & X1KNJ_ULINE) ? 0x01 : 0x00;
             DWORD ulv = (DWORD)ul * 0x01010101u;
             int tail = (int)fontlpcnt * 4;
-            *(DWORD*)(base + (tail + 0) * SCREEN_WIDTH + 0) = 0;
-            *(DWORD*)(base + (tail + 0) * SCREEN_WIDTH + 4) = 0;
-            *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 0) = 0;
-            *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 4) = 0;
-            *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 0) = ulv;
-            *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 4) = ulv;
-            *(DWORD*)(base + (tail + 3) * SCREEN_WIDTH + 0) = ulv;
-            *(DWORD*)(base + (tail + 3) * SCREEN_WIDTH + 4) = ulv;
-            *(DWORD*)(base + (tail + 4) * SCREEN_WIDTH + 0) = 0;
-            *(DWORD*)(base + (tail + 4) * SCREEN_WIDTH + 4) = 0;
-            *(DWORD*)(base + (tail + 5) * SCREEN_WIDTH + 0) = 0;
-            *(DWORD*)(base + (tail + 5) * SCREEN_WIDTH + 4) = 0;
-            *(DWORD*)(base + (tail + 6) * SCREEN_WIDTH + 0) = 0;
-            *(DWORD*)(base + (tail + 6) * SCREEN_WIDTH + 4) = 0;
-            *(DWORD*)(base + (tail + 7) * SCREEN_WIDTH + 0) = 0;
-            *(DWORD*)(base + (tail + 7) * SCREEN_WIDTH + 4) = 0;
+            if (full_cell_kanji) {
+                *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 0) |= ulv;
+                *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 4) |= ulv;
+                *(DWORD*)(base + (tail + 3) * SCREEN_WIDTH + 0) |= ulv;
+                *(DWORD*)(base + (tail + 3) * SCREEN_WIDTH + 4) |= ulv;
+            } else {
+                *(DWORD*)(base + (tail + 0) * SCREEN_WIDTH + 0) = 0;
+                *(DWORD*)(base + (tail + 0) * SCREEN_WIDTH + 4) = 0;
+                *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 0) = 0;
+                *(DWORD*)(base + (tail + 1) * SCREEN_WIDTH + 4) = 0;
+                *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 0) = ulv;
+                *(DWORD*)(base + (tail + 2) * SCREEN_WIDTH + 4) = ulv;
+                *(DWORD*)(base + (tail + 3) * SCREEN_WIDTH + 0) = ulv;
+                *(DWORD*)(base + (tail + 3) * SCREEN_WIDTH + 4) = ulv;
+                *(DWORD*)(base + (tail + 4) * SCREEN_WIDTH + 0) = 0;
+                *(DWORD*)(base + (tail + 4) * SCREEN_WIDTH + 4) = 0;
+                *(DWORD*)(base + (tail + 5) * SCREEN_WIDTH + 0) = 0;
+                *(DWORD*)(base + (tail + 5) * SCREEN_WIDTH + 4) = 0;
+                *(DWORD*)(base + (tail + 6) * SCREEN_WIDTH + 0) = 0;
+                *(DWORD*)(base + (tail + 6) * SCREEN_WIDTH + 4) = 0;
+                *(DWORD*)(base + (tail + 7) * SCREEN_WIDTH + 0) = 0;
+                *(DWORD*)(base + (tail + 7) * SCREEN_WIDTH + 4) = 0;
+            }
 
             tram_pos++;
         }
