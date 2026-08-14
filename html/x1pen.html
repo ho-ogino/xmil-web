@@ -128,6 +128,14 @@
             white-space: nowrap;
         }
 
+        #x1pen-share-mode {
+            color: #ffd28a;
+            border: 1px solid #a56b16;
+            border-radius: 3px;
+            padding: 2px 6px;
+            white-space: nowrap;
+        }
+
         #x1pen-mcp-status {
             padding: 2px 6px;
             border: 1px solid #26734d;
@@ -609,6 +617,7 @@
     <div id="x1pen-toolbar">
         <span class="brand">X1Pen</span>
         <span id="x1pen-mcp-status" class="hidden">MCP Connected</span>
+        <span id="x1pen-share-mode" class="hidden" title="このタブでの編集内容は保存されず、保存済みディスクもマウントされません" aria-label="Share モード。このタブでの編集内容は保存されず、保存済みディスクもマウントされません">Share mode</span>
         <button id="btn-run" disabled title="Ctrl+Enter">&#x25B6; RUN</button>
         <button id="btn-run-recover" class="hidden" data-automation-lock-exempt="true">Reload stalled Run</button>
         <button id="btn-stop" title="Escape">&#x25A0; STOP</button>

@@ -28,6 +28,10 @@
     const PAGE_SIZE = 65536;       // 64KB
     let projectDiskTransaction = null;
 
+    function isEphemeralX1PenShare() {
+        return window.__X1PEN_EPHEMERAL_SHARE === true;
+    }
+
     var emmImportSlot = -1;       // インポート対象スロット番号
     var emmImportInput = null;    // 隠し file input (init() で生成)
     var emmSlotInFlight = {};     // スロット単位の処理中ガード
@@ -39,7 +43,7 @@
     // 初期化直後から ping に応答する。キャンセル時のみ close() する。
     var _multiTabPromise = null;
     var _tabChannel = null;
-    if (typeof BroadcastChannel !== 'undefined') {
+    if (!isEphemeralX1PenShare() && typeof BroadcastChannel !== 'undefined') {
         var _channelName = window.__X1PEN_MODE ? 'x1pen_tab' : 'xmil_tab';
         _tabChannel = new BroadcastChannel(_channelName);
         var _myTabId = Math.random().toString(36).slice(2);
@@ -180,6 +184,7 @@
     }
 
     function saveMountState() {
+        if (isEphemeralX1PenShare()) return;
         try { localStorage.setItem(LS_MOUNT_STATE, JSON.stringify(slotState)); } catch(e) {
             console.warn('saveMountState failed:', e);
         }
@@ -520,6 +525,13 @@
 
     // ライブラリからスロットにマウント
     async function mountFromLibrary(key, slotName) {
+        if (isEphemeralX1PenShare()) {
+            var message = 'Share モードでは保存済みメディアをマウントできません';
+            updateStatus(message);
+            var x1penStatus = document.getElementById('x1pen-status');
+            if (x1penStatus) x1penStatus.textContent = message;
+            return null;
+        }
         if (projectDiskTransaction) throw new Error('X1Penプロジェクトディスクの更新中はメディアを変更できません');
         var entry = getLibrary().find(function(e) { return e.key === key; });
         if (!entry) { alert('ファイルが見つかりません'); return; }
@@ -720,6 +732,7 @@
     }
 
     async function inspectMountedProjectDisk() {
+        if (isEphemeralX1PenShare()) return null;
         var entry = mountedDrive0Entry();
         if (!entry || !window.XmilStorage) return null;
         var bytes = await window.XmilStorage.read(entry.key);
@@ -1013,6 +1026,7 @@
 
     // 起動時: マウント状態を復元
     async function autoRestoreMounts(excludeSlots) {
+        if (isEphemeralX1PenShare()) return;
         var state = getMountState();
         var lib = getLibrary();
         var exclude = excludeSlots || [];

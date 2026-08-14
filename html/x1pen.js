@@ -7,6 +7,16 @@ window.__X1PEN_MODE = true;
 (function() {
     'use strict';
 
+    var initialShareId = new URLSearchParams(location.search).get('id');
+    var documentRunProfile = initialShareId ? 'ephemeral-share' : 'persistent-user';
+    var isEphemeralShareSession = documentRunProfile === 'ephemeral-share';
+    Object.defineProperty(window, '__X1PEN_EPHEMERAL_SHARE', {
+        value: isEphemeralShareSession,
+        writable: false,
+        configurable: false,
+        enumerable: false
+    });
+
     var COLD_STATE_FILE = 'fuzzybasic_cold.v2.xmst';
     var BOOT_DISK_FILE  = 'fuzzybasic_boot.v2.d88';
     var LSX_COLD_STATE  = 'lsxdodgers_cold.v1.xmst';
@@ -363,6 +373,7 @@ window.__X1PEN_MODE = true;
     var LS_EDITOR_SLANG = 'x1pen_editor_slang';
 
     function persistEditorSources(basic, asm, slang) {
+        if (isEphemeralShareSession) return;
         try {
             localStorage.setItem(LS_EDITOR_BASIC, basic);
             localStorage.setItem(LS_EDITOR_ASM, asm);
@@ -372,12 +383,19 @@ window.__X1PEN_MODE = true;
         }
     }
 
+    function persistEditorSource(key, value) {
+        if (isEphemeralShareSession) return;
+        try { localStorage.setItem(key, value); } catch(e) {}
+    }
+
     var elBtnRun    = document.getElementById('btn-run');
     var elBtnRunRecover = document.getElementById('btn-run-recover');
     var elBtnStop   = document.getElementById('btn-stop');
     var elBtnDevReload = document.getElementById('btn-dev-reload');
     var elStatus    = document.getElementById('x1pen-status');
     var elLiveNotice = document.getElementById('x1pen-live-notice');
+    var elShareMode = document.getElementById('x1pen-share-mode');
+    if (elShareMode && isEphemeralShareSession) elShareMode.classList.remove('hidden');
     var activeTab   = 'basic';
 
     function isDevAssetMode() {
@@ -413,7 +431,7 @@ window.__X1PEN_MODE = true;
         { language: 'basic',
           showLineNumbers: false,
           placeholder: '10 PRINT "HELLO WORLD"\n20 GOTO 10',
-          onChange: function(text) { markProgramChanged(); try { localStorage.setItem(LS_EDITOR_BASIC, text); } catch(e) {} },
+          onChange: function(text) { markProgramChanged(); persistEditorSource(LS_EDITOR_BASIC, text); },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
     );
@@ -423,7 +441,7 @@ window.__X1PEN_MODE = true;
         { language: 'asm',
           showLineNumbers: true,
           placeholder: '; Z80 Assembly\nORG 0E000h\n    LD A,042h\n    RET',
-          onChange: function(text) { markProgramChanged(); lastAsmTabOrigin = 'user'; try { localStorage.setItem(LS_EDITOR_ASM, text); } catch(e) {} },
+          onChange: function(text) { markProgramChanged(); lastAsmTabOrigin = 'user'; persistEditorSource(LS_EDITOR_ASM, text); },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
     );
@@ -433,20 +451,22 @@ window.__X1PEN_MODE = true;
         { language: 'slang',
           showLineNumbers: true,
           placeholder: '// SLANG program\nVAR x = 42;\nmain() BEGIN\n  PRINT(x);\nEND;',
-          onChange: function(text) { markProgramChanged(); try { localStorage.setItem(LS_EDITOR_SLANG, text); } catch(e) {} },
+          onChange: function(text) { markProgramChanged(); persistEditorSource(LS_EDITOR_SLANG, text); },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
     );
 
     // localStorage から復元 (silent: onChange を発火させない)
-    try {
-        var savedBasic = localStorage.getItem(LS_EDITOR_BASIC);
-        if (savedBasic) basicEditor.setValue(savedBasic, { silent: true });
-        var savedAsm = localStorage.getItem(LS_EDITOR_ASM);
-        if (savedAsm) { asmEditor.setValue(savedAsm, { silent: true }); lastAsmTabOrigin = 'user'; }
-        var savedSlang = localStorage.getItem(LS_EDITOR_SLANG);
-        if (savedSlang) slangEditor.setValue(savedSlang, { silent: true });
-    } catch(e) {}
+    if (!isEphemeralShareSession) {
+        try {
+            var savedBasic = localStorage.getItem(LS_EDITOR_BASIC);
+            if (savedBasic) basicEditor.setValue(savedBasic, { silent: true });
+            var savedAsm = localStorage.getItem(LS_EDITOR_ASM);
+            if (savedAsm) { asmEditor.setValue(savedAsm, { silent: true }); lastAsmTabOrigin = 'user'; }
+            var savedSlang = localStorage.getItem(LS_EDITOR_SLANG);
+            if (savedSlang) slangEditor.setValue(savedSlang, { silent: true });
+        } catch(e) {}
+    }
 
 
     // ── ステート復元 (専用経路 — マウント復元なし) ──
@@ -1149,7 +1169,7 @@ window.__X1PEN_MODE = true;
             elStatus.textContent = 'SLANG compiled (' + asmSrc.split('\n').length + ' lines)';
         }
 
-        var isSharedRun = !!pendingShareRuntime;
+        var isSharedRun = isEphemeralShareSession;
         var runMode;
         if (pendingShareRuntime && pendingShareRuntime.runMode) {
             runMode = pendingShareRuntime.runMode;
@@ -1173,7 +1193,7 @@ window.__X1PEN_MODE = true;
         }
 
         var mountedProjectSelection = null;
-        if (window.XmilLibrary && window.XmilLibrary.inspectMountedProjectDisk) {
+        if (!isEphemeralShareSession && window.XmilLibrary && window.XmilLibrary.inspectMountedProjectDisk) {
             try {
                 mountedProjectSelection = await window.XmilLibrary.inspectMountedProjectDisk();
             } catch(e) {
@@ -1445,7 +1465,7 @@ window.__X1PEN_MODE = true;
         }
 
         // 8. FDD 等のマウント状態を再適用 (PROGRAM ディスク使用時は drive0 を除外)
-        if (window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
+        if (!isEphemeralShareSession && window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
             await window.XmilLibrary.autoRestoreMounts(hasProgramDisk ? ['drive0'] : []);
         }
 
@@ -2911,7 +2931,7 @@ window.__X1PEN_MODE = true;
         module = window.Module;
 
         // マルチタブ警告 (pre.js の _multiTabPromise を消費)
-        if (window.__multiTabPromise) {
+        if (!isEphemeralShareSession && window.__multiTabPromise) {
             var otherTabExists = await window.__multiTabPromise;
             if (otherTabExists) {
                 var ok = confirm(
@@ -2971,7 +2991,7 @@ window.__X1PEN_MODE = true;
         // 4. フォントを現セッションに反映
         if (module._js_reload_fonts) module._js_reload_fonts();
         // 5. マウント状態復元
-        if (window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
+        if (!isEphemeralShareSession && window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
             await window.XmilLibrary.autoRestoreMounts();
         }
         // 6. エミュレータ開始
@@ -2983,7 +3003,7 @@ window.__X1PEN_MODE = true;
         automationReadyResolve();
 
         // 共有コード読み込み (?id=xxx)
-        var urlId = new URLSearchParams(location.search).get('id');
+        var urlId = initialShareId;
 
         // Share パラメータなしの場合、保存済みコンテンツに応じてタブを自動選択
         // BASIC → SLANG → ASM の優先順で、内容のあるタブに切り替える
