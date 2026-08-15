@@ -1,0 +1,356 @@
+// Public Google Drive / Dropbox media launch intents and Relay importer.
+(function(root) {
+    'use strict';
+
+    var MAX_ITEMS = 6;
+    var MAX_URL_LENGTH = 2048;
+    var MAX_INTENT_BYTES = 8 * 1024;
+    var SLOT_TYPES = {
+        drive0: 'fdd',
+        drive1: 'fdd',
+        hdd0: 'hdd',
+        hdd1: 'hdd',
+        cmt: 'cmt'
+    };
+    var TYPE_LIMITS = { fdd: 32, hdd: 64, cmt: 32, emm: 16 };
+
+    function RemoteMediaError(code, message) {
+        this.name = 'RemoteMediaError';
+        this.code = code;
+        this.message = message;
+        if (Error.captureStackTrace) Error.captureStackTrace(this, RemoteMediaError);
+    }
+    RemoteMediaError.prototype = Object.create(Error.prototype);
+    RemoteMediaError.prototype.constructor = RemoteMediaError;
+
+    function fail(code, message) {
+        throw new RemoteMediaError(code, message);
+    }
+
+    function byteLength(value) {
+        return new TextEncoder().encode(value).byteLength;
+    }
+
+    function sanitizeFilename(value) {
+        if (typeof value !== 'string') return '';
+        var result = value.normalize('NFC').trim()
+            .replace(/[\u0000-\u001f\u007f/\\&<>"']/g, '_');
+        result = Array.from(result).slice(0, 255).join('').trim();
+        if (result === '.' || result === '..') return '';
+        return result;
+    }
+
+    function detectMediaType(filename) {
+        var clean = sanitizeFilename(filename);
+        if (/^EMM\d\.MEM$/i.test(clean)) return 'emm';
+        var dot = clean.lastIndexOf('.');
+        var ext = dot >= 0 ? clean.slice(dot + 1).toLowerCase() : '';
+        if (ext === 'd88' || ext === '2d' || ext === '88d') return 'fdd';
+        if (ext === 'hdd' || ext === 'hd') return 'hdd';
+        if (ext === 'cas' || ext === 'cmt' || ext === 'tap' || ext === 'bas' || ext === 'bin') return 'cmt';
+        return null;
+    }
+
+    function validateOpaque(value, minimum) {
+        return typeof value === 'string'
+            && value.length >= minimum
+            && value.length <= 256
+            && /^[A-Za-z0-9_-]+$/.test(value);
+    }
+
+    function inspectShareUrl(value) {
+        if (typeof value !== 'string' || value.length === 0 || value.length > MAX_URL_LENGTH) {
+            fail('INVALID_URL', '共有URLの長さが正しくありません');
+        }
+        var url;
+        try {
+            url = new URL(value);
+        } catch (_) {
+            fail('INVALID_URL', '共有URLを解釈できません');
+        }
+        if (url.protocol !== 'https:' || url.username || url.password || url.hash
+            || (url.port && url.port !== '443')) {
+            fail('INVALID_URL', 'HTTPSの公開共有URLを指定してください');
+        }
+
+        var host = url.hostname.toLowerCase();
+        var segments = url.pathname.split('/').filter(Boolean);
+        if (host === 'drive.google.com' || host === 'docs.google.com') {
+            var id = null;
+            if (segments.length >= 3 && segments[0] === 'file' && segments[1] === 'd') id = segments[2];
+            if (!id && (url.pathname === '/open' || url.pathname === '/uc' || url.pathname === '/file')) {
+                id = url.searchParams.get('id');
+            }
+            if (!validateOpaque(id, 10)) fail('INVALID_URL', 'Google Drive共有URLの形式が正しくありません');
+            var resourceKey = url.searchParams.get('resourcekey');
+            if (resourceKey && !validateOpaque(resourceKey, 1)) {
+                fail('INVALID_URL', 'Google Drive resourcekeyの形式が正しくありません');
+            }
+            return { provider: 'google-drive', filename: null };
+        }
+
+        if (host === 'dropbox.com' || host === 'www.dropbox.com') {
+            var isScl = segments.length >= 4 && segments[0] === 'scl' && segments[1] === 'fi';
+            var isLegacy = segments.length >= 3 && segments[0] === 's';
+            if (!isScl && !isLegacy) fail('INVALID_URL', 'Dropboxの単一ファイル共有URLを指定してください');
+            var idIndex = isScl ? 2 : 1;
+            if (!validateOpaque(segments[idIndex], 6)) fail('INVALID_URL', 'Dropbox共有URLの形式が正しくありません');
+            var relayKey = url.searchParams.get('rlkey');
+            if (relayKey && !validateOpaque(relayKey, 1)) fail('INVALID_URL', 'Dropbox rlkeyの形式が正しくありません');
+            var filename = '';
+            try { filename = decodeURIComponent(segments[segments.length - 1]); } catch (_) {}
+            return { provider: 'dropbox', filename: sanitizeFilename(filename) || null };
+        }
+        fail('SOURCE_NOT_ALLOWED', 'Google DriveまたはDropboxの公開共有URLだけを指定できます');
+    }
+
+    function normalizeItem(item) {
+        if (!item || typeof item !== 'object' || Array.isArray(item) || typeof item.url !== 'string') {
+            fail('INVALID_ITEM', '共有URLの指定が正しくありません');
+        }
+        var slot = item.slot == null || item.slot === '' ? null : item.slot;
+        if (slot !== null && !Object.prototype.hasOwnProperty.call(SLOT_TYPES, slot)) {
+            fail('INVALID_SLOT', 'メディアの挿入先が正しくありません');
+        }
+        var inspected = inspectShareUrl(item.url);
+        if (slot && inspected.filename) {
+            var actualType = detectMediaType(inspected.filename);
+            if (actualType && actualType !== SLOT_TYPES[slot]) {
+                fail('MEDIA_TYPE_MISMATCH', 'Dropboxファイルの形式と挿入先が一致しません');
+            }
+        }
+        return { url: item.url, slot: slot };
+    }
+
+    function validateItems(items) {
+        if (!Array.isArray(items) || items.length < 1 || items.length > MAX_ITEMS) {
+            fail('INVALID_ITEMS', '1〜' + MAX_ITEMS + '件の共有URLを指定してください');
+        }
+        var slots = Object.create(null);
+        var urls = Object.create(null);
+        return items.map(function(item) {
+            var normalized = normalizeItem(item);
+            if (normalized.slot && slots[normalized.slot]) {
+                fail('DUPLICATE_SLOT', '同じ挿入先を複数回指定できません');
+            }
+            if (urls[normalized.url]) {
+                fail('DUPLICATE_URL', '同じ共有URLを複数回指定できません');
+            }
+            if (normalized.slot) slots[normalized.slot] = true;
+            urls[normalized.url] = true;
+            return normalized;
+        });
+    }
+
+    function bytesToBase64Url(bytes) {
+        var binary = '';
+        for (var i = 0; i < bytes.length; i += 0x8000) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        }
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    }
+
+    function base64UrlToBytes(value) {
+        if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) {
+            fail('INVALID_INTENT', '起動URLのデータを解釈できません');
+        }
+        var base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+        base64 += '='.repeat((4 - base64.length % 4) % 4);
+        var binary;
+        try { binary = atob(base64); } catch (_) { fail('INVALID_INTENT', '起動URLのデータを解釈できません'); }
+        var bytes = new Uint8Array(binary.length);
+        for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return bytes;
+    }
+
+    function encodeIntent(items) {
+        var normalized = validateItems(items);
+        var json = JSON.stringify({ v: 1, items: normalized });
+        if (byteLength(json) > MAX_INTENT_BYTES) fail('INTENT_TOO_LARGE', '起動URLのデータが大きすぎます');
+        return bytesToBase64Url(new TextEncoder().encode(json));
+    }
+
+    function decodeIntent(encoded) {
+        var bytes = base64UrlToBytes(encoded);
+        if (bytes.byteLength > MAX_INTENT_BYTES) fail('INTENT_TOO_LARGE', '起動URLのデータが大きすぎます');
+        var parsed;
+        try {
+            parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+        } catch (_) {
+            fail('INVALID_INTENT', '起動URLのデータを解釈できません');
+        }
+        if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.items)) {
+            fail('INVALID_INTENT', '対応していない起動URLです');
+        }
+        return { v: 1, items: validateItems(parsed.items) };
+    }
+
+    function buildLaunchUrl(baseUrl, items) {
+        var url = new URL(baseUrl, root.location ? root.location.href : undefined);
+        url.hash = 'media=' + encodeIntent(items);
+        return url.href;
+    }
+
+    function readIntentFromHash(locationObject) {
+        var hash = locationObject && locationObject.hash ? locationObject.hash.slice(1) : '';
+        if (!hash) return null;
+        var params = new URLSearchParams(hash);
+        var encoded = params.get('media');
+        return encoded || null;
+    }
+
+    function clearIntentHash(locationObject, historyObject) {
+        if (!locationObject || !historyObject || typeof historyObject.replaceState !== 'function') return;
+        historyObject.replaceState(null, '', locationObject.pathname + locationObject.search);
+    }
+
+    function decodeRelayFilename(response) {
+        var encoded = response.headers.get('X-Disk-Filename');
+        if (!encoded) fail('MISSING_FILENAME', '取得したファイル名を確認できませんでした');
+        var decoded;
+        try { decoded = decodeURIComponent(encoded); } catch (_) { fail('MISSING_FILENAME', '取得したファイル名を確認できませんでした'); }
+        var filename = sanitizeFilename(decoded);
+        if (!filename || !detectMediaType(filename)) fail('MISSING_FILENAME', '取得したファイル形式を確認できませんでした');
+        return filename;
+    }
+
+    var API_MESSAGES = {
+        GOOGLE_CONFIRMATION_REQUIRED: 'このGoogle Driveファイルは直接取得できません。Dropboxを使うか小さいファイルを指定してください',
+        FILE_TOO_LARGE: 'ファイルが対応サイズの上限を超えています',
+        NOT_A_DISK_IMAGE: '共有リンクから対応メディアを取得できませんでした',
+        MEDIA_TYPE_MISMATCH: 'ファイル形式と挿入先が一致しません',
+        RATE_LIMITED: '利用が集中しています。しばらく待ってから再試行してください',
+        SOURCE_NOT_FOUND: '公開ファイルが見つかりません',
+        LIBRARY_NAME_CONFLICT: '同名のファイルが既にあるため、既存データを保護して追加を中止しました',
+        RELAY_DISABLED: '公開URL取得機能は現在停止中です。ローカルファイル選択または既存Google Drive連携を利用してください',
+        UPSTREAM_TIMEOUT: '公開ファイルの取得がタイムアウトしました',
+        UPSTREAM_ERROR: '公開ファイルを取得できませんでした'
+    };
+
+    async function responseError(response) {
+        var code = 'RELAY_ERROR';
+        try {
+            var body = await response.json();
+            if (body && typeof body.error === 'string') code = body.error;
+        } catch (_) {}
+        return new RemoteMediaError(code, API_MESSAGES[code] || '公開ファイルを取得できませんでした');
+    }
+
+    function expectedTypeFor(item) {
+        if (item.slot) return SLOT_TYPES[item.slot];
+        try {
+            var inspected = inspectShareUrl(item.url);
+            return inspected.filename ? detectMediaType(inspected.filename) : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function addFailureMessage(error) {
+        if (error && error.code && API_MESSAGES[error.code]) return API_MESSAGES[error.code];
+        if (error && error.message) return error.message;
+        return '公開ファイルを取得できませんでした';
+    }
+
+    function uniqueImportFilename(filename, library) {
+        var entries = Array.isArray(library) ? library : [];
+        var used = Object.create(null);
+        entries.forEach(function(entry) {
+            if (entry && typeof entry.name === 'string') used[entry.name.toLowerCase()] = true;
+        });
+        if (!used[filename.toLowerCase()]) return filename;
+
+        var mediaType = detectMediaType(filename);
+        if (mediaType === 'emm') {
+            fail('LIBRARY_NAME_CONFLICT', '同名のEMMが既にあるため、既存データを保護して追加を中止しました');
+        }
+        var dot = filename.lastIndexOf('.');
+        var stem = dot > 0 ? filename.slice(0, dot) : filename;
+        var extension = dot > 0 ? filename.slice(dot) : '';
+        for (var index = 1; index <= 9999; index++) {
+            var suffix = ' (' + index + ')';
+            var room = Math.max(1, 255 - Array.from(suffix + extension).length);
+            var candidate = Array.from(stem).slice(0, room).join('') + suffix + extension;
+            if (!used[candidate.toLowerCase()]) return candidate;
+        }
+        fail('LIBRARY_NAME_CONFLICT', '既存ファイルと重ならない名前を作成できませんでした');
+    }
+
+    async function consumeLaunchRequest(core, options) {
+        options = options || {};
+        var locationObject = options.location || root.location;
+        var historyObject = options.history || root.history;
+        var fetchImpl = options.fetchImpl || root.fetch;
+        var FileCtor = options.FileCtor || root.File;
+        var encoded = readIntentFromHash(locationObject);
+        if (!encoded) return { processed: false, successes: [], failures: [] };
+
+        clearIntentHash(locationObject, historyObject);
+        var intent;
+        try {
+            intent = decodeIntent(encoded);
+        } catch (error) {
+            if (core && core.updateStatus) core.updateStatus('公開URLの起動データが不正です: ' + addFailureMessage(error));
+            return { processed: true, successes: [], failures: [{ error: error }] };
+        }
+
+        var successes = [];
+        var failures = [];
+        for (var i = 0; i < intent.items.length; i++) {
+            var item = intent.items[i];
+            try {
+                if (core && core.updateStatus) {
+                    core.updateStatus('公開ファイルを取得中 (' + (i + 1) + '/' + intent.items.length + ')');
+                }
+                var requestBody = { url: item.url };
+                var expectedType = expectedTypeFor(item);
+                if (expectedType) requestBody.expectedType = expectedType;
+                var response = await fetchImpl('/api/disk-relay', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                if (!response.ok) throw await responseError(response);
+                var filename = decodeRelayFilename(response);
+                var library = core && typeof core.getLibrary === 'function' ? core.getLibrary() : [];
+                filename = uniqueImportFilename(filename, library);
+                var bytes = await response.arrayBuffer();
+                var file = new FileCtor([bytes], filename, { type: 'application/octet-stream' });
+                var entry = await core.addToLibrary(file);
+                if (!entry) {
+                    var mediaType = detectMediaType(filename);
+                    var limit = mediaType ? TYPE_LIMITS[mediaType] : null;
+                    fail('LIBRARY_ADD_FAILED', 'ライブラリに追加できませんでした'
+                        + (limit ? '（' + limit + 'MiB上限）' : ''));
+                }
+                if (item.slot) await core.mountFromLibrary(entry.key, item.slot);
+                successes.push({ entry: entry, slot: item.slot, filename: filename });
+            } catch (error) {
+                failures.push({ index: i, slot: item.slot, error: error });
+            }
+        }
+
+        if (core && core.updateStatus) {
+            var summary = '公開URLから ' + successes.length + '件を追加';
+            if (failures.length) summary += '、' + failures.length + '件失敗: ' + addFailureMessage(failures[0].error);
+            core.updateStatus(summary);
+        }
+        return { processed: true, successes: successes, failures: failures };
+    }
+
+    root.XmilRemoteMedia = Object.freeze({
+        RemoteMediaError: RemoteMediaError,
+        sanitizeFilename: sanitizeFilename,
+        detectMediaType: detectMediaType,
+        inspectShareUrl: inspectShareUrl,
+        validateItems: validateItems,
+        encodeIntent: encodeIntent,
+        decodeIntent: decodeIntent,
+        buildLaunchUrl: buildLaunchUrl,
+        readIntentFromHash: readIntentFromHash,
+        uniqueImportFilename: uniqueImportFilename,
+        consumeLaunchRequest: consumeLaunchRequest,
+        slotTypes: Object.freeze(Object.assign({}, SLOT_TYPES)),
+        typeLimitsMiB: Object.freeze(Object.assign({}, TYPE_LIMITS))
+    });
+})(typeof window !== 'undefined' ? window : globalThis);

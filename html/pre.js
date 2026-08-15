@@ -3120,6 +3120,14 @@
         autoLoadRom();
         autoLoadFonts();
         await autoRestoreMounts();
+        if (window.XmilRemoteMedia && window.XmilRemoteMedia.consumeLaunchRequest) {
+            try {
+                await window.XmilRemoteMedia.consumeLaunchRequest(window.XmilCore);
+            } catch(e) {
+                console.error('public URL import failed:', e);
+                updateStatus('公開URLからの追加に失敗しました');
+            }
+        }
     }
 
     function applyInitialSettings() {
