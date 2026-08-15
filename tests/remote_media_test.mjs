@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { webcrypto } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import vm from 'node:vm';
@@ -20,6 +21,7 @@ function loadRemoteMedia(overrides = {}) {
     Uint8Array,
     Response,
     Headers,
+    crypto: webcrypto,
     atob,
     btoa,
     location,
@@ -69,6 +71,121 @@ test('intent validation rejects unknown providers, duplicate slots/URLs, malform
   assert.throws(() => api.decodeIntent(api.encodeIntent([{ url: googleUrl, slot: 'drive0' }]).replace(/.$/, '*')), /解釈/);
 });
 
+test('source IDs canonicalize supported URL variants without retaining access keys', async () => {
+  const { api } = loadRemoteMedia();
+  const googleVariants = [
+    googleUrl,
+    'https://drive.google.com/open?id=AbCdEfGhIjKlMnOpQrStUv&usp=sharing',
+    'https://docs.google.com/uc?export=download&id=AbCdEfGhIjKlMnOpQrStUv',
+  ];
+  const googleIds = await Promise.all(googleVariants.map((value) => api.sourceIdForUrl(value)));
+  assert.equal(new Set(googleIds).size, 1);
+  assert.match(googleIds[0], /^[0-9a-f]{64}$/);
+
+  const dropboxVariant = 'https://www.dropbox.com/scl/fi/AbCdEf123456/renamed.D88?dl=1&rlkey=Different_Key';
+  assert.equal(await api.sourceIdForUrl(dropboxFdd), await api.sourceIdForUrl(dropboxVariant));
+  assert.notEqual(await api.sourceIdForUrl(dropboxFdd), await api.sourceIdForUrl(dropboxHdd));
+  assert.throws(() => api.inspectShareUrl('https://www.dropbox.com/t/short-token'), /単一ファイル/);
+});
+
+test('same source without a strong ETag reuses persistent bytes without any Relay request', async () => {
+  const location = { href: 'https://xmil.example/xmillennium.html', pathname: '/xmillennium.html', search: '', hash: '' };
+  const history = { replaceState() { location.hash = ''; } };
+  const { api } = loadRemoteMedia({ location, history });
+  location.hash = '#media=' + api.encodeIntent([{ url: googleUrl, slot: 'drive0' }]);
+  const sourceId = await api.sourceIdForUrl(googleUrl);
+  const entry = {
+    key: 'remote_' + sourceId, name: 'SAVE.D88', type: 'fdd', size: 3,
+    externalSource: { sourceId, provider: 'google-drive' },
+  };
+  const mounted = [];
+  const statuses = [];
+  let fetchCount = 0;
+  const result = await api.consumeLaunchRequest({
+    async inspectRemoteLibraryEntry() { return { state: 'ready', entry }; },
+    touchRemoteLibraryEntry(_id, state) { assert.equal(state, 'unknown'); return entry; },
+    async mountFromLibrary(key, slot) { mounted.push({ key, slot }); },
+    updateStatus(value) { statuses.push(value); },
+  }, {
+    location,
+    history,
+    fetchImpl: async () => { fetchCount += 1; throw new Error('must not fetch'); },
+  });
+  assert.equal(fetchCount, 0);
+  assert.equal(result.successes[0].reused, true);
+  assert.deepEqual(mounted, [{ key: entry.key, slot: 'drive0' }]);
+  assert.match(statuses.at(-1), /更新を確認できません.*セーブ/);
+});
+
+test('same source probes a strong ETag and never replaces the persistent entry', async () => {
+  const location = { href: 'https://xmil.example/xmillennium.html', pathname: '/xmillennium.html', search: '', hash: '' };
+  const history = { replaceState() { location.hash = ''; } };
+  const { api } = loadRemoteMedia({ location, history });
+  location.hash = '#media=' + api.encodeIntent([{ url: googleUrl, slot: null }]);
+  const sourceId = await api.sourceIdForUrl(googleUrl);
+  const entry = {
+    key: 'remote_' + sourceId, name: 'SAVE.D88', type: 'fdd', size: 3,
+    externalSource: { sourceId, provider: 'google-drive', strongEtag: '"v1"' },
+  };
+  const statuses = [];
+  let added = 0;
+  const result = await api.consumeLaunchRequest({
+    async inspectRemoteLibraryEntry() { return { state: 'ready', entry }; },
+    touchRemoteLibraryEntry(_id, state) { assert.equal(state, 'changed'); return entry; },
+    async addRemoteToLibrary() { added += 1; },
+    async mountFromLibrary() { throw new Error('library-only must not mount'); },
+    updateStatus(value) { statuses.push(value); },
+  }, {
+    location,
+    history,
+    fetchImpl: async (_url, options) => {
+      assert.deepEqual(JSON.parse(options.body), { url: googleUrl, probe: true, strongEtag: '"v1"' });
+      return new Response(JSON.stringify({ state: 'changed' }), { headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+  assert.equal(added, 0);
+  assert.equal(result.successes[0].remoteState, 'changed');
+  assert.match(statuses.at(-1), /配布元が前回取得時から変更.*上書きせず/);
+});
+
+test('missing bytes self-repair but size mismatch fails closed without fetching', async () => {
+  const makeLocation = () => ({ href: 'https://xmil.example/xmillennium.html', pathname: '/xmillennium.html', search: '', hash: '' });
+  const firstLocation = makeLocation();
+  const { api } = loadRemoteMedia({ location: firstLocation, history: { replaceState() { firstLocation.hash = ''; } } });
+  firstLocation.hash = '#media=' + api.encodeIntent([{ url: googleUrl, slot: null }]);
+  let removed = 0;
+  let added = 0;
+  const repaired = await api.consumeLaunchRequest({
+    async inspectRemoteLibraryEntry() { return { state: 'missing', entry: {} }; },
+    removeRemoteLibraryMetadata() { removed += 1; },
+    async addRemoteToLibrary(file) { added += 1; return { key: 'repaired', name: file.name }; },
+    async mountFromLibrary() {},
+    updateStatus() {},
+  }, {
+    location: firstLocation,
+    history: { replaceState() { firstLocation.hash = ''; } },
+    FileCtor: class { constructor(parts, name) { this.parts = parts; this.name = name; this.size = parts[0].byteLength; } },
+    fetchImpl: async () => new Response(new Uint8Array([1]), { headers: { 'X-Disk-Filename': encodeURIComponent('DISK.D88') } }),
+  });
+  assert.equal(repaired.failures.length, 0);
+  assert.equal(removed, 1);
+  assert.equal(added, 1);
+
+  const secondLocation = makeLocation();
+  secondLocation.hash = '#media=' + api.encodeIntent([{ url: googleUrl, slot: null }]);
+  let fetchCount = 0;
+  const damaged = await api.consumeLaunchRequest({
+    async inspectRemoteLibraryEntry() { return { state: 'size-mismatch', entry: {} }; },
+    updateStatus() {},
+  }, {
+    location: secondLocation,
+    history: { replaceState() { secondLocation.hash = ''; } },
+    fetchImpl: async () => { fetchCount += 1; },
+  });
+  assert.equal(fetchCount, 0);
+  assert.equal(damaged.failures[0].error.code, 'REMOTE_STORAGE_DAMAGED');
+});
+
 test('importer clears the fragment before fetch, sanitizes filename, adds, and mounts', async () => {
   const encodedName = encodeURIComponent('日本語<img src=x onerror=alert(1)>.D88');
   const location = {
@@ -102,7 +219,10 @@ test('importer clears the fragment before fetch, sanitizes filename, adds, and m
   const mounted = [];
   const statuses = [];
   const core = {
-    async addToLibrary(file) { added.push(file); return { key: 'lib-key', name: file.name }; },
+    async addRemoteToLibrary(file, metadata) {
+      added.push({ file, metadata });
+      return { key: 'remote-key', name: file.name };
+    },
     async mountFromLibrary(key, slot) { mounted.push({ key, slot }); },
     updateStatus(value) { statuses.push(value); },
   };
@@ -123,11 +243,13 @@ test('importer clears the fragment before fetch, sanitizes filename, adds, and m
   assert.equal(fetchCalls.length, 1);
   assert.equal(fetchCalls[0].url, '/api/disk-relay');
   assert.deepEqual(JSON.parse(fetchCalls[0].options.body), { url: googleUrl, expectedType: 'fdd' });
-  assert.equal(added[0].name, '日本語_img src=x onerror=alert(1)_.D88');
-  assert.equal(JSON.stringify(mounted), JSON.stringify([{ key: 'lib-key', slot: 'drive0' }]));
+  assert.equal(added[0].file.name, '日本語_img src=x onerror=alert(1)_.D88');
+  assert.equal(added[0].metadata.provider, 'google-drive');
+  assert.match(added[0].metadata.sourceId, /^[0-9a-f]{64}$/);
+  assert.equal(JSON.stringify(mounted), JSON.stringify([{ key: 'remote-key', slot: 'drive0' }]));
   assert.equal(result.successes.length, 1);
   assert.equal(result.failures.length, 0);
-  assert.match(statuses.at(-1), /1件を追加/);
+  assert.match(statuses.at(-1), /1件を保存/);
 });
 
 test('importer maps disabled Relay and continues with later items', async () => {
@@ -146,7 +268,7 @@ test('importer maps disabled Relay and continues with later items', async () => 
   let call = 0;
   const statuses = [];
   const result = await api.consumeLaunchRequest({
-    async addToLibrary(file) { return { key: file.name }; },
+    async addRemoteToLibrary(file) { return { key: file.name, name: file.name }; },
     async mountFromLibrary() {},
     updateStatus(value) { statuses.push(value); },
   }, {
@@ -171,7 +293,7 @@ test('importer maps disabled Relay and continues with later items', async () => 
   assert.match(statuses.at(-1), /現在停止中/);
 });
 
-test('remote import uses a non-destructive suffix when a library name already exists', async () => {
+test('remote import uses a source namespace without changing a normal same-name entry', async () => {
   const location = {
     href: 'https://xmil.example/xmillennium.html',
     pathname: '/xmillennium.html',
@@ -186,7 +308,10 @@ test('remote import uses a non-destructive suffix when a library name already ex
 
   const result = await api.consumeLaunchRequest({
     getLibrary() { return [existing]; },
-    async addToLibrary(file) { added.push(file); return { key: 'new-key', name: file.name }; },
+    async addRemoteToLibrary(file, metadata) {
+      added.push({ file, metadata });
+      return { key: 'remote_' + metadata.sourceId, name: file.name };
+    },
     async mountFromLibrary() {},
     updateStatus() {},
   }, {
@@ -201,8 +326,9 @@ test('remote import uses a non-destructive suffix when a library name already ex
   });
 
   assert.deepEqual(existing.bytes, [9, 8, 7]);
-  assert.equal(added[0].name, 'GAME (1).D88');
-  assert.equal(result.successes[0].filename, 'GAME (1).D88');
+  assert.equal(added[0].file.name, 'GAME.D88');
+  assert.match(added[0].metadata.sourceId, /^[0-9a-f]{64}$/);
+  assert.equal(result.successes[0].filename, 'GAME.D88');
 });
 
 test('remote EMM collision fails closed instead of overwriting the fixed slot name', async () => {

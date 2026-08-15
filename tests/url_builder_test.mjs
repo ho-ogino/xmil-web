@@ -72,6 +72,8 @@ after(async () => {
 
 test('URL Builder validates inputs and emits a fragment-only launch intent', async () => {
   await page.goto(`${baseUrl}/url-builder.html`);
+  assert.match(await page.locator('label[for="library"]').textContent(), /URL入力/);
+  assert.match(await page.locator('#library + .hint').textContent(), /EXTERNAL.*同じ共有元.*再利用/);
   const source = 'https://www.dropbox.com/scl/fi/AbCdEf123456/DISK.D88?rlkey=Key_123&dl=0';
   await page.locator('#drive0').fill(source);
   await assert.doesNotReject(() => page.locator('#result').waitFor({ state: 'visible' }));
@@ -122,14 +124,14 @@ test('Relay-derived HTML-like filenames remain text in the real library DOM', { 
   await page.waitForFunction(() => {
     try { return JSON.parse(localStorage.getItem('xmil_library') || '[]').length === 1; } catch (_) { return false; }
   }, null, { timeout: 30_000 });
-  await page.evaluate(() => window.XmilCore.renderLibraryList());
+  await page.evaluate(() => document.querySelector('.lib-filter[data-type="external"]').click());
 
   assert.equal(await page.locator('#library-list img').count(), 0);
   assert.equal(await page.locator('#library-list [onerror]').count(), 0);
   assert.equal(await page.locator('.lib-file-name').textContent(), '_img src=x onerror=alert(1)_.D88');
 });
 
-test('remote filename collision preserves existing OPFS bytes and imports with a suffix', { skip: !hasBuiltApp }, async () => {
+test('remote same-name import preserves normal OPFS bytes in a separate external namespace', { skip: !hasBuiltApp }, async () => {
   await page.goto(`${baseUrl}/xmillennium.html`);
   const original = await page.evaluate(async () => {
     const entry = await window.XmilLibrary.addToLibrary(
@@ -140,9 +142,10 @@ test('remote filename collision preserves existing OPFS bytes and imports with a
     ]) };
   });
 
-  page.on('dialog', (dialog) => {
+  const unexpectedDialog = (dialog) => {
     throw new Error(`remote import unexpectedly opened a confirmation dialog: ${dialog.message()}`);
-  });
+  };
+  page.on('dialog', unexpectedDialog);
   await page.route('**/api/disk-relay', (route) => route.fulfill({
     status: 200,
     contentType: 'application/octet-stream',
@@ -152,14 +155,43 @@ test('remote filename collision preserves existing OPFS bytes and imports with a
   await page.goto(original.launchUrl);
   await page.waitForFunction(() => {
     const library = window.XmilCore.getLibrary();
-    return library.some((entry) => entry.name === 'GAME (1).D88');
+    return library.some((entry) => entry.originKind === 'external' && entry.name === 'GAME.D88');
   }, null, { timeout: 30_000 });
+  page.off('dialog', unexpectedDialog);
 
   const evidence = await page.evaluate(async (key) => ({
     originalBytes: Array.from(new Uint8Array(await window.XmilStorage.read(key))),
-    names: window.XmilCore.getLibrary().map((entry) => entry.name),
+    entries: window.XmilCore.getLibrary().map((entry) => ({
+      key: entry.key, name: entry.name, originKind: entry.originKind || null,
+      sourceId: entry.externalSource?.sourceId || null,
+    })),
   }), original.key);
   assert.deepEqual(evidence.originalBytes, [9, 8, 7, 6]);
-  assert.ok(evidence.names.includes('GAME.D88'));
-  assert.ok(evidence.names.includes('GAME (1).D88'));
+  assert.equal(evidence.entries.filter((entry) => entry.name === 'GAME.D88').length, 2);
+  assert.ok(evidence.entries.some((entry) => entry.key === original.key && entry.originKind === null));
+  assert.ok(evidence.entries.some((entry) => entry.key.startsWith('remote_') && entry.originKind === 'external'));
+
+  await page.evaluate(() => window.XmilCore.renderLibraryList());
+  assert.equal(await page.locator('.lib-row').count(), 1, 'ALL hides the external entry');
+  await page.evaluate(() => document.querySelector('.lib-filter[data-type="external"]').click());
+  assert.equal(await page.locator('.lib-row').count(), evidence.entries.filter((entry) => entry.originKind === 'external').length);
+  assert.ok((await page.locator('.lib-external-meta').allTextContents()).some((text) => /Google Drive/.test(text)));
+
+  const remoteEntry = evidence.entries.find((entry) => entry.name === 'GAME.D88' && entry.originKind === 'external');
+  const remoteKey = remoteEntry.key;
+  const resized = await page.evaluate(async ({ key, sourceId }) => {
+    await window.XmilStorage.write(key, new Uint8Array([5, 4, 3, 2, 1]).buffer);
+    await window.XmilCore.syncExternalLibraryEntrySize(key);
+    const inspection = await window.XmilCore.inspectRemoteLibraryEntry(sourceId);
+    return { state: inspection.state, size: inspection.entry.size, bytes: Array.from(new Uint8Array(await window.XmilStorage.read(key))) };
+  }, remoteEntry);
+  assert.deepEqual(resized, { state: 'ready', size: 5, bytes: [5, 4, 3, 2, 1] });
+  let deleteWarning = '';
+  page.once('dialog', async (dialog) => {
+    deleteWarning = dialog.message();
+    await dialog.dismiss();
+  });
+  await page.evaluate((key) => window.XmilLibrary.deleteFromLibrary(key), remoteKey);
+  assert.match(deleteWarning, /ゲーム内セーブ[\s\S]*削除すると復元できません/);
+  assert.ok(await page.evaluate(async (key) => !!(await window.XmilStorage.read(key)), remoteKey));
 });

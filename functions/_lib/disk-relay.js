@@ -217,6 +217,19 @@ function errorResponse(error) {
     return jsonResponse(502, 'UPSTREAM_ERROR', '公開ファイルを取得できませんでした');
 }
 
+export function normalizeStrongEtag(value) {
+    if (typeof value !== 'string' || value.length > 256) return null;
+    return /^"[\x21\x23-\x7e]*"$/.test(value) ? value : null;
+}
+
+function probeResponse(state) {
+    const headers = new Headers();
+    headers.set('Content-Type', 'application/json; charset=utf-8');
+    headers.set('Cache-Control', 'private, no-store');
+    headers.set('X-Content-Type-Options', 'nosniff');
+    return new Response(JSON.stringify({ state }), { status: 200, headers });
+}
+
 function contentTypeIsDocument(contentType) {
     const value = (contentType || '').toLowerCase();
     return value.includes('text/html') || value.includes('application/xhtml+xml')
@@ -402,6 +415,8 @@ export async function relayDiskImage({ sourceUrl, expectedType, fetchImpl = fetc
         headers.set('X-Content-Type-Options', 'nosniff');
         headers.set('X-Disk-Provider', source.provider);
         headers.set('X-Disk-Filename', encodeURIComponent(filename));
+        const strongEtag = normalizeStrongEtag(response.headers.get('ETag'));
+        if (strongEtag) headers.set('X-Disk-ETag', strongEtag);
         headers.set('Content-Disposition', 'attachment; filename="' + asciiFilenameFallback(filename)
             + '"; filename*=UTF-8\'\'' + encode5987(filename));
         if (declaredLength != null) headers.set('Content-Length', String(declaredLength));
@@ -410,6 +425,39 @@ export async function relayDiskImage({ sourceUrl, expectedType, fetchImpl = fetc
             status: 200,
             headers,
         });
+    } catch (error) {
+        clearTimer();
+        throw error;
+    }
+}
+
+export async function probeDiskImage({ sourceUrl, strongEtag, fetchImpl = fetch }) {
+    const source = normalizeSourceUrl(sourceUrl);
+    const storedEtag = normalizeStrongEtag(strongEtag);
+    if (!storedEtag) fail(400, 'INVALID_ETAG', '更新確認情報が正しくありません');
+
+    const abortController = new AbortController();
+    let timer = setTimeout(() => abortController.abort(), UPSTREAM_TIMEOUT_MS);
+    const clearTimer = () => {
+        if (timer !== null) {
+            clearTimeout(timer);
+            timer = null;
+        }
+    };
+
+    try {
+        const { response } = await fetchFollowingRedirects(source, fetchImpl, abortController.signal);
+        clearTimer();
+        const currentEtag = normalizeStrongEtag(response.headers.get('ETag'));
+        try { await response.body?.cancel(); } catch (_) {}
+
+        if (!response.ok) {
+            fail(response.status === 404 ? 404 : 502,
+                response.status === 404 ? 'SOURCE_NOT_FOUND' : 'UPSTREAM_ERROR',
+                response.status === 404 ? '公開ファイルが見つかりません' : '公開ファイルを取得できませんでした');
+        }
+        if (!currentEtag) return probeResponse('unknown');
+        return probeResponse(currentEtag === storedEtag ? 'unchanged' : 'changed');
     } catch (error) {
         clearTimer();
         throw error;
@@ -467,6 +515,16 @@ export async function handleRelayRequest({ request, env = {}, fetchImpl = fetch 
         }
         if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.url !== 'string') {
             return jsonResponse(400, 'INVALID_REQUEST', '共有URLを指定してください');
+        }
+        if (body.probe != null && typeof body.probe !== 'boolean') {
+            return jsonResponse(400, 'INVALID_REQUEST', 'probeの形式が正しくありません');
+        }
+        if (body.probe === true) {
+            return await probeDiskImage({
+                sourceUrl: body.url,
+                strongEtag: body.strongEtag,
+                fetchImpl,
+            });
         }
         return await relayDiskImage({
             sourceUrl: body.url,

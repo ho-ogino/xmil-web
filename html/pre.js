@@ -342,7 +342,7 @@
     function renderEmmSlotList() {
         var listEl = document.getElementById('library-list');
         if (!listEl) return;
-        var lib = getLibrary();
+        var lib = getVisibleLibrary();
         var html = '';
         for (var i = 0; i < 10; i++) {
             var slotName = 'emm' + i;
@@ -403,7 +403,7 @@
     // ---- EMM スロットアクションハンドラ ----
     function onEmmSlotCreate(slotNum) {
         var fileName = 'EMM' + slotNum + '.MEM';
-        var lib = getLibrary();
+        var lib = getVisibleLibrary();
         var existing = lib.find(function(e) { return e.type === 'emm' && e.name === fileName; });
         if (existing) {
             if (!confirm('現在割り当てられている EMM データを削除して新規に EMM 領域を作成しますか？')) return;
@@ -413,14 +413,14 @@
 
     function onEmmSlotExport(slotNum) {
         var fileName = 'EMM' + slotNum + '.MEM';
-        var entry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        var entry = getVisibleLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
         if (!entry) return;
         downloadFromLibrary(entry.key, entry.name);
     }
 
     function onEmmSlotImport(slotNum) {
         var fileName = 'EMM' + slotNum + '.MEM';
-        var existing = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        var existing = getVisibleLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
         if (existing) {
             if (!confirm('EMM' + slotNum + ' には既にデータが割り当てられています。上書きしますか？')) return;
         }
@@ -430,7 +430,7 @@
 
     function onEmmSlotDelete(slotNum) {
         var fileName = 'EMM' + slotNum + '.MEM';
-        var entry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        var entry = getVisibleLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
         if (!entry) return;
         deleteFromLibrary(entry.key);
     }
@@ -438,7 +438,7 @@
     async function onEmmSlotInsert(slotNum) {
         var slotName = 'emm' + slotNum;
         var fileName = 'EMM' + slotNum + '.MEM';
-        var entry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        var entry = getVisibleLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
         if (!entry) return;
         if (slotState[slotName]) return; // 既にマウント中
         if (!emmGuardStart(slotNum)) return;
@@ -521,6 +521,142 @@
             updateStatus('追加エラー: ' + file.name);
             return null;
         }
+    }
+
+    function isExternalLibraryEntry(entry) {
+        return !!(entry && entry.originKind === 'external' && entry.externalSource
+            && typeof entry.externalSource.sourceId === 'string');
+    }
+
+    function getVisibleLibrary() {
+        return getLibrary().filter(function(entry) { return !isExternalLibraryEntry(entry); });
+    }
+
+    function getExternalLibrary() {
+        return getLibrary().filter(isExternalLibraryEntry);
+    }
+
+    function findRemoteLibraryEntry(sourceId) {
+        return getExternalLibrary().find(function(entry) {
+            return entry.externalSource.sourceId === sourceId;
+        }) || null;
+    }
+
+    async function inspectRemoteLibraryEntry(sourceId) {
+        var entry = findRemoteLibraryEntry(sourceId);
+        if (!entry) return { state: 'absent', entry: null };
+        if (!window.XmilStorage) return { state: 'unavailable', entry: entry };
+        var actualSize = await window.XmilStorage.stat(entry.key);
+        if (actualSize == null) return { state: 'missing', entry: entry };
+        if (actualSize !== entry.size) {
+            return { state: 'size-mismatch', entry: entry, actualSize: actualSize };
+        }
+        return { state: 'ready', entry: entry };
+    }
+
+    function removeRemoteLibraryMetadata(sourceId) {
+        var lib = getLibrary();
+        var filtered = lib.filter(function(entry) {
+            return !(isExternalLibraryEntry(entry) && entry.externalSource.sourceId === sourceId);
+        });
+        if (filtered.length !== lib.length) saveProjectLibraryStrict(filtered);
+        renderLibraryList();
+    }
+
+    function touchRemoteLibraryEntry(sourceId, remoteState) {
+        var lib = getLibrary();
+        var entry = lib.find(function(candidate) {
+            return isExternalLibraryEntry(candidate) && candidate.externalSource.sourceId === sourceId;
+        });
+        if (!entry) return null;
+        entry.externalSource.lastUsedAt = new Date().toISOString();
+        if (remoteState) {
+            entry.externalSource.lastCheckedAt = new Date().toISOString();
+            entry.externalSource.lastRemoteState = remoteState;
+        }
+        saveProjectLibraryStrict(lib);
+        renderLibraryList();
+        return entry;
+    }
+
+    async function syncExternalLibraryEntrySize(key) {
+        if (!window.XmilStorage) return;
+        var lib = getLibrary();
+        var entry = lib.find(function(candidate) {
+            return candidate.key === key && isExternalLibraryEntry(candidate);
+        });
+        if (!entry) return;
+        var actualSize = await window.XmilStorage.stat(key);
+        if (actualSize == null || actualSize === entry.size) return;
+        entry.size = actualSize;
+        entry.externalSource.lastLocalWriteAt = new Date().toISOString();
+        saveProjectLibraryStrict(lib);
+        renderLibraryList();
+        updateCapacityDisplay();
+    }
+
+    async function addRemoteToLibrary(file, source) {
+        if (projectDiskTransaction) throw new Error('X1Penプロジェクトディスクの更新中はメディアを変更できません');
+        if (!source || !/^[0-9a-f]{64}$/.test(source.sourceId || '')
+            || (source.provider !== 'google-drive' && source.provider !== 'dropbox')) {
+            throw new Error('外部メディアの識別情報が正しくありません');
+        }
+        var existing = findRemoteLibraryEntry(source.sourceId);
+        if (existing) return existing;
+
+        var type = detectFileType(file.name);
+        if (!type) throw new Error('対応していない外部メディア形式です');
+        var sizeLimit = SIZE_LIMIT[type];
+        if (sizeLimit && file.size > sizeLimit) throw new Error('外部メディアがサイズ上限を超えています');
+        var key = 'remote_' + source.sourceId;
+        var ext = file.name.split('.').pop();
+        var data = await file.arrayBuffer();
+        var baselineDigest = await sha256Hex(data);
+        if (window.XmilStorage) await window.XmilStorage.ensureCapacity(file.size);
+
+        updateStatus('外部メディアを保存中: ' + file.name);
+        var wroteBytes = false;
+        var committedEntry = null;
+        try {
+            if (!window.XmilStorage) throw new Error('ストレージが初期化されていません');
+            await window.XmilStorage.write(key, data);
+            wroteBytes = true;
+            var storedSize = await window.XmilStorage.stat(key);
+            if (storedSize !== file.size) throw new Error('保存した外部メディアのサイズを確認できませんでした');
+
+            var now = new Date().toISOString();
+            var entry = {
+                key: key, name: file.name, type: type, ext: ext, size: file.size,
+                addedAt: now, favorite: false, originKind: 'external',
+                externalSource: {
+                    version: 1,
+                    sourceId: source.sourceId,
+                    provider: source.provider,
+                    baselineDigest: baselineDigest,
+                    firstFetchedAt: now,
+                    lastUsedAt: now,
+                    lastRemoteState: 'unchanged'
+                }
+            };
+            if (source.strongEtag) entry.externalSource.strongEtag = source.strongEtag;
+            var lib = getLibrary();
+            lib.push(entry);
+            saveProjectLibraryStrict(lib);
+            committedEntry = entry;
+        } catch (error) {
+            if (wroteBytes && window.XmilStorage) {
+                try { await window.XmilStorage.remove(key); } catch (_) {}
+            }
+            try {
+                var rollbackLibrary = getLibrary().filter(function(candidate) { return candidate.key !== key; });
+                saveProjectLibraryStrict(rollbackLibrary);
+            } catch (_) {}
+            throw error;
+        }
+        updateStatus('外部メディアを保存しました: ' + file.name);
+        renderLibraryList();
+        updateCapacityDisplay();
+        return committedEntry;
     }
 
     // ライブラリからスロットにマウント
@@ -1008,7 +1144,34 @@
         if (projectDiskTransaction) throw new Error('X1Penプロジェクトディスクの更新中はメディアを変更できません');
         var entry = getLibrary().find(function(e) { return e.key === key; });
         if (!entry) return;
-        if (!confirm('"' + entry.name + '" をライブラリから削除しますか？\nマウント中の場合は自動的にイジェクトされます。')) return;
+
+        if (isExternalLibraryEntry(entry)) {
+            for (var mountedSlot in slotState) {
+                if (slotState[mountedSlot] === key) {
+                    alert('外部メディアを削除する前に ' + mountedSlot + ' からイジェクトしてください。\nゲーム内の書込みを保存してから削除状態を確認します。');
+                    return;
+                }
+            }
+            var changedOrUnknown = true;
+            updateStatus('外部メディアの保存データを確認中: ' + entry.name);
+            try {
+                var currentData = window.XmilStorage ? await window.XmilStorage.read(key) : null;
+                if (currentData && entry.externalSource.baselineDigest) {
+                    changedOrUnknown = (await sha256Hex(currentData)) !== entry.externalSource.baselineDigest;
+                }
+            } catch (_) {
+                changedOrUnknown = true;
+            }
+            var externalWarning = changedOrUnknown
+                ? '取得後の書込みまたはゲーム内セーブが含まれている可能性があります。\n削除すると復元できません。先にダウンロードして保全してください。'
+                : 'ブラウザに保存された外部メディアを削除します。削除すると復元できません。';
+            if (!confirm('"' + entry.name + '" を削除しますか？\n\n' + externalWarning)) {
+                updateStatus('外部メディアの削除を中止しました');
+                return;
+            }
+        } else if (!confirm('"' + entry.name + '" をライブラリから削除しますか？\nマウント中の場合は自動的にイジェクトされます。')) {
+            return;
+        }
 
         // マウント中なら先にeject
         for (var sn in slotState) {
@@ -1111,6 +1274,8 @@
             } else {
                 await flushVfsToStorage(slotVfsPath[slotName], slotState[slotName]);
             }
+
+            await syncExternalLibraryEntrySize(slotState[slotName]);
 
             if ((slotDirtyEpoch[slotName] || 0) === epochAtStart) {
                 slotDirty[slotName] = false;
@@ -2507,7 +2672,7 @@
                 if (action === 'emm-edit') {
                     var slotNum = parseInt(btn.dataset.slot, 10);
                     var emmFileName = 'EMM' + slotNum + '.MEM';
-                    var emmEntry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === emmFileName; });
+                    var emmEntry = getVisibleLibrary().find(function(e) { return e.type === 'emm' && e.name === emmFileName; });
                     if (emmEntry && window.XmilDiskEditor) window.XmilDiskEditor.openEditor(emmEntry.key);
                 }
             });
@@ -3506,13 +3671,13 @@
         var filter = activeBtn ? activeBtn.dataset.type : 'all';
         currentLibraryFilter = filter;
 
-        // 「＋ 追加」ボタン: EMM タブ時は非表示
+        // 「＋ 追加」ボタン: EMM / 外部タブ時は非表示
         var addBtn = document.getElementById('lib-add-btn');
-        if (addBtn) addBtn.classList.toggle('hidden', filter === 'emm');
+        if (addBtn) addBtn.classList.toggle('hidden', filter === 'emm' || filter === 'external');
 
         // ★ フィルタボタン / ツールバー: EMM タブ時は非表示
         var favFilterBtn = document.getElementById('lib-fav-filter');
-        if (favFilterBtn) favFilterBtn.classList.toggle('hidden', filter === 'emm');
+        if (favFilterBtn) favFilterBtn.classList.toggle('hidden', filter === 'emm' || filter === 'external');
         var toolbar = document.getElementById('lib-toolbar');
         if (toolbar) toolbar.classList.toggle('hidden', filter === 'emm');
 
@@ -3523,10 +3688,16 @@
         }
 
         var lib = getLibrary();
-        var filtered = filter === 'all' ? lib : lib.filter(function(e) { return e.type === filter; });
+        var filtered;
+        if (filter === 'external') {
+            filtered = lib.filter(isExternalLibraryEntry);
+        } else {
+            var visible = lib.filter(function(entry) { return !isExternalLibraryEntry(entry); });
+            filtered = filter === 'all' ? visible : visible.filter(function(e) { return e.type === filter; });
+        }
 
         // お気に入りフィルタ
-        if (currentFavoritesOnly) {
+        if (currentFavoritesOnly && filter !== 'external') {
             filtered = filtered.filter(function(e) { return !!e.favorite; });
         }
         // テキスト検索フィルタ
@@ -3542,7 +3713,9 @@
                 ? '一致するファイルがありません'
                 : (currentFavoritesOnly
                     ? 'お気に入りに登録されたファイルがありません'
-                    : 'ライブラリにファイルがありません<br><small>「＋ 追加」からファイルを追加してください</small>');
+                    : (filter === 'external'
+                        ? '外部メディアは保存されていません<br><small>公開メディア起動URLを開くと、ここに永続保存されます</small>'
+                        : 'ライブラリにファイルがありません<br><small>「＋ 追加」からファイルを追加してください</small>'));
             listEl.innerHTML = '<div class="lib-empty">' + emptyMsg + '</div>';
             return;
         }
@@ -3594,21 +3767,28 @@
                 }
             }
 
+            var external = isExternalLibraryEntry(entry);
             var favClass = entry.favorite ? ' favorited' : '';
             var favIcon  = entry.favorite ? '★' : '☆';
 
             html += '<div class="lib-row' + (isMounted ? ' mounted' : '') + '">';
-            html += '<button class="lib-fav-btn' + favClass + '" data-action="toggle-fav" data-key="' + ek + '" title="お気に入り">' + favIcon + '</button>';
+            if (!external) html += '<button class="lib-fav-btn' + favClass + '" data-action="toggle-fav" data-key="' + ek + '" title="お気に入り">' + favIcon + '</button>';
             html += '<span class="lib-type-badge ' + typeClass + '">' + typeBadge + '</span>';
             html += '<span class="lib-file-name" title="' + en + '">' + en + '</span>';
+            if (external) {
+                var providerLabel = entry.externalSource.provider === 'google-drive' ? 'Google Drive' : 'Dropbox';
+                var remoteState = entry.externalSource.lastRemoteState || 'unknown';
+                var stateLabel = remoteState === 'unchanged' ? '配布元一致' : (remoteState === 'changed' ? '配布元変更' : '更新未確認');
+                html += '<span class="lib-external-meta">' + providerLabel + ' / ' + stateLabel + '</span>';
+            }
             html += '<span class="lib-file-size">' + sizeMb + 'MB</span>';
             html += '<div class="lib-row-btns">' + mountBtns;
-            if (entry.type === 'fdd' || entry.type === 'hdd' || entry.type === 'emm') {
+            if (!external && (entry.type === 'fdd' || entry.type === 'hdd' || entry.type === 'emm')) {
                 html += '<button class="lib-edit-btn" data-action="edit" data-key="' + ek + '" title="ディスク編集">&#x270E;</button>';
             }
             html += '<button class="lib-dl-btn" data-action="download" data-key="' + ek + '" data-name="' + en + '" title="ダウンロード">⬇</button>';
-            html += '<button class="lib-del-btn" data-action="delete" data-key="' + ek + '" title="削除">🗑</button>';
-            html += '<button class="lib-drive-save-btn hidden" data-action="drive-save" data-key="' + ek + '" title="Google Driveへ保存">☁</button>';
+            html += '<button class="lib-del-btn" data-action="delete" data-key="' + ek + '" title="削除"' + (external && isMounted ? ' disabled' : '') + '>🗑</button>';
+            if (!external) html += '<button class="lib-drive-save-btn hidden" data-action="drive-save" data-key="' + ek + '" title="Google Driveへ保存">☁</button>';
             html += '</div></div>';
         });
         listEl.innerHTML = html;
@@ -3903,6 +4083,7 @@
     // X1Pen 用: ライブラリ内部関数を公開
     window.XmilLibrary = {
         addToLibrary: addToLibrary,
+        addRemoteToLibrary: addRemoteToLibrary,
         mountFromLibrary: mountFromLibrary,
         downloadFromLibrary: downloadFromLibrary,
         deleteFromLibrary: deleteFromLibrary,
@@ -4454,7 +4635,8 @@
                     var allEntries = await window.XmilStorage.list();
                     for (var j = 0; j < allEntries.length; j++) {
                         var k = allEntries[j].key;
-                        if (k.indexOf('lib_') === 0 || k.indexOf('state_') === 0 || KNOWN_SLOTS.indexOf(k) !== -1) {
+                        if (k.indexOf('lib_') === 0 || k.indexOf('remote_') === 0
+                            || k.indexOf('state_') === 0 || KNOWN_SLOTS.indexOf(k) !== -1) {
                             try { await window.XmilStorage.remove(k); } catch(e) {}
                         }
                     }
@@ -4475,6 +4657,7 @@
     // 外部から内部オブジェクトを直接書き換えられないよう浅いコピーを返す
     window.XmilCore = {
         addToLibrary:      addToLibrary,
+        addRemoteToLibrary: addRemoteToLibrary,
         detectFileType:    detectFileType,
         mountFromLibrary:  mountFromLibrary,
         ejectSlot:         ejectSlot,
@@ -4483,6 +4666,13 @@
         getSlotDirty:      function() { return Object.assign({}, slotDirty); },
         getSlotVfsPath:    function() { return Object.assign({}, slotVfsPath); },
         getLibrary:        getLibrary,
+        getVisibleLibrary: getVisibleLibrary,
+        getExternalLibrary: getExternalLibrary,
+        findRemoteLibraryEntry: findRemoteLibraryEntry,
+        inspectRemoteLibraryEntry: inspectRemoteLibraryEntry,
+        removeRemoteLibraryMetadata: removeRemoteLibraryMetadata,
+        touchRemoteLibraryEntry: touchRemoteLibraryEntry,
+        syncExternalLibraryEntrySize: syncExternalLibraryEntrySize,
         saveLibrary:       saveLibrary,
         renderLibraryList: renderLibraryList,
         updateStatus:      updateStatus,

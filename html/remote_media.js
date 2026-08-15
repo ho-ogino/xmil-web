@@ -86,7 +86,7 @@
             if (resourceKey && !validateOpaque(resourceKey, 1)) {
                 fail('INVALID_URL', 'Google Drive resourcekeyの形式が正しくありません');
             }
-            return { provider: 'google-drive', filename: null };
+            return { provider: 'google-drive', filename: null, sourceIdentity: 'google-drive:' + id };
         }
 
         if (host === 'dropbox.com' || host === 'www.dropbox.com') {
@@ -99,7 +99,8 @@
             if (relayKey && !validateOpaque(relayKey, 1)) fail('INVALID_URL', 'Dropbox rlkeyの形式が正しくありません');
             var filename = '';
             try { filename = decodeURIComponent(segments[segments.length - 1]); } catch (_) {}
-            return { provider: 'dropbox', filename: sanitizeFilename(filename) || null };
+            return { provider: 'dropbox', filename: sanitizeFilename(filename) || null,
+                sourceIdentity: 'dropbox:' + segments[idIndex] };
         }
         fail('SOURCE_NOT_ALLOWED', 'Google DriveまたはDropboxの公開共有URLだけを指定できます');
     }
@@ -204,6 +205,22 @@
         historyObject.replaceState(null, '', locationObject.pathname + locationObject.search);
     }
 
+    async function sha256Hex(value) {
+        var digest = await root.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+        return Array.from(new Uint8Array(digest)).map(function(byte) {
+            return byte.toString(16).padStart(2, '0');
+        }).join('');
+    }
+
+    async function sourceIdForUrl(value) {
+        return sha256Hex(inspectShareUrl(value).sourceIdentity);
+    }
+
+    function normalizeStrongEtag(value) {
+        return typeof value === 'string' && value.length <= 256 && /^"[\x21\x23-\x7e]*"$/.test(value)
+            ? value : null;
+    }
+
     function decodeRelayFilename(response) {
         var encoded = response.headers.get('X-Disk-Filename');
         if (!encoded) fail('MISSING_FILENAME', '取得したファイル名を確認できませんでした');
@@ -296,9 +313,65 @@
 
         var successes = [];
         var failures = [];
+        var mostImportantRemoteState = null;
         for (var i = 0; i < intent.items.length; i++) {
             var item = intent.items[i];
             try {
+                var inspected = inspectShareUrl(item.url);
+                var sourceId = await sourceIdForUrl(item.url);
+                var stored = null;
+                if (core && typeof core.inspectRemoteLibraryEntry === 'function') {
+                    var storageState = await core.inspectRemoteLibraryEntry(sourceId);
+                    if (storageState.state === 'missing') {
+                        if (typeof core.removeRemoteLibraryMetadata === 'function') {
+                            core.removeRemoteLibraryMetadata(sourceId);
+                        }
+                    } else if (storageState.state === 'size-mismatch') {
+                        fail('REMOTE_STORAGE_DAMAGED', '保存済み外部メディアのサイズが一致しません。セーブデータ保護のため自動取得を中止しました');
+                    } else if (storageState.state === 'unavailable') {
+                        fail('REMOTE_STORAGE_UNAVAILABLE', '保存済み外部メディアを確認できませんでした');
+                    } else if (storageState.state === 'ready') {
+                        stored = storageState.entry;
+                    }
+                } else if (core && typeof core.findRemoteLibraryEntry === 'function') {
+                    stored = core.findRemoteLibraryEntry(sourceId);
+                }
+
+                if (stored) {
+                    var storedExpectedType = expectedTypeFor(item);
+                    if (item.slot && storedExpectedType && stored.type !== storedExpectedType) {
+                        fail('MEDIA_TYPE_MISMATCH', '保存済み外部メディアの形式と挿入先が一致しません');
+                    }
+                    var remoteState = 'unknown';
+                    var strongEtag = normalizeStrongEtag(stored.externalSource && stored.externalSource.strongEtag);
+                    if (strongEtag) {
+                        try {
+                            var probeResponse = await fetchImpl('/api/disk-relay', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ url: item.url, probe: true, strongEtag: strongEtag })
+                            });
+                            if (probeResponse.ok) {
+                                var probeBody = await probeResponse.json();
+                                if (probeBody && ['unchanged', 'changed', 'unknown'].indexOf(probeBody.state) >= 0) {
+                                    remoteState = probeBody.state;
+                                }
+                            }
+                        } catch (_) {
+                            remoteState = 'unknown';
+                        }
+                    }
+                    if (core && typeof core.touchRemoteLibraryEntry === 'function') {
+                        stored = core.touchRemoteLibraryEntry(sourceId, remoteState) || stored;
+                    }
+                    if (item.slot) await core.mountFromLibrary(stored.key, item.slot);
+                    successes.push({ entry: stored, slot: item.slot, filename: stored.name,
+                        reused: true, remoteState: remoteState });
+                    if (remoteState === 'changed') mostImportantRemoteState = 'changed';
+                    else if (remoteState === 'unknown' && mostImportantRemoteState !== 'changed') mostImportantRemoteState = 'unknown';
+                    continue;
+                }
+
                 if (core && core.updateStatus) {
                     core.updateStatus('公開ファイルを取得中 (' + (i + 1) + '/' + intent.items.length + ')');
                 }
@@ -312,11 +385,17 @@
                 });
                 if (!response.ok) throw await responseError(response);
                 var filename = decodeRelayFilename(response);
-                var library = core && typeof core.getLibrary === 'function' ? core.getLibrary() : [];
-                filename = uniqueImportFilename(filename, library);
+                var relayEtag = normalizeStrongEtag(response.headers.get('X-Disk-ETag'));
                 var bytes = await response.arrayBuffer();
                 var file = new FileCtor([bytes], filename, { type: 'application/octet-stream' });
-                var entry = await core.addToLibrary(file);
+                if (!core || typeof core.addRemoteToLibrary !== 'function') {
+                    fail('REMOTE_STORAGE_UNAVAILABLE', '外部メディア用ストレージを利用できません');
+                }
+                var entry = await core.addRemoteToLibrary(file, {
+                    sourceId: sourceId,
+                    provider: inspected.provider,
+                    strongEtag: relayEtag
+                });
                 if (!entry) {
                     var mediaType = detectMediaType(filename);
                     var limit = mediaType ? TYPE_LIMITS[mediaType] : null;
@@ -324,14 +403,22 @@
                         + (limit ? '（' + limit + 'MiB上限）' : ''));
                 }
                 if (item.slot) await core.mountFromLibrary(entry.key, item.slot);
-                successes.push({ entry: entry, slot: item.slot, filename: filename });
+                successes.push({ entry: entry, slot: item.slot, filename: filename,
+                    reused: false, remoteState: 'unchanged' });
             } catch (error) {
                 failures.push({ index: i, slot: item.slot, error: error });
             }
         }
 
         if (core && core.updateStatus) {
-            var summary = '公開URLから ' + successes.length + '件を追加';
+            var reusedCount = successes.filter(function(item) { return item.reused; }).length;
+            var addedCount = successes.length - reusedCount;
+            var summary = '外部メディア: ' + addedCount + '件を保存、' + reusedCount + '件を保存済みから使用';
+            if (mostImportantRemoteState === 'changed') {
+                summary += '。配布元が前回取得時から変更されています。ゲーム内セーブを含む可能性がある保存済みディスクを上書きせず使用しました';
+            } else if (mostImportantRemoteState === 'unknown') {
+                summary += '。配布元の更新を確認できませんでした。上書きによるゲーム内セーブ消失を避け、保存済みディスクを使用しました';
+            }
             if (failures.length) summary += '、' + failures.length + '件失敗: ' + addFailureMessage(failures[0].error);
             core.updateStatus(summary);
         }
@@ -343,6 +430,7 @@
         sanitizeFilename: sanitizeFilename,
         detectMediaType: detectMediaType,
         inspectShareUrl: inspectShareUrl,
+        sourceIdForUrl: sourceIdForUrl,
         validateItems: validateItems,
         encodeIntent: encodeIntent,
         decodeIntent: decodeIntent,

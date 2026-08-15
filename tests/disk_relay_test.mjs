@@ -6,8 +6,10 @@ import {
   detectMediaType,
   handleRelayRequest,
   normalizeSourceUrl,
+  normalizeStrongEtag,
   parseContentDispositionFilename,
   relayDiskImage,
+  probeDiskImage,
   sanitizeFilename,
 } from '../functions/_lib/disk-relay.js';
 
@@ -89,6 +91,55 @@ test('successful relay emits no-store headers and round-trips a Unicode filename
   assert.match(response.headers.get('Content-Disposition'), /filename="_+\.D88"/);
   assert.match(response.headers.get('Content-Disposition'), /filename\*=UTF-8''/);
   assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([1, 2, 3]));
+});
+
+test('download exposes only safe strong ETags', async () => {
+  assert.equal(normalizeStrongEtag('"stable-123"'), '"stable-123"');
+  assert.equal(normalizeStrongEtag('W/"weak"'), null);
+  assert.equal(normalizeStrongEtag('"bad\nvalue"'), null);
+
+  const strong = await relayDiskImage({
+    sourceUrl: googleUrl,
+    fetchImpl: async () => binaryResponse(new Uint8Array([1]), 'DISK.D88', { ETag: '"stable-123"' }),
+  });
+  assert.equal(strong.headers.get('X-Disk-ETag'), '"stable-123"');
+  await strong.body.cancel();
+
+  const weak = await relayDiskImage({
+    sourceUrl: googleUrl,
+    fetchImpl: async () => binaryResponse(new Uint8Array([1]), 'DISK.D88', { ETag: 'W/"weak"' }),
+  });
+  assert.equal(weak.headers.get('X-Disk-ETag'), null);
+  await weak.body.cancel();
+});
+
+test('header-only probe reports unchanged, changed, or unknown and cancels content', async () => {
+  for (const [etag, expected] of [['"v1"', 'unchanged'], ['"v2"', 'changed'], [null, 'unknown']]) {
+    let cancelled = false;
+    const response = await probeDiskImage({
+      sourceUrl: googleUrl,
+      strongEtag: '"v1"',
+      fetchImpl: async () => new Response(new ReadableStream({
+        pull(controller) { controller.enqueue(new Uint8Array([1, 2, 3])); },
+        cancel() { cancelled = true; },
+      }), { headers: etag ? { ETag: etag } : {} }),
+    });
+    assert.deepEqual(await response.json(), { state: expected });
+    assert.equal(cancelled, true);
+  }
+});
+
+test('HTTP probe validates its contract and never echoes the source', async () => {
+  const response = await handleRelayRequest({
+    request: relayRequest({ url: googleUrl, probe: true, strongEtag: '"v1"' }),
+    fetchImpl: async () => binaryResponse(new Uint8Array([9]), 'DISK.D88', { ETag: '"v1"' }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { state: 'unchanged' });
+
+  const invalid = await handleRelayRequest({ request: relayRequest({ url: googleUrl, probe: true, strongEtag: 'W/"v1"' }) });
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).error, 'INVALID_ETAG');
 });
 
 test('redirects are checked at every hop and cannot cross providers', async () => {
