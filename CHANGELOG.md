@@ -1,5 +1,11 @@
 # Changelog
 
+## X1Pen Web 0.9.2
+
+- Share URLを開いたページを一時的なShare modeとして隔離し、保存済みのsourceやmediaを復元・変更せず、保存済みmediaのmountも拒否するようにしました。
+- 保存済みのFDD、HDD、CMT、EMMが挿入されている間はShare URLの生成を拒否するようにしました。一時的なPROGRAM diskは引き続きShareできます。
+- Webのみのパッチリリースです。x1pen-mcp 2.7.0とX1Pen Connector 1.3.0に変更はなく、再公開・再提出は不要です。
+
 ## X1Pen Web 0.9.1
 
 - 24kHzアンダーライン対応テキスト経路で、ANK、8-dot PCG、16-dot PCG、ROM漢字の下部がクリッピングされる問題を修正しました。
