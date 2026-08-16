@@ -14,6 +14,26 @@
     let fddLedTimers = [null, null];  // per-drive LED 消灯タイマー
     let fddDiskType = [null, null];   // 'null' | '2d' | '2hd' per drive
 
+    // Public media URLs may select a MODEL for this document only.  Keep the
+    // override in memory so it can never replace the user's persistent choice.
+    var launchModelOverride = null;
+    if (!window.__X1PEN_MODE && window.XmilRemoteMedia
+        && typeof window.XmilRemoteMedia.readLaunchModel === 'function') {
+        launchModelOverride = window.XmilRemoteMedia.readLaunchModel(window.location);
+    }
+    var existingLaunchModel = Object.getOwnPropertyDescriptor(window, '__XMIL_LAUNCH_MODEL');
+    if (existingLaunchModel) {
+        launchModelOverride = Number.isInteger(existingLaunchModel.value)
+            && existingLaunchModel.value >= 1 && existingLaunchModel.value <= 3
+            ? existingLaunchModel.value : null;
+    } else if (launchModelOverride) {
+        Object.defineProperty(window, '__XMIL_LAUNCH_MODEL', {
+            value: launchModelOverride,
+            writable: false,
+            configurable: false
+        });
+    }
+
     // ----------------------------------------------------------------
     // ファイルライブラリ: スロット状態
     // slotName: 'drive0', 'drive1', 'hdd0', 'hdd1', 'cmt', 'emm0'..'emm9'
@@ -1986,6 +2006,11 @@
     // ----------------------------------------------------------------
     function saveSettings() {
         try {
+            var previousSettings = {};
+            try {
+                var previousRaw = localStorage.getItem(LS_SETTINGS);
+                previousSettings = previousRaw ? JSON.parse(previousRaw) : {};
+            } catch(_) {}
             var settings = {
                 romType: (function() {
                     var c = document.querySelector('input[name="rom-type"]:checked');
@@ -2008,6 +2033,13 @@
                 })(),
                 libSort: currentLibrarySort
             };
+            if (launchModelOverride) {
+                if (Object.prototype.hasOwnProperty.call(previousSettings, 'romType')) {
+                    settings.romType = previousSettings.romType;
+                } else {
+                    delete settings.romType;
+                }
+            }
             localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
         } catch(e) {
             console.warn('saveSettings failed:', e);
@@ -2051,6 +2083,18 @@
             }
         } catch(e) {
             console.warn('loadSettings failed:', e);
+        }
+    }
+
+    function applyLaunchModelOverrideToUi() {
+        if (!launchModelOverride || !elements.romTypeRadios) return;
+        elements.romTypeRadios.forEach(function(radio) {
+            radio.checked = (parseInt(radio.value, 10) === launchModelOverride);
+            radio.disabled = true;
+        });
+        var note = document.querySelector('.cfg-model-note');
+        if (note) {
+            note.textContent = '※ URL指定（一時・保存設定は変更しません。通常設定へ戻すにはURLからmodelを外して開き直します）';
         }
     }
 
@@ -3214,6 +3258,7 @@
         skInitKeyFaces();
 
         loadSettings();
+        applyLaunchModelOverrideToUi();
         syncModelBtnActive();
         syncKeyModeBtnActive();
         syncToggleItems();
@@ -3866,7 +3911,9 @@
         try {
             var raw = localStorage.getItem(LS_SETTINGS);
             var settings = raw ? JSON.parse(raw) : {};
-            Object.assign(settings, overrides);
+            var filtered = Object.assign({}, overrides);
+            if (launchModelOverride) delete filtered.romType;
+            Object.assign(settings, filtered);
             localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
         } catch(e) { console.warn('saveSettingsDirect failed:', e); }
     }
@@ -3905,6 +3952,7 @@
 
         // 設定変更 (C export + localStorage 永続化)
         setRomType: function(v) {
+            if (launchModelOverride) return;
             if (module && module._js_set_rom_type) module._js_set_rom_type(v);
             saveSettingsDirect({ romType: v });
         },
@@ -4399,6 +4447,10 @@
     function onRomTypeChange() {
         syncModelBtnActive();
         if (!module || !module._js_set_rom_type) return;
+        if (launchModelOverride) {
+            module._js_set_rom_type(launchModelOverride);
+            return;
+        }
         var checked = document.querySelector('input[name="rom-type"]:checked');
         if (checked) module._js_set_rom_type(parseInt(checked.value, 10));
     }

@@ -206,6 +206,9 @@ int main(int argc, char** argv) {
     // xmil_init() → x1r_init() → reset_x1() より前に実行する必要がある
     // （さもないと初回起動時にデフォルト ROM_TYPE=1(X1) で起動してしまう）
     xmilcfg.ROM_TYPE = (BYTE)EM_ASM_INT({
+        var launchModel = window.__XMIL_LAUNCH_MODEL;
+        if (Number.isInteger(launchModel) && launchModel >= 1 && launchModel <= 3)
+            return launchModel;
         try {
             var s = JSON.parse(localStorage.getItem('xmil_settings') || '{}');
             return (s.romType >= 1 && s.romType <= 3) ? s.romType : 1;

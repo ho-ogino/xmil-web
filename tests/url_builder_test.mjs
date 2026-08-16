@@ -73,7 +73,14 @@ after(async () => {
 test('URL Builder validates inputs and emits a fragment-only launch intent', async () => {
   await page.goto(`${baseUrl}/url-builder.html`);
   assert.match(await page.locator('label[for="library"]').textContent(), /URL入力/);
-  assert.match(await page.locator('#library + .hint').textContent(), /EXTERNAL.*同じ共有元.*再利用/);
+  assert.match(await page.locator('#library + .hint').textContent(), /EXTERNAL.*同じ共有元.*再利用.*EMM0\.MEM.*固定名/);
+  assert.match(await page.locator('#about-heading').locator('..').textContent(), /EMMの直接入力欄はなく.*EXTERNAL/);
+  assert.equal(await page.locator('#model').inputValue(), '');
+  await page.locator('#model').selectOption('x1turboz');
+  await page.waitForFunction(() => document.querySelector('#status').textContent.includes('メディアURLを1件以上'));
+  assert.equal(await page.locator('#result').inputValue(), '');
+  assert.equal(await page.locator('#copy').isDisabled(), true);
+
   const source = 'https://www.dropbox.com/scl/fi/AbCdEf123456/DISK.D88?rlkey=Key_123&dl=0';
   await page.locator('#drive0').fill(source);
   await assert.doesNotReject(() => page.locator('#result').waitFor({ state: 'visible' }));
@@ -82,13 +89,15 @@ test('URL Builder validates inputs and emits a fragment-only launch intent', asy
   const launchUrl = await page.locator('#result').inputValue();
   const parsed = new URL(launchUrl);
   assert.equal(parsed.pathname, '/xmillennium.html');
-  assert.equal(parsed.search, '');
+  assert.equal(parsed.searchParams.get('model'), 'x1turboz');
+  assert.deepEqual(parsed.searchParams.getAll('model'), ['x1turboz']);
   assert.doesNotMatch(parsed.search, /dropbox|rlkey/);
   assert.match(parsed.hash, /^#media=[A-Za-z0-9_-]+$/);
 
   const intent = await page.evaluate((encoded) => window.XmilRemoteMedia.decodeIntent(encoded),
     parsed.hash.slice('#media='.length));
   assert.equal(JSON.stringify(intent.items), JSON.stringify([{ url: source, slot: 'drive0' }]));
+  assert.match(await page.locator('#status').textContent(), /MODEL: X1turboZ.*このタブのみ/s);
   assert.equal(await page.locator('#copy').isEnabled(), true);
   assert.equal(await page.locator('#open').getAttribute('href'), launchUrl);
 
@@ -100,6 +109,61 @@ test('URL Builder validates inputs and emits a fragment-only launch intent', asy
   await page.setViewportSize({ width: 390, height: 844 });
   const dimensions = await page.evaluate(() => ({ body: document.body.scrollWidth, viewport: innerWidth }));
   assert.ok(dimensions.body <= dimensions.viewport + 1, `horizontal overflow: ${dimensions.body} > ${dimensions.viewport}`);
+});
+
+test('URL MODEL is temporary across first boot, settings saves, reset, and normal navigation', { skip: !hasBuiltApp, timeout: 120_000 }, async () => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${baseUrl}/url-builder.html`);
+  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => localStorage.setItem('xmil_settings', JSON.stringify({ romType: 1, motorSound: true })));
+  const source = 'https://drive.google.com/file/d/ModelOverride123456/view';
+  const launchUrl = await page.evaluate(({ target, mediaUrl }) => window.XmilRemoteMedia.buildLaunchUrl(target, [
+    { url: mediaUrl, slot: null },
+  ], 'x1turboz'), { target: `${baseUrl}/xmillennium.html`, mediaUrl: source });
+
+  await page.unroute('**/api/disk-relay');
+  await page.route('**/api/disk-relay', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/octet-stream',
+    headers: { 'X-Disk-Filename': encodeURIComponent('MODELTEST.D88') },
+    body: Buffer.from([1, 2, 3, 4]),
+  }));
+  await page.goto(launchUrl);
+  await page.waitForFunction(() => window.Module?._js_get_rom_type?.() === 3, null, { timeout: 30_000 });
+  assert.equal(new URL(page.url()).searchParams.get('model'), 'x1turboz');
+  assert.equal(await page.locator('input[name="rom-type"]:checked').getAttribute('value'), '3');
+  assert.equal(await page.locator('input[name="rom-type"][value="3"]').isDisabled(), true);
+  assert.match(await page.locator('.cfg-model-note').textContent(), /URL指定.*保存設定は変更しません.*modelを外して/);
+  assert.deepEqual(await page.evaluate(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, '__XMIL_LAUNCH_MODEL');
+    return { value: descriptor.value, writable: descriptor.writable, configurable: descriptor.configurable };
+  }), { value: 3, writable: false, configurable: false });
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('xmil_settings')).romType), 1);
+
+  await page.locator('#cfg-motor-item').click();
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('xmil_settings')).romType), 1);
+  await page.evaluate(() => window.XmilControls.setRomType(1));
+  await page.evaluate(() => window.XmilControls.iplReset());
+  await page.waitForFunction(() => window.Module._js_get_rom_type() === 3);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('xmil_settings')).romType), 1);
+
+  await page.goto(`${baseUrl}/xmillennium.html`);
+  await page.waitForFunction(() => window.Module?._js_get_rom_type?.() === 1, null, { timeout: 30_000 });
+  assert.equal(await page.locator('input[name="rom-type"]:checked').getAttribute('value'), '1');
+  assert.equal(await page.locator('input[name="rom-type"][value="1"]').isDisabled(), false);
+
+  await page.goto(`${baseUrl}/url-builder.html`);
+  await page.evaluate(() => localStorage.clear());
+  const firstVisitUrl = await page.evaluate(({ target, mediaUrl }) => window.XmilRemoteMedia.buildLaunchUrl(target, [
+    { url: mediaUrl, slot: null },
+  ], 'x1turbo'), { target: `${baseUrl}/xmillennium.html`, mediaUrl: source });
+  await page.goto(firstVisitUrl);
+  await page.waitForFunction(() => window.Module?._js_get_rom_type?.() === 2, null, { timeout: 30_000 });
+  await page.locator('#cfg-motor-item').click();
+  const firstVisitSettings = await page.evaluate(() => JSON.parse(localStorage.getItem('xmil_settings')));
+  assert.equal(Object.hasOwn(firstVisitSettings, 'romType'), false);
+  await page.evaluate(() => localStorage.clear());
+  await page.unroute('**/api/disk-relay');
 });
 
 test('Relay-derived HTML-like filenames remain text in the real library DOM', { skip: !hasBuiltApp }, async () => {

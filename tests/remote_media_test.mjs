@@ -55,6 +55,32 @@ test('launch intent round-trips Unicode URLs without putting them in the query',
   assert.equal(JSON.stringify(decoded.items), JSON.stringify(items));
 });
 
+test('launch MODEL uses one canonical query value and normalizes the base URL', () => {
+  const { api } = loadRemoteMedia();
+  const items = [{ url: googleUrl, slot: 'drive0' }];
+  const selected = new URL(api.buildLaunchUrl(
+    './xmillennium.html?dev=1&model=x1&model=x1turbo', items, 'x1turboz',
+  ));
+  assert.equal(selected.searchParams.get('dev'), '1');
+  assert.deepEqual(selected.searchParams.getAll('model'), ['x1turboz']);
+  assert.equal(api.readLaunchModel(selected), 3);
+  assert.match(selected.hash, /^#media=/);
+
+  const unspecified = new URL(api.buildLaunchUrl(
+    './xmillennium.html?model=x1&model=x1turbo', items,
+  ));
+  assert.deepEqual(unspecified.searchParams.getAll('model'), []);
+  assert.equal(api.readLaunchModel(unspecified), null);
+
+  assert.equal(api.readLaunchModel({ search: '?model=x1' }), 1);
+  assert.equal(api.readLaunchModel({ search: '?model=x1turbo' }), 2);
+  assert.equal(api.readLaunchModel({ search: '?model=x1turboz' }), 3);
+  for (const search of ['', '?model=', '?model=3', '?model=X1turboZ', '?model=unknown', '?model=x1&model=x1turbo']) {
+    assert.equal(api.readLaunchModel({ search }), null, search);
+  }
+  assert.throws(() => api.buildLaunchUrl('./xmillennium.html', items, 'X1turboZ'), /MODEL/);
+});
+
 test('intent validation rejects unknown providers, duplicate slots/URLs, malformed data, and visible mismatches', () => {
   const { api } = loadRemoteMedia();
   assert.throws(() => api.validateItems([{ url: 'https://evil.example/DISK.D88', slot: 'drive0' }]), /Google Drive|Dropbox/);

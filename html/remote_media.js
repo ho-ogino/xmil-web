@@ -13,6 +13,7 @@
         cmt: 'cmt'
     };
     var TYPE_LIMITS = { fdd: 32, hdd: 64, cmt: 32, emm: 16 };
+    var MODEL_VALUES = { x1: 1, x1turbo: 2, x1turboz: 3 };
 
     function RemoteMediaError(code, message) {
         this.name = 'RemoteMediaError';
@@ -25,6 +26,24 @@
 
     function fail(code, message) {
         throw new RemoteMediaError(code, message);
+    }
+
+    function normalizeModelQuery(value) {
+        if (value == null || value === '') return null;
+        if (typeof value !== 'string' || !Object.prototype.hasOwnProperty.call(MODEL_VALUES, value)) {
+            fail('INVALID_MODEL', 'MODELの指定が正しくありません');
+        }
+        return value;
+    }
+
+    function readLaunchModel(locationObject) {
+        if (!locationObject || typeof locationObject.search !== 'string') return null;
+        var params = new URLSearchParams(locationObject.search);
+        var values = params.getAll('model');
+        if (values.length !== 1 || !Object.prototype.hasOwnProperty.call(MODEL_VALUES, values[0])) {
+            return null;
+        }
+        return MODEL_VALUES[values[0]];
     }
 
     function byteLength(value) {
@@ -186,8 +205,11 @@
         return { v: 1, items: validateItems(parsed.items) };
     }
 
-    function buildLaunchUrl(baseUrl, items) {
+    function buildLaunchUrl(baseUrl, items, model) {
         var url = new URL(baseUrl, root.location ? root.location.href : undefined);
+        url.searchParams.delete('model');
+        var normalizedModel = normalizeModelQuery(model);
+        if (normalizedModel) url.searchParams.set('model', normalizedModel);
         url.hash = 'media=' + encodeIntent(items);
         return url.href;
     }
@@ -435,10 +457,13 @@
         encodeIntent: encodeIntent,
         decodeIntent: decodeIntent,
         buildLaunchUrl: buildLaunchUrl,
+        normalizeModelQuery: normalizeModelQuery,
+        readLaunchModel: readLaunchModel,
         readIntentFromHash: readIntentFromHash,
         uniqueImportFilename: uniqueImportFilename,
         consumeLaunchRequest: consumeLaunchRequest,
         slotTypes: Object.freeze(Object.assign({}, SLOT_TYPES)),
+        modelValues: Object.freeze(Object.assign({}, MODEL_VALUES)),
         typeLimitsMiB: Object.freeze(Object.assign({}, TYPE_LIMITS))
     });
 })(typeof window !== 'undefined' ? window : globalThis);

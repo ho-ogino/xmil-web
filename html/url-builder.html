@@ -33,7 +33,7 @@ h1 { margin: 0; font-size: clamp(1.7rem, 5vw, 2.45rem); letter-spacing: .06em; }
 .field:last-child { margin-bottom: 0; }
 label { display: block; margin-bottom: 5px; color: #ffd2a0; font-weight: bold; }
 .hint { margin: 4px 0 0; color: rgba(255,255,255,.55); font-size: .8rem; }
-input[type=url], input[type=text] {
+input[type=url], input[type=text], select {
     width: 100%;
     padding: 10px 12px;
     color: #fff;
@@ -86,6 +86,17 @@ ul { padding-left: 1.3em; }
         <p class="fine">必要な欄だけ入力してください。Google Drive は「リンクを知っている全員」、Dropbox は単一ファイルの公開共有リンクが必要です。</p>
 
         <div class="field">
+            <label for="model">MODEL（任意・このURLで開いたタブのみ）</label>
+            <select id="model">
+                <option value="">利用者の保存設定（指定なし）</option>
+                <option value="x1">X1</option>
+                <option value="x1turbo">X1turbo</option>
+                <option value="x1turboz">X1turboZ</option>
+            </select>
+            <p class="hint">通常のMODEL設定は変更しません。URLから <code>model</code> を外して開き直すと、利用者の保存設定へ戻ります。</p>
+        </div>
+
+        <div class="field">
             <label for="drive0">FDD0</label>
             <input id="drive0" data-slot="drive0" type="url" spellcheck="false" autocomplete="off" placeholder="https://drive.google.com/file/d/.../view または https://www.dropbox.com/scl/fi/.../DISK.D88">
         </div>
@@ -108,7 +119,7 @@ ul { padding-left: 1.3em; }
         <div class="field">
             <label for="library">外部メディアとして保存のみ（任意・URL入力）</label>
             <input id="library" data-slot="" type="url" spellcheck="false" autocomplete="off">
-            <p class="hint">起動時にはスロットへ挿入しません。ブラウザ内へ永続保存し、ファイルライブラリの EXTERNAL タブから後で選択できます。同じ共有元は保存済み内容を再利用します。</p>
+            <p class="hint">起動時にはスロットへ挿入しません。ブラウザ内へ永続保存し、ファイルライブラリの EXTERNAL タブから後で選択できます。同じ共有元は保存済み内容を再利用します。EMMはこの欄へ <code>EMM0.MEM</code>〜<code>EMM9.MEM</code> の公開URLを入力し、EXTERNALから固定名に対応するスロットへ挿入します。</p>
         </div>
 
         <div id="status" class="status" aria-live="polite"></div>
@@ -132,7 +143,7 @@ ul { padding-left: 1.3em; }
         <ul>
             <li>共有元URLは生成URLの <code>#media=...</code> 部分に入り、ページを開いた時点ではサーバーへ送信されません。X millennium Webは起動直後にこの部分を画面URLから消去します。</li>
             <li>取得操作では共有URLとファイルデータが同一サイトのCloudflare Relayを一時的に通過します。Relayはファイル、共有URL、ファイル名を永続保存しません。</li>
-            <li>対応形式と実効上限は、FDD: D88/2D/88D（32MiB）、HDD: HDD/HD（64MiB）、CMT: CAS/CMT/TAP/BAS/BIN（32MiB）、ライブラリ追加のEMM: <code>EMM0.MEM</code>〜<code>EMM9.MEM</code>（16MiB）です。</li>
+            <li>対応形式と実効上限は、FDD: D88/2D/88D（32MiB）、HDD: HDD/HD（64MiB）、CMT: CAS/CMT/TAP/BAS/BIN（32MiB）、保存のみ欄から追加するEMM: <code>EMM0.MEM</code>〜<code>EMM9.MEM</code>（16MiB）です。EMMの直接入力欄はなく、起動後にEXTERNALタブから挿入します。</li>
             <li>Google DriveリンクはURLにファイル名がないため、形式は実際に開いた後で確認されます。Google側がウイルススキャン確認ページを要求する大容量ファイルはMVPでは取得できません。</li>
             <li>自分が利用・共有する権利を持つファイルだけを指定してください。非公開ファイル、フォルダー共有、OneDrive、ZIP/LZH、任意のWeb URLには対応していません。</li>
         </ul>
@@ -148,6 +159,7 @@ ul { padding-left: 1.3em; }
     var result = document.getElementById('result');
     var open = document.getElementById('open');
     var copy = document.getElementById('copy');
+    var model = document.getElementById('model');
     var status = document.getElementById('status');
     var error = document.getElementById('error');
     var timer = null;
@@ -172,11 +184,12 @@ ul { padding-left: 1.3em; }
         var items = currentItems();
         if (!items.length) {
             disableResult();
+            if (model.value) status.textContent = 'メディアURLを1件以上入力してください。';
             return;
         }
         try {
             window.XmilRemoteMedia.validateItems(items);
-            var launchUrl = window.XmilRemoteMedia.buildLaunchUrl('./xmillennium.html', items);
+            var launchUrl = window.XmilRemoteMedia.buildLaunchUrl('./xmillennium.html', items, model.value);
             result.value = launchUrl;
             open.href = launchUrl;
             open.classList.remove('disabled');
@@ -186,6 +199,7 @@ ul { padding-left: 1.3em; }
                 return window.XmilRemoteMedia.inspectShareUrl(item.url).provider === 'google-drive';
             }).length;
             status.textContent = items.length + '件の起動URLを生成しました。'
+                + (model.value ? '\nMODEL: ' + model.options[model.selectedIndex].textContent + '（このタブのみ）' : '')
                 + (googleCount ? '\nGoogle Driveのファイル形式は開いた後に確認されます。' : '');
         } catch (e) {
             disableResult();
@@ -199,6 +213,7 @@ ul { padding-left: 1.3em; }
             timer = setTimeout(update, 180);
         });
     });
+    model.addEventListener('change', update);
 
     copy.addEventListener('click', async function() {
         if (!result.value) return;
