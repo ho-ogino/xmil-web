@@ -14,6 +14,26 @@
     let fddLedTimers = [null, null];  // per-drive LED 消灯タイマー
     let fddDiskType = [null, null];   // 'null' | '2d' | '2hd' per drive
 
+    // Public media URLs may select a MODEL for this document only.  Keep the
+    // override in memory so it can never replace the user's persistent choice.
+    var launchModelOverride = null;
+    if (!window.__X1PEN_MODE && window.XmilRemoteMedia
+        && typeof window.XmilRemoteMedia.readLaunchModel === 'function') {
+        launchModelOverride = window.XmilRemoteMedia.readLaunchModel(window.location);
+    }
+    var existingLaunchModel = Object.getOwnPropertyDescriptor(window, '__XMIL_LAUNCH_MODEL');
+    if (existingLaunchModel) {
+        launchModelOverride = Number.isInteger(existingLaunchModel.value)
+            && existingLaunchModel.value >= 1 && existingLaunchModel.value <= 3
+            ? existingLaunchModel.value : null;
+    } else if (launchModelOverride) {
+        Object.defineProperty(window, '__XMIL_LAUNCH_MODEL', {
+            value: launchModelOverride,
+            writable: false,
+            configurable: false
+        });
+    }
+
     // ----------------------------------------------------------------
     // ファイルライブラリ: スロット状態
     // slotName: 'drive0', 'drive1', 'hdd0', 'hdd1', 'cmt', 'emm0'..'emm9'
@@ -22,6 +42,7 @@
     const slotDirty         = { drive0: false, drive1: false, hdd0: false, hdd1: false, cmt: false, emm0: false, emm1: false, emm2: false, emm3: false, emm4: false, emm5: false, emm6: false, emm7: false, emm8: false, emm9: false };
     const slotFlushInFlight = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
     const slotVfsPath       = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
+    const slotEphemeral     = { drive0: false, drive1: false, hdd0: false, hdd1: false, cmt: false, emm0: false, emm1: false, emm2: false, emm3: false, emm4: false, emm5: false, emm6: false, emm7: false, emm8: false, emm9: false };
 
     const slotDirtyPages = {};     // slotName → Set<pageIndex> (64KB pages for OPFS partial write)
     const slotDirtyEpoch = {};     // slotName → number (incremented per write, for safe dirty clearing)
@@ -30,6 +51,52 @@
 
     function isEphemeralX1PenShare() {
         return window.__X1PEN_EPHEMERAL_SHARE === true;
+    }
+
+    function hasMediaHashParameter(locationObject) {
+        var hash = locationObject && typeof locationObject.hash === 'string'
+            ? locationObject.hash.slice(1) : '';
+        return !!hash && new URLSearchParams(hash).has('media');
+    }
+
+    // The presence of the media key, not successful decoding, defines the clean
+    // mount session.  Latch it once for this document so malformed requests also
+    // fail closed and later history events cannot re-enable persistent mounts.
+    var cleanTemporaryMediaSession = !window.__X1PEN_MODE
+        && hasMediaHashParameter(window.location);
+    Object.defineProperty(window, '__XMIL_TEMPORARY_MEDIA_SESSION', {
+        value: cleanTemporaryMediaSession,
+        writable: false,
+        configurable: false
+    });
+
+    function suppressMountPersistence() {
+        return isEphemeralX1PenShare() || cleanTemporaryMediaSession;
+    }
+
+    function isEphemeralKey(key) {
+        return key === '__x1pen_temp__' || key === '__remote_temp_emm__';
+    }
+
+    function isEphemeralSlot(slotName) {
+        return !!slotEphemeral[slotName] || isEphemeralKey(slotState[slotName]);
+    }
+
+    function isX1PenTemporarySlot(slotName) {
+        return slotState[slotName] === '__x1pen_temp__';
+    }
+
+    function persistentMountSnapshot() {
+        var mounts = {};
+        for (var slotName in slotState) {
+            mounts[slotName] = isEphemeralSlot(slotName) ? null : slotState[slotName];
+        }
+        return mounts;
+    }
+
+    function shouldConsumeRemoteMediaIntent() {
+        return !window.__X1PEN_MODE
+            && !!(window.XmilRemoteMedia && window.XmilRemoteMedia.consumeLaunchRequest);
     }
 
     var emmImportSlot = -1;       // インポート対象スロット番号
@@ -184,7 +251,7 @@
     }
 
     function saveMountState() {
-        if (isEphemeralX1PenShare()) return;
+        if (suppressMountPersistence()) return;
         try { localStorage.setItem(LS_MOUNT_STATE, JSON.stringify(slotState)); } catch(e) {
             console.warn('saveMountState failed:', e);
         }
@@ -342,7 +409,7 @@
     function renderEmmSlotList() {
         var listEl = document.getElementById('library-list');
         if (!listEl) return;
-        var lib = getLibrary();
+        var lib = getVisibleLibrary();
         var html = '';
         for (var i = 0; i < 10; i++) {
             var slotName = 'emm' + i;
@@ -403,7 +470,7 @@
     // ---- EMM スロットアクションハンドラ ----
     function onEmmSlotCreate(slotNum) {
         var fileName = 'EMM' + slotNum + '.MEM';
-        var lib = getLibrary();
+        var lib = getVisibleLibrary();
         var existing = lib.find(function(e) { return e.type === 'emm' && e.name === fileName; });
         if (existing) {
             if (!confirm('現在割り当てられている EMM データを削除して新規に EMM 領域を作成しますか？')) return;
@@ -413,14 +480,14 @@
 
     function onEmmSlotExport(slotNum) {
         var fileName = 'EMM' + slotNum + '.MEM';
-        var entry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        var entry = getVisibleLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
         if (!entry) return;
         downloadFromLibrary(entry.key, entry.name);
     }
 
     function onEmmSlotImport(slotNum) {
         var fileName = 'EMM' + slotNum + '.MEM';
-        var existing = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        var existing = getVisibleLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
         if (existing) {
             if (!confirm('EMM' + slotNum + ' には既にデータが割り当てられています。上書きしますか？')) return;
         }
@@ -430,7 +497,7 @@
 
     function onEmmSlotDelete(slotNum) {
         var fileName = 'EMM' + slotNum + '.MEM';
-        var entry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        var entry = getVisibleLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
         if (!entry) return;
         deleteFromLibrary(entry.key);
     }
@@ -438,7 +505,7 @@
     async function onEmmSlotInsert(slotNum) {
         var slotName = 'emm' + slotNum;
         var fileName = 'EMM' + slotNum + '.MEM';
-        var entry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
+        var entry = getVisibleLibrary().find(function(e) { return e.type === 'emm' && e.name === fileName; });
         if (!entry) return;
         if (slotState[slotName]) return; // 既にマウント中
         if (!emmGuardStart(slotNum)) return;
@@ -523,6 +590,142 @@
         }
     }
 
+    function isExternalLibraryEntry(entry) {
+        return !!(entry && entry.originKind === 'external' && entry.externalSource
+            && typeof entry.externalSource.sourceId === 'string');
+    }
+
+    function getVisibleLibrary() {
+        return getLibrary().filter(function(entry) { return !isExternalLibraryEntry(entry); });
+    }
+
+    function getExternalLibrary() {
+        return getLibrary().filter(isExternalLibraryEntry);
+    }
+
+    function findRemoteLibraryEntry(sourceId) {
+        return getExternalLibrary().find(function(entry) {
+            return entry.externalSource.sourceId === sourceId;
+        }) || null;
+    }
+
+    async function inspectRemoteLibraryEntry(sourceId) {
+        var entry = findRemoteLibraryEntry(sourceId);
+        if (!entry) return { state: 'absent', entry: null };
+        if (!window.XmilStorage) return { state: 'unavailable', entry: entry };
+        var actualSize = await window.XmilStorage.stat(entry.key);
+        if (actualSize == null) return { state: 'missing', entry: entry };
+        if (actualSize !== entry.size) {
+            return { state: 'size-mismatch', entry: entry, actualSize: actualSize };
+        }
+        return { state: 'ready', entry: entry };
+    }
+
+    function removeRemoteLibraryMetadata(sourceId) {
+        var lib = getLibrary();
+        var filtered = lib.filter(function(entry) {
+            return !(isExternalLibraryEntry(entry) && entry.externalSource.sourceId === sourceId);
+        });
+        if (filtered.length !== lib.length) saveProjectLibraryStrict(filtered);
+        renderLibraryList();
+    }
+
+    function touchRemoteLibraryEntry(sourceId, remoteState) {
+        var lib = getLibrary();
+        var entry = lib.find(function(candidate) {
+            return isExternalLibraryEntry(candidate) && candidate.externalSource.sourceId === sourceId;
+        });
+        if (!entry) return null;
+        entry.externalSource.lastUsedAt = new Date().toISOString();
+        if (remoteState) {
+            entry.externalSource.lastCheckedAt = new Date().toISOString();
+            entry.externalSource.lastRemoteState = remoteState;
+        }
+        saveProjectLibraryStrict(lib);
+        renderLibraryList();
+        return entry;
+    }
+
+    async function syncExternalLibraryEntrySize(key) {
+        if (!window.XmilStorage) return;
+        var lib = getLibrary();
+        var entry = lib.find(function(candidate) {
+            return candidate.key === key && isExternalLibraryEntry(candidate);
+        });
+        if (!entry) return;
+        var actualSize = await window.XmilStorage.stat(key);
+        if (actualSize == null || actualSize === entry.size) return;
+        entry.size = actualSize;
+        entry.externalSource.lastLocalWriteAt = new Date().toISOString();
+        saveProjectLibraryStrict(lib);
+        renderLibraryList();
+        updateCapacityDisplay();
+    }
+
+    async function addRemoteToLibrary(file, source) {
+        if (projectDiskTransaction) throw new Error('X1Penプロジェクトディスクの更新中はメディアを変更できません');
+        if (!source || !/^[0-9a-f]{64}$/.test(source.sourceId || '')
+            || (source.provider !== 'google-drive' && source.provider !== 'dropbox')) {
+            throw new Error('外部メディアの識別情報が正しくありません');
+        }
+        var existing = findRemoteLibraryEntry(source.sourceId);
+        if (existing) return existing;
+
+        var type = detectFileType(file.name);
+        if (!type) throw new Error('対応していない外部メディア形式です');
+        var sizeLimit = SIZE_LIMIT[type];
+        if (sizeLimit && file.size > sizeLimit) throw new Error('外部メディアがサイズ上限を超えています');
+        var key = 'remote_' + source.sourceId;
+        var ext = file.name.split('.').pop();
+        var data = await file.arrayBuffer();
+        var baselineDigest = await sha256Hex(data);
+        if (window.XmilStorage) await window.XmilStorage.ensureCapacity(file.size);
+
+        updateStatus('外部メディアを保存中: ' + file.name);
+        var wroteBytes = false;
+        var committedEntry = null;
+        try {
+            if (!window.XmilStorage) throw new Error('ストレージが初期化されていません');
+            await window.XmilStorage.write(key, data);
+            wroteBytes = true;
+            var storedSize = await window.XmilStorage.stat(key);
+            if (storedSize !== file.size) throw new Error('保存した外部メディアのサイズを確認できませんでした');
+
+            var now = new Date().toISOString();
+            var entry = {
+                key: key, name: file.name, type: type, ext: ext, size: file.size,
+                addedAt: now, favorite: false, originKind: 'external',
+                externalSource: {
+                    version: 1,
+                    sourceId: source.sourceId,
+                    provider: source.provider,
+                    baselineDigest: baselineDigest,
+                    firstFetchedAt: now,
+                    lastUsedAt: now,
+                    lastRemoteState: 'unchanged'
+                }
+            };
+            if (source.strongEtag) entry.externalSource.strongEtag = source.strongEtag;
+            var lib = getLibrary();
+            lib.push(entry);
+            saveProjectLibraryStrict(lib);
+            committedEntry = entry;
+        } catch (error) {
+            if (wroteBytes && window.XmilStorage) {
+                try { await window.XmilStorage.remove(key); } catch (_) {}
+            }
+            try {
+                var rollbackLibrary = getLibrary().filter(function(candidate) { return candidate.key !== key; });
+                saveProjectLibraryStrict(rollbackLibrary);
+            } catch (_) {}
+            throw error;
+        }
+        updateStatus('外部メディアを保存しました: ' + file.name);
+        renderLibraryList();
+        updateCapacityDisplay();
+        return committedEntry;
+    }
+
     // ライブラリからスロットにマウント
     async function mountFromLibrary(key, slotName) {
         if (isEphemeralX1PenShare()) {
@@ -601,12 +804,59 @@
 
         slotState[slotName]   = key;
         slotVfsPath[slotName] = vfsPath;
+        slotEphemeral[slotName] = false;
         slotDirty[slotName]   = false;
         slotDirtyPages[slotName] = null;
         saveMountState();
         updateSlotUI(slotName, entry.name);
         renderLibraryList();
         updateStatus('マウント完了: ' + entry.name + ' → ' + slotName);
+    }
+
+    // URL launch intents may allocate zero-filled EMM for this document only.
+    // No library entry or OPFS object is created, and the slot is rolled back
+    // completely if allocation, VFS write, or emulator reset fails.
+    async function mountTemporaryEmm(slotName, sizeBytes) {
+        var allowedSizes = window.XmilRemoteMedia && window.XmilRemoteMedia.emmSizes;
+        if (!cleanTemporaryMediaSession) {
+            throw new Error('共有URLの一時セッションではありません');
+        }
+        if (!/^emm[0-9]$/.test(slotName)
+            || !allowedSizes || Array.prototype.indexOf.call(allowedSizes, sizeBytes) < 0) {
+            throw new Error('一時EMMのスロットまたは容量が正しくありません');
+        }
+        if (!module || !module.FS) throw new Error('一時EMMを準備できません');
+        if (slotState[slotName]) await ejectSlot(slotName);
+
+        var vfsPath = slotToVfsPath(slotName, 'MEM');
+        try {
+            var bytes = new Uint8Array(sizeBytes);
+            writeFileToVFS(vfsPath, bytes);
+            var vfsStat = module.FS.stat(vfsPath);
+            if (vfsStat.size !== sizeBytes) throw new Error('VFS write was incomplete');
+            if (module._js_emm_reset_slot) module._js_emm_reset_slot(emmSlotNum(slotName));
+            slotState[slotName] = '__remote_temp_emm__';
+            slotVfsPath[slotName] = vfsPath;
+            slotEphemeral[slotName] = true;
+            slotDirty[slotName] = false;
+            slotDirtyPages[slotName] = null;
+            updateSlotUI(slotName, slotName.toUpperCase() + ' (' + (sizeBytes / 1024) + 'KB, 一時)');
+            renderLibraryList();
+            return { slot: slotName, size: sizeBytes };
+        } catch (error) {
+            // writeFile may have created a partial inode before throwing.
+            try { module.FS.unlink(vfsPath); } catch (_) {}
+            slotState[slotName] = null;
+            slotVfsPath[slotName] = null;
+            slotEphemeral[slotName] = false;
+            slotDirty[slotName] = false;
+            slotDirtyPages[slotName] = null;
+            updateSlotUI(slotName, null);
+            renderLibraryList();
+            var wrapped = new Error('一時EMMの容量を確保できません: ' + (error && error.message ? error.message : error));
+            wrapped.code = 'EMM_CAPACITY_ERROR';
+            throw wrapped;
+        }
     }
 
     // スロットをeject (ファイルはライブラリに保持)
@@ -662,6 +912,7 @@
 
         slotState[slotName]   = null;
         slotVfsPath[slotName] = null;
+        slotEphemeral[slotName] = false;
         slotDirty[slotName]   = false;
         slotDirtyPages[slotName] = null;
         saveMountState();
@@ -717,7 +968,8 @@
     }
 
     function saveProjectMountStateStrict() {
-        var serialized = JSON.stringify(slotState);
+        if (suppressMountPersistence()) return;
+        var serialized = JSON.stringify(persistentMountSnapshot());
         localStorage.setItem(LS_MOUNT_STATE, serialized);
         if (localStorage.getItem(LS_MOUNT_STATE) !== serialized) {
             throw projectDiskFailure('PROJECT_DISK_MOUNT_STATE_SAVE_FAILED', 'プロジェクトディスクのマウント状態を保存後に確認できませんでした');
@@ -725,8 +977,8 @@
     }
 
     function mountedDrive0Entry() {
-        var key = slotState.drive0;
-        if (!key || key === '__x1pen_temp__') return null;
+        var key = isEphemeralSlot('drive0') ? null : slotState.drive0;
+        if (!key) return null;
         var entry = getLibrary().find(function(candidate) { return candidate.key === key; });
         return entry ? cloneLibraryEntry(entry) : null;
     }
@@ -826,7 +1078,7 @@
             tx.hash = await sha256Hex(tx.bytes);
             tx.otherSlots = {};
             for (var slotName in slotState) {
-                if (slotName === 'drive0' || !slotState[slotName]) continue;
+                if (slotName === 'drive0' || !slotState[slotName] || isEphemeralSlot(slotName)) continue;
                 tx.otherSlots[slotName] = {
                     key: slotState[slotName],
                     vfsPath: slotVfsPath[slotName]
@@ -1008,7 +1260,34 @@
         if (projectDiskTransaction) throw new Error('X1Penプロジェクトディスクの更新中はメディアを変更できません');
         var entry = getLibrary().find(function(e) { return e.key === key; });
         if (!entry) return;
-        if (!confirm('"' + entry.name + '" をライブラリから削除しますか？\nマウント中の場合は自動的にイジェクトされます。')) return;
+
+        if (isExternalLibraryEntry(entry)) {
+            for (var mountedSlot in slotState) {
+                if (slotState[mountedSlot] === key) {
+                    alert('外部メディアを削除する前に ' + mountedSlot + ' からイジェクトしてください。\nゲーム内の書込みを保存してから削除状態を確認します。');
+                    return;
+                }
+            }
+            var changedOrUnknown = true;
+            updateStatus('外部メディアの保存データを確認中: ' + entry.name);
+            try {
+                var currentData = window.XmilStorage ? await window.XmilStorage.read(key) : null;
+                if (currentData && entry.externalSource.baselineDigest) {
+                    changedOrUnknown = (await sha256Hex(currentData)) !== entry.externalSource.baselineDigest;
+                }
+            } catch (_) {
+                changedOrUnknown = true;
+            }
+            var externalWarning = changedOrUnknown
+                ? '取得後の書込みまたはゲーム内セーブが含まれている可能性があります。\n削除すると復元できません。先にダウンロードして保全してください。'
+                : 'ブラウザに保存された外部メディアを削除します。削除すると復元できません。';
+            if (!confirm('"' + entry.name + '" を削除しますか？\n\n' + externalWarning)) {
+                updateStatus('外部メディアの削除を中止しました');
+                return;
+            }
+        } else if (!confirm('"' + entry.name + '" をライブラリから削除しますか？\nマウント中の場合は自動的にイジェクトされます。')) {
+            return;
+        }
 
         // マウント中なら先にeject
         for (var sn in slotState) {
@@ -1026,7 +1305,7 @@
 
     // 起動時: マウント状態を復元
     async function autoRestoreMounts(excludeSlots) {
-        if (isEphemeralX1PenShare()) return;
+        if (suppressMountPersistence()) return;
         var state = getMountState();
         var lib = getLibrary();
         var exclude = excludeSlots || [];
@@ -1074,8 +1353,8 @@
     function flushSlot(slotName) {
         if (slotFlushInFlight[slotName]) return slotFlushInFlight[slotName];
         if (!slotDirty[slotName] || !slotState[slotName]) return Promise.resolve();
-        // 一時ディスク (__x1pen_temp__) は保存対象外
-        if (slotState[slotName] === '__x1pen_temp__') {
+        // Document-local media are never copied into OPFS/library storage.
+        if (isEphemeralSlot(slotName)) {
             slotDirty[slotName] = false;
             slotDirtyPages[slotName] = null;
             return Promise.resolve();
@@ -1111,6 +1390,8 @@
             } else {
                 await flushVfsToStorage(slotVfsPath[slotName], slotState[slotName]);
             }
+
+            await syncExternalLibraryEntrySize(slotState[slotName]);
 
             if ((slotDirtyEpoch[slotName] || 0) === epochAtStart) {
                 slotDirty[slotName] = false;
@@ -1235,7 +1516,7 @@
     async function computeMountHashes() {
         var hashes = {};
         for (var sn in slotState) {
-            if (slotState[sn] && window.XmilStorage) {
+            if (slotState[sn] && !isEphemeralSlot(sn) && window.XmilStorage) {
                 try {
                     var data = await window.XmilStorage.read(slotState[sn]);
                     if (data) hashes[sn] = await sha256hex(data);
@@ -1283,7 +1564,7 @@
             var lib = getLibrary();
             var mNames = {};
             for (var sn in slotState) {
-                if (slotState[sn]) {
+                if (slotState[sn] && !isEphemeralSlot(sn)) {
                     var le = lib.find(function(e) { return e.key === slotState[sn]; });
                     if (le) mNames[sn] = le.name;
                 }
@@ -1293,7 +1574,7 @@
                 name: name || new Date().toLocaleString('ja-JP'),
                 time: new Date().toISOString(),
                 size: size,
-                mounts: Object.assign({}, slotState),
+                mounts: persistentMountSnapshot(),
                 mountNames: mNames,
                 hashes: mediaHashes,
                 portable: !!(portableFlag & 0x04)
@@ -1329,7 +1610,7 @@
             var lib = getLibrary();
             var missing = [];
             for (var sn in mounts) {
-                if (mounts[sn]) {
+                if (mounts[sn] && !isEphemeralKey(mounts[sn])) {
                     // Portable モードでは EMM スロットをスキップ（EMD セクションから復元される）
                     if (isPortable && sn.startsWith('emm')) continue;
                     if (!lib.find(function(e) { return e.key === mounts[sn]; })) {
@@ -1355,7 +1636,7 @@
                 for (var sn3 in entry.hashes) {
                     // Portable EMM はステート内に含まれるためスキップ
                     if (isPortable && sn3.startsWith('emm')) continue;
-                    if (mounts[sn3]) {
+                    if (mounts[sn3] && !isEphemeralKey(mounts[sn3])) {
                         try {
                             var mediaData = await window.XmilStorage.read(mounts[sn3]);
                             if (mediaData) {
@@ -1385,7 +1666,7 @@
             // 4. マウント復元
             var mountFailed = [];
             for (var sn2 in mounts) {
-                if (mounts[sn2]) {
+                if (mounts[sn2] && !isEphemeralKey(mounts[sn2])) {
                     // Portable EMM はステートロード後に VFS → OPFS で復元
                     if (isPortable && sn2.startsWith('emm')) continue;
                     await mountFromLibrary(mounts[sn2], sn2);
@@ -1437,6 +1718,7 @@
                             var emmSn = 'emm' + ei;
                             slotState[emmSn] = emmKey;
                             slotVfsPath[emmSn] = emmPath;
+                            slotEphemeral[emmSn] = false;
                             slotDirty[emmSn] = false;
                             slotDirtyPages[emmSn] = null;
                         }
@@ -1604,7 +1886,7 @@
             var lib2 = getLibrary();
             var mNames2 = {};
             for (var sn5 in slotState) {
-                if (slotState[sn5]) {
+                if (slotState[sn5] && !isEphemeralSlot(sn5)) {
                     var le2 = lib2.find(function(e) { return e.key === slotState[sn5]; });
                     if (le2) mNames2[sn5] = le2.name;
                 }
@@ -1612,7 +1894,7 @@
             list[idx].time = new Date().toISOString();
             list[idx].size = size;
             list[idx].portable = !!(portableFlag2 & 0x04);
-            list[idx].mounts = Object.assign({}, slotState);
+            list[idx].mounts = persistentMountSnapshot();
             list[idx].mountNames = mNames2;
             list[idx].hashes = mediaHashes;
             saveStateList(list);
@@ -1821,6 +2103,11 @@
     // ----------------------------------------------------------------
     function saveSettings() {
         try {
+            var previousSettings = {};
+            try {
+                var previousRaw = localStorage.getItem(LS_SETTINGS);
+                previousSettings = previousRaw ? JSON.parse(previousRaw) : {};
+            } catch(_) {}
             var settings = {
                 romType: (function() {
                     var c = document.querySelector('input[name="rom-type"]:checked');
@@ -1843,6 +2130,13 @@
                 })(),
                 libSort: currentLibrarySort
             };
+            if (launchModelOverride) {
+                if (Object.prototype.hasOwnProperty.call(previousSettings, 'romType')) {
+                    settings.romType = previousSettings.romType;
+                } else {
+                    delete settings.romType;
+                }
+            }
             localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
         } catch(e) {
             console.warn('saveSettings failed:', e);
@@ -1886,6 +2180,18 @@
             }
         } catch(e) {
             console.warn('loadSettings failed:', e);
+        }
+    }
+
+    function applyLaunchModelOverrideToUi() {
+        if (!launchModelOverride || !elements.romTypeRadios) return;
+        elements.romTypeRadios.forEach(function(radio) {
+            radio.checked = (parseInt(radio.value, 10) === launchModelOverride);
+            radio.disabled = true;
+        });
+        var note = document.querySelector('.cfg-model-note');
+        if (note) {
+            note.textContent = '※ URL指定（一時・保存設定は変更しません。通常設定へ戻すにはURLからmodelを外して開き直します）';
         }
     }
 
@@ -2507,7 +2813,7 @@
                 if (action === 'emm-edit') {
                     var slotNum = parseInt(btn.dataset.slot, 10);
                     var emmFileName = 'EMM' + slotNum + '.MEM';
-                    var emmEntry = getLibrary().find(function(e) { return e.type === 'emm' && e.name === emmFileName; });
+                    var emmEntry = getVisibleLibrary().find(function(e) { return e.type === 'emm' && e.name === emmFileName; });
                     if (emmEntry && window.XmilDiskEditor) window.XmilDiskEditor.openEditor(emmEntry.key);
                 }
             });
@@ -3049,6 +3355,7 @@
         skInitKeyFaces();
 
         loadSettings();
+        applyLaunchModelOverrideToUi();
         syncModelBtnActive();
         syncKeyModeBtnActive();
         syncToggleItems();
@@ -3120,6 +3427,18 @@
         autoLoadRom();
         autoLoadFonts();
         await autoRestoreMounts();
+        if (cleanTemporaryMediaSession) {
+            var sessionNotice = document.getElementById('remote-session-notice');
+            if (sessionNotice) sessionNotice.classList.remove('hidden');
+        }
+        if (shouldConsumeRemoteMediaIntent()) {
+            try {
+                await window.XmilRemoteMedia.consumeLaunchRequest(window.XmilCore);
+            } catch(e) {
+                console.error('public URL import failed:', e);
+                updateStatus('公開URLからの追加に失敗しました');
+            }
+        }
     }
 
     function applyInitialSettings() {
@@ -3498,13 +3817,13 @@
         var filter = activeBtn ? activeBtn.dataset.type : 'all';
         currentLibraryFilter = filter;
 
-        // 「＋ 追加」ボタン: EMM タブ時は非表示
+        // 「＋ 追加」ボタン: EMM / 外部タブ時は非表示
         var addBtn = document.getElementById('lib-add-btn');
-        if (addBtn) addBtn.classList.toggle('hidden', filter === 'emm');
+        if (addBtn) addBtn.classList.toggle('hidden', filter === 'emm' || filter === 'external');
 
         // ★ フィルタボタン / ツールバー: EMM タブ時は非表示
         var favFilterBtn = document.getElementById('lib-fav-filter');
-        if (favFilterBtn) favFilterBtn.classList.toggle('hidden', filter === 'emm');
+        if (favFilterBtn) favFilterBtn.classList.toggle('hidden', filter === 'emm' || filter === 'external');
         var toolbar = document.getElementById('lib-toolbar');
         if (toolbar) toolbar.classList.toggle('hidden', filter === 'emm');
 
@@ -3515,10 +3834,16 @@
         }
 
         var lib = getLibrary();
-        var filtered = filter === 'all' ? lib : lib.filter(function(e) { return e.type === filter; });
+        var filtered;
+        if (filter === 'external') {
+            filtered = lib.filter(isExternalLibraryEntry);
+        } else {
+            var visible = lib.filter(function(entry) { return !isExternalLibraryEntry(entry); });
+            filtered = filter === 'all' ? visible : visible.filter(function(e) { return e.type === filter; });
+        }
 
         // お気に入りフィルタ
-        if (currentFavoritesOnly) {
+        if (currentFavoritesOnly && filter !== 'external') {
             filtered = filtered.filter(function(e) { return !!e.favorite; });
         }
         // テキスト検索フィルタ
@@ -3534,7 +3859,9 @@
                 ? '一致するファイルがありません'
                 : (currentFavoritesOnly
                     ? 'お気に入りに登録されたファイルがありません'
-                    : 'ライブラリにファイルがありません<br><small>「＋ 追加」からファイルを追加してください</small>');
+                    : (filter === 'external'
+                        ? '外部メディアは保存されていません<br><small>公開メディア起動URLを開くと、ここに永続保存されます</small>'
+                        : 'ライブラリにファイルがありません<br><small>「＋ 追加」からファイルを追加してください</small>'));
             listEl.innerHTML = '<div class="lib-empty">' + emptyMsg + '</div>';
             return;
         }
@@ -3547,7 +3874,7 @@
         // マウント中のスロット情報を逆引き
         var mountedBy = {};
         for (var sn in slotState) {
-            if (slotState[sn]) mountedBy[slotState[sn]] = sn;
+            if (slotState[sn] && !isEphemeralSlot(sn)) mountedBy[slotState[sn]] = sn;
         }
 
         var html = '';
@@ -3586,21 +3913,28 @@
                 }
             }
 
+            var external = isExternalLibraryEntry(entry);
             var favClass = entry.favorite ? ' favorited' : '';
             var favIcon  = entry.favorite ? '★' : '☆';
 
             html += '<div class="lib-row' + (isMounted ? ' mounted' : '') + '">';
-            html += '<button class="lib-fav-btn' + favClass + '" data-action="toggle-fav" data-key="' + ek + '" title="お気に入り">' + favIcon + '</button>';
+            if (!external) html += '<button class="lib-fav-btn' + favClass + '" data-action="toggle-fav" data-key="' + ek + '" title="お気に入り">' + favIcon + '</button>';
             html += '<span class="lib-type-badge ' + typeClass + '">' + typeBadge + '</span>';
             html += '<span class="lib-file-name" title="' + en + '">' + en + '</span>';
+            if (external) {
+                var providerLabel = entry.externalSource.provider === 'google-drive' ? 'Google Drive' : 'Dropbox';
+                var remoteState = entry.externalSource.lastRemoteState || 'unknown';
+                var stateLabel = remoteState === 'unchanged' ? '配布元一致' : (remoteState === 'changed' ? '配布元変更' : '更新未確認');
+                html += '<span class="lib-external-meta">' + providerLabel + ' / ' + stateLabel + '</span>';
+            }
             html += '<span class="lib-file-size">' + sizeMb + 'MB</span>';
             html += '<div class="lib-row-btns">' + mountBtns;
-            if (entry.type === 'fdd' || entry.type === 'hdd' || entry.type === 'emm') {
+            if (!external && (entry.type === 'fdd' || entry.type === 'hdd' || entry.type === 'emm')) {
                 html += '<button class="lib-edit-btn" data-action="edit" data-key="' + ek + '" title="ディスク編集">&#x270E;</button>';
             }
             html += '<button class="lib-dl-btn" data-action="download" data-key="' + ek + '" data-name="' + en + '" title="ダウンロード">⬇</button>';
-            html += '<button class="lib-del-btn" data-action="delete" data-key="' + ek + '" title="削除">🗑</button>';
-            html += '<button class="lib-drive-save-btn hidden" data-action="drive-save" data-key="' + ek + '" title="Google Driveへ保存">☁</button>';
+            html += '<button class="lib-del-btn" data-action="delete" data-key="' + ek + '" title="削除"' + (external && isMounted ? ' disabled' : '') + '>🗑</button>';
+            if (!external) html += '<button class="lib-drive-save-btn hidden" data-action="drive-save" data-key="' + ek + '" title="Google Driveへ保存">☁</button>';
             html += '</div></div>';
         });
         listEl.innerHTML = html;
@@ -3678,7 +4012,9 @@
         try {
             var raw = localStorage.getItem(LS_SETTINGS);
             var settings = raw ? JSON.parse(raw) : {};
-            Object.assign(settings, overrides);
+            var filtered = Object.assign({}, overrides);
+            if (launchModelOverride) delete filtered.romType;
+            Object.assign(settings, filtered);
             localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
         } catch(e) { console.warn('saveSettingsDirect failed:', e); }
     }
@@ -3717,6 +4053,7 @@
 
         // 設定変更 (C export + localStorage 永続化)
         setRomType: function(v) {
+            if (launchModelOverride) return;
             if (module && module._js_set_rom_type) module._js_set_rom_type(v);
             saveSettingsDirect({ romType: v });
         },
@@ -3805,7 +4142,8 @@
         // 一時ディスクマウント (X1Pen PROGRAM ディスク用)
         mountTempDisk: async function(arrayBuffer, slotName) {
             // 既存ディスクが通常マウントなら flush/eject して変更を保存
-            if (slotState[slotName] && slotState[slotName] !== '__x1pen_temp__') {
+            if (slotState[slotName] && (!isEphemeralSlot(slotName)
+                || !isX1PenTemporarySlot(slotName))) {
                 try { await ejectSlot(slotName); } catch(e) {}
             }
             var vfsPath = slotToVfsPath(slotName, 'd88');
@@ -3816,6 +4154,7 @@
             }
             slotState[slotName] = '__x1pen_temp__';
             slotVfsPath[slotName] = vfsPath;
+            slotEphemeral[slotName] = true;
             slotDirty[slotName] = false;
             slotDirtyPages[slotName] = null;
             // saveMountState() は呼ばない (一時マウント)
@@ -3895,6 +4234,7 @@
     // X1Pen 用: ライブラリ内部関数を公開
     window.XmilLibrary = {
         addToLibrary: addToLibrary,
+        addRemoteToLibrary: addRemoteToLibrary,
         mountFromLibrary: mountFromLibrary,
         downloadFromLibrary: downloadFromLibrary,
         deleteFromLibrary: deleteFromLibrary,
@@ -4210,6 +4550,10 @@
     function onRomTypeChange() {
         syncModelBtnActive();
         if (!module || !module._js_set_rom_type) return;
+        if (launchModelOverride) {
+            module._js_set_rom_type(launchModelOverride);
+            return;
+        }
         var checked = document.querySelector('input[name="rom-type"]:checked');
         if (checked) module._js_set_rom_type(parseInt(checked.value, 10));
     }
@@ -4446,7 +4790,8 @@
                     var allEntries = await window.XmilStorage.list();
                     for (var j = 0; j < allEntries.length; j++) {
                         var k = allEntries[j].key;
-                        if (k.indexOf('lib_') === 0 || k.indexOf('state_') === 0 || KNOWN_SLOTS.indexOf(k) !== -1) {
+                        if (k.indexOf('lib_') === 0 || k.indexOf('remote_') === 0
+                            || k.indexOf('state_') === 0 || KNOWN_SLOTS.indexOf(k) !== -1) {
                             try { await window.XmilStorage.remove(k); } catch(e) {}
                         }
                     }
@@ -4467,14 +4812,26 @@
     // 外部から内部オブジェクトを直接書き換えられないよう浅いコピーを返す
     window.XmilCore = {
         addToLibrary:      addToLibrary,
+        addRemoteToLibrary: addRemoteToLibrary,
         detectFileType:    detectFileType,
         mountFromLibrary:  mountFromLibrary,
+        mountTemporaryEmm: mountTemporaryEmm,
         ejectSlot:         ejectSlot,
         flushSlot:         flushSlot,
         getSlotState:      function() { return Object.assign({}, slotState); },
         getSlotDirty:      function() { return Object.assign({}, slotDirty); },
         getSlotVfsPath:    function() { return Object.assign({}, slotVfsPath); },
+        getSlotEphemeral:  function() { return Object.assign({}, slotEphemeral); },
+        isEphemeralSlot:   isEphemeralSlot,
+        isTemporaryMediaSession: function() { return cleanTemporaryMediaSession; },
         getLibrary:        getLibrary,
+        getVisibleLibrary: getVisibleLibrary,
+        getExternalLibrary: getExternalLibrary,
+        findRemoteLibraryEntry: findRemoteLibraryEntry,
+        inspectRemoteLibraryEntry: inspectRemoteLibraryEntry,
+        removeRemoteLibraryMetadata: removeRemoteLibraryMetadata,
+        touchRemoteLibraryEntry: touchRemoteLibraryEntry,
+        syncExternalLibraryEntrySize: syncExternalLibraryEntrySize,
         saveLibrary:       saveLibrary,
         renderLibraryList: renderLibraryList,
         updateStatus:      updateStatus,

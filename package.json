@@ -28,8 +28,9 @@
     }
   },
   "scripts": {
-    "test": "npm run test:draw && npm run test:project-disk && npm run test:bridge && npm run test:mcp && npm run test:mcp-package && npm run test:extension-package && npm run test:automation",
+    "test": "npm run test:draw && npm run test:relay && npm run test:project-disk && npm run test:bridge && npm run test:mcp && npm run test:mcp-package && npm run test:extension-package && npm run test:automation",
     "test:draw": "node --test tests/draw_width_kanji_test.mjs",
+    "test:relay": "node --test tests/disk_relay_test.mjs tests/remote_media_test.mjs tests/temporary_media_session_test.mjs tests/url_builder_test.mjs",
     "build:editor": "esbuild src/x1pen_editor.js --bundle --outfile=html/x1pen_editor.bundle.js --format=iife --minify",
     "build:extension-assets": "node scripts/render-extension-assets.mjs",
     "capture:extension-store": "node scripts/capture-x1pen-store-screenshot.mjs",

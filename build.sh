@@ -75,6 +75,7 @@ echo "Copying HTML/JS files..."
 cp "${SCRIPT_DIR}/html/index.html"           ./index.html
 cp "${SCRIPT_DIR}/html/pre.js"               ./pre.js
 cp "${SCRIPT_DIR}/html/storage.js"           ./storage.js
+cp "${SCRIPT_DIR}/html/remote_media.js"      ./remote_media.js
 cp "${SCRIPT_DIR}/html/drive_integration.js" ./drive_integration.js
 cp "${SCRIPT_DIR}/html/disk_container.js"   ./disk_container.js
 cp "${SCRIPT_DIR}/html/disk_fs.js"          ./disk_fs.js
@@ -88,6 +89,7 @@ cp "${SCRIPT_DIR}/html/manifest.json"       ./manifest.json
 cp "${SCRIPT_DIR}/html/icon-192.png"        ./icon-192.png
 cp "${SCRIPT_DIR}/html/icon-512.png"        ./icon-512.png
 cp "${SCRIPT_DIR}/html/apple-touch-icon.png" ./apple-touch-icon.png
+cp "${SCRIPT_DIR}/html/url-builder.html"      ./url-builder.html
 
 # X1Pen IDE ファイル
 cp "${SCRIPT_DIR}/html/x1pen.html"           ./x1pen.html
@@ -163,6 +165,7 @@ cp "${SCRIPT_DIR}/html/privacy.html" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen-connector-privacy.html" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/terms.html"   "${DIST_DIR}/"
 cp ./storage.js           "${DIST_DIR}/"
+cp ./remote_media.js      "${DIST_DIR}/"
 cp ./drive_integration.js "${DIST_DIR}/"
 cp ./disk_container.js   "${DIST_DIR}/"
 cp ./disk_fs.js          "${DIST_DIR}/"
@@ -177,6 +180,7 @@ cp ./manifest.json        "${DIST_DIR}/"
 cp ./icon-192.png         "${DIST_DIR}/"
 cp ./icon-512.png         "${DIST_DIR}/"
 cp ./apple-touch-icon.png "${DIST_DIR}/"
+cp ./url-builder.html     "${DIST_DIR}/"
 
 # Cloudflare Pages ヘッダー / リダイレクト
 [ -f "${SCRIPT_DIR}/html/_headers" ] && cp "${SCRIPT_DIR}/html/_headers" "${DIST_DIR}/_headers"
@@ -253,7 +257,7 @@ rm -f "${DIST_DIR}/x1pen.js.bak"
 
 # script タグにキャッシュバスター付与 (x1pen.html, xmillennium.html)
 # minifier でクォートが外れるケース (src=foo.js) と付いたまま (src="foo.js") の両方に対応
-for _html in "${DIST_DIR}/x1pen.html" "${DIST_DIR}/xmillennium.html"; do
+for _html in "${DIST_DIR}/x1pen.html" "${DIST_DIR}/xmillennium.html" "${DIST_DIR}/url-builder.html"; do
     # クォート付き: src="foo.js" → src="foo.js?v=HASH"
     sed -i.bak "s|src=\"\([^\"?]*\.js\)\"|src=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${_html}"
     # クォートなし: src=foo.js → src="foo.js?v=HASH"
@@ -272,6 +276,7 @@ echo ""
 echo "Output files (dist/):"
 echo "  - index.html        (ランディングページ)"
 echo "  - xmillennium.html  (エミュレータ本体)"
+echo "  - url-builder.html  (X millennium Web URL Builder)"
 echo "  - xmillennium.js"
 echo "  - xmillennium.wasm"
 echo "  - licenses.html"
