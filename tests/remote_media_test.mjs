@@ -90,11 +90,32 @@ test('intent validation rejects unknown providers, duplicate slots/URLs, malform
   ]), /同じ挿入先/);
   assert.throws(() => api.validateItems([
     { url: googleUrl, slot: 'drive0' },
-    { url: googleUrl, slot: 'drive1' },
+    { url: 'https://drive.google.com/open?id=AbCdEfGhIjKlMnOpQrStUv', slot: 'drive1' },
   ]), /同じ共有URL/);
+  assert.throws(() => api.validateItems([{ url: googleUrl, slot: 'emm0' }]), /挿入先/);
   assert.throws(() => api.validateItems([{ url: dropboxHdd, slot: 'drive0' }]), /形式と挿入先/);
   assert.throws(() => api.decodeIntent('not-json'), /解釈/);
   assert.throws(() => api.decodeIntent(api.encodeIntent([{ url: googleUrl, slot: 'drive0' }]).replace(/.$/, '*')), /解釈/);
+});
+
+test('v1 intent additively supports zero-filled EMM specifications and enforces combined limits', () => {
+  const { api } = loadRemoteMedia();
+  const emms = [{ slot: 'emm0', size: 1024 * 1024 }, { slot: 'emm9', size: 16 * 1024 * 1024 }];
+  const decoded = api.decodeIntent(api.encodeIntent([], emms));
+  assert.deepEqual(JSON.parse(JSON.stringify(decoded)), { v: 1, items: [], emms });
+  assert.equal(JSON.stringify(api.decodeIntent(api.encodeIntent([{ url: googleUrl, slot: 'drive0' }])).emms), '[]');
+  assert.throws(() => api.validateIntentParts([], []), /合計1/);
+  assert.throws(() => api.validateIntentParts([], [{ slot: 'drive0', size: 1024 * 1024 }]), /EMM/);
+  assert.throws(() => api.validateIntentParts([], [{ slot: 'emm0', size: 1024 }]), /容量/);
+  assert.throws(() => api.validateIntentParts([], [
+    { slot: 'emm0', size: 1024 * 1024 },
+    { slot: 'emm0', size: 2 * 1024 * 1024 },
+  ]), /同じ挿入先/);
+  assert.throws(() => api.validateIntentParts([], Array.from({ length: 7 }, (_, i) => ({
+    slot: `emm${i}`, size: 16 * 1024 * 1024,
+  }))), /合計1〜6/);
+  assert.equal(api.hasLaunchRequest({ hash: '#media=' }), true);
+  assert.equal(api.hasLaunchRequest({ hash: '#other=media' }), false);
 });
 
 test('source IDs canonicalize supported URL variants without retaining access keys', async () => {
@@ -105,10 +126,15 @@ test('source IDs canonicalize supported URL variants without retaining access ke
     'https://docs.google.com/uc?export=download&id=AbCdEfGhIjKlMnOpQrStUv',
   ];
   const googleIds = await Promise.all(googleVariants.map((value) => api.sourceIdForUrl(value)));
+  for (const value of googleVariants) {
+    assert.match(api.inspectShareUrl(value).sourceIdentity, /^google-drive:.+/);
+  }
   assert.equal(new Set(googleIds).size, 1);
   assert.match(googleIds[0], /^[0-9a-f]{64}$/);
 
   const dropboxVariant = 'https://www.dropbox.com/scl/fi/AbCdEf123456/renamed.D88?dl=1&rlkey=Different_Key';
+  assert.match(api.inspectShareUrl(dropboxFdd).sourceIdentity, /^dropbox:.+/);
+  assert.match(api.inspectShareUrl(dropboxVariant).sourceIdentity, /^dropbox:.+/);
   assert.equal(await api.sourceIdForUrl(dropboxFdd), await api.sourceIdForUrl(dropboxVariant));
   assert.notEqual(await api.sourceIdForUrl(dropboxFdd), await api.sourceIdForUrl(dropboxHdd));
   assert.throws(() => api.inspectShareUrl('https://www.dropbox.com/t/short-token'), /単一ファイル/);
@@ -212,7 +238,7 @@ test('missing bytes self-repair but size mismatch fails closed without fetching'
   assert.equal(damaged.failures[0].error.code, 'REMOTE_STORAGE_DAMAGED');
 });
 
-test('importer clears the fragment before fetch, sanitizes filename, adds, and mounts', async () => {
+test('importer preserves the fragment while fetching, sanitizes filename, adds, and mounts', async () => {
   const encodedName = encodeURIComponent('日本語<img src=x onerror=alert(1)>.D88');
   const location = {
     href: 'https://xmil.example/xmillennium.html',
@@ -230,6 +256,7 @@ test('importer clears the fragment before fetch, sanitizes filename, adds, and m
   const fetchCalls = [];
   const { api } = loadRemoteMedia({ location, history });
   location.hash = '#media=' + api.encodeIntent([{ url: googleUrl, slot: 'drive0' }]);
+  const originalHash = location.hash;
 
   class FakeFile {
     constructor(parts, name, options) {
@@ -257,7 +284,7 @@ test('importer clears the fragment before fetch, sanitizes filename, adds, and m
     history,
     FileCtor: FakeFile,
     fetchImpl: async (url, options) => {
-      assert.equal(location.hash, '', 'fragment must be cleared before Relay fetch');
+      assert.equal(location.hash, originalHash, 'fragment must remain byte-identical during Relay fetch');
       fetchCalls.push({ url, options });
       return new Response(new Uint8Array([1, 2, 3]), {
         headers: { 'X-Disk-Filename': encodedName, 'Content-Type': 'application/octet-stream' },
@@ -265,7 +292,8 @@ test('importer clears the fragment before fetch, sanitizes filename, adds, and m
     },
   });
 
-  assert.equal(clearedTo, '/xmillennium.html?dev=1');
+  assert.equal(clearedTo, null);
+  assert.equal(location.hash, originalHash);
   assert.equal(fetchCalls.length, 1);
   assert.equal(fetchCalls[0].url, '/api/disk-relay');
   assert.deepEqual(JSON.parse(fetchCalls[0].options.body), { url: googleUrl, expectedType: 'fdd' });
@@ -276,6 +304,26 @@ test('importer clears the fragment before fetch, sanitizes filename, adds, and m
   assert.equal(result.successes.length, 1);
   assert.equal(result.failures.length, 0);
   assert.match(statuses.at(-1), /1件を保存/);
+});
+
+test('consumer mounts temporary EMM, fails malformed requests closed, and consumes each document once', async () => {
+  const location = { href: 'https://xmil.example/xmillennium.html', pathname: '/xmillennium.html', search: '', hash: '' };
+  const { api } = loadRemoteMedia({ location });
+  location.hash = '#media=' + api.encodeIntent([], [{ slot: 'emm3', size: 512 * 1024 }]);
+  const mounted = [];
+  const result = await api.consumeLaunchRequest({
+    async mountTemporaryEmm(slot, size) { mounted.push({ slot, size }); },
+    updateStatus() {},
+  }, { location });
+  assert.deepEqual(mounted, [{ slot: 'emm3', size: 512 * 1024 }]);
+  assert.equal(result.emmSuccesses.length, 1);
+  assert.equal((await api.consumeLaunchRequest({}, { location })).alreadyProcessed, true);
+
+  const malformedLocation = { href: location.href, pathname: location.pathname, search: '', hash: '#media=' };
+  const malformed = await api.consumeLaunchRequest({ updateStatus() {} }, { location: malformedLocation });
+  assert.equal(malformed.processed, true);
+  assert.equal(malformed.failures.length, 1);
+  assert.equal(malformedLocation.hash, '#media=');
 });
 
 test('importer maps disabled Relay and continues with later items', async () => {

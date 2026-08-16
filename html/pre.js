@@ -42,6 +42,7 @@
     const slotDirty         = { drive0: false, drive1: false, hdd0: false, hdd1: false, cmt: false, emm0: false, emm1: false, emm2: false, emm3: false, emm4: false, emm5: false, emm6: false, emm7: false, emm8: false, emm9: false };
     const slotFlushInFlight = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
     const slotVfsPath       = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
+    const slotEphemeral     = { drive0: false, drive1: false, hdd0: false, hdd1: false, cmt: false, emm0: false, emm1: false, emm2: false, emm3: false, emm4: false, emm5: false, emm6: false, emm7: false, emm8: false, emm9: false };
 
     const slotDirtyPages = {};     // slotName → Set<pageIndex> (64KB pages for OPFS partial write)
     const slotDirtyEpoch = {};     // slotName → number (incremented per write, for safe dirty clearing)
@@ -50,6 +51,52 @@
 
     function isEphemeralX1PenShare() {
         return window.__X1PEN_EPHEMERAL_SHARE === true;
+    }
+
+    function hasMediaHashParameter(locationObject) {
+        var hash = locationObject && typeof locationObject.hash === 'string'
+            ? locationObject.hash.slice(1) : '';
+        return !!hash && new URLSearchParams(hash).has('media');
+    }
+
+    // The presence of the media key, not successful decoding, defines the clean
+    // mount session.  Latch it once for this document so malformed requests also
+    // fail closed and later history events cannot re-enable persistent mounts.
+    var cleanTemporaryMediaSession = !window.__X1PEN_MODE
+        && hasMediaHashParameter(window.location);
+    Object.defineProperty(window, '__XMIL_TEMPORARY_MEDIA_SESSION', {
+        value: cleanTemporaryMediaSession,
+        writable: false,
+        configurable: false
+    });
+
+    function suppressMountPersistence() {
+        return isEphemeralX1PenShare() || cleanTemporaryMediaSession;
+    }
+
+    function isEphemeralKey(key) {
+        return key === '__x1pen_temp__' || key === '__remote_temp_emm__';
+    }
+
+    function isEphemeralSlot(slotName) {
+        return !!slotEphemeral[slotName] || isEphemeralKey(slotState[slotName]);
+    }
+
+    function isX1PenTemporarySlot(slotName) {
+        return slotState[slotName] === '__x1pen_temp__';
+    }
+
+    function persistentMountSnapshot() {
+        var mounts = {};
+        for (var slotName in slotState) {
+            mounts[slotName] = isEphemeralSlot(slotName) ? null : slotState[slotName];
+        }
+        return mounts;
+    }
+
+    function shouldConsumeRemoteMediaIntent() {
+        return !window.__X1PEN_MODE
+            && !!(window.XmilRemoteMedia && window.XmilRemoteMedia.consumeLaunchRequest);
     }
 
     var emmImportSlot = -1;       // インポート対象スロット番号
@@ -204,7 +251,7 @@
     }
 
     function saveMountState() {
-        if (isEphemeralX1PenShare()) return;
+        if (suppressMountPersistence()) return;
         try { localStorage.setItem(LS_MOUNT_STATE, JSON.stringify(slotState)); } catch(e) {
             console.warn('saveMountState failed:', e);
         }
@@ -757,12 +804,59 @@
 
         slotState[slotName]   = key;
         slotVfsPath[slotName] = vfsPath;
+        slotEphemeral[slotName] = false;
         slotDirty[slotName]   = false;
         slotDirtyPages[slotName] = null;
         saveMountState();
         updateSlotUI(slotName, entry.name);
         renderLibraryList();
         updateStatus('マウント完了: ' + entry.name + ' → ' + slotName);
+    }
+
+    // URL launch intents may allocate zero-filled EMM for this document only.
+    // No library entry or OPFS object is created, and the slot is rolled back
+    // completely if allocation, VFS write, or emulator reset fails.
+    async function mountTemporaryEmm(slotName, sizeBytes) {
+        var allowedSizes = window.XmilRemoteMedia && window.XmilRemoteMedia.emmSizes;
+        if (!cleanTemporaryMediaSession) {
+            throw new Error('共有URLの一時セッションではありません');
+        }
+        if (!/^emm[0-9]$/.test(slotName)
+            || !allowedSizes || Array.prototype.indexOf.call(allowedSizes, sizeBytes) < 0) {
+            throw new Error('一時EMMのスロットまたは容量が正しくありません');
+        }
+        if (!module || !module.FS) throw new Error('一時EMMを準備できません');
+        if (slotState[slotName]) await ejectSlot(slotName);
+
+        var vfsPath = slotToVfsPath(slotName, 'MEM');
+        try {
+            var bytes = new Uint8Array(sizeBytes);
+            writeFileToVFS(vfsPath, bytes);
+            var vfsStat = module.FS.stat(vfsPath);
+            if (vfsStat.size !== sizeBytes) throw new Error('VFS write was incomplete');
+            if (module._js_emm_reset_slot) module._js_emm_reset_slot(emmSlotNum(slotName));
+            slotState[slotName] = '__remote_temp_emm__';
+            slotVfsPath[slotName] = vfsPath;
+            slotEphemeral[slotName] = true;
+            slotDirty[slotName] = false;
+            slotDirtyPages[slotName] = null;
+            updateSlotUI(slotName, slotName.toUpperCase() + ' (' + (sizeBytes / 1024) + 'KB, 一時)');
+            renderLibraryList();
+            return { slot: slotName, size: sizeBytes };
+        } catch (error) {
+            // writeFile may have created a partial inode before throwing.
+            try { module.FS.unlink(vfsPath); } catch (_) {}
+            slotState[slotName] = null;
+            slotVfsPath[slotName] = null;
+            slotEphemeral[slotName] = false;
+            slotDirty[slotName] = false;
+            slotDirtyPages[slotName] = null;
+            updateSlotUI(slotName, null);
+            renderLibraryList();
+            var wrapped = new Error('一時EMMの容量を確保できません: ' + (error && error.message ? error.message : error));
+            wrapped.code = 'EMM_CAPACITY_ERROR';
+            throw wrapped;
+        }
     }
 
     // スロットをeject (ファイルはライブラリに保持)
@@ -818,6 +912,7 @@
 
         slotState[slotName]   = null;
         slotVfsPath[slotName] = null;
+        slotEphemeral[slotName] = false;
         slotDirty[slotName]   = false;
         slotDirtyPages[slotName] = null;
         saveMountState();
@@ -873,7 +968,8 @@
     }
 
     function saveProjectMountStateStrict() {
-        var serialized = JSON.stringify(slotState);
+        if (suppressMountPersistence()) return;
+        var serialized = JSON.stringify(persistentMountSnapshot());
         localStorage.setItem(LS_MOUNT_STATE, serialized);
         if (localStorage.getItem(LS_MOUNT_STATE) !== serialized) {
             throw projectDiskFailure('PROJECT_DISK_MOUNT_STATE_SAVE_FAILED', 'プロジェクトディスクのマウント状態を保存後に確認できませんでした');
@@ -881,8 +977,8 @@
     }
 
     function mountedDrive0Entry() {
-        var key = slotState.drive0;
-        if (!key || key === '__x1pen_temp__') return null;
+        var key = isEphemeralSlot('drive0') ? null : slotState.drive0;
+        if (!key) return null;
         var entry = getLibrary().find(function(candidate) { return candidate.key === key; });
         return entry ? cloneLibraryEntry(entry) : null;
     }
@@ -982,7 +1078,7 @@
             tx.hash = await sha256Hex(tx.bytes);
             tx.otherSlots = {};
             for (var slotName in slotState) {
-                if (slotName === 'drive0' || !slotState[slotName]) continue;
+                if (slotName === 'drive0' || !slotState[slotName] || isEphemeralSlot(slotName)) continue;
                 tx.otherSlots[slotName] = {
                     key: slotState[slotName],
                     vfsPath: slotVfsPath[slotName]
@@ -1209,7 +1305,7 @@
 
     // 起動時: マウント状態を復元
     async function autoRestoreMounts(excludeSlots) {
-        if (isEphemeralX1PenShare()) return;
+        if (suppressMountPersistence()) return;
         var state = getMountState();
         var lib = getLibrary();
         var exclude = excludeSlots || [];
@@ -1257,8 +1353,8 @@
     function flushSlot(slotName) {
         if (slotFlushInFlight[slotName]) return slotFlushInFlight[slotName];
         if (!slotDirty[slotName] || !slotState[slotName]) return Promise.resolve();
-        // 一時ディスク (__x1pen_temp__) は保存対象外
-        if (slotState[slotName] === '__x1pen_temp__') {
+        // Document-local media are never copied into OPFS/library storage.
+        if (isEphemeralSlot(slotName)) {
             slotDirty[slotName] = false;
             slotDirtyPages[slotName] = null;
             return Promise.resolve();
@@ -1420,7 +1516,7 @@
     async function computeMountHashes() {
         var hashes = {};
         for (var sn in slotState) {
-            if (slotState[sn] && window.XmilStorage) {
+            if (slotState[sn] && !isEphemeralSlot(sn) && window.XmilStorage) {
                 try {
                     var data = await window.XmilStorage.read(slotState[sn]);
                     if (data) hashes[sn] = await sha256hex(data);
@@ -1468,7 +1564,7 @@
             var lib = getLibrary();
             var mNames = {};
             for (var sn in slotState) {
-                if (slotState[sn]) {
+                if (slotState[sn] && !isEphemeralSlot(sn)) {
                     var le = lib.find(function(e) { return e.key === slotState[sn]; });
                     if (le) mNames[sn] = le.name;
                 }
@@ -1478,7 +1574,7 @@
                 name: name || new Date().toLocaleString('ja-JP'),
                 time: new Date().toISOString(),
                 size: size,
-                mounts: Object.assign({}, slotState),
+                mounts: persistentMountSnapshot(),
                 mountNames: mNames,
                 hashes: mediaHashes,
                 portable: !!(portableFlag & 0x04)
@@ -1514,7 +1610,7 @@
             var lib = getLibrary();
             var missing = [];
             for (var sn in mounts) {
-                if (mounts[sn]) {
+                if (mounts[sn] && !isEphemeralKey(mounts[sn])) {
                     // Portable モードでは EMM スロットをスキップ（EMD セクションから復元される）
                     if (isPortable && sn.startsWith('emm')) continue;
                     if (!lib.find(function(e) { return e.key === mounts[sn]; })) {
@@ -1540,7 +1636,7 @@
                 for (var sn3 in entry.hashes) {
                     // Portable EMM はステート内に含まれるためスキップ
                     if (isPortable && sn3.startsWith('emm')) continue;
-                    if (mounts[sn3]) {
+                    if (mounts[sn3] && !isEphemeralKey(mounts[sn3])) {
                         try {
                             var mediaData = await window.XmilStorage.read(mounts[sn3]);
                             if (mediaData) {
@@ -1570,7 +1666,7 @@
             // 4. マウント復元
             var mountFailed = [];
             for (var sn2 in mounts) {
-                if (mounts[sn2]) {
+                if (mounts[sn2] && !isEphemeralKey(mounts[sn2])) {
                     // Portable EMM はステートロード後に VFS → OPFS で復元
                     if (isPortable && sn2.startsWith('emm')) continue;
                     await mountFromLibrary(mounts[sn2], sn2);
@@ -1622,6 +1718,7 @@
                             var emmSn = 'emm' + ei;
                             slotState[emmSn] = emmKey;
                             slotVfsPath[emmSn] = emmPath;
+                            slotEphemeral[emmSn] = false;
                             slotDirty[emmSn] = false;
                             slotDirtyPages[emmSn] = null;
                         }
@@ -1789,7 +1886,7 @@
             var lib2 = getLibrary();
             var mNames2 = {};
             for (var sn5 in slotState) {
-                if (slotState[sn5]) {
+                if (slotState[sn5] && !isEphemeralSlot(sn5)) {
                     var le2 = lib2.find(function(e) { return e.key === slotState[sn5]; });
                     if (le2) mNames2[sn5] = le2.name;
                 }
@@ -1797,7 +1894,7 @@
             list[idx].time = new Date().toISOString();
             list[idx].size = size;
             list[idx].portable = !!(portableFlag2 & 0x04);
-            list[idx].mounts = Object.assign({}, slotState);
+            list[idx].mounts = persistentMountSnapshot();
             list[idx].mountNames = mNames2;
             list[idx].hashes = mediaHashes;
             saveStateList(list);
@@ -3330,7 +3427,11 @@
         autoLoadRom();
         autoLoadFonts();
         await autoRestoreMounts();
-        if (window.XmilRemoteMedia && window.XmilRemoteMedia.consumeLaunchRequest) {
+        if (cleanTemporaryMediaSession) {
+            var sessionNotice = document.getElementById('remote-session-notice');
+            if (sessionNotice) sessionNotice.classList.remove('hidden');
+        }
+        if (shouldConsumeRemoteMediaIntent()) {
             try {
                 await window.XmilRemoteMedia.consumeLaunchRequest(window.XmilCore);
             } catch(e) {
@@ -3773,7 +3874,7 @@
         // マウント中のスロット情報を逆引き
         var mountedBy = {};
         for (var sn in slotState) {
-            if (slotState[sn]) mountedBy[slotState[sn]] = sn;
+            if (slotState[sn] && !isEphemeralSlot(sn)) mountedBy[slotState[sn]] = sn;
         }
 
         var html = '';
@@ -4041,7 +4142,8 @@
         // 一時ディスクマウント (X1Pen PROGRAM ディスク用)
         mountTempDisk: async function(arrayBuffer, slotName) {
             // 既存ディスクが通常マウントなら flush/eject して変更を保存
-            if (slotState[slotName] && slotState[slotName] !== '__x1pen_temp__') {
+            if (slotState[slotName] && (!isEphemeralSlot(slotName)
+                || !isX1PenTemporarySlot(slotName))) {
                 try { await ejectSlot(slotName); } catch(e) {}
             }
             var vfsPath = slotToVfsPath(slotName, 'd88');
@@ -4052,6 +4154,7 @@
             }
             slotState[slotName] = '__x1pen_temp__';
             slotVfsPath[slotName] = vfsPath;
+            slotEphemeral[slotName] = true;
             slotDirty[slotName] = false;
             slotDirtyPages[slotName] = null;
             // saveMountState() は呼ばない (一時マウント)
@@ -4712,11 +4815,15 @@
         addRemoteToLibrary: addRemoteToLibrary,
         detectFileType:    detectFileType,
         mountFromLibrary:  mountFromLibrary,
+        mountTemporaryEmm: mountTemporaryEmm,
         ejectSlot:         ejectSlot,
         flushSlot:         flushSlot,
         getSlotState:      function() { return Object.assign({}, slotState); },
         getSlotDirty:      function() { return Object.assign({}, slotDirty); },
         getSlotVfsPath:    function() { return Object.assign({}, slotVfsPath); },
+        getSlotEphemeral:  function() { return Object.assign({}, slotEphemeral); },
+        isEphemeralSlot:   isEphemeralSlot,
+        isTemporaryMediaSession: function() { return cleanTemporaryMediaSession; },
         getLibrary:        getLibrary,
         getVisibleLibrary: getVisibleLibrary,
         getExternalLibrary: getExternalLibrary,

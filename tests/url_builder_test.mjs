@@ -77,7 +77,8 @@ test('URL Builder validates inputs and emits a fragment-only launch intent', asy
   assert.equal(await page.locator('#model').inputValue(), 'x1');
   assert.match(await page.locator('#model + .hint').textContent(), /生成URLには選択したMODEL.*保存設定.*指定なし/s);
   assert.equal(await page.locator('#model').evaluate((element) => (
-    element.closest('.field').previousElementSibling.querySelector('#cmt') === document.querySelector('#cmt')
+    element.closest('.field').previousElementSibling.id === 'emm-config'
+      && element.closest('.field').previousElementSibling.previousElementSibling.querySelector('#cmt') === document.querySelector('#cmt')
   )), true);
 
   const libraryState = await page.locator('#library').evaluate((element) => {
@@ -91,10 +92,25 @@ test('URL Builder validates inputs and emits a fragment-only launch intent', asy
   });
   assert.deepEqual(libraryState, { value: '', display: 'none', focused: false, offsetParent: null });
   const visibleText = await page.locator('body').innerText();
-  assert.doesNotMatch(visibleText, /外部メディアとして保存のみ|EMM|EXTERNAL/);
-  await page.waitForFunction(() => document.querySelector('#status').textContent.includes('メディアURLを1件以上'));
+  assert.doesNotMatch(visibleText, /外部メディアとして保存のみ|EXTERNAL/);
+  assert.match(visibleText, /EMM（一時・任意）/);
+  assert.equal(await page.locator('#emm-config input[type="url"]').count(), 0);
+  await page.waitForFunction(() => document.querySelector('#status').textContent.includes('外部メディアURLまたはEMM'));
   assert.equal(await page.locator('#result').inputValue(), '');
   assert.equal(await page.locator('#copy').isDisabled(), true);
+
+  await page.locator('#add-emm').click();
+  assert.equal(await page.locator('.emm-row').count(), 1);
+  assert.equal(await page.locator('.emm-slot').inputValue(), 'emm0');
+  assert.equal(await page.locator('.emm-size').inputValue(), String(1024 * 1024));
+  await page.waitForFunction(() => document.querySelector('#result').value.includes('#media='));
+  const emmOnlyUrl = new URL(await page.locator('#result').inputValue());
+  const emmOnlyIntent = await page.evaluate((encoded) => window.XmilRemoteMedia.decodeIntent(encoded),
+    emmOnlyUrl.hash.slice('#media='.length));
+  assert.equal(JSON.stringify(emmOnlyIntent.items), '[]');
+  assert.equal(JSON.stringify(emmOnlyIntent.emms), JSON.stringify([{ slot: 'emm0', size: 1024 * 1024 }]));
+  assert.match(await page.locator('#status').textContent(), /再読み込みするとゼロ/);
+  await page.locator('.remove-emm').click();
 
   const source = 'https://www.dropbox.com/scl/fi/AbCdEf123456/DISK.D88?rlkey=Key_123&dl=0';
   await page.locator('#library').evaluate((element) => {
@@ -113,6 +129,7 @@ test('URL Builder validates inputs and emits a fragment-only launch intent', asy
   const x1Intent = await page.evaluate((encoded) => window.XmilRemoteMedia.decodeIntent(encoded),
     x1Parsed.hash.slice('#media='.length));
   assert.equal(JSON.stringify(x1Intent.items), JSON.stringify([{ url: source, slot: 'drive0' }]));
+  assert.equal(JSON.stringify(x1Intent.emms), '[]');
 
   await page.locator('#model').selectOption('');
   await page.waitForFunction(() => !new URL(document.querySelector('#result').value).searchParams.has('model'));
@@ -141,6 +158,21 @@ test('URL Builder validates inputs and emits a fragment-only launch intent', asy
   await page.setViewportSize({ width: 390, height: 844 });
   const dimensions = await page.evaluate(() => ({ body: document.body.scrollWidth, viewport: innerWidth }));
   assert.ok(dimensions.body <= dimensions.viewport + 1, `horizontal overflow: ${dimensions.body} > ${dimensions.viewport}`);
+});
+
+test('URL Builder rejects duplicate EMM slots and caps remote plus EMM at six', async () => {
+  await page.goto(`${baseUrl}/url-builder.html`);
+  await page.locator('#add-emm').click();
+  await page.locator('#add-emm').click();
+  await page.locator('.emm-slot').nth(1).selectOption('emm0');
+  await page.waitForFunction(() => document.querySelector('#error').textContent.includes('同じ挿入先'));
+  assert.equal(await page.locator('#copy').isDisabled(), true);
+
+  await page.locator('.emm-slot').nth(1).selectOption('emm1');
+  for (let index = 0; index < 4; index += 1) await page.locator('#add-emm').click();
+  assert.equal(await page.locator('.emm-row').count(), 6);
+  assert.equal(await page.locator('#add-emm').isDisabled(), true);
+  assert.equal(await page.locator('#copy').isEnabled(), true);
 });
 
 test('URL MODEL is temporary across first boot, settings saves, reset, and normal navigation', { skip: !hasBuiltApp, timeout: 120_000 }, async () => {
@@ -196,6 +228,102 @@ test('URL MODEL is temporary across first boot, settings saves, reset, and norma
   assert.equal(Object.hasOwn(firstVisitSettings, 'romType'), false);
   await page.evaluate(() => localStorage.clear());
   await page.unroute('**/api/disk-relay');
+});
+
+test('media URL starts clean, preserves mount state and fragment, and recreates temporary EMM as zero', { skip: !hasBuiltApp, timeout: 120_000 }, async () => {
+  await page.goto(`${baseUrl}/url-builder.html`);
+  await page.evaluate(() => localStorage.clear());
+  const savedMountState = JSON.stringify({ drive0: 'normal-disk-key', emm4: 'EMM4.MEM' });
+  await page.evaluate((value) => localStorage.setItem('xmil_mount_state', value), savedMountState);
+  const launchUrl = await page.evaluate((target) => window.XmilRemoteMedia.buildLaunchUrl(
+    target, [], 'x1', [{ slot: 'emm2', size: 320 * 1024 }],
+  ), `${baseUrl}/xmillennium.html`);
+  const launchHash = new URL(launchUrl).hash;
+
+  await page.goto(launchUrl);
+  await page.waitForFunction(() => window.XmilCore?.getSlotState?.().emm2 === '__remote_temp_emm__', null, { timeout: 30_000 });
+  const first = await page.evaluate(() => ({
+    state: window.XmilCore.getSlotState(),
+    ephemeral: window.XmilCore.getSlotEphemeral(),
+    mountState: localStorage.getItem('xmil_mount_state'),
+    hash: location.hash,
+    bytes: Array.from(window.Module.FS.readFile('/EMM2.MEM').slice(0, 4)),
+    notice: document.querySelector('#remote-session-notice').textContent,
+    noticeHidden: document.querySelector('#remote-session-notice').classList.contains('hidden'),
+  }));
+  assert.equal(first.state.emm2, '__remote_temp_emm__');
+  assert.equal(Object.entries(first.state).filter(([, value]) => value).length, 1);
+  assert.equal(first.ephemeral.emm2, true);
+  assert.equal(first.mountState, savedMountState);
+  assert.equal(first.hash, launchHash);
+  assert.deepEqual(first.bytes, [0, 0, 0, 0]);
+  assert.equal(first.noticeHidden, false);
+  assert.match(first.notice, /通常のマウント設定は変更しません.*EMM.*再読み込み/s);
+
+  const manual = await page.evaluate(async (mountState) => {
+    const entry = await window.XmilLibrary.addToLibrary(new File([
+      new Uint8Array(0x2b0),
+    ], 'MANUAL.D88', { type: 'application/octet-stream' }));
+    await window.XmilCore.mountFromLibrary(entry.key, 'drive0');
+    const mounted = window.XmilCore.getSlotState().drive0;
+    const unchangedAfterMount = localStorage.getItem('xmil_mount_state') === mountState;
+    await window.XmilCore.ejectSlot('drive0');
+    return {
+      mounted,
+      key: entry.key,
+      unchangedAfterMount,
+      unchangedAfterEject: localStorage.getItem('xmil_mount_state') === mountState,
+    };
+  }, savedMountState);
+  assert.equal(manual.mounted, manual.key);
+  assert.equal(manual.unchangedAfterMount, true);
+  assert.equal(manual.unchangedAfterEject, true);
+
+  const rollback = await page.evaluate(async (mountState) => {
+    const originalWriteFile = window.Module.FS.writeFile;
+    window.Module.FS.writeFile = function(path, bytes) {
+      originalWriteFile.call(this, path, bytes.slice(0, 256));
+      throw new Error('injected VFS failure');
+    };
+    let message = '';
+    try {
+      await window.XmilCore.mountTemporaryEmm('emm3', 512 * 1024);
+    } catch (error) {
+      message = error.message;
+    } finally {
+      window.Module.FS.writeFile = originalWriteFile;
+    }
+    return {
+      message,
+      state: window.XmilCore.getSlotState().emm3,
+      ephemeral: window.XmilCore.getSlotEphemeral().emm3,
+      fileExists: window.Module.FS.analyzePath('/EMM3.MEM').exists,
+      libraryHasEmm3: window.XmilCore.getLibrary().some((entry) => entry.name === 'EMM3.MEM'),
+      mountStateUnchanged: localStorage.getItem('xmil_mount_state') === mountState,
+    };
+  }, savedMountState);
+  assert.match(rollback.message, /容量を確保できません/);
+  assert.deepEqual(rollback, {
+    message: rollback.message,
+    state: null,
+    ephemeral: false,
+    fileExists: false,
+    libraryHasEmm3: false,
+    mountStateUnchanged: true,
+  });
+
+  await page.evaluate(() => {
+    const bytes = window.Module.FS.readFile('/EMM2.MEM');
+    bytes[0] = 127;
+    window.Module.FS.writeFile('/EMM2.MEM', bytes);
+  });
+  assert.equal(await page.evaluate(() => window.Module.FS.readFile('/EMM2.MEM')[0]), 127);
+  await page.reload();
+  await page.waitForFunction(() => window.XmilCore?.getSlotState?.().emm2 === '__remote_temp_emm__', null, { timeout: 30_000 });
+  assert.equal(await page.evaluate(() => window.Module.FS.readFile('/EMM2.MEM')[0]), 0);
+  assert.equal(await page.evaluate(() => localStorage.getItem('xmil_mount_state')), savedMountState);
+  assert.equal(new URL(page.url()).hash, launchHash);
+  await page.evaluate(() => localStorage.clear());
 });
 
 test('Relay-derived HTML-like filenames remain text in the real library DOM', { skip: !hasBuiltApp }, async () => {

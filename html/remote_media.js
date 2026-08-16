@@ -13,6 +13,15 @@
         cmt: 'cmt'
     };
     var TYPE_LIMITS = { fdd: 32, hdd: 64, cmt: 32, emm: 16 };
+    var EMM_SIZES = [
+        320 * 1024,
+        512 * 1024,
+        1024 * 1024,
+        2 * 1024 * 1024,
+        4 * 1024 * 1024,
+        8 * 1024 * 1024,
+        16 * 1024 * 1024
+    ];
     var MODEL_VALUES = { x1: 1, x1turbo: 2, x1turboz: 3 };
 
     function RemoteMediaError(code, message) {
@@ -147,19 +156,51 @@
             fail('INVALID_ITEMS', '1〜' + MAX_ITEMS + '件の共有URLを指定してください');
         }
         var slots = Object.create(null);
-        var urls = Object.create(null);
+        var sources = Object.create(null);
         return items.map(function(item) {
             var normalized = normalizeItem(item);
             if (normalized.slot && slots[normalized.slot]) {
                 fail('DUPLICATE_SLOT', '同じ挿入先を複数回指定できません');
             }
-            if (urls[normalized.url]) {
-                fail('DUPLICATE_URL', '同じ共有URLを複数回指定できません');
+            var sourceIdentity = inspectShareUrl(normalized.url).sourceIdentity;
+            if (typeof sourceIdentity !== 'string' || sourceIdentity.length === 0) {
+                fail('INVALID_SOURCE_IDENTITY', '共有元を一意に識別できません');
+            }
+            if (sources[sourceIdentity]) {
+                fail('DUPLICATE_SOURCE', '同じ共有URLまたは共有元を複数回指定できません');
             }
             if (normalized.slot) slots[normalized.slot] = true;
-            urls[normalized.url] = true;
+            sources[sourceIdentity] = true;
             return normalized;
         });
+    }
+
+    function normalizeEmm(emm) {
+        if (!emm || typeof emm !== 'object' || Array.isArray(emm)
+            || typeof emm.slot !== 'string' || !/^emm[0-9]$/.test(emm.slot)
+            || !Number.isInteger(emm.size) || EMM_SIZES.indexOf(emm.size) < 0) {
+            fail('INVALID_EMM', 'EMMのスロットまたは容量が正しくありません');
+        }
+        return { slot: emm.slot, size: emm.size };
+    }
+
+    function validateIntentParts(items, emms) {
+        if (!Array.isArray(items) || !Array.isArray(emms)
+            || items.length + emms.length < 1 || items.length + emms.length > MAX_ITEMS) {
+            fail('INVALID_ITEMS', '外部メディアとEMMを合計1〜' + MAX_ITEMS + '件指定してください');
+        }
+        var normalizedItems = items.length ? validateItems(items) : [];
+        var slots = Object.create(null);
+        normalizedItems.forEach(function(item) {
+            if (item.slot) slots[item.slot] = true;
+        });
+        var normalizedEmms = emms.map(function(emm) {
+            var normalized = normalizeEmm(emm);
+            if (slots[normalized.slot]) fail('DUPLICATE_SLOT', '同じ挿入先を複数回指定できません');
+            slots[normalized.slot] = true;
+            return normalized;
+        });
+        return { items: normalizedItems, emms: normalizedEmms };
     }
 
     function bytesToBase64Url(bytes) {
@@ -183,9 +224,11 @@
         return bytes;
     }
 
-    function encodeIntent(items) {
-        var normalized = validateItems(items);
-        var json = JSON.stringify({ v: 1, items: normalized });
+    function encodeIntent(items, emms) {
+        var normalized = validateIntentParts(items, emms || []);
+        var payload = { v: 1, items: normalized.items };
+        if (normalized.emms.length) payload.emms = normalized.emms;
+        var json = JSON.stringify(payload);
         if (byteLength(json) > MAX_INTENT_BYTES) fail('INTENT_TOO_LARGE', '起動URLのデータが大きすぎます');
         return bytesToBase64Url(new TextEncoder().encode(json));
     }
@@ -199,19 +242,28 @@
         } catch (_) {
             fail('INVALID_INTENT', '起動URLのデータを解釈できません');
         }
-        if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.items)) {
+        if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.items)
+            || (parsed.emms != null && !Array.isArray(parsed.emms))) {
             fail('INVALID_INTENT', '対応していない起動URLです');
         }
-        return { v: 1, items: validateItems(parsed.items) };
+        var normalized = validateIntentParts(parsed.items, parsed.emms || []);
+        return { v: 1, items: normalized.items, emms: normalized.emms };
     }
 
-    function buildLaunchUrl(baseUrl, items, model) {
+    function buildLaunchUrl(baseUrl, items, model, emms) {
         var url = new URL(baseUrl, root.location ? root.location.href : undefined);
         url.searchParams.delete('model');
         var normalizedModel = normalizeModelQuery(model);
         if (normalizedModel) url.searchParams.set('model', normalizedModel);
-        url.hash = 'media=' + encodeIntent(items);
+        url.hash = 'media=' + encodeIntent(items, emms || []);
         return url.href;
+    }
+
+    function hasLaunchRequest(locationObject) {
+        var hash = locationObject && typeof locationObject.hash === 'string'
+            ? locationObject.hash.slice(1) : '';
+        if (!hash) return false;
+        return new URLSearchParams(hash).has('media');
     }
 
     function readIntentFromHash(locationObject) {
@@ -315,18 +367,23 @@
         fail('LIBRARY_NAME_CONFLICT', '既存ファイルと重ならない名前を作成できませんでした');
     }
 
+    var consumedLocations = [];
+
     async function consumeLaunchRequest(core, options) {
         options = options || {};
         var locationObject = options.location || root.location;
-        var historyObject = options.history || root.history;
         var fetchImpl = options.fetchImpl || root.fetch;
         var FileCtor = options.FileCtor || root.File;
+        if (!hasLaunchRequest(locationObject)) return { processed: false, successes: [], failures: [] };
+        if (consumedLocations.indexOf(locationObject) >= 0) {
+            return { processed: false, alreadyProcessed: true, successes: [], failures: [] };
+        }
+        consumedLocations.push(locationObject);
         var encoded = readIntentFromHash(locationObject);
-        if (!encoded) return { processed: false, successes: [], failures: [] };
-
-        clearIntentHash(locationObject, historyObject);
         var intent;
         try {
+            var mediaValues = new URLSearchParams(locationObject.hash.slice(1)).getAll('media');
+            if (mediaValues.length !== 1 || !encoded) fail('INVALID_INTENT', '起動URLのデータを解釈できません');
             intent = decodeIntent(encoded);
         } catch (error) {
             if (core && core.updateStatus) core.updateStatus('公開URLの起動データが不正です: ' + addFailureMessage(error));
@@ -432,6 +489,20 @@
             }
         }
 
+        var emmSuccesses = [];
+        for (var j = 0; j < intent.emms.length; j++) {
+            var emm = intent.emms[j];
+            try {
+                if (!core || typeof core.mountTemporaryEmm !== 'function') {
+                    fail('EMM_UNAVAILABLE', '一時EMMを準備できません');
+                }
+                await core.mountTemporaryEmm(emm.slot, emm.size);
+                emmSuccesses.push({ slot: emm.slot, size: emm.size });
+            } catch (error) {
+                failures.push({ index: intent.items.length + j, slot: emm.slot, error: error });
+            }
+        }
+
         if (core && core.updateStatus) {
             var reusedCount = successes.filter(function(item) { return item.reused; }).length;
             var addedCount = successes.length - reusedCount;
@@ -442,9 +513,10 @@
                 summary += '。配布元の更新を確認できませんでした。上書きによるゲーム内セーブ消失を避け、保存済みディスクを使用しました';
             }
             if (failures.length) summary += '、' + failures.length + '件失敗: ' + addFailureMessage(failures[0].error);
+            if (emmSuccesses.length) summary += '。一時EMM: ' + emmSuccesses.length + '件（再読み込みで消去）';
             core.updateStatus(summary);
         }
-        return { processed: true, successes: successes, failures: failures };
+        return { processed: true, successes: successes, emmSuccesses: emmSuccesses, failures: failures };
     }
 
     root.XmilRemoteMedia = Object.freeze({
@@ -454,15 +526,18 @@
         inspectShareUrl: inspectShareUrl,
         sourceIdForUrl: sourceIdForUrl,
         validateItems: validateItems,
+        validateIntentParts: validateIntentParts,
         encodeIntent: encodeIntent,
         decodeIntent: decodeIntent,
         buildLaunchUrl: buildLaunchUrl,
         normalizeModelQuery: normalizeModelQuery,
         readLaunchModel: readLaunchModel,
         readIntentFromHash: readIntentFromHash,
+        hasLaunchRequest: hasLaunchRequest,
         uniqueImportFilename: uniqueImportFilename,
         consumeLaunchRequest: consumeLaunchRequest,
         slotTypes: Object.freeze(Object.assign({}, SLOT_TYPES)),
+        emmSizes: Object.freeze(EMM_SIZES.slice()),
         modelValues: Object.freeze(Object.assign({}, MODEL_VALUES)),
         typeLimitsMiB: Object.freeze(Object.assign({}, TYPE_LIMITS))
     });
