@@ -49,14 +49,17 @@
 
         .hidden { display: none !important; }
         #remote-session-notice {
-            margin: 0 0 12px;
-            padding: 9px 12px;
+            display: inline-flex;
+            align-items: center;
+            margin: 0 0 8px;
+            padding: 2px 6px;
             border: 1px solid rgba(255, 204, 136, 0.65);
-            border-radius: 6px;
-            color: #ffe0b0;
-            background: rgba(70, 32, 8, 0.8);
-            font-size: 0.82em;
-            line-height: 1.5;
+            border-radius: 3px;
+            color: #ffd28a;
+            background: rgba(70, 32, 8, 0.45);
+            font-size: 0.7em;
+            line-height: 1.2;
+            white-space: nowrap;
         }
 
         /* ════════════════════════════════════════════════════════════
@@ -1298,9 +1301,7 @@
 
     <div id="main-content" class="hidden">
 
-        <div id="remote-session-notice" class="hidden" role="status">
-            共有URLの一時セッションです。通常のマウント設定は変更しません。URLはアドレスバーと履歴に残ります。外部メディアの変更はこのブラウザへ保存されますが、EMMは一時メモリのためイジェクトまたは再読み込みで消去されます。再読み込みするとURLの初期構成へ戻ります。
-        </div>
+        <div id="remote-session-notice" class="hidden" role="status" title="共有URLの一時セッションです。通常のマウント設定は変更しません。URLはアドレスバーと履歴に残ります。外部メディアの変更はこのブラウザへ保存されますが、EMMは一時メモリのためイジェクトまたは再読み込みで消去されます。再読み込みするとURLの初期構成へ戻ります。" aria-label="External Session。共有URLの一時セッションです。通常のマウント設定は変更しません。URLはアドレスバーと履歴に残ります。外部メディアの変更はこのブラウザへ保存されますが、EMMは一時メモリのためイジェクトまたは再読み込みで消去されます。再読み込みするとURLの初期構成へ戻ります。">External Session</div>
 
         <!-- ════════════════════════════════════════════════════════
              統合マシンパネル

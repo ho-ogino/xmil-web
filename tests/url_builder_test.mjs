@@ -242,15 +242,22 @@ test('media URL starts clean, preserves mount state and fragment, and recreates 
 
   await page.goto(launchUrl);
   await page.waitForFunction(() => window.XmilCore?.getSlotState?.().emm2 === '__remote_temp_emm__', null, { timeout: 30_000 });
-  const first = await page.evaluate(() => ({
-    state: window.XmilCore.getSlotState(),
-    ephemeral: window.XmilCore.getSlotEphemeral(),
-    mountState: localStorage.getItem('xmil_mount_state'),
-    hash: location.hash,
-    bytes: Array.from(window.Module.FS.readFile('/EMM2.MEM').slice(0, 4)),
-    notice: document.querySelector('#remote-session-notice').textContent,
-    noticeHidden: document.querySelector('#remote-session-notice').classList.contains('hidden'),
-  }));
+  const first = await page.evaluate(() => {
+    const notice = document.querySelector('#remote-session-notice');
+    return {
+      state: window.XmilCore.getSlotState(),
+      ephemeral: window.XmilCore.getSlotEphemeral(),
+      mountState: localStorage.getItem('xmil_mount_state'),
+      hash: location.hash,
+      bytes: Array.from(window.Module.FS.readFile('/EMM2.MEM').slice(0, 4)),
+      notice: notice.textContent,
+      noticeTitle: notice.getAttribute('title'),
+      noticeAriaLabel: notice.getAttribute('aria-label'),
+      noticeHidden: notice.classList.contains('hidden'),
+      noticeWidth: notice.getBoundingClientRect().width,
+      mainContentWidth: document.querySelector('#main-content').getBoundingClientRect().width,
+    };
+  });
   assert.equal(first.state.emm2, '__remote_temp_emm__');
   assert.equal(Object.entries(first.state).filter(([, value]) => value).length, 1);
   assert.equal(first.ephemeral.emm2, true);
@@ -258,7 +265,11 @@ test('media URL starts clean, preserves mount state and fragment, and recreates 
   assert.equal(first.hash, launchHash);
   assert.deepEqual(first.bytes, [0, 0, 0, 0]);
   assert.equal(first.noticeHidden, false);
-  assert.match(first.notice, /通常のマウント設定は変更しません.*EMM.*再読み込み/s);
+  assert.equal(first.notice, 'External Session');
+  const noticeDetail = '共有URLの一時セッションです。通常のマウント設定は変更しません。URLはアドレスバーと履歴に残ります。外部メディアの変更はこのブラウザへ保存されますが、EMMは一時メモリのためイジェクトまたは再読み込みで消去されます。再読み込みするとURLの初期構成へ戻ります。';
+  assert.equal(first.noticeTitle, noticeDetail);
+  assert.equal(first.noticeAriaLabel, `External Session。${noticeDetail}`);
+  assert.ok(first.noticeWidth < first.mainContentWidth / 2);
 
   const manual = await page.evaluate(async (mountState) => {
     const entry = await window.XmilLibrary.addToLibrary(new File([
