@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>公開メディア URL Builder — X millennium Web</title>
+<title>X millennium Web URL Builder</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <style>
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
     margin: 0;
     min-height: 100vh;
@@ -78,23 +79,12 @@ ul { padding-left: 1.3em; }
 <body>
 <main>
     <a class="back" href="./index.html">&larr; トップページへ戻る</a>
-    <h1>公開メディア URL Builder</h1>
+    <h1>X millennium Web URL Builder</h1>
     <p class="subtitle">Google Drive / Dropbox の公開共有リンクから、X millennium Web の起動URLを作ります。</p>
 
     <section class="card" aria-labelledby="media-heading">
         <h2 id="media-heading">メディアを指定</h2>
         <p class="fine">必要な欄だけ入力してください。Google Drive は「リンクを知っている全員」、Dropbox は単一ファイルの公開共有リンクが必要です。</p>
-
-        <div class="field">
-            <label for="model">MODEL（任意・このURLで開いたタブのみ）</label>
-            <select id="model">
-                <option value="">利用者の保存設定（指定なし）</option>
-                <option value="x1">X1</option>
-                <option value="x1turbo">X1turbo</option>
-                <option value="x1turboz">X1turboZ</option>
-            </select>
-            <p class="hint">通常のMODEL設定は変更しません。URLから <code>model</code> を外して開き直すと、利用者の保存設定へ戻ります。</p>
-        </div>
 
         <div class="field">
             <label for="drive0">FDD0</label>
@@ -117,9 +107,18 @@ ul { padding-left: 1.3em; }
             <input id="cmt" data-slot="cmt" type="url" spellcheck="false" autocomplete="off">
         </div>
         <div class="field">
+            <label for="model">MODEL（このURLで開いたタブのみ）</label>
+            <select id="model">
+                <option value="">利用者の保存設定（指定なし）</option>
+                <option value="x1" selected>X1</option>
+                <option value="x1turbo">X1turbo</option>
+                <option value="x1turboz">X1turboZ</option>
+            </select>
+            <p class="hint">生成URLには選択したMODELが指定されます。通常のMODEL設定は変更しません。保存設定で開くURLにする場合は「利用者の保存設定（指定なし）」を選んでください。</p>
+        </div>
+        <div class="field" hidden>
             <label for="library">外部メディアとして保存のみ（任意・URL入力）</label>
             <input id="library" data-slot="" type="url" spellcheck="false" autocomplete="off">
-            <p class="hint">起動時にはスロットへ挿入しません。ブラウザ内へ永続保存し、ファイルライブラリの EXTERNAL タブから後で選択できます。同じ共有元は保存済み内容を再利用します。EMMはこの欄へ <code>EMM0.MEM</code>〜<code>EMM9.MEM</code> の公開URLを入力し、EXTERNALから固定名に対応するスロットへ挿入します。</p>
         </div>
 
         <div id="status" class="status" aria-live="polite"></div>
@@ -143,7 +142,7 @@ ul { padding-left: 1.3em; }
         <ul>
             <li>共有元URLは生成URLの <code>#media=...</code> 部分に入り、ページを開いた時点ではサーバーへ送信されません。X millennium Webは起動直後にこの部分を画面URLから消去します。</li>
             <li>取得操作では共有URLとファイルデータが同一サイトのCloudflare Relayを一時的に通過します。Relayはファイル、共有URL、ファイル名を永続保存しません。</li>
-            <li>対応形式と実効上限は、FDD: D88/2D/88D（32MiB）、HDD: HDD/HD（64MiB）、CMT: CAS/CMT/TAP/BAS/BIN（32MiB）、保存のみ欄から追加するEMM: <code>EMM0.MEM</code>〜<code>EMM9.MEM</code>（16MiB）です。EMMの直接入力欄はなく、起動後にEXTERNALタブから挿入します。</li>
+            <li>対応形式と実効上限は、FDD: D88/2D/88D（32MiB）、HDD: HDD/HD（64MiB）、CMT: CAS/CMT/TAP/BAS/BIN（32MiB）です。</li>
             <li>Google DriveリンクはURLにファイル名がないため、形式は実際に開いた後で確認されます。Google側がウイルススキャン確認ページを要求する大容量ファイルはMVPでは取得できません。</li>
             <li>自分が利用・共有する権利を持つファイルだけを指定してください。非公開ファイル、フォルダー共有、OneDrive、ZIP/LZH、任意のWeb URLには対応していません。</li>
         </ul>
@@ -165,7 +164,9 @@ ul { padding-left: 1.3em; }
     var timer = null;
 
     function currentItems() {
-        return inputs.map(function(input) {
+        return inputs.filter(function(input) {
+            return !input.closest('[hidden]');
+        }).map(function(input) {
             return { url: input.value.trim(), slot: input.dataset.slot || null };
         }).filter(function(item) { return item.url; });
     }

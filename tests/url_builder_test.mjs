@@ -72,20 +72,52 @@ after(async () => {
 
 test('URL Builder validates inputs and emits a fragment-only launch intent', async () => {
   await page.goto(`${baseUrl}/url-builder.html`);
-  assert.match(await page.locator('label[for="library"]').textContent(), /URL入力/);
-  assert.match(await page.locator('#library + .hint').textContent(), /EXTERNAL.*同じ共有元.*再利用.*EMM0\.MEM.*固定名/);
-  assert.match(await page.locator('#about-heading').locator('..').textContent(), /EMMの直接入力欄はなく.*EXTERNAL/);
-  assert.equal(await page.locator('#model').inputValue(), '');
-  await page.locator('#model').selectOption('x1turboz');
+  assert.equal(await page.title(), 'X millennium Web URL Builder');
+  assert.equal(await page.locator('h1').textContent(), 'X millennium Web URL Builder');
+  assert.equal(await page.locator('#model').inputValue(), 'x1');
+  assert.match(await page.locator('#model + .hint').textContent(), /生成URLには選択したMODEL.*保存設定.*指定なし/s);
+  assert.equal(await page.locator('#model').evaluate((element) => (
+    element.closest('.field').previousElementSibling.querySelector('#cmt') === document.querySelector('#cmt')
+  )), true);
+
+  const libraryState = await page.locator('#library').evaluate((element) => {
+    element.focus();
+    return {
+      value: element.value,
+      display: getComputedStyle(element.closest('.field')).display,
+      focused: document.activeElement === element,
+      offsetParent: element.offsetParent,
+    };
+  });
+  assert.deepEqual(libraryState, { value: '', display: 'none', focused: false, offsetParent: null });
+  const visibleText = await page.locator('body').innerText();
+  assert.doesNotMatch(visibleText, /外部メディアとして保存のみ|EMM|EXTERNAL/);
   await page.waitForFunction(() => document.querySelector('#status').textContent.includes('メディアURLを1件以上'));
   assert.equal(await page.locator('#result').inputValue(), '');
   assert.equal(await page.locator('#copy').isDisabled(), true);
 
   const source = 'https://www.dropbox.com/scl/fi/AbCdEf123456/DISK.D88?rlkey=Key_123&dl=0';
+  await page.locator('#library').evaluate((element) => {
+    element.value = 'https://drive.google.com/file/d/HiddenLibrary123456/view';
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.waitForTimeout(250);
+  assert.equal(await page.locator('#result').inputValue(), '');
   await page.locator('#drive0').fill(source);
   await assert.doesNotReject(() => page.locator('#result').waitFor({ state: 'visible' }));
   await page.waitForFunction(() => document.querySelector('#result').value.includes('#media='));
 
+  const x1Url = await page.locator('#result').inputValue();
+  const x1Parsed = new URL(x1Url);
+  assert.equal(x1Parsed.searchParams.get('model'), 'x1');
+  const x1Intent = await page.evaluate((encoded) => window.XmilRemoteMedia.decodeIntent(encoded),
+    x1Parsed.hash.slice('#media='.length));
+  assert.equal(JSON.stringify(x1Intent.items), JSON.stringify([{ url: source, slot: 'drive0' }]));
+
+  await page.locator('#model').selectOption('');
+  await page.waitForFunction(() => !new URL(document.querySelector('#result').value).searchParams.has('model'));
+  await page.locator('#model').selectOption('x1turboz');
+  await page.waitForFunction(() => new URL(document.querySelector('#result').value).searchParams.get('model') === 'x1turboz');
   const launchUrl = await page.locator('#result').inputValue();
   const parsed = new URL(launchUrl);
   assert.equal(parsed.pathname, '/xmillennium.html');
@@ -170,9 +202,9 @@ test('Relay-derived HTML-like filenames remain text in the real library DOM', { 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(`${baseUrl}/url-builder.html`);
   const source = 'https://www.dropbox.com/scl/fi/AbCdEf123456/%3Cimg%20src%3Dx%20onerror%3Dalert%281%29%3E.D88?rlkey=Key_123&dl=0';
-  await page.locator('#library').fill(source);
-  await page.waitForFunction(() => document.querySelector('#result').value.includes('#media='));
-  const launchUrl = await page.locator('#result').inputValue();
+  const launchUrl = await page.evaluate(({ target, mediaUrl }) => window.XmilRemoteMedia.buildLaunchUrl(target, [
+    { url: mediaUrl, slot: null },
+  ]), { target: `${baseUrl}/xmillennium.html`, mediaUrl: source });
 
   await page.route('**/api/disk-relay', (route) => route.fulfill({
     status: 200,
