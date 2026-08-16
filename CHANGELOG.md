@@ -1,5 +1,16 @@
 # Changelog
 
+## X millennium Web / X1Pen Web 0.10.0
+
+- Google Drive／Dropboxの公開共有URLからRelay経由でFDD、HDD、CMTを読み込むURL Builderを追加しました。外部メディアの変更はprovider sourceごとのbrowser-local copyへ保存され、同じURLを再度開いたときに再利用されます。
+- URL起動を通常のmount設定から隔離する`External Session`を追加しました。URL fragmentは再読み込み用に保持し、指定されていないslotは空のまま開始し、通常の`xmil_mount_state`は復元・変更しません。
+- URL Builderから320KiB〜16MiBのzero-filled一時EMMを最大10 slotへ指定できるようにしました。一時EMMはbrowser storageへ保存されず、ejectまたはreloadで消去されます。
+- URLの`model` parameterでX1／X1turbo／X1turboZを一時選択できるようにしました。保存済みの通常MODEL設定は変更しません。
+- Share URLのsource／media隔離と、保存済みmediaがmount中のShare拒否を追加しました。
+- 24kHz underline対応text rendererで、ANK、PCG、ROM漢字glyph下部のクリッピングを修正しました。
+- X millennium WebとX1Penは現在同じ`html/x1pen-version.js`をbuild時の製品version sourceとして共有するため、両方の表示・descriptor versionが0.10.0になります。X1Pen editor、Automation／bridge protocol、feature IDには今回変更がありません。
+- x1pen-mcp 2.7.0とX1Pen Connector 1.3.0は変更せず、npm publish、再pack、store再提出を行いません。
+
 ## X1Pen Web 0.9.2
 
 - Share URLを開いたページを一時的なShare modeとして隔離し、保存済みのsourceやmediaを復元・変更せず、保存済みmediaのmountも拒否するようにしました。
