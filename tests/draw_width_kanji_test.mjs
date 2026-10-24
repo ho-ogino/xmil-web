@@ -17,10 +17,10 @@ function findCompiler() {
   assert.fail('C++ compiler required for test:draw (tried CXX, c++, clang++, g++)');
 }
 
-test('24kHz text renderer preserves ANK, PCG, and Kanji glyph rows', async () => {
+async function compileAndRun(name, sources, expectedOutput) {
   const compiler = findCompiler();
-  const workDir = await mkdtemp(join(tmpdir(), 'xmil-draw-width-'));
-  const executable = join(workDir, 'draw-width-kanji-test');
+  const workDir = await mkdtemp(join(tmpdir(), `xmil-${name}-`));
+  const executable = join(workDir, name);
 
   try {
     const compile = spawnSync(compiler, [
@@ -34,15 +34,16 @@ test('24kHz text renderer preserves ANK, PCG, and Kanji glyph rows', async () =>
       '-D__cdecl=',
       '-D__stdcall=',
       '-D__declspec(x)=',
+      '-DZeroMemory(p,size)=memset((p),0,(size))',
       '-Iplatform/dummy_includes',
       '-Iplatform',
       '-Isrc',
       '-Isrc/Z80R',
       '-include',
       'platform/platform_types.h',
-      'tests/draw_width_kanji_test.cpp',
-      'platform/draw_width.cpp',
-      'platform/draw_sub_data.cpp',
+      '-include',
+      'cstring',
+      ...sources,
       '-o',
       executable,
     ], { encoding: 'utf8' });
@@ -50,7 +51,7 @@ test('24kHz text renderer preserves ANK, PCG, and Kanji glyph rows', async () =>
     assert.equal(
       compile.status,
       0,
-      `native draw test compilation failed\n${compile.stdout}${compile.stderr}`,
+      `native ${name} compilation failed\n${compile.stdout}${compile.stderr}`,
     );
 
     const run = spawnSync(executable, [], {
@@ -60,10 +61,27 @@ test('24kHz text renderer preserves ANK, PCG, and Kanji glyph rows', async () =>
     assert.equal(
       run.status,
       0,
-      `native draw test failed\n${run.stdout}${run.stderr}`,
+      `native ${name} failed\n${run.stdout}${run.stderr}`,
     );
-    assert.match(run.stdout, /draw_width text glyph tests passed/);
+    assert.match(run.stdout, expectedOutput);
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }
+}
+
+test('24kHz text renderer preserves ANK, PCG, and Kanji glyph rows', async () => {
+  await compileAndRun('draw-width-kanji-test', [
+    'tests/draw_width_kanji_test.cpp',
+    'platform/draw_width.cpp',
+    'platform/draw_sub_data.cpp',
+  ], /draw_width text glyph tests passed/);
+});
+
+test('PCG redefinition redraws characters already on screen', async () => {
+  await compileAndRun('pcg-redraw-test', [
+    'tests/pcg_redraw_test.cpp',
+    'src/X1_PCG.CPP',
+    'platform/draw_width.cpp',
+    'platform/draw_sub_data.cpp',
+  ], /pcg redraw tests passed/);
 });
