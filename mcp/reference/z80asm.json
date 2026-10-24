@@ -35,23 +35,27 @@
     "kind": "syntax",
     "title": "Numbers, character literals and expressions",
     "profiles": ["x1pen-z80asm-current"],
-    "symbols": ["0x", "$", "H", "%", "B", "LOW", "HIGH", "EXISTS", "+", "-", "*", "/", "<<", ">>", "&", "|", "~", "==", "!=", "<", "<=", ">", ">="],
+    "symbols": ["0x", "$", "H", "%", "B", "LOW", "HIGH", "EXISTS", "+", "-", "*", "/", "<<", ">>", "&", "^", "|", "~", "!", "==", "!=", "<", "<=", ">", ">=", "&&", "||"],
     "aliases": ["numeric literal", "hexadecimal", "binary", "expression", "operator precedence", "character literal", "数値", "16進数", "2進数", "式", "演算子", "文字リテラル"],
-    "summary": "Expressions are 16-bit and accept decimal, hexadecimal, binary, ASCII character, symbol and current-address values with arithmetic, shift, bitwise and comparison operators.",
+    "summary": "Expressions are 16-bit and accept decimal, hexadecimal, binary, ASCII character, symbol and current-address values with arithmetic, shift, bitwise, comparison and logical operators.",
     "syntax": [
       "123 / 0x7B / $7B / 7BH      decimal and hexadecimal",
       "%1010 / 1010B              binary",
       "'A' or \"A\"                one-byte ASCII character literal",
       "$                            current assembly address",
       "LOW expr / HIGH expr         low or high byte",
-      "EXISTS symbol                1 when a symbol is already defined, otherwise 0",
-      "precedence: unary; *, /, <<, >>; +, -; &, |; comparisons"
+      "EXISTS symbol or EXISTS(symbol)  1 when a symbol is already defined, otherwise 0",
+      "!value / left && right / left || right  logical operations normalized to 0 or 1",
+      "precedence: unary +, -, ~, !; *, /, <<, >>; +, -; &, ^, |; comparisons; &&; ||"
     ],
     "notes": [
       "Expression results wrap to 16 bits. Division by zero currently evaluates to zero.",
       "Only single-byte ASCII character literals are accepted; use DB with an ASCII double-quoted string for multiple bytes.",
-      "Comparisons return 1 or 0 and are primarily useful in #IF/#ELIF.",
-      "An unresolved symbol is tolerated as a pass-one placeholder but must resolve during pass two."
+      "Comparisons and logical operators return 1 or 0. Truthiness is tested after masking to 16 bits, so 0x10000 is false and -1 is true.",
+      "Binary operators are left-associative within each tier, including comparison chaining. Parentheses contain a full expression and must be balanced.",
+      "Logical evaluation is eager: both operands must be valid even when the left operand determines the result.",
+      "The same evaluator is used by operands, indexed displacements, EQU, ORG, ALIGN, DB, DW, DS and #IF/#ELIF.",
+      "An unresolved symbol is tolerated as a pass-one placeholder but must resolve during pass two; only conditional preprocessing substitutes zero for an undefined symbol."
     ],
     "examples": [{
       "title": "Build a word from high and low byte expressions",
@@ -99,16 +103,18 @@
     "symbols": ["#IF", "#ELIF", "#ELSEIF", "#ELSE", "#ENDIF", "EXISTS"],
     "aliases": ["conditional assembly", "preprocessor", "feature flag", "defined symbol", "条件アセンブル", "プリプロセッサ", "条件分岐", "シンボル判定"],
     "summary": "A preprocessing pass supports nested #IF blocks, multiple #ELIF/#ELSEIF branches, #ELSE and #ENDIF using assembler expressions and predefined symbols.",
-    "syntax": ["#IF expression", "#ELIF expression or #ELSEIF expression", "#ELSE", "#ENDIF", "#IF EXISTS SYMBOL"],
+    "syntax": ["#IF expression", "#ELIF expression or #ELSEIF expression", "#ELSE", "#ENDIF", "#IF EXISTS SYMBOL", "#IF EXISTS(SYMBOL) && expression"],
     "notes": [
-      "Undefined symbols evaluate as zero during conditional preprocessing, so #IF UNKNOWN is false and #IF UNKNOWN==0 is true.",
+      "Undefined symbols evaluate as zero throughout a conditional expression, so #IF UNKNOWN is false and #IF UNKNOWN==0 is true. Ordinary assembler expressions keep unresolved symbols unresolved.",
+      "EXISTS checks the real symbol table and is not changed by undefined-as-zero substitution. Evaluation is eager, so an EXISTS guard does not skip its right operand.",
       "Only active EQU definitions become available to later conditions in the preprocessing pass.",
+      "An invalid #IF or #ELIF reports an error, keeps that branch inactive and leaves the chain unsatisfied, so a later valid #ELIF or #ELSE remains eligible.",
       "#ELIF after #ELSE, duplicate #ELSE, unmatched directives and unterminated blocks are errors.",
       "X1Pen address-map predefined symbols are available to the preprocessor as bare names and through NAME_SPACE_DEFAULT."
     ],
     "examples": [{
-      "title": "Select code using a predefined or user EQU flag",
-      "source": "ORG 0100H\nTURBO EQU 1\n#IF TURBO\n  LD A,2\n#ELSE\n  LD A,1\n#ENDIF\nRET"
+      "title": "Select the M8A width path with a compound condition",
+      "source": "ORG 0100H\nCALCSPEED EQU 1\nM8A_WIDTH EQU 40\n#IF CALCSPEED != 0 && M8A_WIDTH == 40\n  LD A,2\n#ELIF !EXISTS(M8A_WIDTH)\n  LD A,0\n#ELSE\n  LD A,1\n#ENDIF\nRET"
     }],
     "relatedIds": ["z80asm.syntax.expressions", "z80asm.directives.data", "z80asm.syntax.source", "z80asm.macros"],
     "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_z80asm.js"]

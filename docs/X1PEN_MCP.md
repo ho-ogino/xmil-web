@@ -138,9 +138,23 @@ AIによる更新、検証、実行、停止中はエディターとツールバ
 
 `x1pen_set_program`は完全置換です。`sourceMode: "slang"`では`basic`と`asm`、`sourceMode: "asm"`では`basic`と`slang`、`sourceMode: "basic+asm"`では`slang`が、非空で入力されても保持されずclearされます。現在modeの一部だけを安全に変更して他のauthoring sectionを保持する場合は`x1pen_apply_edits`を使います。SLANGの`x1pen_validate`が返す`output.generatedAsmLines`と`output.asmBytes`は一時compile/assemble結果の量であり、programのASM sectionには書き戻しません。生成ASMを保持して読む必要がある場合は`x1pen_run`後にprogramを再取得します。
 
+### 大きな生成アセット表
+
+通常のプログラムは、ソース全体が16 KiBやそれ以上でも長さだけでは警告対象にしません。書き込もうとする変更本文が、既知の8 KiB（8,192 bytes）以上のアセットをほぼ全量埋め込む場合、または8個以上連続するbyte値の表に合計8,192個以上のbyte literalがあり、その表が変更本文の非空白文字の50%以上を占める場合だけ、大きなアセット表として扱います。byte literalは`$00`〜`$FF`、`0x00`〜`0xFF`、10進の`0`〜`255`です。ASMは`DB`／`DEFB`行、BASICは`DATA`行、SLANGは配列初期値のカンマ区切りだけを数えます。
+
+この条件に該当した場合、AIは利用者がtoken・時間コストを明示的に了承するまで、アセット本文を読んで再出力したり、警告を避けるため分割したりしません。対象sectionに合わせて、現在利用できる手動経路を案内します。
+
+- ASM: 既存の **Import** ボタンでbinaryを`DB`行へ変換します。
+- SLANG: 既存の **Import** ボタンでbinary array値をcursor位置へ挿入します。byte列をAIへ送る必要はありません。runtime fileとして使う場合はDisk Editorでproject diskへbinaryを追加し、用途に応じて`MAGLOAD`または`FOPEN`／`FREAD`を使います。
+- BASIC: Disk Editorでproject diskへbinaryを追加し、`BLOAD`または該当するfile処理を使います。`DATA`埋め込みが必要なら、用意済みtextを指定位置へ利用者が貼り付けます。
+
+了承後はguardを維持した1回の書き込みを優先し、clientの出力上限で不可能な場合だけ分割します。既存source全文を読む必要はなく、metadata-onlyの`x1pen_get_program`と挿入位置周辺だけの検索・取得を使います。local UTF-8 source-file同期は、接続中MCPが実際に提供し、利用者がfile accessを設定済みで、完全なsource section fileがある場合だけ候補にします。raw binaryやsource断片のimportとしては案内しません。
+
 ### エミュレーターへのキー入力
 
-`x1pen_send_key`は、接続中かつ表示中のX1Penタブのエミュレーターだけへ、1つのdown／hold／upライフサイクルを送ります。OSキーボード入力、任意JavaScript、文字列、複数キーのchordは公開しません。`durationMs`は80〜2000 msの整数（既定80 ms）です。成功はローカルでkey-upまでdispatchしたことを表し、実行中プログラムがキーを消費したことまでは保証しません。必要な場合は`x1pen_capture_screen`またはデバッガ状態で結果を確認してください。
+`x1pen_send_key`は、接続中かつ表示中のX1Penタブのエミュレーターだけへ、1つのdown／hold／upライフサイクルを送ります。OSキーボード入力、任意JavaScript、文字列、複数キーのchordは公開しません。`durationMs`は80〜2000 msの整数（既定80 ms）です。成功はローカルでkey-upまでdispatchしたことを表し、実行中プログラムがキーを消費したことまでは保証しません。
+
+background tabや高負荷でguest実行が遅れると、bounded hold中にguestがkeyを読めず、key-up後に入力が残らない場合があります。一方、長い`durationMs`はresponsiveなguestの`INKEY(1)`などでkey repeatとして複数回返る場合があります。用途に足りる短い保持時間から調整し、`x1pen_capture_screen`またはdebugger memoryでguest側のacknowledgementを確認するとともに、program側でrelease待ち／debounceを行ってください。ackがなく、同じkeyを複数回処理しても安全なprogramである場合だけ再送します。
 
 `code`はX1Penが内部で使用するWindows互換virtual-key整数です。主な値は`0x30`〜`0x39`（数字）、`0x41`〜`0x5A`（A〜Z）、`0x70`〜`0x7B`（F1〜F12）、`0x0D`（Enter）、`0x1B`（ESC）、`0x20`（Space）、`0x25`〜`0x28`（矢印）です。numpadとJIS/OEM記号キーも許可済みですが、Shift／Control／Alt、Caps／Kana／IMEのようなmodifier・latchキーは対象外です。たとえば文字Aの入力は次のように指定します。
 
@@ -335,6 +349,8 @@ Runボタン、Ctrl+Enter、Share自動実行、Automation API、MCPの`x1pen_ru
 
 既存の`ok: true`は従来どおり「Run準備とコマンドキー注入が完了した」ことを示し、X1プログラムが実際に開始したことの確認までは含みません。Run準備中はpause/resume/step、プログラム更新、検証、デバッガ書込みを拒否または待機し、起動用キー注入への割込みを防ぎます。
 
+通常のライブラリディスクがFDD0にある場合、最初のMCP Runは`PROJECT_DISK_SETUP_REQUIRED`を返します。X1Pen画面で一度RUNし、別名のpersistent project copy作成を承認してください。metadata付きproject copyに対するRunは、managed fileのcommitとcold power-onが成功すると`committed: true`、`poweredOn: true`、`verification: "filesystem-only"`、`bootVerified: false`、`executionVerified: false`を返します。これはbootやguest program実行の確認ではありません。
+
 Run準備が`stalled`になった場合、`x1pen_get_status`は`runAdmission`のphase/origin/経過時間を返します。`x1pen_recover_stalled`を確認なしで呼ぶと警告を返し、`confirmDataLoss: true`でのみ再読込します。エディターの現在値は保存されますが、エミュレーターRAMと未永続化のディスク変更は失われます。
 
 Share機能はユーザーが開いているX1Pen自身から実行するため、本番X1Pen上では既存のShare APIと公開URLをそのまま利用できます。
@@ -382,8 +398,10 @@ npm publish ./mcp
 互換性機能を追加するリリースは、次の順序で公開します。
 
 1. `html/x1pen-version.js`を更新し、X1Penをデプロイ
-2. `extension/manifest.json`を更新し、ConnectorをChrome Web Storeへ提出・公開
-3. `mcp/package.json`を更新し、MCPサーバーをnpmへ公開
+2. `mcp/package.json`を確認し、MCPサーバーをnpmへ公開
+3. `extension/manifest.json`を確認し、ConnectorをChrome Web Storeへ提出・公開
+
+Connectorの審査中でも、旧Connector 1.2.0と新しいMCPを組み合わせて、sourceの読み書きを`revision-only` modeで継続できます。この組み合わせではreloadをまたぐ完全な競合防止は利用できず、`x1pen_diff_source`、remote key入力、remote pad入力も利用できません。MCPのstatusとerrorに更新案内が表示されたら、Connector 1.3.0以降へ更新してください。
 
 X1Pen製品バージョンの真実の源は`html/x1pen-version.js`です。X1Pen 0.8.0、Connector 1.2.0、MCP 2.6.0から明示的な3層互換性情報に対応します。X1Penのリリースタグは製品バージョンと同じ`v<version>`形式にします。
 

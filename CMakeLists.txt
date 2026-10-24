@@ -212,9 +212,11 @@ set_property(TARGET xmillennium PROPERTY LINK_DEPENDS
     ${CMAKE_SOURCE_DIR}/html/shell.html
     ${CMAKE_SOURCE_DIR}/html/pre.js
     ${CMAKE_SOURCE_DIR}/html/storage.js
+    ${CMAKE_SOURCE_DIR}/html/remote_media.js
     ${CMAKE_SOURCE_DIR}/html/drive_integration.js
     ${CMAKE_SOURCE_DIR}/html/disk_container.js
     ${CMAKE_SOURCE_DIR}/html/disk_fs.js
+    ${CMAKE_SOURCE_DIR}/html/project_disk.js
     ${CMAKE_SOURCE_DIR}/html/disk_editor.js
     ${CMAKE_SOURCE_DIR}/html/config.example.js
     ${CMAKE_SOURCE_DIR}/html/x1pen.html
@@ -232,15 +234,21 @@ add_custom_command(TARGET xmillennium POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/storage.js ${CMAKE_BINARY_DIR}/storage.js
     COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/html/remote_media.js ${CMAKE_BINARY_DIR}/remote_media.js
+    COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/drive_integration.js ${CMAKE_BINARY_DIR}/drive_integration.js
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/disk_container.js ${CMAKE_BINARY_DIR}/disk_container.js
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/disk_fs.js ${CMAKE_BINARY_DIR}/disk_fs.js
     COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/html/project_disk.js ${CMAKE_BINARY_DIR}/project_disk.js
+    COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/disk_editor.js ${CMAKE_BINARY_DIR}/disk_editor.js
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/index.html ${CMAKE_BINARY_DIR}/index.html
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/html/url-builder.html ${CMAKE_BINARY_DIR}/url-builder.html
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/html/licenses.html ${CMAKE_BINARY_DIR}/licenses.html
     COMMAND ${CMAKE_COMMAND} -E copy

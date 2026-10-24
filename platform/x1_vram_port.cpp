@@ -7,10 +7,10 @@
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "common.h"
-#include "x1.h"
-#include "x1_crtc.h"
-#include "x1_vram.h"
+#include "COMMON.H"
+#include "X1.H"
+#include "X1_CRTC.H"
+#include "X1_VRAM.H"
 #include "draw.h"
 #include "keylog.h"
 #include "state_save.h"

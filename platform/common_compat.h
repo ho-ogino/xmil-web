@@ -34,7 +34,7 @@ typedef union {
 
 #else
 // Windows版の場合は元のヘッダーをインクルード
-#include "../src/common.h"
+#include "../src/COMMON.H"
 #endif
 
 #endif // COMMON_COMPAT_H

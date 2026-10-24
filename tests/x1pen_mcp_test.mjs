@@ -53,7 +53,7 @@ function configureCompatibility({ connectorSourceSync = true, x1penSourceSync = 
       },
     }),
     x1pen: normalizeX1PenDescriptor({
-      version: x1penSourceSync ? '0.8.1' : '0.8.0', automationApiVersion: 2,
+      version: x1penSourceSync ? '0.9.0' : '0.8.0', automationApiVersion: 2,
       features: FULL_FEATURES.filter((feature) => x1penSourceSync || feature !== 'automation.source-sync'),
     }),
   };
@@ -281,6 +281,18 @@ after(async () => {
 });
 
 test('server exposes context-efficient source tools', async () => {
+  const instructions = client.getInstructions();
+  assert.match(instructions, /8 KiB/);
+  assert.match(instructions, /8,192 byte literals/);
+  assert.match(instructions, /50%/);
+  assert.match(instructions, /source length alone never triggers/);
+  assert.match(instructions, /Before explicit user approval, do not read, re-emit, or split/);
+  assert.match(instructions, /ASM: the existing Import button for DB lines/);
+  assert.match(instructions, /SLANG: the existing Import button inserts array values at the cursor/);
+  assert.match(instructions, /BASIC: Disk Editor plus BLOAD/);
+  assert.match(instructions, /only for a complete prepared source section, not raw binary or a fragment/);
+  assert.doesNotMatch(instructions, /Issue #112|#112/);
+
   const tools = await client.listTools();
   assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
     'x1pen_apply_edits',
@@ -317,6 +329,8 @@ test('server exposes context-efficient source tools', async () => {
   ]);
   const descriptions = Object.fromEntries(tools.tools.map((tool) => [tool.name, tool.description]));
   assert.match(descriptions.x1pen_set_program, /inactive for sourceMode are cleared even when supplied/);
+  assert.match(descriptions.x1pen_set_program, /large-asset guidance; ordinary long code alone does not trigger/);
+  assert.match(descriptions.x1pen_apply_edits, /large-asset guidance; ordinary long code alone does not trigger/);
   assert.match(descriptions.x1pen_set_source_file, /local UTF-8 file/);
   assert.match(descriptions.x1pen_validate, /temporary compilation output/);
   assert.match(descriptions.x1pen_validate, /does not store generated ASM/);
@@ -553,7 +567,7 @@ test('connection and status tools report all component versions and effective ca
   assert.equal(sessions.sessions[0].x1pen.version, '0.8.0');
 
   const status = jsonContent(await client.callTool({ name: 'x1pen_get_status', arguments: {} }));
-  assert.equal(status.compatibility.components.x1pen.version, '0.8.1');
+  assert.equal(status.compatibility.components.x1pen.version, '0.9.0');
   assert.equal(status.compatibility.capabilities['debugger.vram'].available, true);
 });
 

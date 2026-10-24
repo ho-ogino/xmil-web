@@ -53,6 +53,117 @@ async function launchChromium() {
   }
 }
 
+async function snapshotX1PenPersistence(targetPage) {
+  return targetPage.evaluate(async () => {
+    async function hashBytes(bytes) {
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    const entries = (await window.XmilStorage.list())
+      .map(({ key, name, size }) => ({ key, name, size }))
+      .sort((left, right) => left.key.localeCompare(right.key));
+    const stored = [];
+    for (const entry of entries) {
+      const bytes = await window.XmilStorage.read(entry.key);
+      stored.push({ key: entry.key, size: bytes.byteLength, hash: await hashBytes(bytes) });
+    }
+    const allLocalStorage = {};
+    for (let index = 0; index < localStorage.length; index++) {
+      const key = localStorage.key(index);
+      allLocalStorage[key] = localStorage.getItem(key);
+    }
+    return {
+      allLocalStorage: Object.fromEntries(Object.entries(allLocalStorage).sort(([left], [right]) =>
+        left.localeCompare(right))),
+      editor: localStorage.getItem('x1pen_editor'),
+      editorAsm: localStorage.getItem('x1pen_editor_asm'),
+      editorSlang: localStorage.getItem('x1pen_editor_slang'),
+      mountState: localStorage.getItem('x1pen_mount_state'),
+      library: localStorage.getItem('xmil_library'),
+      storageManifest: localStorage.getItem('xmil_opfs_manifest'),
+      entries,
+      stored,
+    };
+  });
+}
+
+async function seedX1PenPersistentDiskState(targetPage, { project = false } = {}) {
+  await targetPage.goto(`${baseUrl}/x1pen.html`);
+  await targetPage.evaluate(() => window.X1PenAutomation.ready());
+  return targetPage.evaluate(async ({ makeProject }) => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    await api.setProgram({
+      sourceMode: 'basic+asm',
+      basic: '10 PRINT "PERSISTENT ORIGINAL"\n20 END',
+      asm: '; PERSISTENT ASM',
+      slang: '',
+    }, current.revision, current.revisionEpoch);
+
+    const response = await fetch('fuzzybasic_boot.v2.d88');
+    const bytes = await response.arrayBuffer();
+    const owner = await window.XmilLibrary.addToLibrary(
+      new File([bytes], makeProject ? 'PROJECT.D88' : 'OWNER.D88', { type: 'application/octet-stream' }),
+    );
+    const data = await window.XmilLibrary.addToLibrary(
+      new File([bytes], 'DATA.D88', { type: 'application/octet-stream' }),
+    );
+    if (makeProject) {
+      const library = window.XmilCore.getLibrary();
+      const entry = library.find((candidate) => candidate.key === owner.key);
+      entry.x1penProject = true;
+      entry.sourceKey = 'seed-source';
+      entry.sourceHash = 'seed-hash';
+      entry.projectMode = 'fuzzybasic';
+      entry.projectUpdatedAt = '2026-08-15T00:00:00.000Z';
+      window.XmilCore.saveLibrary(library);
+    }
+    await window.XmilLibrary.mountFromLibrary(owner.key, 'drive0');
+    await window.XmilLibrary.mountFromLibrary(data.key, 'drive1');
+    return { ownerKey: owner.key, dataKey: data.key };
+  }, { makeProject: project });
+}
+
+function installShareRoute(context, id, payload, status = 200) {
+  return context.route(`**/api/share/${id}`, (route) => route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: status === 200 ? JSON.stringify(payload) : JSON.stringify({ error: 'not found' }),
+  }));
+}
+
+async function assertEphemeralShareDocument(targetPage) {
+  const state = await targetPage.evaluate(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, '__X1PEN_EPHEMERAL_SHARE');
+    return {
+      flag: window.__X1PEN_EPHEMERAL_SHARE,
+      writable: descriptor.writable,
+      configurable: descriptor.configurable,
+      multiTabPromise: window.__multiTabPromise,
+      tabChannel: window.__tabChannel,
+    };
+  });
+  assert.deepEqual(state, {
+    flag: true,
+    writable: false,
+    configurable: false,
+    multiTabPromise: null,
+    tabChannel: null,
+  });
+  await assert.doesNotReject(() => targetPage.locator('#x1pen-share-mode').waitFor({ state: 'visible' }));
+  assert.equal(await targetPage.locator('#x1pen-share-mode').textContent(), 'Share mode');
+  assert.equal(
+    await targetPage.locator('#x1pen-share-mode').getAttribute('title'),
+    'このタブでの編集内容は保存されず、保存済みディスクもマウントされません',
+  );
+  assert.equal(
+    await targetPage.locator('#x1pen-share-mode').getAttribute('aria-label'),
+    'Share モード。このタブでの編集内容は保存されず、保存済みディスクもマウントされません',
+  );
+}
+
 async function runWithRecordedKeyEvents() {
   return page.evaluate(async () => {
     const module = window.Module;
@@ -120,7 +231,7 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   assert.equal(await page.evaluate(() => window.X1PenAutomation.version), 2);
   assert.deepEqual(ready.x1pen, {
     name: 'x1pen',
-    version: '0.8.1',
+    version: '0.10.0',
     automationApiVersion: 2,
     features: ['automation.core', 'automation.run-recovery', 'automation.source-sync', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram'],
   });
@@ -275,6 +386,101 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
 
   const settings = await page.evaluate(() => window.XmilControls.getSettings());
   assert.equal(settings.keyMode, 1, 'automation run must preserve the JoyKey setting');
+});
+
+test('SLANG Import inserts formatted values at the cursor', { timeout: 180_000 }, async () => {
+  const basicTab = page.locator('.editor-tab[data-tab="basic"]');
+  const asmTab = page.locator('.editor-tab[data-tab="asm"]');
+  const slangTab = page.locator('.editor-tab[data-tab="slang"]');
+  const asmImport = page.locator('#btn-asm-import');
+  const slangImport = page.locator('#btn-slang-import');
+  const slangLines = page.locator('#slang-editor-container .cm-line');
+
+  async function setProgram(sourceMode, source) {
+    await page.evaluate(({ mode, text }) => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      return api.setProgram({
+        sourceMode: mode,
+        basic: mode === 'basic+asm' ? text : '',
+        asm: mode === 'asm' ? text : '',
+        slang: mode === 'slang' ? text : '',
+      }, current.revision, current.revisionEpoch);
+    }, { mode: sourceMode, text: source });
+  }
+
+  async function importFile(button, name, bytes, statusText) {
+    const chooserPromise = page.waitForEvent('filechooser');
+    await button.click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({
+      name,
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from(bytes),
+    });
+    await page.waitForFunction(
+      (expected) => document.getElementById('x1pen-status').textContent.includes(expected),
+      statusText,
+    );
+  }
+
+  await basicTab.click();
+  assert.equal(await asmImport.isVisible(), false);
+  assert.equal(await slangImport.isVisible(), false);
+  await asmTab.click();
+  assert.equal(await asmImport.isVisible(), true);
+  assert.equal(await slangImport.isVisible(), false);
+  await slangTab.click();
+  assert.equal(await asmImport.isVisible(), false);
+  assert.equal(await slangImport.isVisible(), true);
+
+  await setProgram('slang', 'PREFIX\n\nSUFFIX');
+  await slangTab.click();
+  await slangLines.nth(1).click();
+  await page.keyboard.press('Home');
+  const bytes = Array.from({ length: 17 }, (_, index) => index);
+  await importFile(slangImport, 'values.bin', bytes, 'Imported: values.bin (17 bytes)');
+  const values = Array.from({ length: 16 }, (_, index) =>
+    '$' + index.toString(16).toUpperCase().padStart(2, '0')).join(',') + ',\n$10';
+  let source = await page.evaluate(() => window.X1PenAutomation.getProgram().slang);
+  assert.equal(source, 'PREFIX\n' + values + '\nSUFFIX');
+  assert.doesNotMatch(values, /,$/);
+
+  await importFile(slangImport, 'cursor.bin', [0xaa], 'Imported: cursor.bin (1 bytes)');
+  source = await page.evaluate(() => window.X1PenAutomation.getProgram().slang);
+  assert.equal(source, 'PREFIX\n' + values + '$AA\nSUFFIX', 'cursor moves to inserted end');
+
+  await setProgram('slang', 'PREFIX\nSELECTME\nSUFFIX');
+  await slangTab.click();
+  await slangLines.nth(1).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await importFile(slangImport, 'selection.bin', [0xbb], 'Imported: selection.bin (1 bytes)');
+  source = await page.evaluate(() => window.X1PenAutomation.getProgram().slang);
+  assert.equal(source, 'PREFIX\nSELECTME$BB\nSUFFIX', 'selection remains and insertion uses its head');
+
+  await importFile(slangImport, 'empty.bin', [], 'Empty file cannot be imported');
+  assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().slang), source);
+  await importFile(
+    slangImport,
+    'oversize.bin',
+    Buffer.alloc(128 * 1024 + 1),
+    'File too large (max 128KB)',
+  );
+  assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().slang), source);
+
+  await setProgram('asm', 'RET');
+  await asmTab.click();
+  await page.locator('#asm-editor-container .cm-line').first().click();
+  await page.keyboard.press('Home');
+  await importFile(asmImport, 'asm.bin', [1, 2], 'Imported: asm.bin (2 bytes)');
+  assert.equal(
+    await page.evaluate(() => window.X1PenAutomation.getProgram().asm),
+    '; imported: asm.bin (2 bytes)\nDB $01,$02\nRET',
+  );
+
+  await setProgram('basic+asm', '10 PRINT "MCP READY"');
+  await basicTab.click();
 });
 
 test('keyboard input is bounded, serialized with Run, and always releases ownership', { timeout: 60_000 }, async () => {
@@ -1085,6 +1291,87 @@ test('SLANG runtime arity is rejected by Validate while valid VSYNC still runs',
   }
 });
 
+test('documented SLANG inline assembly runs with the current calling convention', { timeout: 120_000 }, async () => {
+  const probeAddress = 0x7000;
+  const readMemory = (offset, length) => page.evaluate(({ address, byteLength }) => (
+    window.X1PenAutomation.debugger.readMemory(address, byteLength).bytes
+  ), { address: probeAddress + offset, byteLength: length });
+  const waitForMemory = async (offset, expected, timeout = 15_000) => {
+    const address = probeAddress + offset;
+    try {
+      await page.waitForFunction(({ address: target, values }) => {
+        const bytes = window.X1PenAutomation.debugger.readMemory(target, values.length).bytes;
+        return values.every((value, index) => value === null || bytes[index] === value);
+      }, { address, values: expected }, { timeout, polling: 20 });
+    } catch (error) {
+      const diagnostic = await page.evaluate(({ target, length }) => {
+        const api = window.X1PenAutomation;
+        const state = api.debugger.getState();
+        return {
+          actual: api.debugger.readMemory(target, length).bytes,
+          emulatorRunning: state.emulatorRunning,
+          cycles: state.cycles,
+          runState: state.runState,
+        };
+      }, { target: address, length: expected.length });
+      throw new Error(
+        `memory wait timed out: address=0x${address.toString(16)} ` +
+        `expected=${JSON.stringify(expected)} diagnostic=${JSON.stringify(diagnostic)}`,
+        { cause: error },
+      );
+    }
+    return readMemory(offset, expected.length);
+  };
+  const loadAndRunSlang = (slang) => page.evaluate(async (source) => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    await api.setProgram({
+      sourceMode: 'slang', basic: '', asm: '', slang: source,
+    }, current.revision, current.revisionEpoch);
+    const validation = await api.validate();
+    if (!validation.ok) {
+      throw new Error(`inline acceptance program did not validate: ${JSON.stringify(validation.diagnostics)}`);
+    }
+    const run = await api.run();
+    if (!run.ok) throw new Error(`inline acceptance program did not run: ${JSON.stringify(run)}`);
+    return { validation, run };
+  }, slang);
+  try {
+    // INKEY is intentionally not timing-asserted in this browser E2E. Its
+    // LSX input queue can return zero, one, or repeated results for the same
+    // bounded host hold depending on build speed and timer scheduling. The
+    // deterministic runtime dispatch and documented examples are covered by
+    // x1pen_reference_test.mjs; keyboard delivery is covered by the dedicated
+    // bounded-input and captured-guest-screen tests above.
+    await loadAndRunSlang([
+      'MACHINE ASMFUNC(1):ASMROUTINE;',
+      'MAIN() BEGIN',
+      '  VAR VALUE;',
+      '  VALUE=ASMFUNC(100);',
+      '  PRINT(VALUE, /);',
+      '  MEMW[$7000]=VALUE;',
+      '  MEM[$7002]=$A5;',
+      '  LOOP { }',
+      'END;',
+      '#ASM',
+      'ASMROUTINE:',
+      '  LD DE,123',
+      '  ADD HL,DE',
+      '  RET',
+      '#END',
+    ].join('\n'));
+    assert.deepEqual(await waitForMemory(0, [223, 0, 0xA5]), [223, 0, 0xA5]);
+    const textBytes = await page.evaluate(() => (
+      window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes
+    ));
+    assert.ok(textBytes.some((value, index) => (
+      value === 0x32 && textBytes[index + 1] === 0x32 && textBytes[index + 2] === 0x33
+    )), 'text VRAM must contain the printed 223 sequence');
+  } finally {
+    await page.evaluate(() => window.Module._js_xmil_reset());
+  }
+});
+
 test('automation operations are serialized and stale source modes are cleared', async () => {
   const programs = await page.evaluate(async () => {
     const first = window.X1PenAutomation.setProgram({ sourceMode: 'asm', asm: 'ORG $100\nRET' });
@@ -1827,4 +2114,839 @@ test('embedded M8A data assembles and draws into graphics VRAM', { timeout: 60_0
   assert.equal(result.run.ok, true);
   assert.equal(result.run.sourceMode, 'slang');
   assert.deepEqual(result.observed, { blue: 0xFF, red: 0x00, green: 0x00 });
+});
+
+test('mounted FDD0 is forked once into a persistent project disk', { timeout: 90_000 }, async () => {
+  const context = await browser.newContext();
+  const projectPage = await context.newPage();
+  try {
+    await projectPage.goto(`${baseUrl}/x1pen.html`);
+    await projectPage.evaluate(() => window.X1PenAutomation.ready());
+    await projectPage.evaluate(async () => {
+      const response = await fetch('fuzzybasic_boot.v2.d88');
+      const bytes = await response.arrayBuffer();
+      const entry = await window.XmilLibrary.addToLibrary(
+        new File([bytes], 'OWNER.D88', { type: 'application/octet-stream' }),
+      );
+      const dataEntry = await window.XmilLibrary.addToLibrary(
+        new File([bytes], 'DATA.D88', { type: 'application/octet-stream' }),
+      );
+      await window.XmilLibrary.mountFromLibrary(entry.key, 'drive0');
+      await window.XmilLibrary.mountFromLibrary(dataEntry.key, 'drive1');
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({
+        sourceMode: 'basic+asm',
+        basic: '10 PRINT "PROJECT DISK"\n20 END',
+        asm: '',
+        slang: '',
+      }, current.revision, current.revisionEpoch);
+    });
+
+    const setupRequired = await projectPage.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(setupRequired.ok, false);
+    assert.equal(setupRequired.code, 'PROJECT_DISK_SETUP_REQUIRED');
+    assert.match(setupRequired.status, /X1Pen画面で一度RUNしてください/);
+    assert.match(setupRequired.action, /作業用コピーの作成を承認/);
+
+    const dialogMessages = [];
+    projectPage.on('dialog', (dialog) => {
+      dialogMessages.push(dialog.message());
+      dialog.accept();
+    });
+    await projectPage.locator('#btn-run').click();
+    await projectPage.waitForFunction(() => {
+      const entry = window.XmilCore.getLibrary().find((candidate) => candidate.x1penProject);
+      return entry && !window.X1PenAutomation.getStatus().capabilities.debugger.runPending;
+    });
+    assert.equal(dialogMessages.length, 1);
+    assert.match(dialogMessages[0], /X1Pen用の作業ディスクを作成しますか/);
+    assert.match(dialogMessages[0], /起動やプログラム実行は確認されません/);
+
+    const first = await projectPage.evaluate(async () => {
+      const library = window.XmilCore.getLibrary();
+      const source = library.find((entry) => entry.name === 'OWNER.D88');
+      const data = library.find((entry) => entry.name === 'DATA.D88');
+      const project = library.find((entry) => entry.x1penProject);
+      const slots = window.XmilCore.getSlotState();
+      const bytes = await window.XmilStorage.read(project.key);
+      const container = window.XmilDiskContainer.openContainer(bytes, project.name, 'fdd');
+      const fs = window.XmilDiskFS.detectFilesystem(container);
+      const auto = fs.readFile(fs.findByName('AUTOEXEC', 'BAT'));
+      return {
+        source,
+        data,
+        project,
+        drive0: slots.drive0,
+        drive1: slots.drive1,
+        autorun: !!fs.findByName('AUTORUN', 'BAS'),
+        autoexec: String.fromCharCode(...auto).split(String.fromCharCode(0x1a))[0],
+      };
+    });
+    assert.ok(first.source);
+    assert.ok(first.data);
+    assert.equal(first.source.x1penProject, undefined);
+    assert.match(first.project.name, /^OWNER-X1Pen(?:-\d+)?\.D88$/);
+    assert.equal(first.project.sourceKey, first.source.key);
+    assert.equal(first.project.projectMode, 'fuzzybasic');
+    assert.equal(first.drive0, first.project.key);
+    assert.equal(first.drive1, first.data.key);
+    assert.equal(first.autorun, true);
+    assert.match(first.autoexec, /(^|\r?\n)FZBASIC(\r?\n|$)/);
+
+    const rerun = await projectPage.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(rerun.ok, true);
+    assert.equal(rerun.projectDisk, true);
+    assert.equal(rerun.projectDiskName, first.project.name);
+    assert.equal(rerun.committed, true);
+    assert.equal(rerun.poweredOn, true);
+    assert.equal(rerun.bootVerified, false);
+    assert.equal(rerun.executionVerified, false);
+    assert.equal(rerun.verification, 'filesystem-only');
+    assert.equal(rerun.status, 'プロジェクトディスクを起動しました');
+
+    const drive1AfterRerun = await projectPage.evaluate(() => window.XmilCore.getSlotState().drive1);
+    assert.equal(drive1AfterRerun, first.data.key);
+
+    const projectsAfterRerun = await projectPage.evaluate(
+      () => window.XmilCore.getLibrary().filter((entry) => entry.x1penProject).map((entry) => entry.name),
+    );
+    assert.deepEqual(projectsAfterRerun, [first.project.name], 'metadata must prevent a second project copy');
+
+    for (const selectedModel of [2, 3]) {
+      const modelRun = await projectPage.evaluate(async (model) => {
+        window.XmilControls.setRomType(model);
+        return {
+          result: await window.X1PenAutomation.run(),
+          activeModel: window.Module._js_get_rom_type(),
+        };
+      }, selectedModel);
+      assert.equal(modelRun.result.ok, true);
+      assert.equal(modelRun.result.verification, 'filesystem-only');
+      assert.equal(modelRun.result.bootVerified, false);
+      assert.equal(modelRun.result.executionVerified, false);
+      assert.equal(modelRun.activeModel, selectedModel);
+    }
+
+    const rollback = await projectPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const project = window.XmilCore.getLibrary().find((entry) => entry.x1penProject);
+      const original = await window.XmilStorage.read(project.key);
+      const originalHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', original)))
+        .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      const savedWrite = window.XmilStorage.write;
+      let failed = false;
+      window.XmilStorage.write = async function(key, bytes) {
+        await savedWrite.call(this, key, bytes);
+        if (key === project.key && !failed) {
+          failed = true;
+          throw new Error('forced post-write failure');
+        }
+      };
+      let result;
+      try {
+        result = await api.run();
+      } finally {
+        window.XmilStorage.write = savedWrite;
+      }
+      const restored = await window.XmilStorage.read(project.key);
+      const restoredHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', restored)))
+        .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      return {
+        result,
+        originalHash,
+        restoredHash,
+        drive0: window.XmilCore.getSlotState().drive0,
+        projectKey: project.key,
+      };
+    });
+    assert.equal(rollback.result.ok, false);
+    assert.equal(rollback.result.rollbackFailed, false);
+    assert.equal(rollback.restoredHash, rollback.originalHash);
+    assert.equal(rollback.drive0, rollback.projectKey);
+  } finally {
+    await context.close();
+  }
+});
+
+test('Share refuses persistent media without posting disk-dependent source', { timeout: 180_000 }, async () => {
+  const blockedStatus = '保存済みメディアが挿入されているためShareできません。メディアを取り出してから再試行してください';
+  const unknownStatus = 'メディア状態を確認できないためShareできません。ページを再読み込みしてください';
+
+  for (const project of [false, true]) {
+    const context = await browser.newContext();
+    const ownerPage = await context.newPage();
+    let postCount = 0;
+    try {
+      await context.route('**/api/share', (route) => {
+        postCount += 1;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: project ? 'project-blocked' : 'ordinary-blocked' }),
+        });
+      });
+      await seedX1PenPersistentDiskState(ownerPage, { project });
+
+      await ownerPage.locator('#btn-share').click();
+      await ownerPage.waitForFunction((expected) =>
+        document.getElementById('x1pen-status').textContent === expected, blockedStatus);
+      assert.equal(postCount, 0, 'persistent media must prevent Share POST');
+      assert.equal(await ownerPage.locator('#share-dialog').evaluate((element) =>
+        element.classList.contains('hidden')), true);
+      assert.equal(await ownerPage.locator('#share-dialog-url').inputValue(), '');
+    } finally {
+      await context.close();
+    }
+  }
+
+  const context = await browser.newContext();
+  const ownerPage = await context.newPage();
+  let postCount = 0;
+  try {
+    await context.route('**/api/share', (route) => {
+      postCount += 1;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'allowed-share' }),
+      });
+    });
+    await ownerPage.goto(`${baseUrl}/x1pen.html`);
+    await ownerPage.evaluate(() => window.X1PenAutomation.ready());
+    await ownerPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({
+        sourceMode: 'basic+asm',
+        basic: '10 PRINT "SHARE GUARD"\n20 END',
+        asm: '',
+        slang: '',
+      }, current.revision, current.revisionEpoch);
+    });
+
+    await ownerPage.locator('#btn-share').click();
+    await ownerPage.waitForFunction(() =>
+      !document.getElementById('share-dialog').classList.contains('hidden'));
+    assert.equal(postCount, 1, 'empty slot state must allow Share POST');
+    await ownerPage.locator('#share-dialog-close').click();
+
+    await ownerPage.evaluate(async () => {
+      const response = await fetch('fuzzybasic_boot.v2.d88');
+      await window.XmilControls.mountTempDisk(await response.arrayBuffer(), 'drive0');
+    });
+    await ownerPage.locator('#btn-share').click();
+    await ownerPage.waitForFunction(() =>
+      !document.getElementById('share-dialog').classList.contains('hidden'));
+    assert.equal(postCount, 1, 'the internal temporary disk must allow cached Share reuse');
+    assert.equal(await ownerPage.locator('#x1pen-status').textContent(), 'Same content - URL reused');
+    await ownerPage.locator('#share-dialog-close').click();
+
+    await ownerPage.evaluate(async () => {
+      await window.XmilCore.ejectSlot('drive0');
+      const entry = await window.XmilLibrary.addToLibrary(
+        new File([new Uint8Array(256)], 'EMM0.MEM', { type: 'application/octet-stream' }),
+      );
+      await window.XmilLibrary.mountFromLibrary(entry.key, 'emm0');
+    });
+    await ownerPage.locator('#btn-share').click();
+    await ownerPage.waitForFunction((expected) =>
+      document.getElementById('x1pen-status').textContent === expected, blockedStatus);
+    assert.equal(postCount, 1, 'non-FDD persistent media must prevent Share POST');
+    assert.equal(await ownerPage.locator('#share-dialog').evaluate((element) =>
+      element.classList.contains('hidden')), true);
+
+    await ownerPage.evaluate(() => {
+      window.__savedXmilCoreForShareTest = window.XmilCore;
+      window.XmilCore = undefined;
+    });
+    await ownerPage.locator('#btn-share').click();
+    await ownerPage.waitForFunction((expected) =>
+      document.getElementById('x1pen-status').textContent === expected, unknownStatus);
+    await ownerPage.evaluate(() => {
+      window.XmilCore = window.__savedXmilCoreForShareTest;
+      delete window.__savedXmilCoreForShareTest;
+    });
+    assert.equal(postCount, 1, 'unknown media state must fail closed without Share POST');
+    assert.equal(await ownerPage.locator('#share-dialog').evaluate((element) =>
+      element.classList.contains('hidden')), true);
+  } finally {
+    await context.close();
+  }
+});
+
+test('Share runs isolate ordinary and project disks from persistent state', { timeout: 180_000 }, async () => {
+  for (const project of [false, true]) {
+    const context = await browser.newContext();
+    const ownerPage = await context.newPage();
+    const shareId = project ? 'project-isolation' : 'ordinary-isolation';
+    const dialogs = [];
+    try {
+      const keys = await seedX1PenPersistentDiskState(ownerPage, { project });
+      await ownerPage.evaluate(async () => {
+        window.Module._js_xmil_stop();
+        await window.XmilCore.flushSlot('drive0');
+        await window.XmilCore.flushSlot('drive1');
+      });
+      const baseline = await snapshotX1PenPersistence(ownerPage);
+
+      await installShareRoute(context, shareId, {
+        basic: '',
+        asm: 'ORG 0100h\nRET',
+        slang: null,
+        meta: {
+          model: 1,
+          coldState: 'lsxdodgers_cold.v1.xmst',
+          bootDisk: 'lsxdodgers_boot.v1.d88',
+          runMode: 'lsx',
+          sourceMode: 'asm',
+        },
+      });
+      ownerPage.on('dialog', async (dialog) => {
+        dialogs.push(`owner: ${dialog.message()}`);
+        await dialog.dismiss();
+      });
+      const sharePage = await context.newPage();
+      sharePage.on('dialog', async (dialog) => {
+        dialogs.push(`share: ${dialog.message()}`);
+        await dialog.dismiss();
+      });
+      await sharePage.goto(`${baseUrl}/x1pen.html?id=${shareId}`);
+      await sharePage.evaluate(() => window.X1PenAutomation.ready());
+      await sharePage.waitForFunction(() =>
+        document.getElementById('x1pen-status').textContent === 'LSX-Dodgers mode' &&
+        !window.X1PenAutomation.getStatus().capabilities.debugger.runPending,
+      );
+      await assertEphemeralShareDocument(sharePage);
+
+      const shareRun = await sharePage.evaluate(() => {
+        const slots = window.XmilCore.getSlotState();
+        const vfsPath = window.XmilCore.getSlotVfsPath().drive0;
+        const bytes = window.Module.FS.readFile(vfsPath);
+        const container = window.XmilDiskContainer.openContainer(
+          bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+          'share.d88',
+          'fdd',
+        );
+        const fs = window.XmilDiskFS.detectFilesystem(container);
+        return {
+          program: window.X1PenAutomation.getProgram(),
+          model: window.Module._js_get_rom_type(),
+          drive0: slots.drive0,
+          drive1: slots.drive1,
+          filesystem: fs && fs.fsType,
+          hasProgram: !!(fs && fs.findByName('PROG', 'COM')),
+          hasLsxLoader: !!(fs && fs.findByName('LD', 'BIN')),
+          hasFuzzyBasic: !!(fs && fs.findByName('FZBASIC', 'COM')),
+        };
+      });
+      assert.equal(shareRun.program.sourceMode, 'asm');
+      assert.equal(shareRun.program.asm, 'ORG 0100h\nRET');
+      assert.equal(shareRun.model, 1);
+      assert.equal(shareRun.drive0, '__x1pen_temp__');
+      assert.equal(shareRun.drive1, null);
+      assert.equal(shareRun.filesystem, 'LSX-Dodgers');
+      assert.equal(shareRun.hasProgram, true);
+      assert.equal(shareRun.hasLsxLoader, true);
+      assert.equal(shareRun.hasFuzzyBasic, false);
+      assert.deepEqual(await snapshotX1PenPersistence(sharePage), baseline);
+
+      const refusedMount = await sharePage.evaluate(async ({ ownerKey }) => {
+        const api = window.X1PenAutomation;
+        const current = api.getProgram();
+        await api.setProgram({ sourceMode: 'asm', asm: 'ORG 0100h\nNOP\nRET' },
+          current.revision, current.revisionEpoch);
+        return window.XmilLibrary.mountFromLibrary(ownerKey, 'drive1');
+      }, { ownerKey: keys.ownerKey });
+      assert.equal(refusedMount, null);
+      assert.equal(
+        await sharePage.locator('#x1pen-status').textContent(),
+        'Share モードでは保存済みメディアをマウントできません',
+      );
+      await sharePage.locator('.editor-tab[data-tab="asm"]').click();
+      await sharePage.locator('#asm-editor-container .cm-content').click();
+      await sharePage.keyboard.press('End');
+      await sharePage.keyboard.type('\n; TRANSIENT TYPING');
+      const repeatedRun = await sharePage.evaluate(() => window.X1PenAutomation.run());
+      assert.equal(repeatedRun.ok, true);
+      assert.equal(await sharePage.evaluate(() => window.XmilCore.getSlotState().drive0), '__x1pen_temp__');
+      await sharePage.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
+
+      assert.deepEqual(await snapshotX1PenPersistence(sharePage), baseline);
+      const isolatedSlots = await sharePage.evaluate(() => window.XmilCore.getSlotState());
+      assert.deepEqual(isolatedSlots, {
+        drive0: '__x1pen_temp__', drive1: null, hdd0: null, hdd1: null, cmt: null,
+        emm0: null, emm1: null, emm2: null, emm3: null, emm4: null,
+        emm5: null, emm6: null, emm7: null, emm8: null, emm9: null,
+      });
+      assert.deepEqual(await ownerPage.evaluate(() => window.XmilCore.getSlotState()), {
+        drive0: keys.ownerKey,
+        drive1: keys.dataKey,
+        hdd0: null, hdd1: null, cmt: null,
+        emm0: null, emm1: null, emm2: null, emm3: null, emm4: null,
+        emm5: null, emm6: null, emm7: null, emm8: null, emm9: null,
+      });
+      assert.deepEqual(await snapshotX1PenPersistence(ownerPage), baseline);
+      assert.deepEqual(dialogs, [], 'Share must not trigger multi-tab or project-disk dialogs');
+      await sharePage.close();
+
+      await ownerPage.reload();
+      await ownerPage.evaluate(() => window.X1PenAutomation.ready());
+      const restored = await ownerPage.evaluate(() => ({
+        program: window.X1PenAutomation.getProgram(),
+        slots: window.XmilCore.getSlotState(),
+      }));
+      assert.equal(restored.program.basic, '10 PRINT "PERSISTENT ORIGINAL"\n20 END');
+      assert.equal(restored.program.asm, '; PERSISTENT ASM');
+      assert.equal(restored.slots.drive0, keys.ownerKey);
+      assert.equal(restored.slots.drive1, keys.dataKey);
+      assert.deepEqual(await snapshotX1PenPersistence(ownerPage), baseline);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test('legacy Share payloads use an ephemeral FuzzyBASIC runtime', { timeout: 90_000 }, async () => {
+  const context = await browser.newContext();
+  const ownerPage = await context.newPage();
+  try {
+    await ownerPage.goto(`${baseUrl}/x1pen.html`);
+    await ownerPage.evaluate(() => window.X1PenAutomation.ready());
+    await ownerPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({
+        sourceMode: 'basic+asm',
+        basic: '10 PRINT "NO MOUNT ORIGINAL"\n20 END',
+        asm: '',
+        slang: '',
+      }, current.revision, current.revisionEpoch);
+      window.Module._js_xmil_stop();
+    });
+    const baseline = await snapshotX1PenPersistence(ownerPage);
+    await installShareRoute(context, 'legacy-isolation', {
+      basic: '10 PRINT "LEGACY SHARE"\n20 END',
+      asm: null,
+      slang: null,
+    });
+    const sharePage = await context.newPage();
+    await sharePage.goto(`${baseUrl}/x1pen.html?id=legacy-isolation`);
+    await sharePage.evaluate(() => window.X1PenAutomation.ready());
+    await sharePage.waitForFunction(() =>
+      window.X1PenAutomation.getProgram().basic.includes('LEGACY SHARE') &&
+      window.XmilCore.getSlotState().drive0 === '__x1pen_temp__' &&
+      !window.X1PenAutomation.getStatus().capabilities.debugger.runPending,
+    );
+    await assertEphemeralShareDocument(sharePage);
+    const result = await sharePage.evaluate(() => {
+      const vfsPath = window.XmilCore.getSlotVfsPath().drive0;
+      const bytes = window.Module.FS.readFile(vfsPath);
+      const container = window.XmilDiskContainer.openContainer(
+        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        'legacy-share.d88',
+        'fdd',
+      );
+      const fs = window.XmilDiskFS.detectFilesystem(container);
+      return {
+        program: window.X1PenAutomation.getProgram(),
+        slots: window.XmilCore.getSlotState(),
+        model: window.Module._js_get_rom_type(),
+        filesystem: fs && fs.fsType,
+        hasAutorun: !!(fs && fs.findByName('AUTORUN', 'BAS')),
+        hasFuzzyBasic: !!(fs && fs.findByName('FZBASIC', 'COM')),
+      };
+    });
+    assert.equal(result.program.basic, '10 PRINT "LEGACY SHARE"\n20 END');
+    assert.equal(result.slots.drive0, '__x1pen_temp__');
+    assert.equal(result.slots.drive1, null);
+    assert.equal(result.model, 1);
+    assert.equal(result.filesystem, 'LSX-Dodgers');
+    assert.equal(result.hasAutorun, true);
+    assert.equal(result.hasFuzzyBasic, true);
+    assert.deepEqual(await snapshotX1PenPersistence(sharePage), baseline);
+  } finally {
+    await context.close();
+  }
+});
+
+test('failed Share links remain visibly ephemeral and cannot overwrite saved source', { timeout: 90_000 }, async () => {
+  const context = await browser.newContext();
+  const ownerPage = await context.newPage();
+  try {
+    const keys = await seedX1PenPersistentDiskState(ownerPage);
+    await ownerPage.evaluate(() => window.Module._js_xmil_stop());
+    const baseline = await snapshotX1PenPersistence(ownerPage);
+    await installShareRoute(context, 'missing-share', null, 404);
+    const sharePage = await context.newPage();
+    await sharePage.goto(`${baseUrl}/x1pen.html?id=missing-share`);
+    await sharePage.evaluate(() => window.X1PenAutomation.ready());
+    await sharePage.waitForFunction(() =>
+      document.getElementById('x1pen-status').textContent === 'Shared code not found',
+    );
+    await assertEphemeralShareDocument(sharePage);
+    const initial = await sharePage.evaluate(() => ({
+      program: window.X1PenAutomation.getProgram(),
+      slots: window.XmilCore.getSlotState(),
+    }));
+    assert.equal(initial.program.basic, '');
+    assert.equal(initial.program.asm, '');
+    assert.equal(initial.program.slang, '');
+    assert.equal(initial.slots.drive0, null);
+    assert.equal(initial.slots.drive1, null);
+
+    await sharePage.evaluate(async ({ ownerKey }) => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT "TRANSIENT"', asm: '', slang: '' },
+        current.revision, current.revisionEpoch);
+      await window.XmilLibrary.mountFromLibrary(ownerKey, 'drive0');
+      window.dispatchEvent(new PageTransitionEvent('pagehide'));
+    }, { ownerKey: keys.ownerKey });
+    assert.deepEqual(await snapshotX1PenPersistence(sharePage), baseline);
+    assert.deepEqual(await snapshotX1PenPersistence(ownerPage), baseline);
+
+    await installShareRoute(context, 'compile-failure', {
+      basic: '',
+      asm: 'THIS IS NOT VALID ASSEMBLY',
+      slang: null,
+      meta: {
+        model: 1,
+        coldState: 'lsxdodgers_cold.v1.xmst',
+        bootDisk: 'lsxdodgers_boot.v1.d88',
+        runMode: 'lsx',
+        sourceMode: 'asm',
+      },
+    });
+    const compileFailurePage = await context.newPage();
+    await compileFailurePage.goto(`${baseUrl}/x1pen.html?id=compile-failure`);
+    await compileFailurePage.evaluate(() => window.X1PenAutomation.ready());
+    await compileFailurePage.waitForFunction(() =>
+      document.getElementById('x1pen-status').textContent.startsWith('ASM error'),
+    );
+    await assertEphemeralShareDocument(compileFailurePage);
+    assert.equal(await compileFailurePage.evaluate(() => window.XmilCore.getSlotState().drive0), null);
+    assert.deepEqual(await snapshotX1PenPersistence(compileFailurePage), baseline);
+  } finally {
+    await context.close();
+  }
+});
+
+test('both NMI buttons generate repeatable real NMI edges without resetting machine state', { timeout: 120_000 }, async () => {
+  const counterAddress = 0x5200;
+  const ramSentinelAddress = 0x5000;
+  const vramSentinelOffset = 0x0012;
+  const loopSource = [
+    'ORG 0100h',
+    'LD SP,6000h',
+    'LD BC,1E00h',
+    'XOR A',
+    'OUT (C),A',
+    'EI',
+    'LD A,05Ah',
+    'LD (5000h),A',
+    'XOR A',
+    'LD (5200h),A',
+    'LOOP:',
+    'LD A,(5100h)',
+    'INC A',
+    'LD (5100h),A',
+    'JP LOOP',
+  ].join('\n');
+
+  const setup = await page.evaluate(async ({ source, counter }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([]);
+    await api.setProgram({ sourceMode: 'asm', asm: source });
+    const run = await api.run();
+    const handler = window.X1PenZ80Asm.assemble([
+      'ORG 0066h',
+      `LD A,(${counter.toString(16)}h)`,
+      'INC A',
+      `LD (${counter.toString(16)}h),A`,
+      'RETN',
+    ].join('\n'));
+    if (handler.errors.length) throw new Error(JSON.stringify(handler.errors));
+    return { run, handler: Array.from(handler.bytes) };
+  }, { source: loopSource, counter: counterAddress });
+  assert.equal(setup.run.ok, true);
+
+  await page.waitForFunction(({ sentinel, counter }) => {
+    const api = window.X1PenAutomation;
+    const state = api.debugger.getState();
+    return state.memory.lowMapping === 'main' &&
+      api.debugger.readMemory(sentinel, 1).bytes[0] === 0x5A &&
+      api.debugger.readMemory(counter, 1).bytes[0] === 0;
+  }, { sentinel: ramSentinelAddress, counter: counterAddress });
+
+  const injectHandler = () => page.evaluate(async ({ handler, vramOffset }) => {
+    const api = window.X1PenAutomation;
+    const paused = await api.debugger.pause();
+    const module = window.Module;
+    const ram = new Uint8Array(module.wasmMemory.buffer, module._js_get_main_ram(), 0x10000);
+    ram.set(handler, 0x0066);
+    await api.debugger.writeVram({
+      region: 'graphics', bank: 'access', plane: 'blue', offset: vramOffset, bytes: [0xA5],
+    });
+    return {
+      paused,
+      vector: api.debugger.readMemory(0x0066, handler.length).bytes,
+      mapping: api.debugger.getState().memory.lowMapping,
+    };
+  }, { handler: setup.handler, vramOffset: vramSentinelOffset });
+
+  const verifyEntry = (state, expectedCounter) => {
+    assert.equal(state.runState, 'paused');
+    assert.equal(state.stopReason, 'breakpoint');
+    assert.equal(state.registers.pc, 0x0066);
+    assert.equal(state.registers.sp, 0x5FFE);
+    assert.equal(state.registers.iff1, false);
+    assert.equal(state.registers.iff2, true);
+    assert.equal(state.counterBeforeHandler, expectedCounter);
+    assert.ok(state.returnAddress >= 0x0100 && state.returnAddress < 0x0120,
+      `NMI return address must be in the main loop, got ${state.returnAddress.toString(16)}`);
+  };
+
+  const enterFromClick = (buttonId, whilePaused) => page.evaluate(async ({ button, paused, counter }) => {
+    const api = window.X1PenAutomation;
+    const debuggerApi = api.debugger;
+    await debuggerApi.setBreakpoints([0x0066]);
+    if (paused) {
+      const beforeClick = debuggerApi.getState();
+      document.getElementById(button).click();
+      const queued = debuggerApi.getState();
+      if (queued.cycles !== beforeClick.cycles || queued.runState !== 'paused') {
+        throw new Error('paused NMI request must not execute or resume the CPU');
+      }
+    }
+    const running = await debuggerApi.resume();
+    if (!paused) document.getElementById(button).click();
+    const state = await debuggerApi.waitForPause({
+      afterSequence: running.sequence,
+      stopReason: 'breakpoint',
+      address: 0x0066,
+      timeoutMs: 5000,
+    });
+    const stack = debuggerApi.readMemory(state.registers.sp, 2).bytes;
+    return {
+      ...state,
+      returnAddress: stack[0] | (stack[1] << 8),
+      counterBeforeHandler: debuggerApi.readMemory(counter, 1).bytes[0],
+    };
+  }, { button: buttonId, paused: whilePaused, counter: counterAddress });
+
+  const finishHandler = (expectedCounter) => page.evaluate(async ({ counter, expected, ramSentinel, vramOffset }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([]);
+    await api.debugger.resume();
+    const deadline = performance.now() + 5000;
+    while (performance.now() < deadline) {
+      if (api.debugger.readMemory(counter, 1).bytes[0] === expected) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const paused = await api.debugger.pause();
+    return {
+      paused,
+      counter: api.debugger.readMemory(counter, 1).bytes[0],
+      ram: api.debugger.readMemory(ramSentinel, 1).bytes[0],
+      vram: api.debugger.readVram({
+        region: 'graphics', bank: 'access', plane: 'blue', offset: vramOffset, length: 1,
+      }).bytes[0],
+    };
+  }, {
+    counter: counterAddress,
+    expected: expectedCounter,
+    ramSentinel: ramSentinelAddress,
+    vramOffset: vramSentinelOffset,
+  });
+
+  const firstInjection = await injectHandler();
+  assert.equal(firstInjection.mapping, 'main');
+  assert.deepEqual(firstInjection.vector, setup.handler);
+  const x1penEntry = await enterFromClick('ec-nmi-reset', false);
+  verifyEntry(x1penEntry, 0);
+  const afterX1Pen = await finishHandler(1);
+  assert.equal(afterX1Pen.counter, 1);
+  assert.equal(afterX1Pen.ram, 0x5A);
+  assert.equal(afterX1Pen.vram, 0xA5);
+  assert.equal(afterX1Pen.paused.registers.iff1, true, 'RETN must restore IFF1 from IFF2');
+
+  const secondInjection = await injectHandler();
+  assert.equal(secondInjection.mapping, 'main');
+  assert.deepEqual(secondInjection.vector, setup.handler);
+  const semanticEntry = await page.evaluate(async ({ counter }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([0x0066]);
+    const before = api.debugger.getState();
+    window.XmilControls.nmi();
+    const queued = api.debugger.getState();
+    if (queued.cycles !== before.cycles || queued.runState !== 'paused') {
+      throw new Error('paused NMI request must not execute or resume the CPU');
+    }
+    const running = await api.debugger.resume();
+    const state = await api.debugger.waitForPause({
+      afterSequence: running.sequence, stopReason: 'breakpoint', address: 0x0066, timeoutMs: 5000,
+    });
+    const stack = api.debugger.readMemory(state.registers.sp, 2).bytes;
+    return {
+      ...state,
+      returnAddress: stack[0] | (stack[1] << 8),
+      counterBeforeHandler: api.debugger.readMemory(counter, 1).bytes[0],
+    };
+  }, { counter: counterAddress });
+  verifyEntry(semanticEntry, 1);
+  const afterSemantic = await finishHandler(2);
+  assert.equal(afterSemantic.counter, 2);
+  assert.equal(afterSemantic.ram, 0x5A);
+  assert.equal(afterSemantic.vram, 0xA5);
+
+  const stoppedEntry = await page.evaluate(async ({ counter }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([0x0066]);
+    await api.debugger.resume();
+    window.Module._js_xmil_stop();
+    const stopped = api.debugger.getState();
+    window.XmilControls.nmiReset();
+    window.XmilControls.nmiReset();
+    const queued = api.debugger.getState();
+    if (queued.cycles !== stopped.cycles || queued.emulatorRunning) {
+      throw new Error('stopped NMI requests must coalesce without starting the CPU');
+    }
+    window.Module._js_xmil_start();
+    const state = await api.debugger.waitForPause({
+      afterSequence: queued.sequence,
+      stopReason: 'breakpoint',
+      address: 0x0066,
+      timeoutMs: 5000,
+    });
+    return { state, counter: api.debugger.readMemory(counter, 1).bytes[0] };
+  }, { counter: counterAddress });
+  assert.equal(stoppedEntry.counter, 2, 'coalesced request pauses before one handler execution');
+  assert.equal(stoppedEntry.state.registers.pc, 0x0066);
+  const afterStopped = await finishHandler(3);
+  assert.equal(afterStopped.counter, 3, 'two stopped requests coalesce into one NMI edge');
+
+  const labels = await page.evaluate(() => ({
+    x1penText: document.getElementById('ec-nmi-reset').textContent.trim(),
+    x1penTitle: document.getElementById('ec-nmi-reset').title,
+    semanticControl: typeof window.XmilControls.nmi,
+    compatibilityControl: typeof window.XmilControls.nmiReset,
+  }));
+  const physicalPage = await browser.newPage();
+  let physicalControl;
+  try {
+    physicalPage.on('dialog', (dialog) => dialog.accept());
+    await physicalPage.goto(`${baseUrl}/xmillennium.html`);
+    await physicalPage.waitForFunction(() => window.Module &&
+      typeof window.Module._js_xmil_nmi === 'function' &&
+      typeof window.XmilControls?.nmi === 'function' &&
+      !document.getElementById('main-content')?.classList.contains('hidden'));
+    physicalControl = await physicalPage.evaluate(() => {
+      const original = window.Module._js_xmil_nmi;
+      let calls = 0;
+      window.Module._js_xmil_nmi = () => {
+        calls += 1;
+        return original();
+      };
+      try {
+        const button = document.getElementById('ctrl-nmi');
+        button.click();
+        return { calls, title: button.title };
+      } finally {
+        window.Module._js_xmil_nmi = original;
+      }
+    });
+  } finally {
+    await physicalPage.close();
+  }
+  assert.equal(labels.x1penText, 'NMI');
+  assert.match(labels.x1penTitle, /non-maskable interrupt/);
+  assert.equal(physicalControl.calls, 1, 'physical NMI button must invoke the shared real-NMI handler');
+  assert.match(physicalControl.title, /non-maskable interrupt/);
+  assert.equal(labels.semanticControl, 'function');
+  assert.equal(labels.compatibilityControl, 'function');
+
+  const haltSource = [
+    'ORG 0100h',
+    'LD SP,6000h',
+    'LD BC,1E00h',
+    'XOR A',
+    'OUT (C),A',
+    'EI',
+    'HALT',
+    'AFTER_HALT:',
+    'LD A,077h',
+    'LD (5300h),A',
+    'HALT_LOOP:',
+    'JP HALT_LOOP',
+  ].join('\n');
+  const haltSetup = await page.evaluate(async ({ source, handler }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([]);
+    await api.setProgram({ sourceMode: 'asm', asm: source });
+    const assembled = window.X1PenZ80Asm.assemble(source);
+    const expectedReturn = assembled.symbols['NAME_SPACE_DEFAULT.AFTER_HALT'];
+    const run = await api.run();
+    const deadline = performance.now() + 10_000;
+    while (performance.now() < deadline) {
+      const state = api.debugger.getState();
+      if (state.registers.sp === 0x6000 && state.registers.pc === expectedReturn - 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await api.debugger.pause();
+    const preNmiState = api.debugger.getState();
+    if (preNmiState.registers.sp !== 0x6000 || preNmiState.registers.pc !== expectedReturn - 1) {
+      throw new Error(`HALT precondition was not reached: ${JSON.stringify(preNmiState)}`);
+    }
+    const module = window.Module;
+    new Uint8Array(module.wasmMemory.buffer, module._js_get_main_ram(), 0x10000).set(handler, 0x0066);
+    const precondition = {
+      mapping: api.debugger.getState().memory.lowMapping,
+      vector: api.debugger.readMemory(0x0066, handler.length).bytes,
+    };
+    await api.debugger.setBreakpoints([0x0066]);
+    const running = await api.debugger.resume();
+    window.XmilControls.nmi();
+    const state = await api.debugger.waitForPause({
+      afterSequence: running.sequence, stopReason: 'breakpoint', address: 0x0066, timeoutMs: 5000,
+    });
+    const stack = api.debugger.readMemory(state.registers.sp, 2).bytes;
+    return {
+      run,
+      state,
+      preNmiState,
+      expectedReturn,
+      returnAddress: stack[0] | (stack[1] << 8),
+      ...precondition,
+    };
+  }, { source: haltSource, handler: setup.handler });
+  assert.equal(haltSetup.run.ok, true);
+  assert.equal(haltSetup.mapping, 'main');
+  assert.deepEqual(haltSetup.vector, setup.handler);
+  assert.equal(haltSetup.state.registers.sp, 0x5FFE,
+    `NMI from HALT must use the configured stack: ${JSON.stringify(haltSetup)}`);
+  assert.equal(haltSetup.returnAddress, haltSetup.expectedReturn, 'NMI must resume at HALT+1');
+  await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    await api.debugger.setBreakpoints([]);
+    await api.debugger.resume();
+  });
+  await page.waitForFunction(() => window.X1PenAutomation.debugger.readMemory(0x5300, 1).bytes[0] === 0x77);
+
+  const resetCancellation = await page.evaluate(async ({ counter, handler }) => {
+    const api = window.X1PenAutomation;
+    await api.debugger.pause();
+    const module = window.Module;
+    const ram = new Uint8Array(module.wasmMemory.buffer, module._js_get_main_ram(), 0x10000);
+    ram.set(handler, 0x0066);
+    ram[counter] = 0;
+    window.XmilControls.nmi();
+    await window.XmilControls.iplReset();
+    await api.debugger.setBreakpoints([]);
+    await api.debugger.resume();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await api.debugger.pause();
+    return ram[counter];
+  }, { counter: counterAddress, handler: setup.handler });
+  assert.equal(resetCancellation, 0, 'IPL reset must cancel a queued NMI');
 });

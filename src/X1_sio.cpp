@@ -2,11 +2,11 @@
 /* ＳＩＯ全面書き直し */
 
 #include	<windows.h>
-#include	"x1.h"
-#include	"xmil.h"
-#include	"x1_sio.h"
-#include	"mouses.h"
-#include	"x1_irq.h"
+#include	"X1.H"
+#include	"XMIL.H"
+#include	"X1_SIO.H"
+#include	"MOUSES.H"
+#include	"X1_irq.h"
 #include	"state_save.h"
 
 /***********************************************************************

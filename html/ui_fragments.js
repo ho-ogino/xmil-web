@@ -23,6 +23,7 @@
     '            <button class="lib-filter" data-type="hdd">HDD</button>' +
     '            <button class="lib-filter" data-type="cmt">CMT</button>' +
     '            <button class="lib-filter" data-type="emm">EMM</button>' +
+    '            <button class="lib-filter" data-type="external">EXTERNAL</button>' +
     '            <button class="lib-fav-filter" id="lib-fav-filter" title="\u304A\u6C17\u306B\u5165\u308A\u306E\u307F\u8868\u793A">\u2606</button>' +
     '            <button class="lib-drive-pick-btn hidden" id="btn-drive-pick"' +
     '                    title="\u30A2\u30D7\u30EA\u304C\u4FDD\u5B58\u6E08\u307F\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u4E00\u89A7\u8868\u793A">\u2601 \u4FDD\u5B58\u6E08\u307F</button>' +

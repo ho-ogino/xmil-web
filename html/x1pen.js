@@ -7,6 +7,16 @@ window.__X1PEN_MODE = true;
 (function() {
     'use strict';
 
+    var initialShareId = new URLSearchParams(location.search).get('id');
+    var documentRunProfile = initialShareId ? 'ephemeral-share' : 'persistent-user';
+    var isEphemeralShareSession = documentRunProfile === 'ephemeral-share';
+    Object.defineProperty(window, '__X1PEN_EPHEMERAL_SHARE', {
+        value: isEphemeralShareSession,
+        writable: false,
+        configurable: false,
+        enumerable: false
+    });
+
     var COLD_STATE_FILE = 'fuzzybasic_cold.v2.xmst';
     var BOOT_DISK_FILE  = 'fuzzybasic_boot.v2.d88';
     var LSX_COLD_STATE  = 'lsxdodgers_cold.v1.xmst';
@@ -33,6 +43,7 @@ window.__X1PEN_MODE = true;
     var automationInputEpoch = 0;
     window.__X1PEN_SYNTHETIC_INPUT_LOCKED = false;
     var runAdmission = null;
+    var lastRunDetails = null;
     var RUN_QUEUE_TIMEOUT_MS = 20000;
     var RUN_STALL_WARNING_MS = 30000;
     var automationRevision = 0;
@@ -362,6 +373,7 @@ window.__X1PEN_MODE = true;
     var LS_EDITOR_SLANG = 'x1pen_editor_slang';
 
     function persistEditorSources(basic, asm, slang) {
+        if (isEphemeralShareSession) return;
         try {
             localStorage.setItem(LS_EDITOR_BASIC, basic);
             localStorage.setItem(LS_EDITOR_ASM, asm);
@@ -371,12 +383,19 @@ window.__X1PEN_MODE = true;
         }
     }
 
+    function persistEditorSource(key, value) {
+        if (isEphemeralShareSession) return;
+        try { localStorage.setItem(key, value); } catch(e) {}
+    }
+
     var elBtnRun    = document.getElementById('btn-run');
     var elBtnRunRecover = document.getElementById('btn-run-recover');
     var elBtnStop   = document.getElementById('btn-stop');
     var elBtnDevReload = document.getElementById('btn-dev-reload');
     var elStatus    = document.getElementById('x1pen-status');
     var elLiveNotice = document.getElementById('x1pen-live-notice');
+    var elShareMode = document.getElementById('x1pen-share-mode');
+    if (elShareMode && isEphemeralShareSession) elShareMode.classList.remove('hidden');
     var activeTab   = 'basic';
 
     function isDevAssetMode() {
@@ -412,7 +431,7 @@ window.__X1PEN_MODE = true;
         { language: 'basic',
           showLineNumbers: false,
           placeholder: '10 PRINT "HELLO WORLD"\n20 GOTO 10',
-          onChange: function(text) { markProgramChanged(); try { localStorage.setItem(LS_EDITOR_BASIC, text); } catch(e) {} },
+          onChange: function(text) { markProgramChanged(); persistEditorSource(LS_EDITOR_BASIC, text); },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
     );
@@ -422,7 +441,7 @@ window.__X1PEN_MODE = true;
         { language: 'asm',
           showLineNumbers: true,
           placeholder: '; Z80 Assembly\nORG 0E000h\n    LD A,042h\n    RET',
-          onChange: function(text) { markProgramChanged(); lastAsmTabOrigin = 'user'; try { localStorage.setItem(LS_EDITOR_ASM, text); } catch(e) {} },
+          onChange: function(text) { markProgramChanged(); lastAsmTabOrigin = 'user'; persistEditorSource(LS_EDITOR_ASM, text); },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
     );
@@ -432,20 +451,22 @@ window.__X1PEN_MODE = true;
         { language: 'slang',
           showLineNumbers: true,
           placeholder: '// SLANG program\nVAR x = 42;\nmain() BEGIN\n  PRINT(x);\nEND;',
-          onChange: function(text) { markProgramChanged(); try { localStorage.setItem(LS_EDITOR_SLANG, text); } catch(e) {} },
+          onChange: function(text) { markProgramChanged(); persistEditorSource(LS_EDITOR_SLANG, text); },
           onFocus: pauseCallbacks.onFocus,
           onBlur:  pauseCallbacks.onBlur }
     );
 
     // localStorage から復元 (silent: onChange を発火させない)
-    try {
-        var savedBasic = localStorage.getItem(LS_EDITOR_BASIC);
-        if (savedBasic) basicEditor.setValue(savedBasic, { silent: true });
-        var savedAsm = localStorage.getItem(LS_EDITOR_ASM);
-        if (savedAsm) { asmEditor.setValue(savedAsm, { silent: true }); lastAsmTabOrigin = 'user'; }
-        var savedSlang = localStorage.getItem(LS_EDITOR_SLANG);
-        if (savedSlang) slangEditor.setValue(savedSlang, { silent: true });
-    } catch(e) {}
+    if (!isEphemeralShareSession) {
+        try {
+            var savedBasic = localStorage.getItem(LS_EDITOR_BASIC);
+            if (savedBasic) basicEditor.setValue(savedBasic, { silent: true });
+            var savedAsm = localStorage.getItem(LS_EDITOR_ASM);
+            if (savedAsm) { asmEditor.setValue(savedAsm, { silent: true }); lastAsmTabOrigin = 'user'; }
+            var savedSlang = localStorage.getItem(LS_EDITOR_SLANG);
+            if (savedSlang) slangEditor.setValue(savedSlang, { silent: true });
+        } catch(e) {}
+    }
 
 
     // ── ステート復元 (専用経路 — マウント復元なし) ──
@@ -1024,6 +1045,7 @@ window.__X1PEN_MODE = true;
         if (retryable !== undefined) result.retryable = !!retryable;
         if (retryAfterMs !== undefined) result.retryAfterMs = retryAfterMs;
         if (!ok && runAdmission) result.activeOrigin = runAdmission.origin;
+        if (lastRunDetails) Object.keys(lastRunDetails).forEach(function(key) { result[key] = lastRunDetails[key]; });
         return result;
     }
 
@@ -1040,6 +1062,7 @@ window.__X1PEN_MODE = true;
     async function executeReservedRun(token) {
         if (!transitionRunToExecuting(token)) return makeRunBusyResult();
         try {
+            lastRunDetails = null;
             var ok = await performRun(token);
             return makeRunResult(ok);
         } finally {
@@ -1146,7 +1169,7 @@ window.__X1PEN_MODE = true;
             elStatus.textContent = 'SLANG compiled (' + asmSrc.split('\n').length + ' lines)';
         }
 
-        var isSharedRun = !!pendingShareRuntime;
+        var isSharedRun = isEphemeralShareSession;
         var runMode;
         if (pendingShareRuntime && pendingShareRuntime.runMode) {
             runMode = pendingShareRuntime.runMode;
@@ -1169,6 +1192,17 @@ window.__X1PEN_MODE = true;
             return false;
         }
 
+        var mountedProjectSelection = null;
+        if (!isEphemeralShareSession && window.XmilLibrary && window.XmilLibrary.inspectMountedProjectDisk) {
+            try {
+                mountedProjectSelection = await window.XmilLibrary.inspectMountedProjectDisk();
+            } catch(e) {
+                elStatus.textContent = e.message;
+                lastRunDetails = { code: e.code || 'PROJECT_DISK_READ_FAILED' };
+                return false;
+            }
+        }
+
         // 衝突チェック (Conflict check オプション ON 時のみ)
         var overlapChk = document.getElementById('ec-addr-overlap-check');
         if (runtime.relocAddrs && overlapChk && overlapChk.checked) {
@@ -1189,21 +1223,25 @@ window.__X1PEN_MODE = true;
         var actualColdState = runtime.coldState;
         var actualBootDisk = runtime.bootDisk;
 
-        var stateData = await loadRuntimeAsset(runtime.coldState);
-        if (!stateData && !isLsxMode && runtime.coldState !== COLD_STATE_FILE) {
-            // FuzzyBASIC モードのみ fallback（LSX モードでは fallback しない）
-            console.warn('[x1pen] Fallback to current cold state');
-            stateData = await loadRuntimeAsset(COLD_STATE_FILE);
-            if (stateData) actualColdState = COLD_STATE_FILE;
-        }
-        var bootData = await loadRuntimeAsset(runtime.bootDisk);
-        if (!bootData && !isLsxMode && runtime.bootDisk !== BOOT_DISK_FILE) {
-            console.warn('[x1pen] Fallback to current boot disk');
-            bootData = await loadRuntimeAsset(BOOT_DISK_FILE);
-            if (bootData) actualBootDisk = BOOT_DISK_FILE;
+        var stateData = null;
+        var bootData = null;
+        if (!mountedProjectSelection) {
+            stateData = await loadRuntimeAsset(runtime.coldState);
+            if (!stateData && !isLsxMode && runtime.coldState !== COLD_STATE_FILE) {
+                // FuzzyBASIC モードのみ fallback（LSX モードでは fallback しない）
+                console.warn('[x1pen] Fallback to current cold state');
+                stateData = await loadRuntimeAsset(COLD_STATE_FILE);
+                if (stateData) actualColdState = COLD_STATE_FILE;
+            }
+            bootData = await loadRuntimeAsset(runtime.bootDisk);
+            if (!bootData && !isLsxMode && runtime.bootDisk !== BOOT_DISK_FILE) {
+                console.warn('[x1pen] Fallback to current boot disk');
+                bootData = await loadRuntimeAsset(BOOT_DISK_FILE);
+                if (bootData) actualBootDisk = BOOT_DISK_FILE;
+            }
         }
 
-        if (!stateData) {
+        if (!stateData && !mountedProjectSelection) {
             elStatus.textContent = 'Failed to load cold state';
             return false;
         }
@@ -1259,6 +1297,138 @@ window.__X1PEN_MODE = true;
             }
         }
 
+        var asmBytes = (asmResult && asmResult.bytes.length > 0) ? asmResult.bytes : null;
+
+        // LSX モードで ASM バイナリが 0 byte なら実行不可
+        if (isLsxMode && !asmBytes) {
+            elStatus.textContent = 'Nothing to run (ASM produced no bytes)';
+            return false;
+        }
+
+        // Library-backed FDD0: fork/update the persistent X1Pen project copy,
+        // then boot it normally. No cold state or temporary disk is used here.
+        if (mountedProjectSelection) {
+            var projectApi = window.X1PenProjectDisk;
+            if (!projectApi) {
+                elStatus.textContent = 'プロジェクトディスク機能を利用できません';
+                lastRunDetails = { code: 'PROJECT_DISK_UNAVAILABLE' };
+                return false;
+            }
+            var preview;
+            try {
+                preview = projectApi.inspect(
+                    mountedProjectSelection.bytes,
+                    mountedProjectSelection.entry.name,
+                    runMode
+                );
+            } catch(e) {
+                elStatus.textContent = e.message;
+                lastRunDetails = { code: e.code || 'PROJECT_DISK_INVALID' };
+                return false;
+            }
+            if (!mountedProjectSelection.entry.x1penProject) {
+                var origin = runAdmission ? runAdmission.origin : 'automation';
+                if (origin !== 'ui' && origin !== 'share') {
+                    elStatus.textContent = 'FDD0のディスクから作業用コピーを作成するため、X1Pen画面で一度RUNしてください';
+                    lastRunDetails = {
+                        code: 'PROJECT_DISK_SETUP_REQUIRED',
+                        retryable: false,
+                        action: 'X1Pen画面でRUNし、作業用コピーの作成を承認してから再実行してください。'
+                    };
+                    return false;
+                }
+                var managedNames = isLsxMode ? 'PROG.COMとAUTOEXEC.BAT' :
+                    ((asmBytes ? 'PROGRAM.BIN、' : '') + 'AUTORUN.BASとAUTOEXEC.BAT');
+                var warningText = preview.warnings.length
+                    ? '\n\n警告:\n- ' + preview.warnings.join('\n- ')
+                    : '';
+                var confirmed = confirm(
+                    '「' + mountedProjectSelection.entry.name + '」からX1Pen用の作業ディスクを作成しますか？\n\n' +
+                    '作業ディスク名は「<元の名前>-X1Pen」になります（同名がある場合は連番を付けます）。\n' +
+                    'X1Penは作業ディスク内の' + managedNames + 'を更新します。\n' +
+                    'コピー前に、元ディスク上でゲストが行った書き込みを通常どおり保存します。\n' +
+                    'X1PenによるプログラムやAUTOEXECの更新で、元ディスクが変更されることはありません。\n\n' +
+                    '検証対象はLSXファイルシステムの構造のみです。起動やプログラム実行は確認されません。\n' +
+                    '作業ディスクの起動時にコールドスタートを行うため、エミュレーターのRAMは消去されます。' + warningText
+                );
+                if (!confirmed) {
+                    elStatus.textContent = 'プロジェクトディスクの作成をキャンセルしました';
+                    lastRunDetails = { code: 'PROJECT_DISK_SETUP_CANCELLED', bootVerified: false };
+                    return false;
+                }
+            }
+
+            var transaction = null;
+            try {
+                transaction = await window.XmilLibrary.beginProjectDiskTransaction();
+                var projectFiles = [];
+                if (asmBytes) {
+                    projectFiles.push({
+                        name: isLsxMode ? 'PROG.COM' : 'PROGRAM.BIN',
+                        data: new Uint8Array(asmBytes)
+                    });
+                }
+                if (tokenized) projectFiles.push({ name: 'AUTORUN.BAS', data: tokenized });
+                var relocationFiles = await collectRelocationDiskFiles(runtime.relocAddrs);
+                projectFiles = projectFiles.concat(relocationFiles);
+                var prepared = projectApi.prepare(transaction.bytes, transaction.entry.name, {
+                    mode: runMode,
+                    previousMode: transaction.entry.projectMode || null,
+                    files: projectFiles
+                });
+                var projectEntry = await window.XmilLibrary.commitProjectDiskTransaction(
+                    transaction, prepared.bytes, runMode
+                );
+                var machine = window.XmilControls.coldPowerOnProjectDisk(runtime.model, transaction.otherSlots);
+                if (module._js_debug_resume) module._js_debug_resume();
+                lastUsedRuntime = {
+                    model: machine.model,
+                    coldState: actualColdState,
+                    bootDisk: projectEntry.name,
+                    relocAddrs: runtime.relocAddrs,
+                    runMode: runMode
+                };
+                lastRunWasShared = isSharedRun;
+                updateAddrReference(actualColdState);
+                elStatus.textContent = 'プロジェクトディスクを起動しました';
+                lastRunDetails = {
+                    projectDisk: true,
+                    projectDiskName: projectEntry.name,
+                    committed: true,
+                    poweredOn: true,
+                    bootVerified: false,
+                    executionVerified: false,
+                    verification: 'filesystem-only',
+                    warnings: prepared.warnings
+                };
+                window.XmilLibrary.finishProjectDiskTransaction(transaction, false);
+                return true;
+            } catch(e) {
+                if (transaction) {
+                    try { await window.XmilLibrary.restoreProjectDiskTransaction(transaction); }
+                    catch(rollbackError) {
+                        e.rollbackFailed = true;
+                        e.rollbackMessage = rollbackError.message;
+                    }
+                    window.XmilLibrary.finishProjectDiskTransaction(transaction, true);
+                }
+                console.error('[x1pen] プロジェクトディスクのRUNに失敗:', e);
+                elStatus.textContent = e.message || 'プロジェクトディスクの更新に失敗しました';
+                lastRunDetails = {
+                    code: e.code || 'PROJECT_DISK_UPDATE_FAILED',
+                    committed: false,
+                    poweredOn: false,
+                    bootVerified: false,
+                    executionVerified: false,
+                    rollbackFailed: !!e.rollbackFailed,
+                    mismatchKind: e.mismatchKind,
+                    requestedDip: e.requestedDip,
+                    activeDip: e.activeDip
+                };
+                return false;
+            }
+        }
+
         // 6. コールドステート復元 (runtime 指定のステートを使用)
         if (!restoreColdState(stateData)) {
             elStatus.textContent = 'State restore failed';
@@ -1284,14 +1454,6 @@ window.__X1PEN_MODE = true;
         }
 
         // 7. ディスクイメージ作成 (ASM バイナリ and/or AUTORUN.BAS)
-        var asmBytes = (asmResult && asmResult.bytes.length > 0) ? asmResult.bytes : null;
-
-        // LSX モードで ASM バイナリが 0 byte なら実行不可
-        if (isLsxMode && !asmBytes) {
-            elStatus.textContent = 'Nothing to run (ASM produced no bytes)';
-            return false;
-        }
-
         if (asmBytes || tokenized) {
             if (bootData) {
                 if (!(await mountProgramDisk(asmBytes, tokenized, bootData, runtime.relocAddrs, { mode: runMode }))) {
@@ -1303,7 +1465,7 @@ window.__X1PEN_MODE = true;
         }
 
         // 8. FDD 等のマウント状態を再適用 (PROGRAM ディスク使用時は drive0 を除外)
-        if (window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
+        if (!isEphemeralShareSession && window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
             await window.XmilLibrary.autoRestoreMounts(hasProgramDisk ? ['drive0'] : []);
         }
 
@@ -1341,6 +1503,35 @@ window.__X1PEN_MODE = true;
     }
 
     // ── PROGRAM ディスク マウント ──
+
+    async function collectRelocationDiskFiles(relocAddresses) {
+        var files = [];
+        if (!relocAddresses) return files;
+        try {
+            var config = await loadRelocConfig();
+            if (!config) return files;
+            for (var key in config.binaries) {
+                var binInfo = config.binaries[key];
+                var relData = await loadREL(binInfo.rel_file);
+                if (!relData) {
+                    console.warn('[x1pen] REL not available: ' + binInfo.rel_file);
+                    continue;
+                }
+                var hasSelf = false;
+                for (var gi = 0; gi < binInfo.groups.length; gi++) {
+                    if (binInfo.groups[gi].name === 'SELF') { hasSelf = true; break; }
+                }
+                files.push({
+                    name: binInfo.output_file,
+                    data: patchREL(relData, binInfo.groups, relocAddresses),
+                    replaceOnly: !hasSelf
+                });
+            }
+        } catch(e) {
+            console.warn('[x1pen] Reloc disk patching failed (continuing):', e);
+        }
+        return files;
+    }
 
     async function mountProgramDisk(programBytes, basicTokenized, diskData, relocAddresses, options) {
         var mode = (options && options.mode) || 'fuzzybasic';
@@ -1466,6 +1657,42 @@ window.__X1PEN_MODE = true;
     }
 
     // ── Share ──
+
+    var SHARE_MEDIA_BLOCKED_STATUS = '保存済みメディアが挿入されているためShareできません。メディアを取り出してから再試行してください';
+    var SHARE_MEDIA_UNKNOWN_STATUS = 'メディア状態を確認できないためShareできません。ページを再読み込みしてください';
+    var SHARE_MEDIA_SLOTS = [
+        'drive0', 'drive1', 'hdd0', 'hdd1', 'cmt',
+        'emm0', 'emm1', 'emm2', 'emm3', 'emm4',
+        'emm5', 'emm6', 'emm7', 'emm8', 'emm9'
+    ];
+
+    function inspectShareMediaState() {
+        try {
+            if (!window.XmilCore || typeof window.XmilCore.getSlotState !== 'function') {
+                return { available: false, mountedSlots: [] };
+            }
+            var state = window.XmilCore.getSlotState();
+            if (!state || typeof state !== 'object') {
+                return { available: false, mountedSlots: [] };
+            }
+            var mountedSlots = [];
+            for (var i = 0; i < SHARE_MEDIA_SLOTS.length; i++) {
+                var slotName = SHARE_MEDIA_SLOTS[i];
+                if (!Object.prototype.hasOwnProperty.call(state, slotName)) {
+                    return { available: false, mountedSlots: [] };
+                }
+                var value = state[slotName];
+                if (value === null || value === '__x1pen_temp__') continue;
+                if (typeof value !== 'string') {
+                    return { available: false, mountedSlots: [] };
+                }
+                mountedSlots.push(slotName);
+            }
+            return { available: true, mountedSlots: mountedSlots };
+        } catch(e) {
+            return { available: false, mountedSlots: [] };
+        }
+    }
 
     var lastShareHash = null;
     var lastShareId = null;
@@ -2638,6 +2865,16 @@ window.__X1PEN_MODE = true;
         var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
         if (!src && !asmSrc && !slangSrc) { elStatus.textContent = 'Nothing to share'; return; }
 
+        var shareMediaState = inspectShareMediaState();
+        if (!shareMediaState.available) {
+            elStatus.textContent = SHARE_MEDIA_UNKNOWN_STATUS;
+            return;
+        }
+        if (shareMediaState.mountedSlots.length > 0) {
+            elStatus.textContent = SHARE_MEDIA_BLOCKED_STATUS;
+            return;
+        }
+
         var shareSourceMode = slangSrc ? 'slang' : (!src && asmSrc ? 'asm' : 'basic+asm');
         var shareRunMode = (shareSourceMode === 'slang' || shareSourceMode === 'asm') ? 'lsx' : detectRunMode(src, asmSrc);
 
@@ -2740,7 +2977,7 @@ window.__X1PEN_MODE = true;
         module = window.Module;
 
         // マルチタブ警告 (pre.js の _multiTabPromise を消費)
-        if (window.__multiTabPromise) {
+        if (!isEphemeralShareSession && window.__multiTabPromise) {
             var otherTabExists = await window.__multiTabPromise;
             if (otherTabExists) {
                 var ok = confirm(
@@ -2800,7 +3037,7 @@ window.__X1PEN_MODE = true;
         // 4. フォントを現セッションに反映
         if (module._js_reload_fonts) module._js_reload_fonts();
         // 5. マウント状態復元
-        if (window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
+        if (!isEphemeralShareSession && window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
             await window.XmilLibrary.autoRestoreMounts();
         }
         // 6. エミュレータ開始
@@ -2812,7 +3049,7 @@ window.__X1PEN_MODE = true;
         automationReadyResolve();
 
         // 共有コード読み込み (?id=xxx)
-        var urlId = new URLSearchParams(location.search).get('id');
+        var urlId = initialShareId;
 
         // Share パラメータなしの場合、保存済みコンテンツに応じてタブを自動選択
         // BASIC → SLANG → ASM の優先順で、内容のあるタブに切り替える
@@ -3317,7 +3554,7 @@ window.__X1PEN_MODE = true;
         var iplBtn = document.getElementById('ec-ipl-reset');
         var nmiBtn = document.getElementById('ec-nmi-reset');
         if (iplBtn) iplBtn.addEventListener('click', function() { ctrl.iplReset(); closeAllMenus(); });
-        if (nmiBtn) nmiBtn.addEventListener('click', function() { ctrl.nmiReset(); closeAllMenus(); });
+        if (nmiBtn) nmiBtn.addEventListener('click', function() { ctrl.nmi(); closeAllMenus(); });
 
         // FDD
         var fdd0Mount = document.getElementById('ec-fdd0-mount');
@@ -3495,14 +3732,16 @@ window.__X1PEN_MODE = true;
         var basicContainer = document.getElementById('basic-editor-container');
         var asmContainer = document.getElementById('asm-editor-container');
         var slangContainer = document.getElementById('slang-editor-container');
-        var importBtn = document.getElementById('btn-asm-import');
+        var asmImportAction = document.getElementById('btn-asm-import');
+        var slangImportAction = document.getElementById('btn-slang-import');
         var manualBtn = document.getElementById('btn-basic-manual');
 
         // 全エディタコンテナを非表示
         if (basicContainer) basicContainer.classList.add('hidden');
         if (asmContainer) asmContainer.classList.add('hidden');
         if (slangContainer) slangContainer.classList.add('hidden');
-        if (importBtn) importBtn.classList.add('hidden');
+        if (asmImportAction) asmImportAction.classList.add('hidden');
+        if (slangImportAction) slangImportAction.classList.add('hidden');
         if (manualBtn) manualBtn.classList.add('hidden');
 
         // 選択されたタブのコンテナを表示
@@ -3511,9 +3750,10 @@ window.__X1PEN_MODE = true;
             if (manualBtn) manualBtn.classList.remove('hidden');
         } else if (target === 'asm') {
             if (asmContainer) asmContainer.classList.remove('hidden');
-            if (importBtn) importBtn.classList.remove('hidden');
+            if (asmImportAction) asmImportAction.classList.remove('hidden');
         } else if (target === 'slang') {
             if (slangContainer) slangContainer.classList.remove('hidden');
+            if (slangImportAction) slangImportAction.classList.remove('hidden');
         }
     }
     if (editorTabs) {
@@ -3606,6 +3846,17 @@ window.__X1PEN_MODE = true;
         return lines.join('\n');
     }
 
+    function binaryToSlangValues(uint8array) {
+        var lines = [];
+        for (var i = 0; i < uint8array.length; i += 16) {
+            var chunk = uint8array.slice(i, Math.min(i + 16, uint8array.length));
+            lines.push(Array.from(chunk).map(function(b) {
+                return '$' + ('0' + b.toString(16).toUpperCase()).slice(-2);
+            }).join(','));
+        }
+        return lines.join(',\n');
+    }
+
     var asmImportBtn = document.getElementById('btn-asm-import');
     var asmImportFile = document.getElementById('asm-import-file');
     if (asmImportBtn && asmImportFile) {
@@ -3640,6 +3891,39 @@ window.__X1PEN_MODE = true;
                 asmEditor.insertAt(pos, insertText);
                 asmEditor.setCursor(pos + insertText.length);
                 elStatus.textContent = 'Imported: ' + file.name + ' (' + data.length + ' bytes)';
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    var slangImportBtn = document.getElementById('btn-slang-import');
+    var slangImportFile = document.getElementById('slang-import-file');
+    if (slangImportBtn && slangImportFile) {
+        slangImportBtn.addEventListener('click', function() { slangImportFile.click(); });
+        slangImportFile.addEventListener('change', function(e) {
+            var file = e.target.files[0];
+            e.target.value = '';
+            if (!file || !slangEditor) return;
+
+            if (file.size > 128 * 1024) {
+                elStatus.textContent = 'File too large (max 128KB)';
+                return;
+            }
+
+            var reader = new FileReader();
+            reader.onload = function() {
+                var data = new Uint8Array(reader.result);
+                if (data.length === 0) {
+                    elStatus.textContent = 'Empty file cannot be imported';
+                    return;
+                }
+
+                var text = binaryToSlangValues(data);
+                var pos = slangEditor.getCursor();
+                slangEditor.insertAt(pos, text);
+                slangEditor.setCursor(pos + text.length);
+                elStatus.textContent = 'Imported: ' + file.name + ' (' + data.length + ' bytes)' +
+                    (data.length > 64 * 1024 ? ' — Warning: large file, may affect share' : '');
             };
             reader.readAsArrayBuffer(file);
         });

@@ -1,15 +1,15 @@
 #include	<windows.h>
 #include	<stdio.h>
 #include	<string.h>
-#include	"x1.h"
-#include	"dosio.h"
-#include	"x1_fdc.h"
-#include	"fdd_mtr.h"
-#include	"fdd_d88.h"
+#include	"X1.H"
+#include	"DOSIO.H"
+#include	"X1_FDC.H"
+#include	"FDD_MTR.H"
+#include	"FDD_D88.H"
 #include	"state_save.h"
 
-#include	"trace.h"
-#include	"x1_dma.h"
+#include	"TRACE.H"
+#include	"X1_DMA.H"
 
 #ifdef __EMSCRIPTEN__
 #include	<emscripten.h>

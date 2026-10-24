@@ -39,6 +39,12 @@ ORG 0E000h
 **Import ボタン**: バイナリファイルを読み込んで、`DB $xx,$xx,...` 形式でカーソル位置に挿入します。
 画像データや音楽データの取り込みに便利です。
 
+### SLANG タブ
+
+SLANGタブの **Import** ボタンは、binary fileを現在のcursor位置へ大文字の`$XX`値列として挿入します。16 bytesごとに改行し、値の間だけにカンマを入れます。末尾カンマ、label、`ARRAY`宣言、filename commentは生成しません。周囲のsourceは解析しないため、必要なカンマや括弧は利用者が用意してください。
+
+空fileは拒否します。最大読込sizeはASM Importと同じ128 KiBで、64 KiBを超える場合はshareへの影響を警告します。この上限はimporterがfileを読む上限であり、生成された配列がSLANG compilerやX1のaddress spaceへ収まることを保証しません。大きなassetはDisk Editorでproject diskへ追加し、`MAGLOAD`または`FOPEN`／`FREAD`で読む方法も検討してください。
+
 ## 実行
 
 **RUN ボタン** または **Ctrl+Enter** で実行します。
@@ -68,9 +74,9 @@ ORG 0C000h
 - ASM のルーチンが `&HC000` に配置され、BASIC の `USR(&HC000)` で呼び出されます
 - FuzzyBASIC では `USR` の戻り値は HL レジスタに入れます
 
-## PROGRAM ディスクと AUTORUN.BAS
+## PROGRAM ディスク、project disk、AUTORUN.BAS
 
-ASM タブに内容がある状態で RUN すると、FDD0 に「(PROGRAM)」ディスクがマウントされます。
+FDD0に通常のライブラリディスクをマウントしていない状態でRUNすると、従来どおり一時的な「(PROGRAM)」ディスクがマウントされます。
 このディスクには以下が含まれます:
 
 | ファイル | 内容 |
@@ -87,13 +93,47 @@ BASIC プログラムから自由に利用できます:
 | `PSGAKG.BIN` | Arkos Tracker AKG 形式の再生ドライバ |
 | `PSGAKM.BIN` | Arkos Tracker AKM 形式の再生ドライバ |
 
+### FDD0をproject diskとして使う
+
+書き込み可能なLSX-Dodgers形式のD88/2DディスクをライブラリからFDD0へマウントしてRUNすると、初回だけ確認後に`<元の名前>-X1Pen`という別のworking copyを作成します。同名時は連番が付きます。元ディスクへX1Pen管理ファイルを書き込まず、working copyへ`PROG.COM`、`PROGRAM.BIN`、`AUTORUN.BAS`、`AUTOEXEC.BAT`を更新します。
+
+- working copyにはproject metadataが付くため、X1Penを閉じて再度マウントしてもコピーは増えません
+- guestによるディスク書き込みとRUN結果はライブラリへ自動保存されます
+- FDD1は変更・イジェクトされず、2枚目のデータディスクとして利用できます
+- multi-disk D88、HuBASICなどLSX-Dodgers以外の形式、write-protectedまたは異常のあるディスクは拒否します
+- 検査するのはファイルシステム構造だけです。正常なbootやプログラム開始は保証しません
+- project diskのRUNは通常のcold power-onを行うため、現在のエミュレータRAMは消去されます
+
+MCP/Automationから通常ディスクを初めて使う場合は`PROJECT_DISK_SETUP_REQUIRED`になります。X1Pen画面で一度RUNしてworking copy作成を承認した後に再実行してください。
+
 ### ディスクイメージのダウンロード
 
-エミュレータ下部のコントロールバーで **FDD** → FDD0 の **Save** ボタンをクリックすると、
+一時PROGRAMディスクは、エミュレータ下部のコントロールバーで **FDD** → FDD0 の **Save** ボタンをクリックすると、
 `PROGRAM.d88` としてディスクイメージをダウンロードできます。
+
+project diskはRUNとguest writeのたびライブラリへ自動保存されます。外部D88として保存する場合はライブラリ一覧の **Download** を使用してください。
 
 このディスクには LSX-Dodgers と FuzzyBASIC が含まれており、そのままブートできる起動ディスクです。
 X millennium Web 本体のエミュレータで FDD にマウントして起動すれば、AUTORUN.BAS が自動実行されます。
+
+### 安全なproject diskベースを作る
+
+手元にboot可能なLSX-Dodgers diskがない場合は、X1Pen自身が作る一時PROGRAM diskをベースにできます。
+
+1. FDD0とFDD1を空にし、BASICまたはSLANGで短いプログラムを書いてRUNします。
+2. **FDD** → FDD0の **Save** で`PROGRAM.d88`を保存します。
+3. `PROGRAM.d88`をファイルライブラリへ追加し、FDD0へマウントします。
+4. MODELを選び、もう一度RUNして`<元の名前>-X1Pen` working copyの作成を承認します。
+5. cold start後にプログラムが実行されることを確認します。元の`PROGRAM.d88`は再利用できる安全なベースとして保管してください。
+
+この方法では元ディスクに含まれる`LD.BIN`、`AUTOEXEC.BAT`、`MAGIC.BIN`、`PSGAKM.BIN`、`PSGAKG.BIN`が保持されます。BASIC用ディスクには`FZBASIC.COM`も含まれます。X1PenはBASICで`PROGRAM.BIN`／`AUTORUN.BAS`、SLANGで`PROG.COM`をworking copyへ書き込みます。
+
+### MODEL切り替えの制約
+
+- MODEL切り替えを適用できるのは、libraryのproject diskから行うcold-start RUNです。通常の一時PROGRAM disk／cold stateを使うRUNの途中ではMODELを切り替えられません。
+- cold startではCPU stateに加えてRAM、VRAM、PCGが初期化され、未保存の内容は消えます。必要なdisk writeを保存してから切り替えてください。
+- X1では`IPLROM.X1`、X1turbo／X1turboZでは`IPLROM.X1T`を使用します。ROM未登録時は内蔵stub BIOSで最低限の起動ができますが、実IPL ROMと動作が異なるsoftwareがあります。stubでの起動確認は実ROMでの互換性保証ではなく、その逆も同様です。利用者が合法的に用意した実IPL ROMでの確認を推奨します。
+- project diskの検証はfilesystem構造、保存、mountまでです。任意のdiskが選択MODEL／ROMでbootし、guest programを開始することまでは保証しません。
 
 ## Share（共有）
 
@@ -172,7 +212,7 @@ X millennium Web 本体のエミュレータで FDD にマウントして起動�
 
 | ボタン | 機能 |
 |--------|------|
-| **MACHINE** | IPL Reset / NMI Reset / Resolution / Start Disk |
+| **MACHINE** | IPL Reset / NMI（実 NMI。復旧が必要な場合は IPL Reset） / Resolution / Start Disk |
 | **FDD** | FDD0/1 のマウント・イジェクト・Save |
 | **HDD** | HDD0/1 のマウント・イジェクト |
 | **CMT** | カセットテープの操作 |

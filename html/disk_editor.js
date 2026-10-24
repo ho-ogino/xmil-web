@@ -14,6 +14,11 @@
     var editorDisclaimerShown = false;
 
     async function openEditor(libraryKey) {
+        if (window.XmilLibrary && window.XmilLibrary.isProjectDiskTransactionActive &&
+            window.XmilLibrary.isProjectDiskTransactionActive()) {
+            alert('X1Penプロジェクトディスクの更新中はディスクを編集できません');
+            return;
+        }
         if (!window.XmilCore || !window.XmilStorage) {
             alert('ストレージが初期化されていません');
             return;

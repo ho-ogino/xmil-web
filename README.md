@@ -77,11 +77,35 @@ Wranglerが使用するMiniflareは脆弱性修正版より古いUndiciを固定
 - `xmillennium.html` — エミュレータ本体
 - `xmillennium.js` / `xmillennium.wasm`
 
+### Linux でのビルド
+
+macOS と同じ手順で Linux でもビルドできます。`emsdk_env.sh` は emsdk 同梱の Node／npm を `PATH` の先頭に入れるため、emsdk の後に nvm を読み込み、npm 12 が使われるようにします。
+
+```bash
+source ~/emsdk/emsdk_env.sh
+. ~/.nvm/nvm.sh && nvm use
+npm --version   # 12.x であること
+./build.sh
+npm test
+```
+
+Playwright を使うテスト（`test:relay`、`test:automation`）は、Playwright 用ブラウザを入れていない環境では `X1PEN_BROWSER_EXECUTABLE=/usr/bin/google-chrome npm test` のようにインストール済みの Chrome を指定できます。
+
 ## ローカルでの実行
 
 ```bash
 cd build
 python3 -m http.server 8000
+# ブラウザで http://localhost:8000/ を開く
+```
+
+別のマシンのブラウザから確認する場合も、サーバーは `127.0.0.1` で待ち受け、SSH のポート転送で開きます。エミュレータは `crypto.subtle` などセキュアコンテキストでのみ使える API を使うため、`http://<IP アドレス>:8000/` では正しく動きません（`http://localhost` はセキュアコンテキストとして扱われます）。
+
+```bash
+# ビルドしたマシンで
+python3 -m http.server 8000 --bind 127.0.0.1 --directory dist
+# 確認するマシンで（ssh を張っている間だけ有効）
+ssh -N -L 8000:127.0.0.1:8000 <user>@<build-host>
 # ブラウザで http://localhost:8000/ を開く
 ```
 

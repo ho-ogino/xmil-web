@@ -5,10 +5,10 @@
 
 #include	<windows.h>
 #include	<stdio.h>
-#include	"x1.h"
-#include	"xmil.h"
+#include	"X1.H"
+#include	"XMIL.H"
 #include	"X1_EMM.H"
-#include	"dosio.h"
+#include	"DOSIO.H"
 
 #ifdef __EMSCRIPTEN__
 #include	<emscripten.h>

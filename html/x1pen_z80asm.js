@@ -52,7 +52,7 @@
             // 2文字比較演算子を先にチェック
             if (i + 1 < s.length) {
                 var c2 = s[i] + s[i + 1];
-                if (c2 === '>>' || c2 === '<<') {
+                if (c2 === '>>' || c2 === '<<' || c2 === '&&' || c2 === '||') {
                     tokens.push({ type: 'OP', val: c2 }); i += 2; continue;
                 }
                 if (c2 === '==' || c2 === '!=' || c2 === '>=' || c2 === '<=') {
@@ -66,7 +66,9 @@
             if (c === '/') { tokens.push({ type: 'OP', val: '/' }); i++; continue; }
             if (c === '&') { tokens.push({ type: 'OP', val: '&' }); i++; continue; }
             if (c === '|') { tokens.push({ type: 'OP', val: '|' }); i++; continue; }
+            if (c === '^') { tokens.push({ type: 'OP', val: '^' }); i++; continue; }
             if (c === '~') { tokens.push({ type: 'OP', val: '~' }); i++; continue; }
+            if (c === '!') { tokens.push({ type: 'OP', val: '!' }); i++; continue; }
             if (c === '(') { tokens.push({ type: 'LPAREN' }); i++; continue; }
             if (c === ')') { tokens.push({ type: 'RPAREN' }); i++; continue; }
             if (c === '$' && (i + 1 >= s.length || !/[0-9a-f]/i.test(s[i + 1]))) {
@@ -115,9 +117,10 @@
         return tokens;
     }
 
-    function evalExpr(exprStr, symbols, pc, globalLabel, currentNamespace) {
+    function evalExpr(exprStr, symbols, pc, globalLabel, currentNamespace, options) {
         var tokens = tokenizeExpr(exprStr);
         if (!tokens) return null;
+        var undefinedIsZero = options && options.undefinedIsZero;
 
         var pos = 0;
         function peek() { return pos < tokens.length ? tokens[pos] : null; }
@@ -135,8 +138,18 @@
                 var keyUpper = key;
                 if (keyUpper === 'LOW' && peek()) { var lv = parseAtom(); return (lv !== null && lv !== undefined) ? lv & 0xFF : lv; }
                 if (keyUpper === 'HIGH' && peek()) { var hv = parseAtom(); return (hv !== null && hv !== undefined) ? (hv >> 8) & 0xFF : hv; }
-                if (keyUpper === 'EXISTS' && peek() && peek().type === 'SYMBOL') {
-                    var existsName = next().val.toUpperCase();
+                if (keyUpper === 'EXISTS' && peek()) {
+                    var existsName = null;
+                    if (peek().type === 'SYMBOL') {
+                        existsName = next().val.toUpperCase();
+                    } else if (peek().type === 'LPAREN') {
+                        next();
+                        if (!peek() || peek().type !== 'SYMBOL') return null;
+                        existsName = next().val.toUpperCase();
+                        if (!peek() || peek().type !== 'RPAREN') return null;
+                        next();
+                    }
+                    if (existsName === null) return undefinedIsZero ? 0 : undefined;
                     // シンボルテーブル + 名前空間解決で存在チェック
                     if (existsName in symbols) return 1;
                     if (currentNamespace) {
@@ -176,12 +189,13 @@
                         }
                     }
                 }
-                return undefined; // unresolved
+                return undefinedIsZero ? 0 : undefined; // unresolved
             }
             if (t.type === 'LPAREN') {
                 next();
-                var v = parseBitwise();
-                if (peek() && peek().type === 'RPAREN') next();
+                var v = parseLogicalOr();
+                if (!peek() || peek().type !== 'RPAREN') return null;
+                next();
                 return v;
             }
             if (t.type === 'OP' && t.val === '+') {
@@ -199,6 +213,12 @@
                 var v3 = parseAtom();
                 if (v3 === null || v3 === undefined) return v3;
                 return (~v3) & 0xFFFF;
+            }
+            if (t.type === 'OP' && t.val === '!') {
+                next();
+                var v4 = parseAtom();
+                if (v4 === null || v4 === undefined) return v4;
+                return ((v4 & 0xFFFF) === 0) ? 1 : 0;
             }
             return null;
         }
@@ -259,7 +279,7 @@
                 var op = t.val;
                 if (op !== '==' && op !== '!=' && op !== '>=' && op !== '<=' && op !== '>' && op !== '<') break;
                 next();
-                var right = parseAddSub();
+                var right = parseBitwise();
                 if (right === null || left === null) return null;
                 if (left === undefined || right === undefined) return undefined;
                 if (op === '==') left = (left === right) ? 1 : 0;
@@ -272,7 +292,35 @@
             return left;
         }
 
-        var result = parseCompare();
+        function parseLogicalAnd() {
+            var left = parseCompare();
+            while (true) {
+                var t = peek();
+                if (!t || t.type !== 'OP' || t.val !== '&&') break;
+                next();
+                var right = parseCompare();
+                if (right === null || left === null) return null;
+                if (left === undefined || right === undefined) return undefined;
+                left = ((left & 0xFFFF) !== 0 && (right & 0xFFFF) !== 0) ? 1 : 0;
+            }
+            return left;
+        }
+
+        function parseLogicalOr() {
+            var left = parseLogicalAnd();
+            while (true) {
+                var t = peek();
+                if (!t || t.type !== 'OP' || t.val !== '||') break;
+                next();
+                var right = parseLogicalAnd();
+                if (right === null || left === null) return null;
+                if (left === undefined || right === undefined) return undefined;
+                left = ((left & 0xFFFF) !== 0 || (right & 0xFFFF) !== 0) ? 1 : 0;
+            }
+            return left;
+        }
+
+        var result = parseLogicalOr();
         if (pos < tokens.length) return null; // leftover tokens
         return result;
     }
@@ -860,12 +908,11 @@
                     var condActive = false;
                     if (parentActive) {
                         var exprStr = (directive[2] || '').replace(/;.*$/, '').trim();
-                        var condVal = evalExpr(exprStr, ppSymbols, 0, '');
+                        var condVal = evalExpr(exprStr, ppSymbols, 0, '', '', { undefinedIsZero: true });
                         if (condVal === null) {
                             errors.push({ line: pi + 1, msg: 'Invalid #IF expression' });
-                        } else if (condVal === undefined) {
                             condVal = 0;
-                        }
+                        } else if (condVal === undefined) condVal = 0;
                         condActive = (condVal !== 0);
                     }
                     ifStack.push({ parentActive: parentActive, condTrue: condActive, inElse: false, anyTrue: condActive });
@@ -881,7 +928,7 @@
                             top.condTrue = false;
                         } else {
                             var exprStr = (directive[2] || '').replace(/;.*$/, '').trim();
-                            var condVal = evalExpr(exprStr, ppSymbols, 0, '');
+                            var condVal = evalExpr(exprStr, ppSymbols, 0, '', '', { undefinedIsZero: true });
                             if (condVal === null) {
                                 errors.push({ line: pi + 1, msg: 'Invalid #ELIF expression' });
                                 condVal = 0;

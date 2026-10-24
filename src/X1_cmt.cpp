@@ -6,13 +6,13 @@
 #ifdef __EMSCRIPTEN__
 #include	<emscripten.h>
 #endif
-#include	"x1.h"
-#include	"xmil.h"
-#include	"x1_cmt.h"
-#include	"x1_scpu.h"
-#include	"menu.h"
-#include	"dosio.h"
-#include	"dsounds.h"
+#include	"X1.H"
+#include	"XMIL.H"
+#include	"X1_CMT.H"
+#include	"X1_SCPU.H"
+#include	"MENU.H"
+#include	"DOSIO.H"
+#include	"DSOUNDS.H"
 #include	"drawinfo.h"
 #include	"state_save.h"
 /*
@@ -870,7 +870,7 @@ int cmt_load_state(const BYTE *buf, int len) {
 #else //T_TUNE
 
 #include	<windows.h>
-#include	"x1.h"
+#include	"X1.H"
 
 static	BYTE	CMT_CMND = 0;
 static	BYTE	CMT_STOP = 1;

@@ -8,8 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <zlib.h>
-#include "common.h"
-#include "x1.h"
+#include "COMMON.H"
+#include "X1.H"
 #include "X1_CRTC.H"
 #include "X1_8255.H"
 #include "X1_SCPU.H"

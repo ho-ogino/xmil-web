@@ -7,14 +7,14 @@
 #include	<stdio.h>
 #include	<string.h>
 
-#include	"common.h"
-#include	"xmil.h"
-#include	"x1.h"
+#include	"COMMON.H"
+#include	"XMIL.H"
+#include	"X1.H"
 #include	"drawinfo.h"
-#include	"ddraws.h"
-#include	"draw.h"
-#include	"menu.h"
-#include	"x1_cmt.h"
+#include	"Ddraws.h"
+#include	"DRAW.H"
+#include	"MENU.H"
+#include	"X1_CMT.H"
 
 
 /* filename length */

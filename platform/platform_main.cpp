@@ -13,13 +13,13 @@
 #include "platform_file.h"
 
 // X1エミュレータの定義
-#include "common.h"
-#include "xmil.h"
+#include "COMMON.H"
+#include "XMIL.H"
 #include "TIMER.H"    // timer_getcount() / timer_setcount()
-#include "dsounds.h"  // WAVE_INIT / WAVE_CREATE / WAV_SEEK 等
+#include "DSOUNDS.H"  // WAVE_INIT / WAVE_CREATE / WAV_SEEK 等
 #include "PALETTES.H" // reflesh_palette()
-#include "DRAW.H"     // palandply
-#include "x1.h"       // mMAIN, mBANK, GRP_RAM, TXT_RAM
+#include "draw.h"     // palandply
+#include "X1.H"       // mMAIN, mBANK, GRP_RAM, TXT_RAM
 #include "X1_PCG.H"   // pcg (電源ON時のPCGクリア用)
 #include "X1_CRTC.H"  // crtc_cold_reset() (電源ON時のパレットリセット用)
 #include "X1_VRAM.H"
@@ -32,6 +32,7 @@
 #include "z80_debug.h"
 
 BYTE __fastcall Z80_RDMEM(WORD adrs);
+void Z80_NonMaskedInterrupt(void);
 
 // web_sound.cpp で定義されているサウンドパラメータ (dsounds.h より)
 extern WORD  ds_rate;
@@ -41,7 +42,7 @@ extern DWORD framesoundcnt;
 HWND hWndMain = nullptr;
 
 // CMT状態取得用
-#include "x1_cmt.h"
+#include "X1_CMT.H"
 
 XMIL_CFG xmilcfg = {
     0,      // KEY_MODE
@@ -205,6 +206,9 @@ int main(int argc, char** argv) {
     // xmil_init() → x1r_init() → reset_x1() より前に実行する必要がある
     // （さもないと初回起動時にデフォルト ROM_TYPE=1(X1) で起動してしまう）
     xmilcfg.ROM_TYPE = (BYTE)EM_ASM_INT({
+        var launchModel = window.__XMIL_LAUNCH_MODEL;
+        if (Number.isInteger(launchModel) && launchModel >= 1 && launchModel <= 3)
+            return launchModel;
         try {
             var s = JSON.parse(localStorage.getItem('xmil_settings') || '{}');
             return (s.romType >= 1 && s.romType <= 3) ? s.romType : 1;
@@ -385,10 +389,10 @@ unsigned int js_get_cmt_freq() {
     return (unsigned int)tape.header.frequency;
 }
 
-// NMI リセット (Z80 NMI ライン; 暫定的に IPL リセットと同じ動作)
+// Z80 NMI ラインへエッジ要求を送る。CPU/device reset は行わない。
 EMSCRIPTEN_KEEPALIVE
 void js_xmil_nmi() {
-    reset_x1(xmilcfg.ROM_TYPE, xmilcfg.SOUND_SW, xmilcfg.DIP_SW);
+    Z80_NonMaskedInterrupt();
 }
 
 // 電源 OFF: エミュレータ停止 + 画面を黒にクリア

@@ -1,16 +1,16 @@
 #include	<windows.h>
 
-#include	"common.h"
-#include	"x1.h"
-#include	"x1_crtc.h"
-#include	"x1_pcg.h"
-#include	"x1_vram.h"
-#include	"ddraws.h"
-#include	"draw.h"
-#include	"palettes.h"
+#include	"COMMON.H"
+#include	"X1.H"
+#include	"X1_CRTC.H"
+#include	"X1_PCG.H"
+#include	"X1_VRAM.H"
+#include	"Ddraws.h"
+#include	"DRAW.H"
+#include	"PALETTES.H"
 
-#include	"dosio.h"
-#include	"trace.h"
+#include	"DOSIO.H"
+#include	"TRACE.H"
 
 		CRTC_TABLE	crtc;
 

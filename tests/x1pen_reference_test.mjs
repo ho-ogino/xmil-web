@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -89,6 +89,9 @@ test('reference search matches punctuation-only symbols without changing token n
     ['slang', '!=', 'slang.expressions.operators'],
     ['slang', '<<', 'slang.expressions.operators'],
     ['slang', '<>', 'slang.expressions.operators'],
+    ['z80asm', '&&', 'z80asm.syntax.expressions'],
+    ['z80asm', '||', 'z80asm.syntax.expressions'],
+    ['z80asm', '!', 'z80asm.syntax.expressions'],
     ['fuzzybasic', '<=', 'fuzzybasic.values.operators'],
     ['fuzzybasic', '>=', 'fuzzybasic.values.operators'],
   ]) {
@@ -136,6 +139,10 @@ test('representative Japanese and English queries reach dedicated SLANG entries'
     ['線を描く', 'slang.include.graph-soroban'],
     ['圧縮データ', 'slang.x1.assets-compression'],
     ['垂直同期', 'slang.x1.timing'],
+    ['INKEY non-blocking', 'slang.x1.inkey'],
+    ['キー入力 ノンブロッキング', 'slang.x1.inkey'],
+    ['inline assembly', 'slang.machine.inline-assembly'],
+    ['埋め込みアセンブラ', 'slang.machine.inline-assembly'],
     ['ゲームライブラリ', 'slang.x1.sgl'],
   ]);
 
@@ -224,6 +231,32 @@ test('reference detail output honors maxCharacters', () => {
   assert.ok(result.entries.length < 2);
   assert.ok(result.omittedIds.length > 0);
   assert.equal(result.truncated, true);
+});
+
+test('MCP SLANG reference prefers brace bodies while retaining the BEGIN compatibility index', () => {
+  const entries = validateReferenceData().entries;
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const structure = byId.get('slang.program.structure');
+  const guidance = [
+    structure.summary,
+    ...structure.syntax,
+    ...byId.get('slang.functions.typed').syntax,
+    ...byId.get('slang.x1.timing').syntax,
+  ];
+
+  assert.ok(structure.symbols.includes('BEGIN'));
+  assert.ok(structure.aliases.includes('BEGIN END'));
+  assert.match(structure.summary, /Prefer \{ \.\.\. \} for new function bodies/);
+  assert.match(structure.summary, /legacy BEGIN \.\.\. END; blocks remain accepted/);
+  assert.equal(guidance.filter((text) => /\bBEGIN\b/.test(text)).length, 1);
+  assert.equal(guidance.filter((text) => /\bEND\s*;/.test(text)).length, 1);
+
+  for (const entry of entries.filter((candidate) => candidate.language === 'slang')) {
+    for (const example of entry.examples || []) {
+      assert.doesNotMatch(example.source, /\bBEGIN\b|\bEND\s*;/,
+        `${entry.id}: ${example.title} must prefer brace-delimited function bodies`);
+    }
+  }
 });
 
 test('bundled FuzzyBASIC examples are accepted by the X1Pen tokenizer', () => {
@@ -429,6 +462,35 @@ test('every X1Pen assembler example assembles with the bundled assembler', () =>
       assert.ok(result.bytes.length > 0, `${entry.id}: ${example.title} must produce bytes`);
     }
   }
+});
+
+test('X1Pen assembler reference pins the portable logical-expression contract', () => {
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const entries = new Map(validateReferenceData().entries.map((entry) => [entry.id, entry]));
+  const expressions = entries.get('z80asm.syntax.expressions');
+  const conditionals = entries.get('z80asm.preprocessor.conditionals');
+  const expressionText = JSON.stringify(expressions);
+  const conditionalText = JSON.stringify(conditionals);
+
+  for (const symbol of ['!', '&&', '||', '^']) assert.ok(expressions.symbols.includes(symbol));
+  for (const fact of [
+    'comparisons; &&; ||',
+    'masking to 16 bits',
+    'left-associative',
+    'eager',
+    'DB, DW, DS',
+    'only conditional preprocessing substitutes zero',
+  ]) assert.ok(expressionText.includes(fact), `${fact} must remain documented`);
+  for (const fact of [
+    '#IF UNKNOWN==0 is true',
+    'real symbol table',
+    'leaves the chain unsatisfied',
+    'CALCSPEED != 0 && M8A_WIDTH == 40',
+  ]) assert.ok(conditionalText.includes(fact), `${fact} must remain documented`);
+
+  const assembled = assembler.assemble(conditionals.examples[0].source);
+  assert.equal(assembled.errors.length, 0);
+  assert.deepEqual(Array.from(assembled.bytes), [0x3E, 0x02, 0xC9]);
 });
 
 test('every assembler mnemonic is covered by the X1Pen assembler reference', () => {
@@ -923,6 +985,136 @@ test('SLANG STICK compiles, assembles and stays dependency-pruned', () => {
   assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.__WORKEND__'] < 0x4000);
 });
 
+test('SLANG VSYNC, INKEY and inline-assembly references match shipped contracts', () => {
+  const entries = new Map(validateReferenceData().entries.map((entry) => [entry.id, entry]));
+  const timing = entries.get('slang.x1.timing');
+  const inkey = entries.get('slang.x1.inkey');
+  const machine = entries.get('slang.machine.calling-convention');
+  const inline = entries.get('slang.machine.inline-assembly');
+  const files = entries.get('slang.runtime.lsx-io-files');
+  const preprocessor = entries.get('slang.preprocessor.includes');
+  assert.ok(timing && inkey && machine && inline && files && preprocessor);
+
+  const timingDetails = [timing.summary, ...timing.syntax, ...timing.notes].join(' ');
+  assert.match(timingDetails, /VSYNC\(frames\).*exactly one argument/);
+  assert.match(timingDetails, /must define VSYNC_PROC/);
+  assert.match(timingDetails, /once for every counted frame/);
+  for (const relatedId of ['slang.include.tile-sprite', 'slang.include.chiplib', 'slang.x1.sgl']) {
+    assert.ok(timing.relatedIds.includes(relatedId));
+  }
+
+  const inkeyDetails = [inkey.summary, ...inkey.syntax, ...inkey.notes].join(' ');
+  for (const expected of [
+    'Mode 0 is non-blocking', 'returns 0', 'held key may be returned on consecutive calls',
+    'Mode 1 delegates', 'LSX DIRIN', 'buffered input result', 'empty buffer',
+    'not a one-physical-press edge guarantee', 'key repeat', 'mode value 2 or greater',
+    'Right/Left/Up/Down return $1C/$1D/$1E/$1F', 'F1', '$71', '$61',
+  ]) assert.ok(inkeyDetails.includes(expected), expected);
+  assert.ok(inkey.relatedIds.includes('slang.runtime.lsx-io-files'));
+  assert.ok(files.relatedIds.includes('slang.x1.inkey'));
+  assert.equal(files.symbols.includes('INKEY'), false);
+
+  const machineDetails = [machine.summary, ...machine.syntax, ...machine.notes].join(' ');
+  const inlineDetails = [inline.summary, ...inline.syntax, ...inline.notes].join(' ');
+  for (const details of [machineDetails, inlineDetails]) {
+    assert.match(details, /explicit argument count/i);
+    assert.match(details, /unreliable calls/i);
+  }
+  for (const expected of [
+    'pushed left-to-right', 'argument 4 is at SP+2', 'argument 1 at SP+8',
+    'exchanges HL with DE', 'restored to HL after cleanup',
+    '2 bytes per argument', 'IX is not a preserved compiler work pointer',
+    'IY must be preserved', 'interrupt-enable state unchanged',
+  ]) assert.ok(inlineDetails.includes(expected), expected);
+  assert.ok(machine.relatedIds.includes('slang.machine.inline-assembly'));
+  assert.ok(preprocessor.relatedIds.includes('slang.machine.inline-assembly'));
+
+  for (const id of ['slang.include.tile-sprite', 'slang.include.chiplib', 'slang.x1.sgl']) {
+    const consumer = entries.get(id);
+    assert.ok(consumer.relatedIds.includes('slang.x1.timing'), `${id} must link the timing contract`);
+    for (const example of consumer.examples || []) {
+      if (/\b(?:VSYNC|SGL_VSYNC)\s*\(/.test(example.source)) {
+        assert.match(example.source, /\bVSYNC_PROC\s*\(/,
+          `${id} examples driving the vertical-blank hook must define VSYNC_PROC`);
+      }
+    }
+  }
+  assert.match(entries.get('slang.include.tile-sprite').notes.join(' '), /TILE_ANIM_TICK from VSYNC_PROC/);
+  assert.match(entries.get('slang.include.chiplib').notes.join(' '), /CHIP_ANIM_TICK from the program's VSYNC_PROC/);
+  assert.match(entries.get('slang.x1.sgl').notes.join(' '), /invokes the program's VSYNC_PROC hook/);
+
+  const inputRuntime = readFileSync(join(repoRoot, 'assets/slang_runtime/liblsx_input.asm'), 'utf8');
+  assert.match(inputRuntime,
+    /^; @name INKEY[\s\S]*LD A,L[\s\S]*CP 1[\s\S]*CALL sGETKY[\s\S]*CALL sFLGET[\s\S]*CALL sINKEY/m);
+  const baseRuntime = readFileSync(join(repoRoot, 'assets/slang_runtime/liblsx_base.asm'), 'utf8');
+  assert.match(baseRuntime, /^; @name sGETKY[\s\S]*LD\s+E,\$FF[\s\S]*LD\s+C,INPOUT/m);
+  assert.match(baseRuntime, /^; @name sFLGET[\s\S]*LD\s+C,DIRIN/m);
+  assert.match(baseRuntime, /^; @name sINKEY[\s\S]*CALL\s+sGETKY[\s\S]*JR\s+Z,sINKEY/m);
+
+  const inputSource = readFileSync(join(repoRoot, 'src/Input.cpp'), 'utf8');
+  for (const [physical, result] of [['0xcd', '0x1c'], ['0xcb', '0x1d'], ['0xc8', '0x1e'], ['0xd0', '0x1f']]) {
+    assert.match(inputSource, new RegExp(`KEY_CHR == ${physical}[\\s\\S]*?data\\[1\\] = ${result}`));
+  }
+  const baseTable = inputSource.match(/BYTE CHR_TBL0\[\]=\{([\s\S]*?)\n\};/);
+  assert.ok(baseTable);
+  assert.match(baseTable[1], /\/\* Alt, SPC, Cap, f\.1,[\s\S]*?0x00, ' ',0x00, 'q'/);
+  assert.match(baseTable[1], /\/\*  Ｏ,  Ｐ,[\s\S]*?0x0d,0x00, 'a', 's'/);
+});
+
+test('documented VSYNC, INKEY and inline-assembly examples compile and assemble', () => {
+  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
+  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+  const vfs = loadSlangVfs();
+  const entries = new Map(validateReferenceData().entries.map((entry) => [entry.id, entry]));
+  const options = { defaultOrg: 0x100, codeReadonly: false, defines: { ENV_TYPE: 1 } };
+
+  for (const id of ['slang.x1.timing', 'slang.x1.inkey', 'slang.machine.inline-assembly']) {
+    const example = entries.get(id).examples[0];
+    const compiled = compiler.compile(example.source, vfs, options);
+    assert.equal(compiled.errors.length, 0, `${id}: ${JSON.stringify(compiled.errors)}`);
+    const assembled = assembler.assemble(compiled.asm, { ENV_TYPE: 1 });
+    assert.equal(assembled.errors.length, 0, `${id}: ${JSON.stringify(assembled.errors)}`);
+    assert.ok(assembled.bytes.length > 0, id);
+    if (id === 'slang.machine.inline-assembly') {
+      assert.match(compiled.asm, /LD\s+HL,\$0064\s+CALL\s+ASMROUTINE/);
+      assert.match(compiled.asm, /^ASMROUTINE:/m);
+    }
+  }
+
+  const abiProbe = compiler.compile([
+    'MACHINE ZERO(0):ZERO_ROUTINE;',
+    'MACHINE ONE(1):ONE_ROUTINE;',
+    'MACHINE TWO(2):TWO_ROUTINE;',
+    'MACHINE THREE(3):THREE_ROUTINE;',
+    'MACHINE FOUR(4):FOUR_ROUTINE;',
+    'MACHINE NUMERIC(0):$1234;',
+    'MAIN() BEGIN',
+    '  ZERO(); ONE(1); TWO(1,2); THREE(1,2,3); FOUR(1,2,3,4); NUMERIC();',
+    'END;',
+    '#ASM',
+    'ZERO_ROUTINE: RET',
+    'ONE_ROUTINE: RET',
+    'TWO_ROUTINE: RET',
+    'THREE_ROUTINE: RET',
+    'FOUR_ROUTINE: RET',
+    '#END',
+  ].join('\n'), vfs, options);
+  assert.equal(abiProbe.errors.length, 0, JSON.stringify(abiProbe.errors));
+  assert.match(abiProbe.asm, /CALL\s+ZERO_ROUTINE/);
+  assert.match(abiProbe.asm, /LD\s+HL,\$0001\s+CALL\s+ONE_ROUTINE/);
+  assert.match(abiProbe.asm, /LD\s+HL,\$0001\s+LD\s+DE,\$0002\s+CALL\s+TWO_ROUTINE/);
+  assert.match(abiProbe.asm,
+    /LD\s+HL,\$0001\s+LD\s+DE,\$0002\s+LD\s+BC,\$0003\s+CALL\s+THREE_ROUTINE/);
+  assert.match(abiProbe.asm,
+    /LD\s+HL,\$0001\s+PUSH\s+HL\s+LD\s+HL,\$0002\s+PUSH\s+HL\s+LD\s+HL,\$0003\s+PUSH\s+HL\s+LD\s+HL,\$0004\s+PUSH\s+HL\s+CALL\s+FOUR_ROUTINE\s+EX\s+DE,HL\s+LD\s+HL,8\s+ADD\s+HL,SP\s+LD\s+SP,HL\s+EX\s+DE,HL/);
+  assert.match(abiProbe.asm, /CALL\s+\$1234/);
+  assert.match(abiProbe.asm, /LD IY,__IYWORK/);
+  assert.doesNotMatch(abiProbe.asm, /\bIX\b/,
+    'the compiler must not retain an IX work value across MACHINE calls');
+  const assembledProbe = assembler.assemble(abiProbe.asm, { ENV_TYPE: 1 });
+  assert.equal(assembledProbe.errors.length, 0, JSON.stringify(assembledProbe.errors));
+});
+
 test('LSX-Dodgers-specific file limitations are documented', () => {
   const result = getReferenceEntries({
     ids: ['fuzzybasic.files.lsx'],
@@ -993,22 +1185,10 @@ test('documented embedded M8A example compiles and assembles with its standalone
     'M8ALOAD must pull X1WORK without requiring the caller to use WIDTH first');
 });
 
-test('M8A runtime conditionals use supported syntax and preserve both dormant width tables', () => {
+test('M8A runtime conditionals preserve both dormant width tables', () => {
   const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
   const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
   const vfs = loadSlangVfs();
-  const runtimeDir = join(repoRoot, 'assets/slang_runtime');
-  const unsupported = [];
-  for (const filename of readdirSync(runtimeDir).filter((name) => name.endsWith('.asm'))) {
-    const source = readFileSync(join(runtimeDir, filename), 'utf8');
-    source.split(/\r?\n/).forEach((line, index) => {
-      if (/^\s*#(?:IF|ELIF|ELSEIF)\b.*(?:&&|\|\|)/i.test(line)) {
-        unsupported.push(`${filename}:${index + 1}`);
-      }
-    });
-  }
-  assert.deepEqual(unsupported, [], 'assembler runtime directives must avoid unsupported logical tokens');
-
   const m8aSource = vfs['libm8a.asm'];
   const magSource = vfs['libmag.asm'];
   assert.match(m8aSource, /^; @calls X1WORK$/m);

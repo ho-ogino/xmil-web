@@ -157,7 +157,7 @@ test('legacy Connector inference is frozen and blocks unsupported debugger RPCs 
   const mcp = createMcpDescriptor('2.7.0');
   const connector = normalizeConnectorPair({ extensionVersion: '1.1.1' });
   const x1pen = {
-    name: 'x1pen', version: '0.8.1', automationApiVersion: 2,
+    name: 'x1pen', version: '0.9.0', automationApiVersion: 2,
     features: [...mcp.features], featureSource: 'advertised',
   };
   const capabilities = evaluateCompatibility({ mcp, connector, x1pen });
@@ -221,7 +221,7 @@ test('every MCP server bridge command has an explicit capability mapping', () =>
     },
   });
   const x1pen = {
-    name: 'x1pen', version: '0.8.1', automationApiVersion: 2,
+    name: 'x1pen', version: '0.9.0', automationApiVersion: 2,
     features: [...mcp.features], featureSource: 'advertised',
   };
   const capabilities = evaluateCompatibility({ mcp, connector, x1pen });
@@ -286,7 +286,7 @@ test('session selection releases pad input on the previous live tab', async () =
     },
   });
   const x1pen = {
-    version: '0.8.1', automationApiVersion: 2,
+    version: '0.9.0', automationApiVersion: 2,
     features: ['automation.core', 'input.pad'],
   };
   socket.send(JSON.stringify({
@@ -327,7 +327,7 @@ test('session selection bounds pad cleanup and requires explicit force to fail o
     },
   });
   const x1pen = {
-    version: '0.8.1', automationApiVersion: 2,
+    version: '0.9.0', automationApiVersion: 2,
     features: ['automation.core', 'input.pad'],
   };
   socket.send(JSON.stringify({

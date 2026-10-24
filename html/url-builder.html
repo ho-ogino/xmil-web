@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>X millennium Web URL Builder</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+    margin: 0;
+    min-height: 100vh;
+    padding: 32px 18px 48px;
+    color: #f6eeee;
+    background: linear-gradient(145deg, #36090c, #8f2124);
+    font-family: "Courier New", "Noto Sans JP", monospace;
+    line-height: 1.6;
+}
+main { max-width: 880px; margin: 0 auto; }
+a { color: #ffcc88; }
+.back { display: inline-block; margin-bottom: 18px; color: rgba(255,220,220,.72); text-decoration: none; }
+h1 { margin: 0; font-size: clamp(1.7rem, 5vw, 2.45rem); letter-spacing: .06em; }
+.subtitle { margin: 4px 0 24px; color: rgba(255,255,255,.68); }
+.card {
+    margin: 14px 0;
+    padding: 22px;
+    border: 1px solid rgba(255,255,255,.13);
+    border-radius: 12px;
+    background: rgba(0,0,0,.34);
+    box-shadow: 0 10px 30px rgba(0,0,0,.18);
+}
+.field { margin: 0 0 16px; }
+.field:last-child { margin-bottom: 0; }
+.emm-list { display: grid; gap: 8px; margin: 8px 0; }
+.emm-row { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 8px; align-items: center; }
+.emm-row button { padding-inline: 12px; }
+label { display: block; margin-bottom: 5px; color: #ffd2a0; font-weight: bold; }
+.hint { margin: 4px 0 0; color: rgba(255,255,255,.55); font-size: .8rem; }
+input[type=url], input[type=text], select {
+    width: 100%;
+    padding: 10px 12px;
+    color: #fff;
+    background: rgba(0,0,0,.45);
+    border: 1px solid rgba(255,255,255,.25);
+    border-radius: 7px;
+    font: inherit;
+}
+input:focus { outline: 2px solid #df6972; outline-offset: 1px; }
+.actions { display: flex; gap: 10px; align-items: stretch; margin-top: 10px; }
+.actions input { min-width: 0; flex: 1; }
+button, .button {
+    padding: 10px 15px;
+    color: #fff;
+    background: #7a1b21;
+    border: 1px solid #cf5963;
+    border-radius: 7px;
+    font: inherit;
+    font-weight: bold;
+    text-decoration: none;
+    cursor: pointer;
+    white-space: nowrap;
+}
+button:hover, .button:hover { background: #a22932; }
+button:disabled, .button.disabled { opacity: .38; pointer-events: none; cursor: default; }
+.primary { display: inline-flex; align-items: center; justify-content: center; background: #bd3944; }
+.result-actions { margin: 0 0 13px; }
+.status { min-height: 1.5em; margin-top: 11px; color: #b8e5b8; white-space: pre-line; }
+.error { min-height: 1.5em; margin-top: 6px; color: #ff9ca4; white-space: pre-line; }
+.note { padding-left: 13px; border-left: 4px solid rgba(255,204,136,.6); }
+.fine { color: rgba(255,255,255,.68); font-size: .86rem; }
+code { overflow-wrap: anywhere; color: #ffd6a4; }
+ul { padding-left: 1.3em; }
+@media (max-width: 620px) {
+    body { padding: 20px 12px 36px; }
+    .card { padding: 17px 14px; }
+    .actions { display: block; }
+    .actions button, .actions .button { width: 100%; margin-top: 8px; }
+    .emm-row { grid-template-columns: 1fr 1fr; }
+    .emm-row button { grid-column: 1 / -1; width: 100%; }
+}
+</style>
+</head>
+<body>
+<main>
+    <a class="back" href="./index.html">&larr; トップページへ戻る</a>
+    <h1>X millennium Web URL Builder</h1>
+    <p class="subtitle">Google Drive / Dropbox の公開共有リンクから、X millennium Web の起動URLを作ります。</p>
+
+    <section class="card" aria-labelledby="media-heading">
+        <h2 id="media-heading">メディアを指定</h2>
+        <p class="fine">必要な欄だけ入力してください。Google Drive は「リンクを知っている全員」、Dropbox は単一ファイルの公開共有リンクが必要です。</p>
+
+        <div class="field">
+            <label for="drive0">FDD0</label>
+            <input id="drive0" data-slot="drive0" type="url" spellcheck="false" autocomplete="off" placeholder="https://drive.google.com/file/d/.../view または https://www.dropbox.com/scl/fi/.../DISK.D88">
+        </div>
+        <div class="field">
+            <label for="drive1">FDD1（任意）</label>
+            <input id="drive1" data-slot="drive1" type="url" spellcheck="false" autocomplete="off">
+        </div>
+        <div class="field">
+            <label for="hdd0">HDD0（任意）</label>
+            <input id="hdd0" data-slot="hdd0" type="url" spellcheck="false" autocomplete="off">
+        </div>
+        <div class="field">
+            <label for="hdd1">HDD1（任意）</label>
+            <input id="hdd1" data-slot="hdd1" type="url" spellcheck="false" autocomplete="off">
+        </div>
+        <div class="field">
+            <label for="cmt">CMT（任意）</label>
+            <input id="cmt" data-slot="cmt" type="url" spellcheck="false" autocomplete="off">
+        </div>
+        <div class="field" id="emm-config">
+            <label>EMM（一時・任意）</label>
+            <p class="hint">URLからデータは読み込みません。指定容量のゼロ埋めEMMを作り、再読み込みまたはイジェクトで消去します。</p>
+            <div id="emm-list" class="emm-list"></div>
+            <button id="add-emm" type="button">EMMを追加</button>
+        </div>
+        <div class="field">
+            <label for="model">MODEL（このURLで開いたタブのみ）</label>
+            <select id="model">
+                <option value="">利用者の保存設定（指定なし）</option>
+                <option value="x1" selected>X1</option>
+                <option value="x1turbo">X1turbo</option>
+                <option value="x1turboz">X1turboZ</option>
+            </select>
+            <p class="hint">生成URLには選択したMODELが指定されます。通常のMODEL設定は変更しません。保存設定で開くURLにする場合は「利用者の保存設定（指定なし）」を選んでください。</p>
+        </div>
+        <div class="field" hidden>
+            <label for="library">外部メディアとして保存のみ（任意・URL入力）</label>
+            <input id="library" data-slot="" type="url" spellcheck="false" autocomplete="off">
+        </div>
+
+        <div id="status" class="status" aria-live="polite"></div>
+        <div id="error" class="error" role="alert" aria-live="assertive"></div>
+    </section>
+
+    <section class="card" aria-labelledby="result-heading">
+        <h2 id="result-heading">生成された起動URL</h2>
+        <div class="result-actions">
+            <a id="open" class="button primary disabled" href="#" target="_blank" rel="noopener">X millennium Webで開く</a>
+        </div>
+        <label for="result">共有するURL</label>
+        <div class="actions">
+            <input id="result" type="text" readonly>
+            <button id="copy" type="button" disabled>コピー</button>
+        </div>
+    </section>
+
+    <section class="card fine" aria-labelledby="about-heading">
+        <h2 id="about-heading">仕組みと制限</h2>
+        <ul>
+            <li>共有元URLは生成URLの <code>#media=...</code> 部分に入り、アドレスバーとブラウザ履歴に残ります。Google Driveの<code>resourcekey</code>やDropboxの<code>rlkey</code>を含むURLは、公開してよいファイルだけに使用してください。</li>
+            <li>取得操作では共有URLとファイルデータが同一サイトのCloudflare Relayを一時的に通過します。Relayはファイル、共有URL、ファイル名を永続保存しません。</li>
+            <li>対応形式と実効上限は、FDD: D88/2D/88D（32MiB）、HDD: HDD/HD（64MiB）、CMT: CAS/CMT/TAP/BAS/BIN（32MiB）です。</li>
+            <li>このURLで開いたページは通常のマウント設定を読み書きしない一時セッションです。外部メディアの変更はブラウザへ保存されますが、EMMは保存されず毎回ゼロから始まります。</li>
+            <li>Google DriveリンクはURLにファイル名がないため、形式は実際に開いた後で確認されます。Google側がウイルススキャン確認ページを要求する大容量ファイルはMVPでは取得できません。</li>
+            <li>自分が利用・共有する権利を持つファイルだけを指定してください。非公開ファイル、フォルダー共有、OneDrive、ZIP/LZH、任意のWeb URLには対応していません。</li>
+        </ul>
+        <p class="note">このURLを受け取った人のブラウザには、指定した公開ファイルがライブラリとして保存されます。信頼できる相手・ファイルであることを確認してから開いてください。</p>
+    </section>
+</main>
+
+<script src="remote_media.js"></script>
+<script>
+(function() {
+    'use strict';
+    var inputs = Array.from(document.querySelectorAll('input[data-slot]'));
+    var result = document.getElementById('result');
+    var open = document.getElementById('open');
+    var copy = document.getElementById('copy');
+    var model = document.getElementById('model');
+    var status = document.getElementById('status');
+    var error = document.getElementById('error');
+    var emmList = document.getElementById('emm-list');
+    var addEmm = document.getElementById('add-emm');
+    var timer = null;
+
+    function currentItems() {
+        return inputs.filter(function(input) {
+            return !input.closest('[hidden]');
+        }).map(function(input) {
+            return { url: input.value.trim(), slot: input.dataset.slot || null };
+        }).filter(function(item) { return item.url; });
+    }
+
+    function currentEmms() {
+        return Array.from(emmList.querySelectorAll('.emm-row')).map(function(row) {
+            return {
+                slot: row.querySelector('.emm-slot').value,
+                size: Number(row.querySelector('.emm-size').value)
+            };
+        });
+    }
+
+    function addEmmRow() {
+        var used = currentEmms().map(function(emm) { return emm.slot; });
+        var freeSlot = null;
+        for (var i = 0; i < 10; i++) {
+            if (used.indexOf('emm' + i) < 0) { freeSlot = 'emm' + i; break; }
+        }
+        if (!freeSlot) return;
+        var row = document.createElement('div');
+        row.className = 'emm-row';
+        var slot = document.createElement('select');
+        slot.className = 'emm-slot';
+        slot.setAttribute('aria-label', 'EMMスロット');
+        for (var n = 0; n < 10; n++) {
+            var option = document.createElement('option');
+            option.value = 'emm' + n;
+            option.textContent = 'EMM' + n;
+            slot.appendChild(option);
+        }
+        slot.value = freeSlot;
+        var size = document.createElement('select');
+        size.className = 'emm-size';
+        size.setAttribute('aria-label', 'EMM容量');
+        var labels = ['320KiB', '512KiB', '1MiB', '2MiB', '4MiB', '8MiB', '16MiB'];
+        window.XmilRemoteMedia.emmSizes.forEach(function(bytes, index) {
+            var option = document.createElement('option');
+            option.value = String(bytes);
+            option.textContent = labels[index];
+            size.appendChild(option);
+        });
+        size.value = String(1024 * 1024);
+        var remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'remove-emm';
+        remove.textContent = '削除';
+        row.appendChild(slot);
+        row.appendChild(size);
+        row.appendChild(remove);
+        emmList.appendChild(row);
+        update();
+    }
+
+    function disableResult() {
+        result.value = '';
+        open.href = '#';
+        open.classList.add('disabled');
+        open.setAttribute('aria-disabled', 'true');
+        copy.disabled = true;
+    }
+
+    function update() {
+        status.textContent = '';
+        error.textContent = '';
+        var items = currentItems();
+        var emms = currentEmms();
+        addEmm.disabled = items.length + emms.length >= 6 || emms.length >= 10;
+        if (!items.length && !emms.length) {
+            disableResult();
+            if (model.value) status.textContent = '外部メディアURLまたはEMMを1件以上指定してください。';
+            return;
+        }
+        try {
+            window.XmilRemoteMedia.validateIntentParts(items, emms);
+            var launchUrl = window.XmilRemoteMedia.buildLaunchUrl('./xmillennium.html', items, model.value, emms);
+            result.value = launchUrl;
+            open.href = launchUrl;
+            open.classList.remove('disabled');
+            open.removeAttribute('aria-disabled');
+            copy.disabled = false;
+            var googleCount = items.filter(function(item) {
+                return window.XmilRemoteMedia.inspectShareUrl(item.url).provider === 'google-drive';
+            }).length;
+            status.textContent = (items.length + emms.length) + '件の起動URLを生成しました。'
+                + (model.value ? '\nMODEL: ' + model.options[model.selectedIndex].textContent + '（このタブのみ）' : '')
+                + (googleCount ? '\nGoogle Driveのファイル形式は開いた後に確認されます。' : '')
+                + (emms.length ? '\nEMMは一時メモリで、再読み込みするとゼロに戻ります。' : '');
+        } catch (e) {
+            disableResult();
+            error.textContent = e && e.message ? e.message : String(e);
+        }
+    }
+
+    inputs.forEach(function(input) {
+        input.addEventListener('input', function() {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(update, 180);
+        });
+    });
+    model.addEventListener('change', update);
+    addEmm.addEventListener('click', addEmmRow);
+    emmList.addEventListener('change', update);
+    emmList.addEventListener('click', function(event) {
+        if (!event.target.classList.contains('remove-emm')) return;
+        event.target.closest('.emm-row').remove();
+        update();
+    });
+
+    copy.addEventListener('click', async function() {
+        if (!result.value) return;
+        try {
+            await navigator.clipboard.writeText(result.value);
+            copy.textContent = 'コピー済み';
+            setTimeout(function() { copy.textContent = 'コピー'; }, 1000);
+        } catch (_) {
+            result.focus();
+            result.select();
+        }
+    });
+
+    update();
+})();
+</script>
+</body>
+</html>

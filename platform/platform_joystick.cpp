@@ -1,4 +1,4 @@
-#include "common.h"
+#include "COMMON.H"
 #include "XMIL.H"
 #include "platform_input.h"
 

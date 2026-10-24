@@ -1,16 +1,16 @@
 #include	<windows.h>
-#include	"x1.h"
-#include	"x1_8255.h"
-#include	"x1_dma.h"
-#include	"x1_fdc.h"
+#include	"X1.H"
+#include	"X1_8255.H"
+#include	"X1_DMA.H"
+#include	"X1_FDC.H"
 #include	"state_save.h"
 
-#include	"dosio.h"
-#include	"trace.h"
+#include	"DOSIO.H"
+#include	"TRACE.H"
 #if T_TUNE
-#include	"common.h"
-#include	"x1_irq.h"
-#include	"x1_mem.h"
+#include	"COMMON.H"
+#include	"X1_irq.h"
+#include	"X1_MEM.H"
 #endif
 
 #ifdef FDC_DMA_TRACE

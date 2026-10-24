@@ -193,6 +193,12 @@
 .lib-filter:hover { border-color: #666; color: #999; }
 .lib-filter.active { background: #2a1012; border-color: #c0404a; color: #ff9090; }
 
+.lib-external-meta {
+    color: #7f9daa;
+    font-size: 0.68em;
+    white-space: nowrap;
+}
+
 .lib-add-btn {
     margin-left: auto;
     background: #0a1e0a;
