@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## X millennium Web / X1Pen Web 0.10.1
 
 - 表示中の文字の PCG を定義し直したとき（Hu-BASIC の `DEFCHR$`、FuzzyBASIC の `PCGDEF` など）、画面に反映されなかった問題を修正しました。PCG の書き換えによるアニメーションが動くようになります。
 - Linux（大文字小文字を区別するファイルシステム）でもビルドとテストができるよう、`#include` のファイル名を実際のファイル名の大文字小文字に合わせました。macOS で使われるヘッダは変わりません。
+- Webのみのパッチリリースです。X millennium WebとX1Pen Webの共有製品バージョンを0.10.1へ更新します。x1pen-mcpは2.7.0、X1Pen Connectorは1.3.0に据え置き、今回のWebリリースではnpm公開・ストア再提出は行いません。
 
 ## X millennium Web / X1Pen Web 0.10.0
 
