@@ -1,18 +1,18 @@
 #include	<windows.h>
 #include	<stdio.h>
 #include	<string.h>
-#include	"xmil.h"
-#include	"x1.h"
-#include	"x1_cmt.h"
-#include	"x1_scpu.h"
-#include	"x1_clndr.h"
-#include	"input.h"
-#include	"dosio.h"
+#include	"XMIL.H"
+#include	"X1.H"
+#include	"X1_CMT.H"
+#include	"X1_SCPU.H"
+#include	"X1_CLNDR.H"
+#include	"INPUT.H"
+#include	"DOSIO.H"
 #include	"keylog.h"
 
 #if T_TUNE
-#include	"x1_irq.h"
-#include	"x1_cmt.h"
+#include	"X1_irq.h"
+#include	"X1_CMT.H"
 #endif
 
 /***********************************************************************

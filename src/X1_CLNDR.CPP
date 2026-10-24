@@ -1,9 +1,9 @@
 #include	<windows.h>
 
-#include	"common.h"
-#include	"x1.h"
-#include	"dosio.h"
-#include	"parts.h"
+#include	"COMMON.H"
+#include	"X1.H"
+#include	"DOSIO.H"
+#include	"PARTS.H"
 
 
 typedef struct {

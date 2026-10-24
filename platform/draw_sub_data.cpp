@@ -4,7 +4,7 @@
 //----------------------------------------------------------------------------
 
 #include <windows.h>
-#include "common.h"
+#include "COMMON.H"
 
 // WORK
 BYTE cwork[256];

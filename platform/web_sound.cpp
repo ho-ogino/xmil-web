@@ -9,12 +9,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "common.h"
-#include "opmcore.h"   // INT8/INT16/INT32/UINT8/UINT16/UINT32 型定義
-#include "xmil.h"
-#include "x1.h"
-#include "dsounds.h"
-#include "opm.h"
+#include "COMMON.H"
+#include "OPMCORE.H"   // INT8/INT16/INT32/UINT8/UINT16/UINT32 型定義
+#include "XMIL.H"
+#include "X1.H"
+#include "DSOUNDS.H"
+#include "OPM.H"
 #include "platform_audio.h"
 
 //----------------------------------------------------------------------------

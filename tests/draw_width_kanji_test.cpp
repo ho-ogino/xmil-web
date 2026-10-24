@@ -5,12 +5,12 @@
 #include <string>
 #include <vector>
 
-#include "common.h"
-#include "xmil.h"
-#include "x1.h"
-#include "x1_crtc.h"
-#include "x1_pcg.h"
-#include "x1_vram.h"
+#include "COMMON.H"
+#include "XMIL.H"
+#include "X1.H"
+#include "X1_CRTC.H"
+#include "X1_PCG.H"
+#include "X1_VRAM.H"
 #include "draw.h"
 #include "draw_sub.h"
 

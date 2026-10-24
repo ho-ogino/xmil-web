@@ -1,5 +1,5 @@
 #include	<windows.h>
-#include	"x1.h"
+#include	"X1.H"
 
 // デフォルトフォント (フリー)
 // 暇だから作っただけ^^;;;

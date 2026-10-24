@@ -1,10 +1,10 @@
 #include	<windows.h>
 
-#include	"xmil.h"
-#include	"dinputs.h"
-#include	"x1.h"
-#include	"dsounds.h"
-#include	"opm.h"
+#include	"XMIL.H"
+#include	"DINPUTS.H"
+#include	"X1.H"
+#include	"DSOUNDS.H"
+#include	"OPM.H"
 #include	"state_save.h"
 
 	BYTE	changehz = 0;

@@ -13,13 +13,13 @@
 #include "platform_file.h"
 
 // X1エミュレータの定義
-#include "common.h"
-#include "xmil.h"
+#include "COMMON.H"
+#include "XMIL.H"
 #include "TIMER.H"    // timer_getcount() / timer_setcount()
-#include "dsounds.h"  // WAVE_INIT / WAVE_CREATE / WAV_SEEK 等
+#include "DSOUNDS.H"  // WAVE_INIT / WAVE_CREATE / WAV_SEEK 等
 #include "PALETTES.H" // reflesh_palette()
-#include "DRAW.H"     // palandply
-#include "x1.h"       // mMAIN, mBANK, GRP_RAM, TXT_RAM
+#include "draw.h"     // palandply
+#include "X1.H"       // mMAIN, mBANK, GRP_RAM, TXT_RAM
 #include "X1_PCG.H"   // pcg (電源ON時のPCGクリア用)
 #include "X1_CRTC.H"  // crtc_cold_reset() (電源ON時のパレットリセット用)
 #include "X1_VRAM.H"
@@ -42,7 +42,7 @@ extern DWORD framesoundcnt;
 HWND hWndMain = nullptr;
 
 // CMT状態取得用
-#include "x1_cmt.h"
+#include "X1_CMT.H"
 
 XMIL_CFG xmilcfg = {
     0,      // KEY_MODE

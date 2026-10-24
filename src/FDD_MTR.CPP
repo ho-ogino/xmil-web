@@ -1,8 +1,8 @@
 #include	<windows.h>
-#include	"xmil.h"
-#include	"x1.h"
-#include	"x1_fdc.h"
-#include	"dsounds.h"
+#include	"XMIL.H"
+#include	"X1.H"
+#include	"X1_FDC.H"
+#include	"DSOUNDS.H"
 #include	"state_save.h"
 
 extern	FDC_REGS	FDC;

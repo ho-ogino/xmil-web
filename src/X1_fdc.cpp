@@ -2,19 +2,19 @@
 #include	<stdio.h>
 #include	<stdlib.h>
 #include	<string.h>
-#include	"x1.h"
-#include	"dosio.h"
-#include	"x1_dma.h"
-#include	"x1_fdc.h"
-#include	"fdd_2d.h"
-#include	"fdd_d88.h"
-#include	"fdd_mtr.h"
+#include	"X1.H"
+#include	"DOSIO.H"
+#include	"X1_DMA.H"
+#include	"X1_FDC.H"
+#include	"FDD_2D.H"
+#include	"FDD_D88.H"
+#include	"FDD_MTR.H"
 #include	"state_save.h"
 #if T_TUNE
 #include	"drawinfo.h"
 #endif
 
-#include	"trace.h"
+#include	"TRACE.H"
 
 #ifdef FDC_DMA_TRACE
 #include	<emscripten.h>

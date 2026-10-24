@@ -2,11 +2,12 @@
 #include	<stdio.h>
 #include	<string.h>
 #include	<stdlib.h>
-#include	"common.h"
-#include	"x1.h"
-#include	"x1_crtc.h"
-#include	"x1_pcg.h"
-#include	"x1_vram.h"
+#include	"COMMON.H"
+#include	"X1.H"
+#include	"X1_CRTC.H"
+#include	"X1_PCG.H"
+#include	"X1_VRAM.H"
+#include	"DRAW.H"
 #include	"keylog.h"
 
 		PCG_TABLE	pcg;
@@ -271,6 +272,17 @@ WORD nowsyncoffset(void) {
 #endif //T_TUNE
 
 
+// 表示中のセルは TRAM が変わらないと描き直されないので、
+// PCG の定義が変わったら次のフレームで全面を描き直す
+static void pcg_store(BYTE *dst, BYTE value) {
+
+	if (*dst != value) {
+		*dst = value;
+		scrnallflash = 1;
+	}
+}
+
+
 X1_IOW x1_pcg_w(WORD port, BYTE value) {
 
 	BYTE	chr;
@@ -292,13 +304,13 @@ X1_IOW x1_pcg_w(WORD port, BYTE value) {
 		}
 		switch(port & 0xff00) {
 			case 0x1500:
-				pcg.B[chr][l] = value;
+				pcg_store(&pcg.B[chr][l], value);
 				break;
 			case 0x1600:
-				pcg.R[chr][l] = value;
+				pcg_store(&pcg.R[chr][l], value);
 				break;
 			case 0x1700:
-				pcg.G[chr][l] = value;
+				pcg_store(&pcg.G[chr][l], value);
 				break;
 		}
 	}
@@ -308,13 +320,13 @@ X1_IOW x1_pcg_w(WORD port, BYTE value) {
 		chr = TXT_RAM[TEXT_ANK + off];
 		switch(port & 0xff00) {
 			case 0x1500:
-				pcg.B[chr][l] = value;
+				pcg_store(&pcg.B[chr][l], value);
 				break;
 			case 0x1600:
-				pcg.R[chr][l] = value;
+				pcg_store(&pcg.R[chr][l], value);
 				break;
 			case 0x1700:
-				pcg.G[chr][l] = value;
+				pcg_store(&pcg.G[chr][l], value);
 				break;
 		}
 #else //T_TUNE
@@ -325,15 +337,15 @@ X1_IOW x1_pcg_w(WORD port, BYTE value) {
 		}
 		switch(port & 0xff00) {
 			case 0x1500:
-				pcg.B[chr][pcg.woff1++] = value;
+				pcg_store(&pcg.B[chr][pcg.woff1++], value);
 				pcg.woff1 &= 7;
 				break;
 			case 0x1600:
-				pcg.R[chr][pcg.woff2++] = value;
+				pcg_store(&pcg.R[chr][pcg.woff2++], value);
 				pcg.woff2 &= 7;
 				break;
 			case 0x1700:
-				pcg.G[chr][pcg.woff4++] = value;
+				pcg_store(&pcg.G[chr][pcg.woff4++], value);
 				pcg.woff4 &= 7;
 				break;
 		}

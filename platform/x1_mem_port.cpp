@@ -4,8 +4,8 @@
 //----------------------------------------------------------------------------
 
 #include <windows.h>
-#include "common.h"
-#include "x1.h"
+#include "COMMON.H"
+#include "X1.H"
 
 // Z80 memory read (byte)
 BYTE __fastcall Z80_RDMEM(WORD adrs) {

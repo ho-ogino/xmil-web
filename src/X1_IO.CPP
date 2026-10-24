@@ -1,24 +1,24 @@
 #include	<windows.h>
 
-#include	"xmil.h"
-#include	"x1.h"
-#include	"x1_scpu.h"
-#include	"x1_8255.h"
-#include	"x1_pcg.h"
-#include	"x1_crtc.h"
-#include	"x1_vram.h"
-#include	"x1_fdc.h"
-#include	"x1_dma.h"
-#include	"x1_ctc.h"
-#include	"x1_sio.h"
-#include	"x1_sound.h"
+#include	"XMIL.H"
+#include	"X1.H"
+#include	"X1_SCPU.H"
+#include	"X1_8255.H"
+#include	"X1_PCG.H"
+#include	"X1_CRTC.H"
+#include	"X1_VRAM.H"
+#include	"X1_FDC.H"
+#include	"X1_DMA.H"
+#include	"X1_CTC.H"
+#include	"X1_SIO.H"
+#include	"X1_SOUND.H"
 #if T_TUNE
 #include	"X1_EMM.H"
-#include	"x1_sasi.h"
+#include	"X1_SASI.H"
 #endif
 
-#include	"dosio.h"
-#include	"trace.h"
+#include	"DOSIO.H"
+#include	"TRACE.H"
 #include	"keylog.h"
 
 static DWORD s_iomode_out_logs = 0;

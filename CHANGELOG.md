@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- 表示中の文字の PCG を定義し直したとき（Hu-BASIC の `DEFCHR$`、FuzzyBASIC の `PCGDEF` など）、画面に反映されなかった問題を修正しました。PCG の書き換えによるアニメーションが動くようになります。
+- Linux（大文字小文字を区別するファイルシステム）でもビルドとテストができるよう、`#include` のファイル名を実際のファイル名の大文字小文字に合わせました。macOS で使われるヘッダは変わりません。
+
 ## X millennium Web / X1Pen Web 0.10.0
 
 - Google Drive／Dropboxの公開共有URLからRelay経由でFDD、HDD、CMTを読み込むURL Builderを追加しました。外部メディアの変更はprovider sourceごとのbrowser-local copyへ保存され、同じURLを再度開いたときに再利用されます。

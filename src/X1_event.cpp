@@ -3,7 +3,7 @@
 */
 #include <windows.h>
 #include <stdio.h>
-#include "x1_event.h"
+#include "X1_event.h"
 #include "state_save.h"
 
 extern ICountType Z80_ICount;
