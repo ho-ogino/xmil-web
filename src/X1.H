@@ -1,8 +1,8 @@
-#include	"z80r.h"
-#include	"x1_io.h"
-#include	"x1_mem.h"
+#include	"Z80R.H"
+#include	"X1_IO.H"
+#include	"X1_MEM.H"
 #if T_TUNE
-#include	"x1_event.h"
+#include	"X1_event.h"
 #endif
 
 typedef struct {

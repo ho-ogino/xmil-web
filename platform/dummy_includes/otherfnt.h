@@ -3,7 +3,7 @@
 
 // OTHERFNT - 他機種フォント変換機能（Web版では未実装）
 
-#include "common.h"
+#include "COMMON.H"
 
 // 関数プロトタイプ（実装はotherfnt_stubs.cpp）
 extern "C" {

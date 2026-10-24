@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "common.h"
+#include "COMMON.H"
 
 char szProgName[] = "XMillennium Web";
 

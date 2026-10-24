@@ -1,15 +1,15 @@
 #include	<windows.h>
 #include	"stdio.h"
-#include	"common.h"
-#include	"dsounds.h"
-#include	"opm.h"
-#include	"opmcore.h"
+#include	"COMMON.H"
+#include	"DSOUNDS.H"
+#include	"OPM.H"
+#include	"OPMCORE.H"
 #include	"ay8910.h"
 #include	"fm.h"
-#include	"xmil.h"
-#include	"x1_event.h"
+#include	"XMIL.H"
+#include	"X1_event.h"
 
-#include	"x1.h"
+#include	"X1.H"
 #include	"state_save.h"
 
 WORD	inx1f_counter;

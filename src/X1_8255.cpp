@@ -1,19 +1,19 @@
 #include	<windows.h>
 #include	<stdio.h>
 
-#include	"x1.h"
-#include	"x1_crtc.h"
-#include	"x1_scpu.h"
-#include	"x1_vram.h"
-#include	"x1_cmt.h"
-#include	"x1_8255.h"
-#include	"draw.h"
+#include	"X1.H"
+#include	"X1_CRTC.H"
+#include	"X1_SCPU.H"
+#include	"X1_VRAM.H"
+#include	"X1_CMT.H"
+#include	"X1_8255.H"
+#include	"DRAW.H"
 
-#include	"dosio.h"
-#include	"trace.h"
+#include	"DOSIO.H"
+#include	"TRACE.H"
 #include	"keylog.h"
 #if T_TUNE
-#include	"x1_cmt.h"
+#include	"X1_CMT.H"
 #endif
 
 /***********************************************************************

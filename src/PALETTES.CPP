@@ -1,11 +1,11 @@
 #include	<windows.h>
 
-#include	"common.h"
-#include	"xmil.h"
-#include	"x1.h"
-#include	"x1_crtc.h"
-#include	"ddraws.h"
-#include	"draw.h"
+#include	"COMMON.H"
+#include	"XMIL.H"
+#include	"X1.H"
+#include	"X1_CRTC.H"
+#include	"Ddraws.h"
+#include	"DRAW.H"
 
 static	PALETTE_TABLE	pal16bit;
 static	BYTE			np2_r16b;

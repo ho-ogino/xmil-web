@@ -7,13 +7,13 @@
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
-#include "common.h"
-#include "xmil.h"
+#include "COMMON.H"
+#include "XMIL.H"
 #include "draw.h"
-#include "ddraws.h"
-#include "palettes.h"
-#include "x1.h"
-#include "x1_crtc.h"
+#include "Ddraws.h"
+#include "PALETTES.H"
+#include "X1.H"
+#include "X1_CRTC.H"
 #include "platform_graphics.h"
 
 #if T_TUNE

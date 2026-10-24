@@ -14,7 +14,7 @@
 #include "X1_IO.H"
 #include "X1_DMA.H"
 #include "X1_DMAM.H"
-#include "x1_irq.h"
+#include "X1_irq.h"
 #include "debugger_core.h"
 #include "z80_debug.h"
 

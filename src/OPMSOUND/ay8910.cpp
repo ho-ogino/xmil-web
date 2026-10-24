@@ -10,7 +10,7 @@
 
 ***************************************************************************/
 
-#include "opmcore.h"
+#include "OPMCORE.H"
 #include "ay8910.h"
 #include "state_save.h"
 

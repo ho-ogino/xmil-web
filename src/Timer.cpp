@@ -1,9 +1,9 @@
 #include	<windows.h>
 #include	<stdint.h>
 
-#include	"common.h"
-#include	"fdd_mtr.h"
-#include	"dclock.h"
+#include	"COMMON.H"
+#include	"FDD_MTR.H"
+#include	"DCLOCK.H"
 #include	"state_save.h"
 
 static	WORD		timercnt = 0;

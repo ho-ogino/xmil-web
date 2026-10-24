@@ -1,10 +1,10 @@
 #include	<windows.h>
 #include	<stdio.h>
 #include	<string.h>
-#include	"x1.h"
-#include	"dosio.h"
-#include	"x1_fdc.h"
-#include	"fdd_mtr.h"
+#include	"X1.H"
+#include	"DOSIO.H"
+#include	"X1_FDC.H"
+#include	"FDD_MTR.H"
 #include	"state_save.h"
 
 #ifdef __EMSCRIPTEN__

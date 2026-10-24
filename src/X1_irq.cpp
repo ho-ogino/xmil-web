@@ -3,8 +3,8 @@
 */
 #include <windows.h>
 
-#include "x1.h"
-#include "x1_irq.h"
+#include "X1.H"
+#include "X1_irq.h"
 #include "keylog.h"
 #include "state_save.h"
 

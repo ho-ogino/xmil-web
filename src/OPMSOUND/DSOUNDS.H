@@ -4,8 +4,8 @@
 
 
 
-#include	"dsounds3.h"
-#include	"dsounds7.h"
+#include	"DSOUNDS3.H"
+#include	"DSOUNDS7.H"
 
 #define	PCMCHANNELS		2
 #define	PCMBITS			16

@@ -1,9 +1,9 @@
 #include	<windows.h>
 #include	<time.h>
 
-#include	"common.h"
-#include	"dosio.h"
-#include	"parts.h"
+#include	"COMMON.H"
+#include	"DOSIO.H"
+#include	"PARTS.H"
 
 static	char	curpath[MAX_PATH+32] = "";
 static	LPSTR	curfilep = curpath;

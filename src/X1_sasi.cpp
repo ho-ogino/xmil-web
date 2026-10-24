@@ -1,11 +1,11 @@
 #if T_TUNE
 #include	<windows.h>
 #include	<stdio.h>
-#include	"x1.h"
-#include	"xmil.h"
-#include	"x1_dma.h"
-#include	"x1_sasi.h"
-#include	"dosio.h"
+#include	"X1.H"
+#include	"XMIL.H"
+#include	"X1_DMA.H"
+#include	"X1_SASI.H"
+#include	"DOSIO.H"
 
 #ifdef __EMSCRIPTEN__
 #include	<emscripten.h>

@@ -5,14 +5,14 @@
 
 #include <stdio.h>
 #include <string.h>
-#include "common.h"
-#include "xmil.h"
-#include "x1.h"
-#include "x1_crtc.h"
-#include "x1_vram.h"
+#include "COMMON.H"
+#include "XMIL.H"
+#include "X1.H"
+#include "X1_CRTC.H"
+#include "X1_VRAM.H"
 #include "draw.h"
 #include "draw_sub.h"
-#include "x1_pcg.h"
+#include "X1_PCG.H"
 
 extern BYTE TXT_RAM[0x01800];
 extern BYTE ANK_FNT[256][8];

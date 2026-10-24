@@ -2,11 +2,11 @@
 #include	<stdio.h>
 #include	<string.h>
 #include	<stdlib.h>
-#include	"common.h"
-#include	"x1.h"
-#include	"x1_crtc.h"
-#include	"x1_pcg.h"
-#include	"x1_vram.h"
+#include	"COMMON.H"
+#include	"X1.H"
+#include	"X1_CRTC.H"
+#include	"X1_PCG.H"
+#include	"X1_VRAM.H"
 #include	"keylog.h"
 
 		PCG_TABLE	pcg;

@@ -2,13 +2,13 @@
 #include	<windows.h>
 #include	<stdio.h>
 #include	<string.h>
-#include	"x1.h"
-#include	"x1_ctc.h"
+#include	"X1.H"
+#include	"X1_CTC.H"
 
-#include	"x1_irq.h"
+#include	"X1_irq.h"
 
-#include	"dosio.h"
-#include	"trace.h"
+#include	"DOSIO.H"
+#include	"TRACE.H"
 #include	"state_save.h"
 
 

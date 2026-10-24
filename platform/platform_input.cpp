@@ -6,9 +6,9 @@
 // X1キーボード処理（Input.cpp）
 #include "INPUT.H"
 // X1設定（xmilcfg.MOUSE_SW 参照）
-#include "xmil.h"
+#include "XMIL.H"
 // マウス定数（MOUSE_MASK, MOUSE_LEFTDOWN 等）
-#include "mouses.h"
+#include "MOUSES.H"
 
 // --- X1 マウス状態 (MOUSES.CPP 相当) ---
 static BYTE  mouserunning = 0;
