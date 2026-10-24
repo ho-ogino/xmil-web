@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { open, realpath, stat, appendFile, mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -106,6 +107,16 @@ test('rejects directories, oversized files, invalid UTF-8 and NUL', async () => 
   const nul = join(allowedRoot, 'nul.bas');
   await writeFile(nul, '10\0END');
   assert.equal((await errorFrom(nul)).code, 'SOURCE_FILE_CONTAINS_NUL');
+});
+
+test('rejects a FIFO without blocking on open', {
+  skip: process.platform === 'win32' && 'FIFOs are POSIX-only',
+  timeout: 5_000,
+}, async () => {
+  const fifo = join(allowedRoot, 'pipe.bas');
+  const made = spawnSync('mkfifo', [fifo]);
+  assert.equal(made.status, 0, `mkfifo failed: ${made.stderr}`);
+  assert.equal((await errorFrom(fifo)).code, 'SOURCE_FILE_NOT_REGULAR');
 });
 
 function mutatingIo(mutate) {

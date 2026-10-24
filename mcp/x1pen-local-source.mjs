@@ -105,7 +105,11 @@ export async function readLocalUtf8Source(filePath, options = {}) {
   let after;
   let bytes;
   try {
-    handle = await io.open(candidate, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+    // O_NONBLOCK keeps a FIFO from blocking open() before the regular-file check below.
+    handle = await io.open(
+      candidate,
+      constants.O_RDONLY | (constants.O_NOFOLLOW || 0) | (constants.O_NONBLOCK || 0),
+    );
     before = await handle.stat({ bigint: true });
     if (!before.isFile()) {
       throw sourceError('SOURCE_FILE_NOT_REGULAR', 'The local source path is not a regular file');

@@ -65,7 +65,7 @@ startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
 
-複数rootは`--allow-source-root <dir>`を繰り返します。rootは起動時に存在するdirectoryでなければならず、誤ったrootはローカル起動errorに設定値を示してfail fastします。canonical root外、symlink escape、非regular file、invalid UTF-8、NUL、512 KiB超過、読み取り中にidentity/size/mtimeが変わったfileは拒否します。relative pathもMCP processのcwdから解決した後、同じroot境界を適用します。先頭のUTF-8 BOMを1個除去し、CRLFと単独CRをLFへ正規化してからX1Penへ送ります。応答にはhost pathとsource本文を含めず、section、raw fileのbyte数・SHA-256、変更有無、revision/hash metadataだけを返します。section summaryのhashは正規化後に保存されたsourceを表します。
+複数rootは`--allow-source-root <dir>`を繰り返します。rootは起動時に存在するdirectoryでなければならず、誤ったrootはローカル起動errorに設定値を示してfail fastします。canonical root外、symlink escape、非regular file、invalid UTF-8、NUL、512 KiB超過、読み取り中にidentity/size/mtimeが変わったfileは拒否します。relative pathもMCP processのcwdから解決した後、同じroot境界を適用します。先頭のUTF-8 BOMを1個除去し、CRLFと単独CRをLFへ正規化してからX1Penへ送ります。応答にはhost pathとsource本文を含めず、section、raw fileのbyte数・SHA-256、変更有無、revision/hash metadataだけを返します。section summaryのhashは正規化後に保存されたsourceを表します。許可rootは、modelが指定するpathを制限するためのものです。MCPと同じuserの別processが、読み取りの最中に許可root内のdirectoryをsymlinkへ差し替える競合までは防ぎません（Node.jsにはroot基準で辿るopenat相当のAPIがありません）。そのようなprocessは、元から同じfileを直接読めます。
 
 ### 拡張機能
 
