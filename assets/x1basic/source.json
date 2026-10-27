@@ -1,0 +1,75 @@
+{
+  "repository": "https://github.com/ho-ogino/x1-basic-editor",
+  "commit": "1539e3d02d031e93b2ec784b90e13eff24d2be20",
+  "files": {
+    "src/index.html": {
+      "sha256": "312fdde780373fc2b83043ea2044f2ee2f38df0f08cc6c16d53a70a23d5d4a83",
+      "size": 10148
+    },
+    "src/style.css": {
+      "sha256": "4d0f12342f87852bb931473637942d8d6b7891d9a7b48ac0596b2c05487bbf5b",
+      "size": 10895
+    },
+    "src/codec.js": {
+      "sha256": "156968440e1451ad76c6b3655099f374a6bec2c9eac70ba7b92d5adb8395a18f",
+      "size": 9825
+    },
+    "src/keywords.js": {
+      "sha256": "934dcaf141270748b9dcbaf23463709d17b4c9a653a0b0a40a32e4696ec30f31",
+      "size": 2288
+    },
+    "src/syntax.js": {
+      "sha256": "8746435dae5136fe1d3e0b7f18e7d727b18fc14d02a98ffe572f953ac10ac011",
+      "size": 3910
+    },
+    "src/pcg.js": {
+      "sha256": "a4d505372a37fc76d71f5f82d9c5545651d961026dfca28770dd919d3ed5d298",
+      "size": 4811
+    },
+    "src/font-builder.js": {
+      "sha256": "7adc0905d6b9a5769a141b68ff9c6816c1b0c576c1894d7bc74c7682949d38e3",
+      "size": 6865
+    },
+    "src/host.js": {
+      "sha256": "ef614c0e67fa4202e0cbf41e71e8b573f9ce0d4f6ef63c05faba0421355ba463",
+      "size": 251
+    },
+    "src/sidebar-resize.js": {
+      "sha256": "eb04adaa424077a3d0cbbdc0729e5f30bc1990eaca80db6ac5b9b3fe678d2414",
+      "size": 2407
+    },
+    "src/editor.js": {
+      "sha256": "ee2fb6137f65adeab4116487552f9464d5f406d17b561eced8ee64391e6c3c58",
+      "size": 29737
+    },
+    "assets/x1-basic.ttf": {
+      "sha256": "a179697dde2fdbedfae93cb7c5969ca54b2fd4021e5c3817d7aa2262d4029f1c",
+      "size": 91688
+    },
+    "assets/x1-font.json": {
+      "sha256": "6bcc6439e6bdb27c88b0fd04ef6f25cace2e34e045514acb9ce2ec9fdaf24d28",
+      "size": 6401
+    },
+    "assets/x1-font-provenance.json": {
+      "sha256": "cf47f418aeb7d976efb13215e6ab97e8fea218867ddb04d1d7ce2720cd5ae7ed",
+      "size": 309
+    },
+    "assets/licenses/misaki.txt": {
+      "sha256": "6b7e5cb496d7782d6ae7f1e5ad57a1f309338bea02e94250e94e4420304c1aa1",
+      "size": 7984
+    },
+    "LICENSE": {
+      "sha256": "1b09a5441711a5b5471a554559894002bb56cea797281d342d4875e35243bc38",
+      "size": 1070
+    },
+    "THIRD-PARTY-NOTICES.md": {
+      "sha256": "bda102d737da0f1508dba19b72fdb8f47cf2f2936b060cf598cd770126a024f8",
+      "size": 2092
+    }
+  },
+  "injected": {
+    "path": "src/index.html",
+    "line": "<script src=\"x1pen-host.js\"></script>",
+    "before": "<script src=\"host.js\"></script>"
+  }
+}
