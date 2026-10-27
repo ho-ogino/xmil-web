@@ -3128,6 +3128,64 @@ test('Hu-BASIC Run stops before booting when the disk image cannot be written', 
   await textVramContains('WRITE OK');
 });
 
+test('Hu-BASIC Run replaces a temporary disk whose last track is still dirty', { timeout: 120_000 }, async () => {
+  // A program on a temporary FDD0 disk writes its SLFS save area and keeps running, so the
+  // emulator holds that track unflushed when Hu-BASIC Run puts the new image in place.
+  await setHuBasicProgram('10 PRINT "NEW IMAGE"\n20 GOTO 20\n');
+  const result = await page.evaluate(async () => {
+    // Loads the Hu-BASIC toolchain scripts (SLANG compiler, assembler, disk builder)
+    const validation = await window.X1PenAutomation.validate();
+    if (!validation.ok) return { setup: validation.diagnostics };
+    const current = await (await fetch('hubasic/current.json')).json();
+    const base = `hubasic/${current.revision}/`;
+    const manifest = await (await fetch(`${base}manifest.json`)).json();
+    const env = manifest.envs.x1native_slfs;
+    const vfs = {};
+    for (const lib of env.libraries) vfs[lib] = await (await fetch(`${base}runtime/${lib}`)).text();
+    const constants = { ENV_TYPE: env.envType, OS_TYPE: env.osType, ...env.defines };
+    const writer = [
+      'ARRAY BYTE BUF[256];',
+      'ARRAY BYTE K_0[] = { 5,83,65,86,69,68 };',
+      'MAIN()',
+      'BEGIN',
+      `  BAS_ABI_${manifest.basAbi}();`,
+      '  BAS_INIT();',
+      '  FS_SAVE_W(0, 1, BUF);',
+      '  BAS_PSTR(K_0);',
+      'SPIN:',
+      '  GOTO SPIN;',
+      'END',
+    ].join('\n');
+    const compiled = window.X1PenSlangCompiler.compile(writer, vfs, { defaultOrg: env.defaultOrg, codeReadonly: false, defines: constants });
+    if (compiled.errors.length) return { setup: compiled.errors };
+    const assembled = window.X1PenZ80Asm.assemble(compiled.asm, constants, { allowTopLevelLocalLabels: true });
+    if (assembled.errors.length) return { setup: assembled.errors };
+    const writerDisk = window.X1PenSlfsDisk.buildSlfsD88(new Uint8Array(assembled.bytes), {
+      mainName: 'WRITER', loadAddr: env.diskMainLoad, execAddr: env.diskMainExec, volumeName: env.diskVolume,
+    });
+    await window.XmilControls.mountTempDisk(writerDisk, 'drive0');
+    window.XmilControls.coldPowerOn(window.Module._js_get_rom_type());
+    return { setup: null };
+  });
+  assert.equal(result.setup, null, JSON.stringify(result.setup));
+  await textVramContains('SAVED');
+
+  const run = await page.evaluate(async () => {
+    const built = await window.X1PenHuBasic.build('10 PRINT "NEW IMAGE"\n20 GOTO 20\n');
+    const run = await window.X1PenAutomation.run();
+    const mounted = window.Module.FS.readFile('/fdd0.d88');
+    const expected = new Uint8Array(built.d88);
+    let firstDiff = -1;
+    for (let i = 0; i < Math.max(mounted.length, expected.length); i++) {
+      if (mounted[i] !== expected[i]) { firstDiff = i; break; }
+    }
+    return { run, firstDiff };
+  });
+  assert.equal(run.run.ok, true, JSON.stringify(run.run));
+  assert.equal(run.firstDiff, -1, 'FDD0 must hold exactly the new Hu-BASIC image');
+  await textVramContains('NEW IMAGE');
+});
+
 test('Hu-BASIC Run applies a resolution chosen just before it', { timeout: 120_000 }, async () => {
   await setHuBasicProgram('10 PRINT "DIP OK"\n20 GOTO 20\n');
   const runWith = (highres) => page.evaluate(async (on) => {

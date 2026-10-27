@@ -4169,16 +4169,28 @@
                 try { await ejectSlot(slotName); } catch(e) {}
             }
             var vfsPath = slotToVfsPath(slotName, 'd88');
-            // Unlike writeFileToVFS, a failed write must stop the caller before it boots the drive
+            var driveIndex = slotName === 'drive0' ? 0 : 1;
             var image = new Uint8Array(arrayBuffer);
-            if (!module || !module.FS) throw new Error('VFS is not available');
-            module.FS.writeFile(vfsPath, image);
-            if (!buffersEqual(module.FS.readFile(vfsPath), image)) {
-                throw new Error('Temporary disk image was not written intact');
-            }
-            if (module) {
-                var driveIndex = slotName === 'drive0' ? 0 : 1;
+            if (!module || !module.FS || !module._js_eject_disk) throw new Error('VFS is not available');
+            // The native eject flushes a dirty track of the disk in the drive into its backing
+            // file, which for a previous temporary disk is vfsPath: eject before overwriting it.
+            module._js_eject_disk(driveIndex);
+            try {
+                // Unlike writeFileToVFS, a failed write must stop the caller before it boots the drive
+                module.FS.writeFile(vfsPath, image);
                 module.ccall('js_insert_disk', null, ['string', 'number'], [vfsPath, driveIndex]);
+                if (!buffersEqual(module.FS.readFile(vfsPath), image)) {
+                    throw new Error('Temporary disk image was not written intact');
+                }
+            } catch (e) {
+                // Leave the drive empty rather than holding a partial image
+                module._js_eject_disk(driveIndex);
+                slotState[slotName] = null;
+                slotVfsPath[slotName] = null;
+                slotEphemeral[slotName] = false;
+                slotDirty[slotName] = false;
+                slotDirtyPages[slotName] = null;
+                throw e;
             }
             slotState[slotName] = '__x1pen_temp__';
             slotVfsPath[slotName] = vfsPath;
