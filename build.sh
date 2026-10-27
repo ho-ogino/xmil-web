@@ -99,6 +99,7 @@ cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
 cp "${SCRIPT_DIR}/html/x1pen_slfs_disk.js"   ./x1pen_slfs_disk.js
 cp "${SCRIPT_DIR}/html/x1pen_hubasic.js"     ./x1pen_hubasic.js
+cp "${SCRIPT_DIR}/html/x1pen_hubasic_text.js" ./x1pen_hubasic_text.js
 [ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ./x1pen_slang_compiler.js
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" ./x1pen_charmap.html
@@ -134,6 +135,15 @@ if [ -z "${HUBASIC_REVISION}" ] || [ ! -f "${SCRIPT_DIR}/assets/hubasic/${HUBASI
 fi
 rm -rf ./hubasic
 cp -R "${SCRIPT_DIR}/assets/hubasic" ./hubasic
+# X1 BASIC Editor (HuBASIC tab), one commit of its repository plus X1Pen's host adapter
+if [ ! -f "${SCRIPT_DIR}/assets/x1basic/source.json" ]; then
+    echo "Error: X1 BASIC Editor is missing (assets/x1basic/source.json)."
+    echo "Import it with: node scripts/import-x1-basic-editor.mjs <checkout-dir>"
+    exit 1
+fi
+rm -rf ./x1basic
+cp -R "${SCRIPT_DIR}/assets/x1basic" ./x1basic
+cp "${SCRIPT_DIR}/html/x1pen_x1basic_host.js" ./x1basic/src/x1pen-host.js
 if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
     mkdir -p ./slang_include
     for f in "${SCRIPT_DIR}"/assets/slang_include/*; do
@@ -206,6 +216,7 @@ cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_slfs_disk.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_hubasic.js"     "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_hubasic_text.js" "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" "${DIST_DIR}/"
@@ -232,6 +243,9 @@ if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
 fi
 rm -rf "${DIST_DIR}/hubasic"
 cp -R "${SCRIPT_DIR}/assets/hubasic" "${DIST_DIR}/hubasic"
+rm -rf "${DIST_DIR}/x1basic"
+cp -R "${SCRIPT_DIR}/assets/x1basic" "${DIST_DIR}/x1basic"
+cp "${SCRIPT_DIR}/html/x1pen_x1basic_host.js" "${DIST_DIR}/x1basic/src/x1pen-host.js"
 if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
     mkdir -p "${DIST_DIR}/slang_include"
     for f in "${SCRIPT_DIR}"/assets/slang_include/*; do

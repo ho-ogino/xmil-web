@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>X1 BASIC Editor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="brand-mark">X1</span><span>BASIC EDITOR</span></div>
+    <nav aria-label="ファイル操作">
+      <button data-command="new">新規</button><button data-command="open">インポート…</button>
+      <button data-command="save" class="primary">エクスポート</button><button data-command="save-as">別名で保存…</button>
+      <span class="separator"></span><button data-command="undo" title="元に戻す">↶</button><button data-command="redo" title="やり直す">↷</button>
+      <button data-command="find">検索</button><button data-command="help" title="使い方">?</button>
+    </nav>
+    <div class="display-controls" role="group" aria-label="ソースの表示設定">
+      <button id="sidebar-toggle" type="button" aria-controls="sidebar" aria-expanded="true">右欄を隠す</button>
+      <label class="wrap-toggle"><input id="word-wrap" type="checkbox" checked>右端で折り返す</label>
+      <label>倍率 <select id="scale" aria-label="文字の倍率"><option value="1">1×</option><option value="2" selected>2×</option><option value="3">3×</option><option value="4">4×</option></select></label>
+    </div>
+  </header>
+  <section id="search-panel" hidden aria-label="検索と置換">
+    <label>検索 <input id="find-text" placeholder="文字、または \x87 / \{heart}"></label>
+    <label>置換 <input id="replace-text"></label>
+    <label class="check"><input id="case-sensitive" type="checkbox" checked>大文字小文字を区別</label>
+    <button id="find-prev">前へ</button><button id="find-next">次へ</button><button id="replace-one">置換</button><button id="replace-all">すべて置換</button>
+    <button id="close-search" aria-label="検索を閉じる">×</button><span id="find-status" role="status"></span>
+  </section>
+  <main>
+    <section class="editor-pane" aria-label="ソース編集">
+      <div id="editor-area">
+        <div id="gutter" aria-hidden="true"><pre id="line-numbers">1</pre></div>
+        <div id="text-area" class="wrapped">
+          <pre id="mirror" aria-hidden="true"></pre>
+          <textarea id="editor" spellcheck="false" wrap="soft" aria-label="X1 BASIC ソース" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+          <div id="empty-hint">BASIC ファイルをインポートして編集を始める<br><small>元のバイト列を保持して読み込み・書き出します</small><button data-command="open">インポート…</button></div>
+        </div>
+      </div>
+    </section>
+    <div id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-controls="sidebar" aria-label="右欄の幅（左右キーで調整、Homeで戻す）" tabindex="0"></div>
+    <aside id="sidebar" aria-label="記号とPCG">
+      <div class="pcg-toolbar"><button data-command="pcg-setup">選択からPCG設定</button><label><input id="pcg-enabled" type="checkbox">PCG ON</label></div>
+      <label class="pcg-scope"><input id="pcg-strings-only" type="checkbox" checked>PCG表示は文字列のみ</label>
+      <div class="sidebar-tabs" role="tablist" aria-label="サイドパネル"><button id="ank-tab" role="tab" aria-selected="true" aria-controls="ank-panel" data-sidebar="ank">文字パレット</button><button id="pcg-tab" role="tab" aria-selected="false" aria-controls="pcg-panel" data-sidebar="pcg">PCG一覧</button></div>
+      <section id="ank-panel" class="sidebar-panel" role="tabpanel" aria-labelledby="ank-tab">
+      <section class="font-settings" aria-label="表示フォント"><div><strong>表示フォント</strong><span id="font-name" title="内蔵フォント">内蔵フォント</span></div><div><button data-command="font-load">.X1 を読み込む…</button><button data-command="font-reset" disabled>内蔵に戻す</button></div></section>
+      <div class="palette-heading"><strong>文字パレット</strong><small>クリックしてカーソル位置に挿入</small></div>
+      <div class="palette-tabs" role="group" aria-label="文字の種類"><button data-group="symbols" class="active">記号</button><button data-group="kana">カナ</button><button data-group="controls">制御</button><button data-group="all">すべて</button></div>
+      <div id="palette" aria-label="X1文字一覧"></div>
+      <div id="glyph-info"><span id="preview-glyph" class="x1"></span><div><strong id="preview-code">$87</strong><span id="preview-name">vfill8</span></div></div>
+      <button id="open-insert" class="full">コード・記号名で挿入…</button>
+      <p class="palette-note">例：<code>\x87</code> <code>\{heart}</code><br>通常の貼り付けではエスケープを変換しません。</p>
+      </section>
+      <section id="pcg-panel" class="sidebar-panel" role="tabpanel" aria-labelledby="pcg-tab" hidden>
+        <div class="pcg-options"><label>配列 <select id="pcg-layout"><option value="planar">プレーン単位（16桁ずつ）</option><option value="interleaved">行単位（3倍速・2桁ずつ）</option></select></label><label>色順 <select id="pcg-order"><option>BRG</option><option>BGR</option><option>RGB</option><option>RBG</option><option>GBR</option><option>GRB</option></select></label></div>
+        <p id="pcg-count" class="palette-note">0 / 256 文字を定義</p>
+        <div id="pcg-grid" role="group" aria-label="PCG 0〜255（16×16）"></div>
+        <div id="pcg-detail"><img id="pcg-preview" alt="選択したPCG" hidden><div><strong id="pcg-code">$00 / 0</strong><span id="pcg-definition-state">未定義</span></div></div>
+        <input id="pcg-hex" aria-label="選択したPCGの16進データ" readonly placeholder="文字をクリックして確認">
+        <div class="pcg-actions"><button id="pcg-remove" disabled>この定義を解除</button><button id="pcg-clear" disabled>すべて解除</button></div>
+        <p class="palette-note">左上が0、右下が255です。定義済みの画像をクリックすると、その文字を挿入します。「文字列のみ」がONなら引用符の内側だけをPCG表示します。定義はアプリ終了まで保持します。</p>
+      </section>
+    </aside>
+  </main>
+  <footer><span id="position">行 1 · 桁 1</span><span id="byte-info">EOF</span><span id="size">0 bytes</span><label>新しい改行 <select id="newline"><option value="CRLF">CRLF</option><option value="LF">LF</option><option value="CR">CR</option></select></label><span id="eol-info">既存：なし</span></footer>
+  <div id="notice" role="status" hidden></div>
+  <dialog id="insert-dialog"><form method="dialog"><h2>コード・記号名で挿入</h2><p>例：<code>\x87\x1F\x1D</code> または <code>\{heart}</code></p><input id="insert-text" aria-label="挿入するコード" placeholder="\{heart}" autocomplete="off"><div class="dialog-buttons"><button value="cancel">キャンセル</button><button id="insert-confirm" value="insert" class="primary">挿入</button></div></form></dialog>
+  <dialog id="pcg-import-dialog"><form method="dialog"><h2>PCGの割り当て</h2><p id="pcg-import-summary"></p><label id="pcg-start-label">開始文字コード（0〜255 / &amp;H00〜&amp;HFF）<input id="pcg-start" value="65" autocomplete="off"></label><div class="pcg-options"><label>配列 <select id="pcg-import-layout"><option value="planar">プレーン単位（16桁ずつ）</option><option value="interleaved">行単位（3倍速・2桁ずつ）</option></select></label><label>色順 <select id="pcg-import-order"><option>BRG</option><option>BGR</option><option>RGB</option><option>RBG</option><option>GBR</option><option>GRB</option></select></label></div><p class="palette-note">DEFCHR$は指定コードへ、その他の48桁データは開始コードから検出順に割り当てます。同じコードは選択範囲で後に出る定義を使います。</p><div id="pcg-import-preview"></div><p id="pcg-import-error" role="alert"></p><div class="dialog-buttons"><button value="cancel">キャンセル</button><button id="pcg-import-confirm" value="apply" class="primary">PCG設定</button></div></form></dialog>
+  <dialog id="help-dialog"><h2>X1 BASIC Editor</h2><p>X1 のアスキーセーブを、そのままの字形で編集します。</p><ul><li>記号は右のパレットから挿入できます。カナはIMEで入力できます。</li><li>青い文字は制御コードです。編集画面で画面移動は実行しません。</li><li>「コード・記号名で挿入」では \xHH や \{heart} が使えます。</li><li>アプリ内のコピー＆ペーストは元のバイトを保持します。外部向けには記号をエスケープ表記でコピーします。</li><li>表現できない文字の入力・貼り付けは、変更を反映せず通知します。</li><li>既存の改行は保持します。「新しい改行」は、これから入力する改行だけに適用します。</li><li>上書き前のファイルを .bak に一度だけ保存します。既存の .bak は上書きしません。</li><li>PCG定義を選択して「選択からPCG設定」で確認できます。「文字列のみ」は初期値ONです。定義はファイルを切り替えても保持し、終了で解除します。PCG一覧の画像クリックで文字を挿入できます。</li><li>Ctrl（Macは⌘）+ O / S / F / Z、Shift + Z、I に対応しています。</li></ul><p class="muted">内蔵字形：X1互換フォント / 美咲フォント<br>対応サイズ：2 MiBまで</p><button id="close-help" class="primary">閉じる</button></dialog>
+  <script src="codec.js"></script><script src="keywords.js"></script><script src="syntax.js"></script><script src="pcg.js"></script><script src="font-builder.js"></script><script src="x1pen-host.js"></script><script src="host.js"></script><script src="sidebar-resize.js"></script><script src="editor.js"></script>
+</body>
+</html>

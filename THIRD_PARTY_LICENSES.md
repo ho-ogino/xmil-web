@@ -65,3 +65,52 @@ freely, subject to the following restrictions:
 
 **サウンドエフェクト**: `FDDSEEK.WAV`, `FDDSEEK1.WAV`, `CMTSTOP.WAV`, `CMTPLAY.WAV`, `CMTEJECT.WAV`, `CMTFF.WAV`
 原作 X millennium 配布物に含まれる効果音ファイルです。同条件で頒布されています。
+
+---
+
+## X1 BASIC Editor (X1Pen の HuBASIC タブ)
+
+**ファイル**: `assets/x1basic/`（公開先 `x1basic/`）
+**ソース**: https://github.com/ho-ogino/x1-basic-editor （取り込んだコミットは `assets/x1basic/source.json`）
+
+MIT License の下で配布されています。X1Pen が足したのは、`src/index.html` の 1 行（X1Pen 用のつなぎ `x1pen-host.js` を読む）だけです。
+
+```
+MIT License
+
+Copyright (c) 2026 Hiroshi OGINO
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## X1 互換フォント / 美咲フォント（X1 BASIC Editor の内蔵字形）
+
+**ファイル**: `assets/x1basic/assets/x1-basic.ttf` / `x1-font.json`（エディタの repo の `assets/x1-font-source.txt` から作られたもの）
+**ソース**: Meister 氏の X1 互換フォント https://github.com/meister68k/X1_compatible_font （`FNT0808.X1`、取得元と SHA-256 は `assets/x1basic/assets/x1-font-provenance.json`）
+**元の字形**: 門真 なむ氏「8×8 ドット日本語フォント『美咲フォント』」https://littlelimit.net/misaki.htm
+
+改変の有無、商用・非商用を問わず、利用・複製・再配布が許されています（無保証）。全文は `assets/x1basic/assets/licenses/misaki.txt`（公開先 `x1basic/assets/licenses/misaki.txt`）、詳細は `assets/x1basic/THIRD-PARTY-NOTICES.md` にあります。
+
+```
+These fonts are free softwares.
+Unlimited permission is granted to use, copy, and distribute it, with or without modification, either commercially and noncommercially.
+THESE FONTS ARE PROVIDED "AS IS" WITHOUT WARRANTY.
+
+Copyright(C) 2002-2019 Num Kadoma
+```

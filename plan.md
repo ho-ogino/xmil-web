@@ -1,234 +1,160 @@
-# X1Pen Hu-BASIC, step 1: write Hu-BASIC in a plain tab, Run converts, compiles and boots it from a disk image
+# X1Pen HuBASIC tab: replace the plain CodeMirror editor with X1 BASIC Editor (byte-preserving), imported at a fixed commit
 
 ## Purpose
 
-Give X1Pen (the browser IDE in this repo, `html/x1pen.html` + `html/x1pen.js`) a fourth source tab, **Hu-BASIC**. Pressing Run on a Hu-BASIC program must:
+Replace the editor of X1Pen's HuBASIC tab with **X1 BASIC Editor** (https://github.com/ho-ogino/x1-basic-editor, MIT, owned by the same owner; kept as a standalone Electron app too). The editor edits **X1 bytes** (the X1 ASCII-save character set: kana, graphic symbols, control codes) with an 8×8 X1 font, a symbol palette and PCG previews.
 
-1. convert it to SLANG with **hubasic2sl** (C#, from the SLANG-compiler repo), running **in the browser as .NET browser-wasm**;
-2. compile that SLANG with X1Pen's existing **JS SLANG compiler** (`html/x1pen_slang_compiler.js`) for the **x1native_slfs** environment (no OS, ORG $1000);
-3. assemble it with X1Pen's existing **JS Z80 assembler** (`html/x1pen_z80asm.js`), after fixing three AILZ80ASM incompatibilities;
-4. check that the work area ends at or below $FFE0;
-5. build an **SLFS D88 disk image** in JS;
-6. insert it in FDD0 as a temporary disk and **cold-boot** the emulated X1 through IPL. Today's LSX-Dodgers state-load path is not used for Hu-BASIC.
+Decisions already made by the owner (not up for review):
+- **Option A**: a script copies a chosen commit of the editor repo into xmil-web (same pattern as the HuBASIC bundle, `scripts/import-hubasic-bundle.mjs`). No submodule, no npm package. The commit was **`1539e3d02d031e93b2ec784b90e13eff24d2be20`** (main after the editor's PR #2). Before the merge it was replaced by **`aa1061142660d4c4d95bd7a1794cd677ea5d7c2f`** (editor PR #3). That commit adds a sidebar toggle, renames 開く/保存 to インポート/エクスポート, and hides 新規/別名で保存 when a host is injected. The host API is unchanged. The repo does not use tags for this (tags mean releases there).
+- The editor is shown in an **iframe** inside the HuBASIC tab and **replaces** the current CodeMirror editor of that tab (no second HuBASIC tab).
+- **X1 bytes are the source of truth.** Run passes the bytes to hubasic2sl as `inputEncoding: "x1"`. Storage (localStorage) and the automation/MCP API (`getProgram`/`setProgram` `hubasic` string) stay Unicode strings, converted with the editor's own `codec.js`.
+- One host adapter file `x1pen-host.js` (xmil-web's own code) plugs X1Pen into the editor.
+- Add the license notice for the editor's built-in font (Misaki-derived X1-compatible font).
 
-Background and decisions already taken (owner, 2026-10-27):
-- Use .NET wasm for hubasic2sl. A JS port is rejected because it would drift; X1Pen's SLANG JS port is already 384 commits behind its C# source.
-- Proceed in order. Step 1 is "convert and boot" only. The Hu-BASIC editor (X1 Byte Editor), the PCG editor (defchrtool) and Share come later.
-- The owner delegated detailed choices ("use the recommended way") but wants to be asked about big forks. Those are listed under Open decisions.
-- The **slang Province** owns a parallel PR in SLANG-compiler. It adds the wasm entry project and a publishable **bundle**: the wasm `_framework`, the x1native_slfs runtime `.asm` set and a manifest, all from **one SLANG-compiler SHA**. This repo only copies that bundle in. Building xmil-web never needs dotnet.
-
-Non-goals (step 1):
-- The byte-preserving Hu-BASIC editor, X1 graphic-character input and PCG editor integration.
-- Share, i.e. `functions/api/share.js` and the share URL. Share refuses Hu-BASIC with a clear message.
-- MCP server (`mcp/`) support for the new source mode. This is a fork; see Open decision D2.
-- Updating the existing LSX-Dodgers SLANG runtime (`assets/slang_runtime/`) or the JS SLANG compiler to the current C# version. The one exception is in Open decision D4.
-- Tape output, and SLFS assets (`FS_READ_BY_ID`).
-- Production deploy, version bump or npm publish. The owner does those from a Mac.
+Non-goals: Share of HuBASIC programs (still refused), x1pen-mcp changes (published 2.7.x still stops with `invalid source mode` while HuBASIC is the active source), the PCG editor (defchrtool), a cursor-preserving replace API, any change to the other tabs, any production deploy or version bump.
 
 ## Observed evidence
 
-Feasibility study, with experiments and screenshots: `/home/ogino/secretary/whiteboards/xmilweb/hubasic-feasibility/README.md` (addenda 1–6). The slang Province independently confirmed the main points.
+### The editor at 1539e3d (read in a scratch clone; nothing pushed)
+- Browser files: `src/index.html`, `src/style.css`, `src/codec.js`, `src/keywords.js`, `src/syntax.js`, `src/pcg.js`, `src/font-builder.js`, `src/host.js`, `src/sidebar-resize.js`, `src/editor.js`; assets `assets/x1-basic.ttf` (91,688 bytes), `assets/x1-font.json`, `assets/x1-font-provenance.json`, `assets/licenses/misaki.txt`; `LICENSE` (MIT), `THIRD-PARTY-NOTICES.md`. Electron-only: `main.cjs`, `preload.cjs`, `src/*.cjs`.
+- `src/index.html` loads, in order: `codec.js keywords.js syntax.js pcg.js font-builder.js host.js sidebar-resize.js editor.js`, has a meta CSP `default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'`, and `style.css` loads the font with `url('../assets/x1-basic.ttf')` (so `src/` and `assets/` must stay siblings).
+- `src/host.js`: `window.X1Host = window.X1Host ?? window.desktop; if (!window.X1Host) throw ...`. The editor README ("iframeへの組み込み") says: in an iframe, add `<script src="x1pen-host.js">` after `font-builder.js` and before `host.js`, and set `window.X1Host` synchronously.
+- Host methods used by `editor.js`: `onLoaded(cb)` (cb receives `{name, bytes}`; this is how a document is loaded from outside; `doc.load` resets undo and puts the caret at 0), `onCommand(cb)` (cb is the editor's `command(name)`; names include `new open save save-as undo redo find find-next find-prev insert pcg-setup zoom-in zoom-out help font-load font-reset`), `open()`, `save({bytes, saveAs})` (truthy → the snapshot becomes "saved"), `confirmDirty()` → `'save'|'discard'|'cancel'`, `state({dirty})`, `newDocument()`, `close()`, optional `currentFont()` → `{name, data: TTF bytes}` or null, `chooseFont()`, `commitFont(token)`, `resetFont()`, `pcgFont({entries, order, layout})` → TTF bytes, optional `contentChanged({bytes, dirty})`: called on the initial render and on every real byte change (typing, IME end, paste, cut, insert, replace, undo/redo, new, load), not for identical content or save-only.
+- If `onLoaded` calls back synchronously at registration, the first `contentChanged` already carries that document (README).
+- `window.X1FontBuilder` (browser): `parseFontRom(Uint8Array(2048))` → 256×8 bitmap, `buildFont(bitmap, entries=[], order='BRG', layout='planar')` → TTF `Uint8Array`, `buildFontFromRom(bytes)`.
+- Header buttons in `index.html`: 新規 / 開く… / 保存 / 別名で保存… / undo / redo / 検索 / ?. Keyboard shortcuts for these exist only as Electron menu accelerators (`main.cjs`: Ctrl+N/O/S/Shift+S/I/Shift+P/F, F3, Shift+F3, Ctrl+Plus/Minus); the editor itself handles only Ctrl+Z/Y, Tab, Escape.
+- `codec.js` (UMD; browser global `X1`): `decode`, `encodeInput(text, newline)` (ASCII, U+E000+b, half/full-width kana and hiragana, ♥ ● ─ ¥ π …; throws `X1で表現できない文字があります：…` otherwise), `parseEscapes(text, newline)` (`\xHH`, `\{name}`, `\\` plus `encodeInput`), `clipboardText(bytes)` (ASCII as is, $A1–$DF as half-width kana, named symbols as `\{name}`, others `\xHH`, $5C as `\\`, CR/LF/CRLF as `\n`).
+- I ran `parseEscapes(clipboardText(b))` for all 256 bytes (wrapped as `41 b 42 0D 0A`): identical for every byte. Only the newline kind is not preserved.
+- The editor no longer ships X1Pen-derived glyphs. The built-in font is Meister's X1-compatible font (from the Misaki font), with provenance (commit and SHA-256) and the license text included; redistribution is allowed with the notice.
 
-**hubasic2sl** (SLANG-compiler `src/SLANGCompiler.HuBasic`, about 5,000 lines of C#):
-- No project references. Its only NuGet dependency is System.Text.Encoding.CodePages, used for Shift-JIS input.
-- The pure entry point is `HuTranspiler.Transpile(string, options)`, which takes text and returns SLANG text.
-- `TranspileFile(path, encoding, options)` does input-encoding detection: UTF-8, Shift-JIS or raw X1 codes, with warning HB0110.
-- slang published a throwaway browser-wasm build. It was 5.5 MB raw, 1.7 MB brotli, and produced output identical to the CLI for 4 programs, including Shift-JIS input.
-- Its generated SLANG only calls `BAS_*` routines in `runtime/libx1_basic.asm` (about 7,700 lines). Converter and runtime must come from the same SHA. A mismatch either fails at assembly (unknown `BAS_x`), fails at compile (argument count), or **silently** changes behaviour when only the routine's contract changed.
-
-**JS SLANG compiler**: `window.X1PenSlangCompiler.compile(source, virtualFS, env)`.
-- `env = { defaultOrg, codeReadonly, defines }`.
-- It loads **every** `.asm` in `virtualFS` as runtime (RuntimeManager) and links only the routines that are used.
-- Its header comment says "C# source snapshot … @ c9e8f53". `getAutomationStatus().languageProfiles.slang.compilerRevision` is `c9e8f5315d8d44a413368045d78439a4ec8da3fc`.
-- Today the SLANG tab passes `{ defaultOrg: 0x100, defines: { ENV_TYPE: 1 } }` and a VFS built in `ensureSlangToolchain()` from `slang_runtime/*.asm`, which is the LSX-Dodgers set.
-- Experiment: hubasic2sl output compiled with the current x1native runtime gave assembly identical to `slangc`, apart from label numbering and work-area order. slang confirmed this for 4 programs.
-
-**JS Z80 assembler**: `window.X1PenZ80Asm.assemble(source, predefinedSymbols)` returns `{ bytes, org, symbols, errors:[{line,msg}] }`.
-- It is two-pass and was written for X1Pen (first commit 8cfcbc0, 2026-03-17).
-- With the full x1native runtime (346 disk / 358 tape routines, checked by slang), exactly three gaps were found:
-  1. **Local label before any global label** (`.init_crtc:` at the top of `libx1native_base.asm`). `resolveLocalLabel()` deliberately reports `Local label "…" without preceding global label` (commit e777f95).
-  2. **Character literal `','`**. `splitOperands()` tracks only `"` strings, so `CP ','` is split on the comma (4–9 sites in `libx1_basic.asm`).
-  3. **`#if exists LABEL`**. The `#IF` preprocessor in `assemble()` evaluates conditions with `ppSymbols`, which holds only predefined symbols and EQUs, before labels are collected. `exists label` is therefore **always false**, silently producing 3 different bytes (2 sites in `libfloat.asm`, `#if exists return_CDE`).
-- Already supported: MACRO/ENDM, `ALIGN 256`, `#IF/#ELIF/#ELSE/#ENDIF`, `$+n` and namespaced labels.
-- An error in pass 2 drops that instruction's bytes but keeps pass-1 addresses, so one error cascades into later `JR`/`DJNZ` range errors. **Never use a binary that had any error, and compare only the first error.** `performRun` already aborts on `asmResult.errors.length > 0` and shows `errors[0]`.
-- `tests/z80asm_test.js` (343 cases, all passing) exists but is **not** in `npm test`.
-
-**Equivalence evidence**:
-- I built MUSIC with the JS toolchain and the current x1native runtime. It was byte-identical to slangbuild's `PROG.bin` (2,845 bytes) except for 86 words, all of which resolve to the same work-area symbol at a different offset.
-- slang booted JS-built HELLO/GRAPH/MUSIC on an emulator. The screens at frames 600 and 1500 and the PSG write sequence matched the slangbuild builds.
-- Work-area order is irrelevant. There is no `@works_align` and no cross-block `label+n`. The IM2 vectors are fixed at $FFE0–$FFFF, outside the work area, and `_CTCVEC` is just a pointer.
-
-**x1native constants that must be right**:
-- Assembler predefined `OS_TYPE=4`, `ENV_TYPE=1`. `libx1_base`/`libx1_psg` branch on `#IF NAME_SPACE_DEFAULT.OS_TYPE == 4`, so a wrong value **silently** produces LSX-Dodgers code.
-- Compiler defines `X1NATIVE=1`, `SLFS=1`.
-- `default_org` $1000, stack $0FFE (set by the runtime), work-area limit $FFE0.
-- **Never mix LSX-Dodgers and x1native runtime files in one VFS.** Same-named routines exist in both, e.g. `sGETKY` in `liblsx_base` and in `libx1native_input`.
-- The env file `runtime/env/x1native_slfs.env` lists 17 libraries: runtime, libfloat, libx1native_base/input/print, libx1_base/pcg/grp/magic/sgl/psg, libx1native_slfs, libcompress, libsoroban, libx1_arkos, libx1_banjo, libx1_basic. core.asm and opt.asm are also included the same way the LSX set includes them; confirm against the manifest.
-
-**SLFS D88 format** (SLANG-compiler `src/SLANGCompiler.SlfsPack`: D88Writer.cs, SlfsBootHeader.cs, SlfsSuperblock.cs, SlfsPackerLibrary.cs; checked against a slangbuild `PROG.d88`):
-- 2D geometry: 40 cylinders × 2 heads × 16 sectors × 256 bytes; total 348,848 bytes.
-- D88 header: name at +0, media type +0x1B = 0x00, size +0x1C. Each sector has a 16-byte header: C, H, R (1-based), N=1, sector count at +4, size at +0x0E.
-- Logical sector 0 holds the 32-byte Hu-BASIC IPL header:
-  - +00 flag $01;
-  - +01 name, 13 bytes, space-padded (default "SLFSMAIN");
-  - +0E "Sys"; +11 $20;
-  - +12 size, +14 load $1000, +16 exec $1000 (each LE16);
-  - +18 date, 5 zero bytes;
-  - +1D disk byte offset as LE24 (= 0x000300 for sector 3).
-- Sector 1 is the superblock: "SLFS", version 1, geometry, directory/data/save positions, volume name ("SLFS DEMO" in the reference). Sector 2 is the directory. The program starts at sector 3, followed by a 64-sector save area.
-- The output is deterministic (no timestamps), so byte-identical comparison with slangbuild is possible. The IPL reads only sector 0 and the program body.
-
-**Cold boot already exists** (the owner corrected my earlier claim that it didn't):
-- v0.9.0 "project disk" (`docs/RELEASE_NOTES_0.9.0.md`).
-- `html/x1pen.js` `performRun()`, in the `mountedProjectSelection` branch, calls `window.XmilControls.coldPowerOnProjectDisk(model, otherSlots)` in `html/pre.js` (line ~1219). That function:
-  1. sets the model (`_js_set_rom_type`), DIP and FM switch;
-  2. calls `_js_xmil_power_off()` then `_js_xmil_power_on()`;
-  3. verifies the other slots;
-  4. sets `isRunning` and updates the power button.
-  It throws `projectDiskFailure(...)` errors.
-- `XmilControls.mountTempDisk(arrayBuffer, 'drive0')` (`html/pre.js` ~4143) already mounts the LSX `PROG.COM` disk.
-- With no IPL ROM registered, the built-in IPL boots: `DEFROM` in `src/DEFFNT.CPP`, "X1EMU IPL version 1.01".
-- **Experiment**: on today's `dist/`, calling just `mountTempDisk(slangbuild PROG.d88)` then `coldPowerOnProjectDisk(model, {})` booted MUSIC and a 29 KB game on the built-in IPL. They printed and drew PCG graphics. Script: `…/hubasic-feasibility/experiment/boot-d88.mjs`; screenshots in `…/shots/`.
-
-**Program model / automation coupling**:
-- `getAutomationProgram()` returns `{basic, asm, slang, sourceMode, revision, revisionEpoch, instanceId}`.
-- `inferSourceMode(basic, asm, slang)` returns 'slang' if slang is non-empty, else 'asm' if basic is empty and asm is not, else 'basic+asm'.
-- `normalizeAutomationProgram()` rejects any other sourceMode. It **clears the non-selected sources** ("A complete program replaces all editor state so stale sources cannot change run mode").
-- Editor sources are kept in localStorage via `persistEditorSource(LS_EDITOR_*)` and `persistEditorSources(basic, asm, slang)`.
-- `getAutomationStatus()` reports `sourceMode`, `activeLanguageProfile` and `languageProfiles`.
-- The automation `validate()` at ~1850 compiles without running.
-- MCP (`mcp/x1pen-server.mjs` `normalizeProgramSnapshot`) **throws** on any sourceMode other than the three, and zod enums list the three. `mcp/x1pen-source-sync.mjs` `AUTHORING_SECTIONS` maps modes to sections. MCP 2.7.x is already published on npm.
-- Share builds `meta.sourceMode` in the share handler (~2900).
-
-**Tabs and build**:
-- `html/x1pen.html` line ~639 has `<button class="editor-tab" data-tab="basic|asm|slang">`, plus per-tab Import/Manual buttons.
-- Editors are created with `window.X1PenEditor.create(container, {language, …})`. Available languages: basic, asm, slang (CodeMirror 6, `src/x1pen_editor.js` → `html/x1pen_editor.bundle.js`).
-- `build.sh` copies assets into `dist/` in two blocks (around lines 100 and 195; e.g. `assets/slang_runtime/*.asm` → `dist/slang_runtime/`).
-- CSP in `html/x1pen.html` is `script-src 'self' 'wasm-unsafe-eval' blob:; connect-src 'self' blob:; worker-src blob:`.
-- `html/_headers` sets security headers; there is no wasm-specific header today.
+### X1Pen today (main 1b30cbd)
+- `html/x1pen.js:461` creates `hubasicEditor = window.X1PenEditor.create(#hubasic-editor-container, {language:'basic', onChange: markProgramChanged + persistEditorSource(LS_EDITOR_HUBASIC, text), onFocus/onBlur: pause/resume the emulator})`. The only methods X1Pen calls on it are `getValue()` and `setValue(text, {silent:true})` (lines 481, 1132, 1159, 1175, 1893, 2003, 2726, 3105, 3304).
+- Run: `performRun` → `performHuBasicRun(hubasicEditor.getValue())` → `X1PenHuBasic.build(source)`; `html/x1pen_hubasic.js:163` does `new TextEncoder().encode(sourceText)` and `Transpile(bytes, SOURCE_NAME, '{"inputEncoding":"utf8"}')`. Automation `validateHuBasicProgram(program)` calls `X1PenHuBasic.build(program.hubasic)`.
+- hubasic2sl accepts `inputEncoding` `auto|utf8|sjis|x1` (SLANG-compiler `src/SLANGCompiler.HuBasic/Web/HuWebApi.cs`, `Text/HuSource.cs`). The `x1` reader stops at $1A, splits lines on CR, LF and CRLF, and maps tab to space. It is covered by `HuBasicWebTests` in the bundle revision X1Pen ships (5abbffa).
+- Storage: `localStorage['x1pen_editor_hubasic']` holds the Unicode text. `persistEditorSources` writes all four sources.
+- Automation: `getAutomationProgram` returns `hubasic` as a string. `normalizeAutomationProgram` validates the strings. `setAutomationProgram` writes all editors with `setValue(..., {silent:true})`, persists them and bumps `automationRevision` (`markProgramChanged`).
+- Automation lock: `#editor-panel.inert = locked`, and `document.activeElement.blur()` runs when the lock starts.
+- Tabs: `setActiveEditorTab` toggles `.hidden` (visibility hidden, height 0) on the four containers. Startup selects the HuBASIC tab when it has content. There is a mobile tab `data-panel="hubasic"`.
+- Page CSP (`html/x1pen.html` meta): `default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; ... connect-src 'self' blob:` → a same-origin iframe is allowed (frame-src falls back to default-src).
+- **Production headers** (`html/_headers`, Cloudflare Pages) set `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'` on `/*`. **This blocks even a same-origin iframe.** The test server (`tests/x1pen_automation_test.mjs`, a plain Node static server on `dist/`) and the preview server do not apply `_headers`, so tests alone would not catch it.
+- `build.sh` copies `assets/hubasic` to `dist/hubasic` (two copy sections: build dir and `DIST_DIR`), appends `?v=<hash>` only to script tags of x1pen.html/xmillennium.html/url-builder.html. Pages serves other static files with revalidation by default.
+- Registered font ROM: `html/pre.js` keeps the ANK 8×8 ROM in localStorage `xmil_fnt_ank8` and writes it to the emulator VFS as `/FNT0808.X1` (`FONT_CFG.ank8`). Absent → the emulator uses its built-in font.
+- `THIRD_PARTY_LICENSES.md` has no Misaki/X1-compatible-font entry. It is linked from `licenses.html`.
+- HuBASIC is in CHANGELOG "Unreleased" (not yet deployed), so only preview users can have saved HuBASIC text.
 
 ## Change scope
 
-| File | Responsibility |
-|---|---|
-| `html/x1pen_z80asm.js` | Fix the 3 gaps. (a) `splitOperands`: treat `'…'` char literals like strings. (b) `#if exists`: while the `#IF` preprocessor walks the lines, record the label names defined on **earlier active lines** (bare and `NS.`-qualified) and let `exists` consult that set as well as the symbols. (Corrected during implementation: see the note under Cross-review反映.) (c) Local label before any global label: accept it when the caller passes `{ allowTopLevelLocalLabels: true }`, resolving it in an empty-global scope consistently for definitions and references. Without the option, today's error remains, so the ASM tab's behaviour does not change. |
-| `html/x1pen_hubasic.js` (new) | Lazy loader and pipeline for Hu-BASIC. It loads `hubasic/<sha>/manifest.json` and verifies file sha256s. It loads the wasm through `_framework/dotnet.js` and calls the exported transpile entry. It builds a **separate** x1native VFS from the manifest's runtime list and runs the JS compiler with the manifest's defines/defaultOrg. It runs the assembler with manifest `OS_TYPE`/`ENV_TYPE` and `allowTopLevelLocalLabels`. It checks `__WORKEND__ <= workLimit` and that the program fits from $1000. It returns `{ ok, sl, asm, bin, diagnostics, stage }`. Nothing x1native-specific is hard-coded: the values come from the manifest, with a JS-side whitelist check. |
-| `html/x1pen_slfs_disk.js` (new) | `buildSlfsD88(programBytes, { mainName, loadAddr, execAddr, volumeName })` returns an ArrayBuffer. It ports D88Writer, SlfsBootHeader, SlfsSuperblock and the no-asset path of SlfsPackerLibrary. The output must be byte-identical to slangbuild's. |
-| `html/pre.js` | Extract the machine part of `coldPowerOnProjectDisk` (model/DIP/FM, power off/on, `isRunning`, power button) into `coldPowerOn(model)` and export it on `XmilControls`. `coldPowerOnProjectDisk` keeps its slot checks and error codes and calls the shared function. |
-| `html/x1pen.js` | Add the Hu-BASIC editor and tab, localStorage key and restore. Add sourceMode `'hubasic'` (inference, normalize/clear rules, automation get/set/status/validate, `languageProfiles.hubasic` from the manifest SHA). Add the Run branch: pipeline → `mountTempDisk(drive0)` → `autoRestoreMounts(['drive0'])` → `XmilControls.coldPowerOn(model)`, with `lastRunDetails`/`lastUsedRuntime` set for runMode `'x1native'`. Share refuses Hu-BASIC. The status text names the mode. |
-| `html/x1pen.html` | Hu-BASIC tab button and editor container, and `<script>` tags for the two new files (or lazy-load like the SLANG compiler). |
-| `assets/hubasic/<sha>/…` (new, copied in) | The slang bundle: `manifest.json`, `_framework/*`, `runtime/*.asm`, and conformance fixtures (see D5). Copied by a script, never edited by hand. |
-| `scripts/import-hubasic-bundle.sh` (new) | Copy a bundle from a SLANG-compiler publish directory into `assets/hubasic/<sha>/`, verify the manifest sha256s, and remove the previous SHA directory. |
-| `build.sh` | Copy `assets/hubasic/` to `dist/hubasic/` in both copy blocks. |
-| `html/_headers` | `Cache-Control: public, max-age=31536000, immutable` for `/hubasic/*`. The directory is SHA-named, so this is safe. |
-| `package.json` | Add `test:z80asm` (existing suite) and `test:hubasic` to `npm test`. |
-| `tests/z80asm_test.js` | New cases for the 3 fixes, plus a check that the default still errors on top-level local labels. |
-| `tests/hubasic_toolchain_test.mjs` (new, Node) | Conformance tests against the bundle fixtures (see Test plan). |
-| `tests/x1pen_automation_test.mjs` | E2E for Hu-BASIC Run, Validate, setProgram clearing, persistence and Share refusal. |
-| `docs/X1PEN.md`, `CHANGELOG.md` (Unreleased) | User-facing notes and limits. |
+1. **`scripts/import-x1-basic-editor.mjs`** (new): `node scripts/import-x1-basic-editor.mjs <checkout-dir> [--expect <40-hex>]`.
+   - Requires a git checkout with a clean worktree (`git status --porcelain` empty). Reads `HEAD` (and checks it equals `--expect` when given).
+   - Copies the browser file list above into `assets/x1basic/` with the same relative layout (`src/…`, `assets/…`, `LICENSE`, `THIRD-PARTY-NOTICES.md`). Removes stale files there first.
+   - **Inserts exactly one line** `<script src="x1pen-host.js"></script>` immediately before `<script src="host.js"></script>` in `src/index.html`, and fails if that anchor is not found exactly once.
+   - Writes `assets/x1basic/source.json` = `{repository, commit, files: {path: {sha256, size}}, injected: {path: 'src/index.html', line}}`. The hashes are of the upstream bytes, so `index.html` is hashed before the insertion.
+2. **`assets/x1basic/`** (generated, committed): the copied files + `source.json`. Never edited by hand.
+3. **`html/x1pen_hubasic_text.js`** (new, UMD-style like the other `x1pen_*.js`; global `X1PenHuBasicText`; needs `X1` from `codec.js`):
+   - `toText(bytes)`: `X1.clipboardText(bytes)` with `\\` written as `¥`. $5C is ¥ on the X1, and `¥` reads back as $5C. Only `\x..`, `\{..}` and `\\` are escapes.
+   - `fromText(text)`: `X1.parseEscapes(text, '\r\n')`. Strict: it throws the codec error for characters the X1 cannot show.
+   - `fromLegacyText(text)`: per character, `encodeInput`, falling back to `?`. **It never interprets escapes**: a literal `\x41`, `\{heart}` or `\\` stays as those characters, with `\` as $5C. Returns `{bytes, replaced}`. Used only to migrate text saved by the plain tab.
+4. **`html/x1pen_x1basic_host.js`** (new; published as `x1basic/src/x1pen-host.js`): runs inside the iframe and synchronously sets `window.X1Host`, delegating to the parent bridge `window.parent.X1PenHuBasicEditorBridge` (same origin):
+   - `onLoaded(cb)`: registers `cb` with the bridge, which calls it synchronously with the current program `{name, bytes}`.
+   - `contentChanged({bytes})`: forwards to the bridge.
+   - `onCommand(cb)`: keeps `cb`, and installs a keydown handler on the iframe document that mirrors the Electron accelerators. It calls `preventDefault` so Ctrl+S/O/N/F do not reach the browser.
+   - `open()`: an `<input type=file>` in the iframe, up to 2 MiB → `{name, bytes}`.
+   - `save({bytes, saveAs})`: downloads the bytes as a file. The name is the last opened name or `PROGRAM.BAS`; `saveAs` asks for a name. Returns true. The program itself is already kept by X1Pen; this is an export.
+   - `confirmDirty()`: `confirm('今の HuBASIC プログラムを置き換えます。よろしいですか？')` → `'discard'` or `'cancel'`. X1Pen always keeps the current program, so "save first" does not apply.
+   - `state`, `newDocument`, `close`: no-ops.
+   - `currentFont()`: if the parent emulator VFS has `/FNT0808.X1` (2048 bytes) → `{name: 'X1Pen に登録したフォント', data: X1FontBuilder.buildFontFromRom(Uint8Array.from(rom))}`; else null (the built-in font).
+   - `chooseFont()`: null. Fonts are registered in X1Pen's settings, and the browser UI has no font-load button.
+   - `resetFont()`: true.
+   - `pcgFont(...)`: `X1FontBuilder.buildFont(base, entries, order, layout)`. `base` is the registered ROM's bitmap or `assets/x1-font.json`. The parent fetches that file, because the iframe CSP has `connect-src 'none'`.
+   - Focus: iframe window `focus` → pause the emulator, `blur` → resume (the same callbacks as CodeMirror's `onFocus`/`onBlur`).
+5. **`html/x1pen.js`**: replace the CodeMirror `hubasicEditor` with an adapter object that has the same `getValue()` / `setValue(text, {silent})`, plus `getBytes()`.
+   - The adapter holds `bytes` (the truth) even before the iframe exists. The iframe is created on the first activation of the HuBASIC tab, `src = x1basic/src/index.html?v=<build hash>`.
+   - `getValue()` = `toText(bytes)`.
+   - `setValue(text)` = `fromText` (throws before changing anything); if the iframe is ready, it hands the bytes to the registered `onLoaded` callback and suppresses the echo.
+   - Bridge `contentChanged(bytes)`: equal to the current bytes → ignore; else store a copy, then `markProgramChanged()` and `persistEditorSource(LS_EDITOR_HUBASIC, toText(bytes))`.
+   - **Storage is versioned (R1-F1).** The new tab reads and writes only a new key, `x1pen_editor_hubasic_x1` (format: `toText` text; `LS_EDITOR_HUBASIC` now points to it).
+   - The old key `x1pen_editor_hubasic` (plain Unicode text from the CodeMirror tab) is **only read, never written or removed**, so it stays as the backup of the original.
+   - Restore at startup:
+     - (a) the new key exists → `fromText(value)`. If that fails (only possible after a manual edit), start empty, leave the value untouched and show the error in the status. The next edit overwrites it.
+     - (b) else the old key exists → migrate once with `fromLegacyText`, write the result to the new key immediately, and show a status message when `replaced > 0` (the original stays under the old key).
+     - (c) else empty.
+   - Because (a) wins on the next load, the migration runs exactly once and never parses legacy text as escapes.
+   - `normalizeAutomationProgram`: validates `hubasic` with `fromText`. An unrepresentable character → `TypeError` (`hubasic: X1で表現できない文字があります：…`) and no editor changes.
+   - `performHuBasicRun` and `validateHuBasicProgram` pass `hubasicEditor.getBytes()` (validate converts `program.hubasic` with `fromText`).
+6. **`html/x1pen_hubasic.js`**: `build(source)` accepts a `Uint8Array` → `inputEncoding: 'x1'`. A string keeps the current `utf8` path (unchanged behavior for callers that pass text).
+7. **`html/x1pen.html`**:
+   - Load `x1basic/src/codec.js` and `x1pen_hubasic_text.js` before `x1pen.js`.
+   - CSS so that an iframe fills `#hubasic-editor-container` (no border, 100%×100%).
+8. **`html/_headers`**: allow same-origin framing only for `/x1basic/*`:
+   ```
+   /x1basic/*
+     ! X-Frame-Options
+     ! Content-Security-Policy
+     Content-Security-Policy: frame-ancestors 'self'
+   ```
+   Every other path keeps `DENY` / `'none'`. Verified locally with `wrangler pages dev dist` (already in node_modules; local only, no Cloudflare account). Fallback if Pages cannot detach and set in one rule: change the global rule to `X-Frame-Options: SAMEORIGIN` + `frame-ancestors 'self'` (same-origin framing only). That is reported back before choosing it.
+9. **`build.sh`** (both copy sections): `rm -rf x1basic; cp -R assets/x1basic → x1basic` and copy `html/x1pen_x1basic_host.js` → `x1basic/src/x1pen-host.js`. Also copy `html/x1pen_hubasic_text.js`. Fail the build if `assets/x1basic/source.json` is missing.
+10. **`THIRD_PARTY_LICENSES.md`**: new section "X1 BASIC Editor (MIT)" and "X1 互換フォント / 美咲フォント", with the source repo, commit, the file list and the notice. Point to `x1basic/assets/licenses/misaki.txt` and `x1basic/THIRD-PARTY-NOTICES.md`, which are published as is.
+11. **Docs/CHANGELOG**: `docs/X1PEN.md` HuBASIC section (editor, bytes, `¥`/`\{name}`/`\xHH` in the automation string, file open/export, registered font). CHANGELOG Unreleased entry.
+12. **Tests** (below).
 
 ## Implementation steps
 
-1. **Assembler fixes** (no dependency on the bundle):
-   - (a) Char literals in `splitOperands`. Make sure `''''` and `'"'` still work, and add a test for each.
-   - (b) `#if exists` sees labels defined on earlier active lines (sequential). This is the rule `libfloat.asm` depends on: `f24add` and `f24mul` each contain `#if exists return_CDE / jp … / #else … return_CDE: … #endif`, so the first routine defines the label and the second jumps to it. A "defined anywhere" rule would make both true and leave `return_CDE` undefined. Verified against AILZ80ASM with the fixture bins in step 6.
-   - (c) `allowTopLevelLocalLabels` option.
-   - Add z80asm cases and wire `test:z80asm` into `npm test`.
-2. **SLFS D88 builder**: write `html/x1pen_slfs_disk.js` as a UMD/IIFE that is usable from Node tests like `x1pen_z80asm.js`. Unit-test the header bytes and the total size.
-3. **Cold power-on extraction** in `pre.js`. Project-disk behaviour must stay identical: same error codes, and the slot checks still run after power-on.
-4. **Bundle contract and import script**. Agree the manifest schema with slang via Secretary (a draft has already been sent):
-   - `slangCompilerSha` and `hubasic2slVersion`;
-   - `files[{path, sha256}]`;
-   - `env{ name:"x1native_slfs", libraries[], defines{X1NATIVE,SLFS}, defaultOrg, osType, envType, workLimit, diskMainName, volumeName }`;
-   - `entry{ module, export }`;
-   - optional `abi` (`BAS_ABI_n`);
-   - `fixtures[]`.
-   Write `scripts/import-hubasic-bundle.sh`.
-5. **`html/x1pen_hubasic.js`**. Load the manifest, check it against the whitelist (`osType===4`, `envType===1`, `defines.X1NATIVE===1`, `defines.SLFS===1`, `defaultOrg===0x1000`, `workLimit<=0xFFE0`; otherwise refuse) and verify sha256 with `crypto.subtle`. Then:
-   - Load the wasm on first use only. Transpile UTF-8 bytes of the editor text, with `input-encoding utf8`.
-   - Build the x1native VFS from `env.libraries` only.
-   - Compile, then assemble with `allowTopLevelLocalLabels`, stopping on the **first** error.
-   - Check size: `__WORKEND__` from the assembler symbols must be `<= workLimit`, and the bin must not run past it.
-   - Return structured diagnostics (stage `transpile|compile|assemble|size`; HB code, line/column and BASIC line when the converter gives them).
-6. **Conformance test (Node)**. For each fixture (HELLO/GRAPH/MUSIC, plus a required FLOAT constant-expression program per D4; `.BAS` + slangbuild `.SL`/`.bin`/`.d88` from the bundle SHA):
-   - run the JS compile + assemble on the fixture `.SL` with the bundle runtime;
-   - require **zero errors**;
-   - require the bin to equal the reference except for words that resolve, through the reference LST/symbols and the JS symbol table, to the same work-area symbol (the method from `symcheck.py`);
-   - require `buildSlfsD88(referenceBin)` to be **byte-identical** to the reference `.d88`.
-   The wasm transpile itself is covered in E2E, because Node loading of the browser-wasm build is not guaranteed.
-7. **UI and Run branch in `x1pen.js`/`x1pen.html`**: tab, editor (CodeMirror `basic` highlighting for now), persistence, sourceMode `'hubasic'`, automation get/set/validate/status, Run branch, Share refusal and status messages.
-8. **build.sh, `_headers`, docs, CHANGELOG**.
-9. **Import the real bundle** once slang's PR is merged. Run `./build.sh`, the full `npm test`, and a manual check over the SSH tunnel preview.
-10. Implementation review (codex), fixes, one PR. The owner merges. No deploy.
+1. Write the import script; clone the editor at 1539e3d in the scratch dir and import; commit `assets/x1basic/` with the script.
+2. `x1pen_hubasic_text.js` + node tests.
+3. `x1pen_hubasic.js` byte input.
+4. Host adapter + parent adapter/bridge in `x1pen.js`, HTML/CSS, build.sh.
+5. `_headers` + local `wrangler pages dev` check (framing allowed for `/x1basic/*`; `/x1pen.html` and others still `DENY`).
+6. Licenses, docs, CHANGELOG.
+7. Full `npm test` + the new E2E tests; manual check through the preview server.
 
 ## Edge cases and test plan
 
-**Failure handling (no partial run)**:
-- Any stage failure stops Run before the disk is touched. Shown in the status line: `Hu-BASIC: <stage>: <first message>`. `lastRunDetails.code` is one of `HUBASIC_TRANSPILE_FAILED`, `HUBASIC_COMPILE_FAILED`, `HUBASIC_ASSEMBLE_FAILED`, `HUBASIC_TOO_LARGE` or `HUBASIC_TOOLCHAIN_UNAVAILABLE`, plus the stage.
-- Bundle missing, sha256 mismatch, manifest outside the whitelist, or wasm fails to start under CSP: `HUBASIC_TOOLCHAIN_UNAVAILABLE`. Other tabs keep working. The loader is lazy, so non-Hu-BASIC users never download the 1.7 MB.
-- Converter warnings do not stop Run. They are shown alongside the run status.
-- `__WORKEND__` above the limit, or the bin overlapping $FFE0: `HUBASIC_TOO_LARGE`, with the sizes shown.
+Node (`tests/x1basic_editor_test.mjs`, added to `npm test`):
+- `source.json`: every listed file exists in `assets/x1basic/` with the recorded SHA-256 and size. `src/index.html` matches after removing the single injected line. The injected line sits right before `host.js`. No unlisted files. The commit is 40-hex.
+- `toText`/`fromText` round trip for all 256 bytes (with `41 b 42 0D 0A`); $5C → `¥`; `fromText('¥')` = $5C; `fromText('\\')` (lone backslash) = $5C; kana, hiragana and `♥` map to X1 codes; `漢` throws; `fromLegacyText('A漢')` = `41 3F`, replaced 1.
+- `_headers`: the `/x1basic/*` rule exists, and the global rule still has DENY / `'none'`.
+- The import script refuses a dirty checkout, a mismatched `--expect` and a missing anchor (run against a temp git repo built in the test).
 
-**Failures after the disk is touched** (R1-F1). The Run sequence after a successful build is: (1) `mountTempDisk(d88,'drive0')`, (2) `autoRestoreMounts(['drive0'])`, (3) `XmilControls.coldPowerOn(model)`. Rules:
-- Each step is awaited inside one try/catch in the Hu-BASIC branch. `lastUsedRuntime`, `lastRunWasShared` and a success `lastRunDetails` are assigned **only after step 3 returns**. A failure never records a successful run.
-- (1) fails: FDD0 may be half-switched. Call `autoRestoreMounts([])` as best effort, which re-applies every saved library mount including FDD0's previous one. Report `HUBASIC_MOUNT_FAILED` with `{ restored: true|false }`. The emulator is not powered off; it stays in whatever state it was before Run.
-- (2) fails: FDD0 holds the temporary disk and other slots may be stale. Do not power on. Call `autoRestoreMounts([])` as best effort and report `HUBASIC_MOUNT_RESTORE_FAILED` with `{ restored }`.
-- (3) fails or throws partway: call `module._js_xmil_stop()` if present, set `isRunning=false` and update the power button. This mirrors the existing slot-mismatch path in `coldPowerOnProjectDisk`, so the machine is in a defined **stopped** state. Report `HUBASIC_BOOT_FAILED`. The temporary disk stays in FDD0 so the user can inspect or retry, and a later normal Run re-mounts as usual.
-- In every case the run-admission token is released through the existing `performRun` exit path, so the next Run is accepted.
-- Tests (Playwright): override `XmilControls.mountTempDisk`, `autoRestoreMounts` and `coldPowerOn` in the page to throw, one at a time, then assert: the error code and status text; no success `lastRunDetails`; `lastUsedRuntime` unchanged; a pre-mounted FDD1 library disk is still mounted afterwards; for case (3), the emulator reports not running; and a following Run with the overrides removed succeeds.
+E2E (`tests/x1pen_automation_test.mjs`, existing Playwright harness; add `.ttf` to its MIME map):
+- Existing HuBASIC tests keep passing: setProgram → validate → run → text VRAM, conversion error lines, failure states. The persistence test now checks the new key `x1pen_editor_hubasic_x1` holds the program text.
+- Editor shows the program: after `setProgram`, the HuBASIC tab iframe's `#editor` value equals the program (mirror text).
+- Typing in the iframe (frame locator, `keyboard.type`) updates `getProgram().hubasic`, bumps the revision, and persists to localStorage.
+- Bytes reach the converter: `setProgram('10 PRINT "\\{heart}ｱ¥"\n…')`, Run, and text VRAM contains `E3 B1 5C`. This proves the x1 path: under the old utf8 path the escape `\{heart}` would have reached hubasic2sl as eight literal characters.
+- `setProgram` with `漢` → rejected with the X1 error; editor and revision unchanged.
+- Legacy migration (R1-F1):
+  - reload with only the old key = `'10 REM 漢\\x41\\{heart}\\\\'` (literal backslashes) → the new key holds `toText` of `10 REM ?` followed by the literal bytes `5C 78 34 31 5C 7B …` (no escape interpreted);
+  - the old key is unchanged, and the status names one replaced character;
+  - a second reload reads the new key, so the status shows no migration message and the program is the same;
+  - after an edit, only the new key changes;
+  - with both keys present, the new key wins.
+- The automation lock makes the panel inert: focus cannot enter the iframe while locked.
+- `pcgFont` through the host returns a non-empty TTF (called inside the iframe).
 
-**State**:
-- FDD0 gets a temporary disk, the same as an LSX Run today. FDD1 and other slots are restored with `autoRestoreMounts(['drive0'])`.
-- A mounted library **project disk** in FDD0 is not modified. The Hu-BASIC Run replaces the FDD0 mount with the temporary disk, the same way an LSX Run does when no project disk is selected. Open decision D3 covers whether to refuse instead.
-- Cold boot clears RAM/VRAM/PCG. The status says so on the first Hu-BASIC Run, matching the project-disk confirmation wording.
-- Run re-entrancy: the Hu-BASIC branch lives inside `performRun(token)` and keeps the existing run-admission token checks. A second Run during the async wasm load is rejected like any pending Run (`isRunSetupPending`).
+Manual (preview server via ssh tunnel): IME kana input, palette insert, open a real `.bas`, export, registered font ROM, Ctrl+S not opening the browser's save dialog, emulator pauses while typing, narrow window.
 
-**Source mode**:
-- `setProgram({sourceMode:'slang', …})` clears the hubasic source and `setProgram({sourceMode:'hubasic', hubasic})` clears the others, preserving the "stale sources cannot change run mode" rule.
-- Programs without a `hubasic` field behave as today.
-- Inference order is in D1.
+Failure behavior:
+- The editor iframe fails to load: the bytes stay in the adapter. Run, automation and storage still work, and the status shows the load error.
+- `setProgram` with bad text: rejected, nothing changes.
+- Import script errors: no partial copy is left (copy into a temp dir, then rename).
 
-**Rollback**:
-- Everything is additive. Removing the tab and Run branch restores today's behaviour.
-- The assembler fixes are unit-tested, and the top-level-local-label change sits behind an option.
-- The bundle sits in a SHA directory, so reverting means re-importing the previous SHA.
-
-**Tests**:
-- `node tests/z80asm_test.js` (now in `npm test`): `CP ','` = FE 2C; `LD A,','`; `DB ','`; quotes inside char literals; `#if exists L` true for both a later and an earlier label `L`; `#if exists` false for an undefined name; namespaced `exists`; a top-level local label is an error by default and resolves with the option; existing 343 cases still pass.
-- `tests/hubasic_toolchain_test.mjs`: the per-fixture conformance described in step 6; the D88 header bytes and size; a manifest whitelist rejection case (OS_TYPE 0 refused); a VFS-isolation check that no `liblsx_*` file is present in the x1native VFS; and assembling with the wrong OS_TYPE yields different bytes, proving the guard matters.
-- `tests/x1pen_automation_test.mjs` (Playwright, real `dist/`):
-  1. `setProgram({sourceMode:'hubasic', hubasic:'10 PRINT "HELLO"\n20 GOTO 20'})` → `run()` → the screen shows HELLO within N frames (`captureScreen` + text VRAM read through the debugger API);
-  2. a syntax error gives `HUBASIC_TRANSPILE_FAILED` with the BASIC line;
-  3. `validate()` on Hu-BASIC returns ok without running;
-  4. setProgram to SLANG clears Hu-BASIC, and the reverse;
-  5. the Hu-BASIC source persists across reload;
-  6. Share refuses Hu-BASIC;
-  7. existing SLANG and BASIC tests are unchanged and still pass.
-- Manual check: the MUSIC sample plays, with sound, over the SSH tunnel preview; and the fixture programs from the slang lab (game) boot on both the built-in IPL and the X1 model.
+Rollback: revert the PR. The old CodeMirror tab reads only the old key, which the new tab never writes, so it gets back the text as it was before the first migration. Edits made in the new tab are not visible to the old tab: they stay in the new key. Acceptable for a revert of an unreleased feature, and stated in the PR.
 
 ## Open decisions
 
-- **D1 — which source runs when several tabs have content.** Today it is content-based: SLANG wins over BASIC. **Recommendation:** put `hubasic` first (`hubasic > slang > asm/basic`) and show the active mode in the status line. Automation `setProgram` already clears the other sources, so AI-driven use is unambiguous. Alternative: Run follows the active tab. Rejected because it would change today's BASIC/SLANG behaviour.
-- **D2 — MCP: decided by the owner (2026-10-27).** Step 1 is page-side only. MCP (x1pen-mcp) support comes after everything else ("ひととおり全部終わってから落ち着いて"); the npm version bump stays on hold. **Known limit to document** (`docs/X1PEN.md`, `docs/X1PEN_MCP.md`, CHANGELOG): while the active source is Hu-BASIC, the published x1pen-mcp 2.7.x fails closed on `getProgram` with `invalid source mode`; other modes are unaffected.
-- **D3 — FDD0 holding a library or external disk during a Hu-BASIC Run (changed during implementation review R1).** Refuse with `HUBASIC_FDD0_IN_USE` and ask the user to eject it. `mountTempDisk` ejects such a disk and clears its saved mount, so "temporary replacement" would actually unmount the user's disk for good. Hu-BASIC runs only when FDD0 is empty or holds X1Pen's temporary disk; other drives are never touched.
-- **D4 — FLOAT constant folding (C# fix 99a8109), decided by R1-F2.** A FLOAT constant-expression fixture (e.g. `A=1.5*2+3/4`, `PRINT 2.5-1`, exercised through hubasic2sl output) is part of the **required** conformance suite, and divergence is **blocking** for this PR. If it diverges, port 99a8109 into `html/x1pen_slang_compiler.js` in this PR. That port also changes the existing SLANG tab, so the existing SLANG automation tests plus a new SLANG FLOAT-constant test must pass. Shipping Hu-BASIC with a known miscompilation is not allowed. If no divergence appears, the fixture stays as a guard and nothing is ported.
-- **D5 — bundle contents (requested from slang).** The manifest schema above, plus conformance fixtures (HELLO/GRAPH/MUSIC `.BAS` + slangbuild `.SL`, `.bin`, `.LST` or symbol map, `.d88`) built at the same SHA, plus the optional `BAS_ABI_n` marker. If slang cannot ship fixtures, generate them once with slangbuild on dunedin and commit them under `tests/fixtures/hubasic/<sha>/`.
-- **D6 — character input.** Step 1 sends UTF-8 (`input-encoding utf8`). Half-width kana works. X1 graphic characters need the charmap mapping from the later editor step and are rejected with a converter error.
-- **D7 — dependency on slang's PR.** This PR cannot pass step 9 until the bundle exists. Steps 1–3 and the test scaffolding go first. If slang's PR changes the entry signature, adapt `x1pen_hubasic.js` only.
+- **D1 (_headers)**: per-path detach for `/x1basic/*` (planned) vs. making the global rule same-origin. Decided by the local wrangler check; if per-path does not work, report before switching to the global rule.
+- **D2 (¥)**: the automation string writes $5C as `¥` (planned; the codec's own clipboard form uses `\\`). Lone `\` still reads as $5C.
+- **D3 (save button)**: "保存" downloads an export file (planned). The program itself is kept by X1Pen automatically.
+- Known limits, written in the docs:
+  - an outside `setProgram` resets undo and puts the caret at the top;
+  - the newline kind is normalized to CRLF;
+  - on phones the editor's side panel is wide;
+  - a font ROM registered while the tab is open is used after a reload.
 
 ## Cross-review反映
 
 ### Round 1 — codex / gpt-6-astra/high
 - Verdict: NEEDS_WORK (model=NEEDS_WORK; policy=strict; host_override=no)
-- Implementation: READY AFTER FIXES (R1-F1, R1-F2) (next_action=fix_then_implement; reviewer=READY_AFTER_FIXES)
-- [adopted][medium] R1-F1 Define recovery for failures after the disk is replaced (mount, restore, cold boot) → Edge cases: new "Failures after the disk is touched" (per-step handling, codes HUBASIC_MOUNT_FAILED / HUBASIC_MOUNT_RESTORE_FAILED / HUBASIC_BOOT_FAILED, success recorded only after boot, defined stopped state, injected-failure Playwright tests)
-- [adopted][medium] R1-F2 Make FLOAT conformance divergence blocking → Open decisions D4 rewritten as decided (FLOAT fixture required; divergence means porting 99a8109 in this PR, with SLANG regression tests)
-
-### Implementation note (not a review round) — `#if exists` semantics corrected
-- The plan said "labels defined anywhere, including inactive branches". Reading `libfloat.asm` shows that rule would make both `#if exists return_CDE` sites true and leave the label undefined. AILZ80ASM's behaviour is sequential: true only for labels defined on earlier active lines.
-- Implemented the sequential rule. Evidence: HELLO/GRAPH/MUSIC built by the current hubasic2sl + slangbuild (SLANG-compiler cd86f11, prebuilt Release tools) against the JS compiler + fixed JS assembler: same sizes (5364/8250/2845 bytes), every differing word resolves to the same work-area symbol (98/98/86), and `__WORKEND__` equals hubasic2sl's figure ($349C/$4302/$2845).
-
-### Implementation review R1 changes (codex, 2026-10-27)
-- R1-F2: FDD0 is no longer replaced when it holds a library or external disk (D3 above), so a failed mount never has a user disk to put back. `HUBASIC_MOUNT_FAILED` is tested by failing `js_insert_disk` inside the real `mountTempDisk`.
-- R1-F3: the Hu-BASIC branch no longer calls `autoRestoreMounts` (it swallows per-slot errors, and cold power-on keeps the other drives, as the project-disk path already relies on). Instead, after power-on it checks that every other slot's key and VFS path are unchanged; a change stops the machine and reports `HUBASIC_OTHER_SLOT_CHANGED`. Tested by changing FDD1 inside the real power-on. `HUBASIC_MOUNT_RESTORE_FAILED` no longer exists.
-- R1-F1: the bundle and generated fixtures are imported from SLANG-compiler main after slang's PR merges; `build.sh` then fails when `assets/hubasic/current.json` or its revision directory is missing.
+- Implementation: READY AFTER FIXES (R1-F1) (next_action=fix_then_implement; reviewer=READY_AFTER_FIXES)
+- [adopted][high] R1-F1 Legacy restoration silently interprets existing text as escapes → Change scope 3 (`fromLegacyText` never interprets escapes) and 5 (versioned key `x1pen_editor_hubasic_x1`; the old key is read once, never written; migration only when the new key is absent), test plan (literal `\x41` / `\{heart}` / `\\` in legacy text, backup preserved, second reload, new key wins), rollback.
+- Also checked locally after writing the plan (not a finding): `wrangler pages dev` (local, compatibility date 2026-08-01) applies the `/x1basic/*` rule as planned: no `X-Frame-Options` and `frame-ancestors 'self'` there; `/x1pen.html` keeps `DENY` / `'none'`. Pages redirects `/x1basic/src/index.html?v=…` to `/x1basic/src/?v=…` (308, query kept), so the iframe uses `x1basic/src/index.html` and works on both servers. D1 is settled: per-path rule.
