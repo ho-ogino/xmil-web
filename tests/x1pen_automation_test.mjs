@@ -4242,6 +4242,15 @@ test('re-sharing a HuBASIC link whose first Run failed keeps the sender\'s model
     assert.equal(posts.length, 1);
     assert.equal(posts[0].meta.model, 2);
     assert.deepEqual(posts[0].meta.hubasicOptions, { wait: 'frame:2', stringLen: 40 });
+    // A MODEL chosen in the tab wins over the sender's
+    await sharePage.evaluate(() => {
+      const radio = document.querySelector('input[name="ec-model"][value="3"]');
+      radio.checked = true;
+      radio.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    assert.equal((await shareFrom(sharePage)).status, 'Shared!');
+    assert.equal(posts.length, 2);
+    assert.equal(posts[1].meta.model, 3);
   } finally {
     await context.close();
   }

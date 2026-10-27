@@ -366,6 +366,7 @@ window.__X1PEN_MODE = true;
     function setModelAndClearShareState(model) {
         if (window.XmilControls) window.XmilControls.setRomType(model);
         lastRunWasShared = false;
+        openedHuBasicShareModel = null;     // a MODEL chosen here wins over the opened share's
     }
 
     var LS_EDITOR_BASIC = 'x1pen_editor';
