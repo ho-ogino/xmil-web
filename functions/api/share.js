@@ -48,10 +48,15 @@ export async function onRequestPost({ request, env }) {
         return new Response(JSON.stringify({ error: 'Invalid gzip or JSON' }), { status: 400 });
     }
 
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return new Response(JSON.stringify({ error: 'No code' }), { status: 400 });
+    }
     var hasBasic = parsed.basic && typeof parsed.basic === 'string';
     var hasAsm = parsed.asm && typeof parsed.asm === 'string';
     var hasSlang = parsed.slang && typeof parsed.slang === 'string';
-    if (!hasBasic && !hasAsm && !hasSlang) {
+    // HuBASIC: the program's X1 bytes in base64 (the client checks them when it opens the share)
+    var hasHubasic = parsed.hubasicX1 && typeof parsed.hubasicX1 === 'string';
+    if (!hasBasic && !hasAsm && !hasSlang && !hasHubasic) {
         return new Response(JSON.stringify({ error: 'No code' }), { status: 400 });
     }
 

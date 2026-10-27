@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 import { chromium } from 'playwright';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -3584,21 +3585,6 @@ test('the HuBASIC editor follows the automation lock and builds PCG fonts', { ti
   assert.deepEqual(result.ttfTag, [0, 1, 0, 0]);
 });
 
-test('Share refuses HuBASIC programs', { timeout: 30_000 }, async () => {
-  await setHuBasicProgram('10 PRINT "NO SHARE"');
-  const status = await page.evaluate(async () => {
-    document.getElementById('btn-share').click();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    return document.getElementById('x1pen-status').textContent;
-  });
-  assert.equal(status, 'HuBASIC programs cannot be shared yet');
-  await page.evaluate(async () => {
-    const api = window.X1PenAutomation;
-    const current = api.getProgram();
-    await api.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT 1', asm: '' }, current.revision, current.revisionEpoch);
-  });
-});
-
 // Records the options X1Pen passes to the HuBASIC converter, with the SLANG it generated
 async function recordHuBasicBuilds(target = page) {
   await target.evaluate(async () => {
@@ -3904,6 +3890,327 @@ test('options changed while a HuBASIC Run or validation waits for the toolchain 
     assert.match(await slowPage.evaluate(() => window.X1PenAutomation.getProgram().hubasic), /30 PRINT "EDITED"/);
   } finally {
     if (gate) gate.release();
+    await context.close();
+  }
+});
+
+// ── HuBASIC Share ──
+
+// Captures Share POSTs in a context: each is answered with the next id and its payload kept
+async function captureSharePosts(context, ids) {
+  const posts = [];
+  await context.route('**/api/share', async (route) => {
+    const request = route.request();
+    const boundary = /boundary=(.+)$/.exec(request.headers()['content-type'])[1];
+    const body = request.postDataBuffer();
+    const start = body.indexOf('\r\n\r\n', body.indexOf('name="data"')) + 4;
+    const end = body.indexOf(Buffer.from(`\r\n--${boundary}`), start);
+    posts.push(JSON.parse(gunzipSync(body.subarray(start, end)).toString('utf8')));
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: ids[posts.length - 1] }) });
+  });
+  return posts;
+}
+
+async function shareFrom(target) {
+  return target.evaluate(async () => {
+    // Clear the status first: the Share sets its own only after hashing the payload
+    document.getElementById('x1pen-status').textContent = '';
+    document.getElementById('btn-share').click();
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const status = document.getElementById('x1pen-status').textContent;
+      if (status === 'Shared!' || status === 'Same content - URL reused' || /^Share failed|Nothing to share|cannot/.test(status)) {
+        const dialog = document.getElementById('share-dialog');
+        if (!dialog.classList.contains('hidden')) document.getElementById('share-dialog-close').click();
+        return { status, url: document.getElementById('share-dialog-url').value };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error('Share did not finish');
+  });
+}
+
+// Opens a share in a new tab of the context, recording the options its HuBASIC builds get
+async function openShare(context, id) {
+  const sharePage = await context.newPage();
+  await sharePage.addInitScript(() => {
+    window.__huBuilds = [];
+    let hu;
+    Object.defineProperty(window, 'X1PenHuBasic', {
+      configurable: true,
+      get: () => hu,
+      set: (value) => {
+        const build = value.build;
+        value.build = async (source, options) => {
+          window.__huBuilds.push(JSON.parse(JSON.stringify(options || {})));
+          return build(source, options);
+        };
+        hu = value;
+      },
+    });
+  });
+  await sharePage.goto(`${baseUrl}/x1pen.html?id=${id}`);
+  await sharePage.evaluate(() => window.X1PenAutomation.ready());
+  await sharePage.waitForFunction(() => {
+    const status = document.getElementById('x1pen-status').textContent;
+    return status !== 'Loading shared code...' && !/^HuBASIC: (loading|converting)/.test(status) &&
+      !window.X1PenAutomation.getStatus().capabilities.debugger.runPending;
+  }, null, { timeout: 60_000 });
+  return sharePage;
+}
+
+function shareState(target) {
+  return target.evaluate(() => ({
+    status: document.getElementById('x1pen-status').textContent,
+    program: window.X1PenAutomation.getProgram(),
+    options: window.X1PenAutomation.getHuBasicOptions(),
+    builds: window.__huBuilds,
+    model: window.Module._js_get_rom_type(),
+    activeTab: document.querySelector('.editor-tab.active').dataset.tab,
+    savedOptions: localStorage.getItem('x1pen_hubasic_options'),
+  }));
+}
+
+const hubasicBytesOf = (target) => target.evaluate(() =>
+  Array.from(window.X1PenHuBasicText.fromText(window.X1PenAutomation.getProgram().hubasic)));
+
+test('a HuBASIC program is shared and opened as its exact X1 bytes, with its options', { timeout: 180_000 }, async () => {
+  const context = await browser.newContext();
+  const ownerPage = await context.newPage();
+  try {
+    await ownerPage.goto(`${baseUrl}/x1pen.html`);
+    await ownerPage.evaluate(() => window.X1PenAutomation.ready());
+    const posts = await captureSharePosts(context, ['HuBasic1', 'HuBasic2', 'HuBasic3']);
+
+    // Kana, ¥ ($5C), a graphic symbol, $00, $FF, and a lone CR and LF that the text form would
+    // turn into CRLF: the share carries the bytes, so they come back as they were
+    const odd = [0x31, 0x30, 0x20, 0x52, 0x45, 0x4D, 0x20, 0xB1, 0x5C, 0xE3, 0x00, 0xFF, 0x0D, 0x41, 0x0A, 0x42, 0x0D, 0x0A];
+    await ownerPage.evaluate(async (bytes) => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      // setProgram takes text, so the odd bytes come in the way the editor hands over its bytes
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 REM' }, current.revision, current.revisionEpoch);
+      window.X1PenHuBasicEditorBridge.contentChanged(Uint8Array.from(bytes));
+    }, odd);
+    const first = await shareFrom(ownerPage);
+    assert.equal(first.status, 'Shared!');
+    assert.match(first.url, /\/x1pen\?id=HuBasic1$/);
+    const oddPayload = posts[0];
+    assert.deepEqual(Object.keys(oddPayload), ['basic', 'asm', 'slang', 'hubasicX1', 'meta']);
+    assert.deepEqual([oddPayload.basic, oddPayload.asm, oddPayload.slang], [null, null, null]);
+    assert.deepEqual(Array.from(Buffer.from(oddPayload.hubasicX1, 'base64')), odd);
+    assert.deepEqual(oddPayload.meta, { model: await ownerPage.evaluate(() => {
+      const model = parseInt(window.XmilControls.getSettings().romType, 10);
+      return model >= 1 && model <= 3 ? model : 1;
+    }), runMode: 'x1native', sourceMode: 'hubasic' }, 'no hubasicOptions while they are the defaults');
+
+    await installShareRoute(context, 'HuBasic1', oddPayload);
+    const oddPage = await openShare(context, 'HuBasic1');
+    await assertEphemeralShareDocument(oddPage);
+    const oddState = await shareState(oddPage);
+    assert.equal(oddState.program.sourceMode, 'hubasic');
+    assert.equal(oddState.activeTab, 'hubasic');
+    // The share tab holds exactly the shared bytes: sharing it again gives the same payload, so
+    // the link is reused (getProgram's text form could not show a lone CR or LF)
+    const oddPosts = posts.length;
+    assert.match((await shareFrom(oddPage)).status, /^Same content - URL reused$/);
+    assert.equal(posts.length, oddPosts);
+    await oddPage.close();
+
+    // A program that runs, shared with options
+    await ownerPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 CLS\n20 PRINT "SHARED ｱ¥"\n30 GOTO 30\n' }, current.revision, current.revisionEpoch);
+      await api.setHuBasicOptions({ wait: 'line:450', noLineNumbers: true });
+      // Run first: X1Pen's temporary disk in FDD0 does not stop Share
+      const run = await api.run();
+      if (!run.ok) throw new Error(JSON.stringify(run));
+    });
+    const second = await shareFrom(ownerPage);
+    assert.equal(second.status, 'Shared!');
+    const payload = posts[1];
+    assert.deepEqual(payload.meta.hubasicOptions, { wait: 'line:450', noLineNumbers: true });
+    const ownerBytes = await hubasicBytesOf(ownerPage);
+    assert.deepEqual(Array.from(Buffer.from(payload.hubasicX1, 'base64')), ownerBytes);
+
+    // The viewer has other saved options; the share tab uses the shared ones and saves nothing
+    await ownerPage.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ wait: null, noLineNumbers: null, stringLen: 80 }));
+    const viewerSaved = await ownerPage.evaluate(() => localStorage.getItem('x1pen_hubasic_options'));
+    await installShareRoute(context, 'HuBasic2', payload);
+    const sharePage = await openShare(context, 'HuBasic2');
+    const opened = await shareState(sharePage);
+    assert.equal(opened.program.sourceMode, 'hubasic');
+    assert.deepEqual(await hubasicBytesOf(sharePage), ownerBytes);
+    assert.deepEqual(opened.options, { ...HUBASIC_DEFAULT_OPTIONS, wait: 'line:450', noLineNumbers: true });
+    assert.deepEqual(opened.builds, [{ wait: 'line:450', noLineNumbers: true }]);
+    assert.match(opened.status, /^HuBASIC: booting from disk/);
+    await sharePage.waitForFunction(() => {
+      const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes;
+      const want = [...'SHARED'].map((c) => c.charCodeAt(0));
+      return bytes.some((_, index) => want.every((code, k) => bytes[index + k] === code));
+    }, null, { timeout: 30_000 });
+    // Changing options in the share tab stays there
+    await sharePage.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ assumeDefint: true }));
+    assert.equal(await sharePage.evaluate(() => localStorage.getItem('x1pen_hubasic_options')), viewerSaved);
+
+    // Re-sharing the unchanged program reuses the link; an edit makes a new one
+    const posted = posts.length;
+    await sharePage.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ assumeDefint: null }));
+    const reused = await shareFrom(sharePage);
+    assert.equal(reused.status, 'Same content - URL reused');
+    assert.match(reused.url, /\/x1pen\?id=HuBasic2$/);
+    assert.equal(posts.length, posted);
+    await sharePage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: current.hubasic + '40 END\n' }, current.revision, current.revisionEpoch);
+    });
+    assert.equal((await shareFrom(sharePage)).status, 'Shared!');
+    assert.equal(posts.length, posted + 1);
+    assert.deepEqual(posts[posted].meta.hubasicOptions, { wait: 'line:450', noLineNumbers: true });
+    await sharePage.close();
+
+    // A BASIC share is built as before: no HuBASIC fields
+    await ownerPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT 1', asm: '' }, current.revision, current.revisionEpoch);
+    });
+    assert.equal((await shareFrom(ownerPage)).status, 'Shared!');
+    assert.deepEqual(Object.keys(posts[posts.length - 1]), ['basic', 'asm', 'slang', 'meta']);
+    assert.equal(posts[posts.length - 1].meta.sourceMode, 'basic+asm');
+  } finally {
+    await context.close();
+  }
+});
+
+// A HuBASIC link as X1Pen writes it. Written out here on purpose and never regenerated: links
+// people already have must keep opening, whatever later changes the share format or switches
+// off creating HuBASIC shares.
+const FROZEN_HUBASIC_SHARE = {
+  basic: null,
+  asm: null,
+  slang: null,
+  // 10 CLS / 20 PRINT "FROZEN ｱ¥" / 30 GOTO 30, CRLF line ends
+  hubasicX1: 'MTAgQ0xTDQoyMCBQUklOVCAiRlJPWkVOILFcIg0KMzAgR09UTyAzMA0K',
+  meta: { model: 2, runMode: 'x1native', sourceMode: 'hubasic', hubasicOptions: { wait: 'frame:2', stringLen: 40 } },
+};
+
+test('a HuBASIC link opens with its own options and model and changes nothing saved', { timeout: 180_000 }, async () => {
+  assert.equal(Buffer.from(FROZEN_HUBASIC_SHARE.hubasicX1, 'base64').toString('latin1'),
+    '10 CLS\r\n20 PRINT "FROZEN \xB1\\"\r\n30 GOTO 30\r\n');
+  const context = await browser.newContext();
+  const ownerPage = await context.newPage();
+  try {
+    // The owner's own program, options and model, saved in the same browser profile
+    await ownerPage.goto(`${baseUrl}/x1pen.html`);
+    await ownerPage.evaluate(() => window.X1PenAutomation.ready());
+    await ownerPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT "MINE"\n' }, current.revision, current.revisionEpoch);
+      await api.setHuBasicOptions({ assumeDefint: true, dataBudget: 4096 });
+      window.Module._js_xmil_stop();
+    });
+    const ownerModel = await ownerPage.evaluate(() => window.Module._js_get_rom_type());
+    const baseline = await snapshotX1PenPersistence(ownerPage);
+    const ownerSaved = await ownerPage.evaluate(() => ({
+      program: localStorage.getItem('x1pen_editor_hubasic_x1'),
+      options: localStorage.getItem('x1pen_hubasic_options'),
+      settings: localStorage.getItem('xmil_settings'),
+    }));
+
+    await installShareRoute(context, 'Frozen01', FROZEN_HUBASIC_SHARE);
+    const sharePage = await openShare(context, 'Frozen01');
+    await assertEphemeralShareDocument(sharePage);
+    const opened = await shareState(sharePage);
+    assert.equal(opened.program.sourceMode, 'hubasic');
+    assert.equal(opened.program.hubasic, '10 CLS\n20 PRINT "FROZEN ｱ¥"\n30 GOTO 30\n');
+    assert.deepEqual([opened.program.basic, opened.program.asm, opened.program.slang], ['', '', '']);
+    assert.deepEqual(opened.options, { ...HUBASIC_DEFAULT_OPTIONS, wait: 'frame:2', stringLen: 40 });
+    assert.deepEqual(opened.builds, [{ wait: 'frame:2', stringLen: 40 }]);
+    assert.equal(opened.model, 2, 'the first Run boots the sender\'s model');
+    assert.match(opened.status, /^HuBASIC: booting from disk/);
+    await sharePage.waitForFunction(() => {
+      const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes;
+      const want = [...'FROZEN'].map((c) => c.charCodeAt(0));
+      return bytes.some((_, index) => want.every((code, k) => bytes[index + k] === code));
+    }, null, { timeout: 30_000 });
+
+    // A later Run in the share tab uses the MODEL setting, as for the other modes; the shared
+    // options stay for the tab
+    const rerun = await sharePage.evaluate(async () => {
+      const result = await window.X1PenAutomation.run();
+      return { ok: result.ok, sourceMode: result.sourceMode, model: window.Module._js_get_rom_type(), builds: window.__huBuilds };
+    });
+    assert.deepEqual(rerun, { ok: true, sourceMode: 'hubasic', model: ownerModel,
+      builds: [{ wait: 'frame:2', stringLen: 40 }, { wait: 'frame:2', stringLen: 40 }] });
+    await sharePage.close();
+
+    assert.deepEqual(await ownerPage.evaluate(() => ({
+      program: localStorage.getItem('x1pen_editor_hubasic_x1'),
+      options: localStorage.getItem('x1pen_hubasic_options'),
+      settings: localStorage.getItem('xmil_settings'),
+    })), ownerSaved);
+    assert.deepEqual(await snapshotX1PenPersistence(ownerPage), baseline);
+  } finally {
+    await context.close();
+  }
+});
+
+test('missing or unknown options in a HuBASIC link read as the defaults', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext();
+  const ownerPage = await context.newPage();
+  try {
+    await ownerPage.goto(`${baseUrl}/x1pen.html`);
+    await ownerPage.evaluate(() => window.X1PenAutomation.ready());
+    // Saved options that are not the defaults must not leak into a link that has none
+    await ownerPage.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ wait: 'line:450', stringLen: 80 }));
+    const { meta, ...program } = FROZEN_HUBASIC_SHARE;
+    await installShareRoute(context, 'NoOpts01', { ...program, meta: { model: 1, runMode: 'x1native', sourceMode: 'hubasic' } });
+    // Without meta.sourceMode, hubasicX1 alone makes it a HuBASIC link
+    await installShareRoute(context, 'NoMeta01', { hubasicX1: FROZEN_HUBASIC_SHARE.hubasicX1 });
+    await installShareRoute(context, 'BadOpts1', { ...program, meta: { ...meta,
+      hubasicOptions: { wait: 'line:0', stringLen: 999, noLineNumbers: true, futureOption: 3 } } });
+    for (const [id, builds] of [['NoOpts01', [{}]], ['NoMeta01', [{}]], ['BadOpts1', [{ noLineNumbers: true }]]]) {
+      const sharePage = await openShare(context, id);
+      const opened = await shareState(sharePage);
+      assert.equal(opened.program.sourceMode, 'hubasic', id);
+      assert.deepEqual(opened.builds, builds, id);
+      assert.deepEqual(opened.options, { ...HUBASIC_DEFAULT_OPTIONS, ...builds[0] }, id);
+      assert.match(opened.status, /^HuBASIC: booting from disk/, id);
+      await sharePage.close();
+    }
+    assert.equal(await ownerPage.evaluate(() => localStorage.getItem('x1pen_hubasic_options')),
+      JSON.stringify({ version: 1, options: { wait: 'line:450', stringLen: 80 } }));
+  } finally {
+    await context.close();
+  }
+});
+
+test('a HuBASIC link whose program cannot be read runs nothing and changes nothing', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext();
+  const ownerPage = await context.newPage();
+  try {
+    await ownerPage.goto(`${baseUrl}/x1pen.html`);
+    await ownerPage.evaluate(() => window.X1PenAutomation.ready());
+    await ownerPage.evaluate(() => window.Module._js_xmil_stop());
+    const baseline = await snapshotX1PenPersistence(ownerPage);
+    const meta = { model: 1, runMode: 'x1native', sourceMode: 'hubasic' };
+    const broken = { Broken01: 'not base64!', Broken02: '', Broken03: 'QUJD=', Broken04: 42 };
+    for (const [id, hubasicX1] of Object.entries(broken)) {
+      await installShareRoute(context, id, { basic: null, asm: null, slang: null, hubasicX1, meta });
+      const sharePage = await openShare(context, id);
+      const opened = await shareState(sharePage);
+      assert.equal(opened.status, 'Shared HuBASIC program could not be read', id);
+      assert.equal(opened.program.hubasic, '', id);
+      assert.deepEqual(opened.builds, [], id);
+      assert.equal(await sharePage.evaluate(() => window.XmilCore.getSlotState().drive0 || null), null, id);
+      await sharePage.close();
+    }
+    assert.deepEqual(await snapshotX1PenPersistence(ownerPage), baseline);
+  } finally {
     await context.close();
   }
 });
