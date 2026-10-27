@@ -51,11 +51,16 @@
 
     // A file read that finishes after X1Pen replaced the program, or while automation holds the
     // interaction lock, is dropped: it must not overwrite the newer program.
+    // The editor focuses its textarea when the command ends; for a dropped read that is not the
+    // user's either, so it is handled like a load from X1Pen (see showFromX1Pen).
     function chooseFile() {
         var loadsAtStart = loads;
         return pickFile('.bas,.BAS,.txt,.asc,*/*', MAX_BYTES, '開けるのは 2 MiB までです。').then(function(file) {
-            if (!file || loads !== loadsAtStart || bridge.isLocked()) return null;
-            fileName = file.name;
+            if (file && (loads !== loadsAtStart || bridge.isLocked())) {
+                ignoreFocusUntilSettled();
+                return null;
+            }
+            if (file) fileName = file.name;
             return file;
         });
     }
@@ -136,6 +141,17 @@
             if (!hadFocus && !starting) giveFocusBack(before);
             loading = false;
         }
+    }
+
+    // Until the editor's pending command has finished (its focus call runs in a later microtask)
+    function ignoreFocusUntilSettled() {
+        var hadFocus = document.hasFocus();
+        var before = window.parent.document.activeElement;
+        loading = true;
+        setTimeout(function() {
+            if (!hadFocus) giveFocusBack(before);
+            loading = false;
+        }, 0);
     }
 
     document.addEventListener('DOMContentLoaded', function() {

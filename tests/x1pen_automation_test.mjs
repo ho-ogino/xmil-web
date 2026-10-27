@@ -3360,10 +3360,24 @@ test('a file read in the HuBASIC editor never overwrites a newer program', { tim
   await setHuBasicProgram('10 PRINT "FIRST"');
   await hubasicEditorText();
 
-  // setProgram while the read is pending: the read is dropped
+  // setProgram while the read is pending: the read is dropped, and the editor's focus at the
+  // end of the import neither takes the focus from the emulator nor pauses it
   let read = await openDelayedFile('OLD.BAS', '10 PRINT "OLD"\r\n');
   await setHuBasicProgram('10 PRINT "NEWER"');
-  await read.release();
+  await page.evaluate(() => {
+    window.__stops = 0;
+    const module = window.Module;
+    window.__realStop = window.__realStop || module._js_xmil_stop;
+    module._js_xmil_stop = (...args) => { window.__stops++; return window.__realStop.apply(module, args); };
+    document.getElementById('canvas').focus();
+  });
+  try {
+    await read.release();
+    assert.deepEqual(await page.evaluate(() => ({ stops: window.__stops, active: document.activeElement.id })),
+      { stops: 0, active: 'canvas' });
+  } finally {
+    await page.evaluate(() => { window.Module._js_xmil_stop = window.__realStop; });
+  }
   assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic), '10 PRINT "NEWER"');
   assert.equal(await hubasicEditorText(), '10 PRINT "NEWER"');
 
