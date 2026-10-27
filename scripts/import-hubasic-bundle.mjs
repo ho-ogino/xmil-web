@@ -47,6 +47,7 @@ if (manifest.dirty !== false) {
 const env = manifest.envs && manifest.envs.x1native_slfs;
 if (!env || !Array.isArray(env.libraries)) fail('manifest has no x1native_slfs libraries');
 if (!Array.isArray(manifest.files)) fail('manifest has no file list');
+if (!Number.isInteger(manifest.basAbi) || manifest.basAbi <= 0) fail('manifest has no basAbi');
 const testdata = manifest.testdata;
 if (!testdata || testdata.env !== 'x1native_slfs' || !Array.isArray(testdata.cases) || testdata.cases.length === 0) {
   fail('manifest has no x1native_slfs testdata');
@@ -98,7 +99,7 @@ function workSymbols(listing) {
 
 await rm(fixtureDir, { recursive: true, force: true });
 await mkdir(fixtureDir, { recursive: true });
-const expected = { revision, assembler: manifest.assembler || null, programs: {} };
+const expected = { revision, basAbi: manifest.basAbi, assembler: manifest.assembler || null, programs: {} };
 for (const testCase of testdata.cases) {
   const get = (key) => {
     const bytes = bundleFiles.get(testCase[key]);
@@ -119,4 +120,4 @@ for (const testCase of testdata.cases) {
   };
 }
 await writeFile(join(fixtureDir, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);
-console.log(`import-hubasic-bundle: assets/hubasic/${revision} is current (hubasic2sl ${manifest.hubasic2slVersion}, dirty ${manifest.dirty}); ${testdata.cases.length} fixtures`);
+console.log(`import-hubasic-bundle: assets/hubasic/${revision} is current (hubasic2sl ${manifest.hubasic2slVersion}, BAS_ABI ${manifest.basAbi}, dirty ${manifest.dirty}); ${testdata.cases.length} fixtures`);

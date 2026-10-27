@@ -58,6 +58,7 @@ test('the committed bundle and fixtures belong to one clean SLANG-compiler revis
   assert.equal(expected.revision, current.revision,
     'fixtures belong to another revision; re-run scripts/import-hubasic-bundle.mjs');
   assert.equal(manifest.dirty, false, 'assets/hubasic must not contain a bundle built from uncommitted sources');
+  assert.equal(expected.basAbi, manifest.basAbi);
   assert.ok(existsSync(join(bundleDir, '_framework', 'dotnet.js')));
 });
 
@@ -135,10 +136,31 @@ test('the manifest check accepts only the x1native_slfs values X1Pen boots', () 
   assert.throws(check((m, e) => { e.libraries.push('liblsx_base.asm'); }), /libraries/);
   assert.throws(check((m, e) => { e.libraries.push('../x.asm'); }), /libraries/);
   assert.throws(check((m) => { m.dirty = true; }), /uncommitted/);
+  assert.throws(check((m) => { delete m.basAbi; }), /basAbi/);
+  assert.throws(check((m) => { m.basAbi = 0; }), /basAbi/);
   assert.throws(check((m) => { delete m.envs.x1native_slfs; }), /x1native_slfs/);
   // Local development may use a bundle built from uncommitted sources
   const dev = loadScripts('127.0.0.1');
   const dirty = JSON.parse(JSON.stringify(manifest));
   dirty.dirty = true;
   assert.doesNotThrow(() => dev.X1PenHuBasic._checkManifest(dirty));
+});
+
+test('the converter output, the runtime and the manifest carry one BAS_ABI number', () => {
+  const abi = manifest.basAbi;
+  for (const name of Object.keys(expected.programs)) {
+    assert.match(readFileSync(join(fixtureDir, `${name}.SL`), 'utf8'), new RegExp(`\\bBAS_ABI_${abi}\\(\\)`), name);
+  }
+  assert.doesNotThrow(() => page.X1PenHuBasic._checkBasAbi(manifest, runtimeVfs, abi));
+  assert.throws(() => page.X1PenHuBasic._checkBasAbi(manifest, runtimeVfs, abi + 1), /converter BAS_ABI/);
+  assert.throws(() => page.X1PenHuBasic._checkBasAbi({ ...manifest, basAbi: abi + 1 }, runtimeVfs, abi + 1), /runtime BAS_ABI/);
+  const twice = { ...runtimeVfs, 'extra.asm': `; @name BAS_ABI_${abi}\nRET\n` };
+  assert.throws(() => page.X1PenHuBasic._checkBasAbi(manifest, twice, abi), /runtime BAS_ABI/);
+
+  // A program from another converter version stops at compile or assemble, never runs
+  const sl = readFileSync(join(fixtureDir, 'HELLO.SL'), 'utf8').replace(`BAS_ABI_${abi}()`, `BAS_ABI_${abi + 1}()`);
+  const compiled = page.X1PenSlangCompiler.compile(sl, runtimeVfs, { defaultOrg: env.defaultOrg, codeReadonly: false, defines: constants });
+  const failed = compiled.errors.length > 0 ||
+    page.X1PenZ80Asm.assemble(compiled.asm, constants, { allowTopLevelLocalLabels: true }).errors.length > 0;
+  assert.ok(failed, 'a BAS_ABI mismatch must not build');
 });

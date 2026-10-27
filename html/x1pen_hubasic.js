@@ -3,7 +3,7 @@
 // → (X1PenZ80Asm) binary → size check → (X1PenSlfsDisk) SLFS D88 for the x1native_slfs environment.
 //
 // The wasm converter and the x1native runtime come from one SLANG-compiler bundle
-// (hubasic/<revision>/, copied in by scripts/import-hubasic-bundle.sh). Its manifest is the only
+// (hubasic/<revision>/, copied in by scripts/import-hubasic-bundle.mjs). Its manifest is the only
 // source of the x1native values (OS_TYPE, defines, ORG, libraries); they are checked against
 // the expected x1native_slfs values before use, because a wrong OS_TYPE silently assembles
 // LSX-Dodgers code. The x1native runtime is kept in its own VFS, never mixed with slang_runtime/.
@@ -46,6 +46,7 @@
             ['defaultOrg', env.defaultOrg === 0x1000],
             ['defines.X1NATIVE', defines.X1NATIVE === 1],
             ['defines.SLFS', defines.SLFS === 1],
+            ['basAbi', Number.isInteger(manifest.basAbi) && manifest.basAbi > 0],
             ['loadAddress', manifest.loadAddress === 0x1000],
             ['diskMainLoad', env.diskMainLoad === 0x1000],
             ['diskMainExec', env.diskMainExec === 0x1000],
@@ -62,6 +63,22 @@
             if (!checks[i][1]) throw toolchainError('Hu-BASIC manifest has an unexpected ' + checks[i][0]);
         }
         return env;
+    }
+
+    // The converter output calls BAS_ABI_<n>() and the runtime defines exactly one; the bundle,
+    // the runtime and the converter must all carry the manifest's number.
+    function checkBasAbi(manifest, vfs, converterAbi) {
+        var found = [];
+        Object.keys(vfs).forEach(function(name) {
+            var re = /^;\s*@name\s+BAS_ABI_(\d+)\s*$/gm, m;
+            while ((m = re.exec(vfs[name]))) found.push(Number(m[1]));
+        });
+        if (found.length !== 1 || found[0] !== manifest.basAbi) {
+            throw toolchainError('Hu-BASIC runtime BAS_ABI does not match the manifest');
+        }
+        if (converterAbi !== manifest.basAbi) {
+            throw toolchainError('Hu-BASIC converter BAS_ABI does not match the runtime');
+        }
     }
 
     async function fetchText(url) {
@@ -100,6 +117,7 @@
         if (!version.informational || version.informational.slice(-41) !== '+' + current.revision) {
             throw toolchainError('Hu-BASIC converter revision does not match the runtime');
         }
+        checkBasAbi(manifest, vfs, version.basAbi);
         state = { revision: current.revision, base: base, manifest: manifest, env: env, api: api, vfs: vfs,
                   version: version.version };
         return info();
@@ -120,6 +138,7 @@
         return {
             revision: state.revision,
             hubasic2slVersion: state.version,
+            basAbi: state.manifest.basAbi,
             environment: ENV_NAME,
             loadAddress: state.manifest.loadAddress,
             reservedStart: state.manifest.reservedStart
@@ -208,6 +227,7 @@
         load: load,
         build: build,
         info: info,
-        _checkManifest: checkManifest
+        _checkManifest: checkManifest,
+        _checkBasAbi: checkBasAbi
     };
 })();
