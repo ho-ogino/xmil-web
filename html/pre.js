@@ -1216,9 +1216,16 @@
         }
     }
 
-    function coldPowerOnProjectDisk(modelValue, expectedOtherSlots) {
+    // Model/DIP/FM settings, power off, power on. Used by project-disk RUN and by
+    // X1Pen runs that boot a temporary FDD0 disk through the IPL.
+    // makeError(kind, message, details) builds the caller's error ('unavailable' | 'mismatch').
+    // If powering on, the DIP check or afterPowerOn() throws, the machine is stopped before the error propagates.
+    function coldPowerOn(modelValue, makeError, afterPowerOn) {
+        var fail = makeError || function(kind, message, details) {
+            return projectDiskFailure(kind === 'mismatch' ? 'COLD_BOOT_MACHINE_MISMATCH' : 'COLD_BOOT_MACHINE_UNAVAILABLE', message, details);
+        };
         if (!module || !module._js_xmil_power_on || !module._js_set_rom_type || !module._js_get_rom_type) {
-            throw projectDiskFailure('PROJECT_DISK_MACHINE_UNAVAILABLE', 'プロジェクトディスクを通常起動するための機能を利用できません');
+            throw fail('unavailable', 'ディスクから起動するための機能を利用できません');
         }
         module._js_set_rom_type(modelValue);
         var settings = window.XmilControls ? window.XmilControls.getSettings() : {};
@@ -1227,32 +1234,46 @@
         if (settings.dip2hd) dip |= 0x04;
         if (module._js_set_dip_sw) module._js_set_dip_sw(dip);
         if (module._js_set_sound_sw) module._js_set_sound_sw(settings.fmEnable ? 1 : 0);
-        var activeDip = module._js_get_dip_sw ? module._js_get_dip_sw() : dip;
-        if (activeDip !== dip) {
-            throw projectDiskFailure(
-                'PROJECT_DISK_MACHINE_MISMATCH',
-                'プロジェクトディスク用の本体設定を適用できませんでした',
-                { mismatchKind: 'dip', requestedDip: dip, activeDip: activeDip }
-            );
-        }
-        if (module._js_xmil_power_off) module._js_xmil_power_off();
-        module._js_xmil_power_on();
-        for (var slotName in (expectedOtherSlots || {})) {
-            var expected = expectedOtherSlots[slotName];
-            if (slotState[slotName] !== expected.key || slotVfsPath[slotName] !== expected.vfsPath) {
-                if (module._js_xmil_stop) module._js_xmil_stop();
-                isRunning = false;
-                updatePowerBtn();
-                throw projectDiskFailure(
-                    'PROJECT_DISK_OTHER_SLOT_CHANGED',
-                    'プロジェクトディスクの起動中に' + slotName + 'の状態が変化しました',
-                    { conflictingSlot: slotName }
-                );
+        try {
+            if (module._js_xmil_power_off) module._js_xmil_power_off();
+            module._js_xmil_power_on();
+            // The setter changes the pending DIP value; power-on makes it the active one
+            var activeDip = module._js_get_dip_sw ? module._js_get_dip_sw() : dip;
+            if (activeDip !== dip) {
+                throw fail('mismatch', '起動用の本体設定を適用できませんでした',
+                    { mismatchKind: 'dip', requestedDip: dip, activeDip: activeDip });
             }
+            if (afterPowerOn) afterPowerOn();
+        } catch (e) {
+            // Leave the machine in a defined, stopped state
+            if (module._js_xmil_stop) module._js_xmil_stop();
+            isRunning = false;
+            updatePowerBtn();
+            throw e;
         }
         isRunning = true;
         updatePowerBtn();
         return { model: module._js_get_rom_type(), requestedModel: modelValue, dip: dip };
+    }
+
+    function coldPowerOnProjectDisk(modelValue, expectedOtherSlots) {
+        return coldPowerOn(modelValue, function(kind, message, details) {
+            if (kind === 'mismatch') {
+                return projectDiskFailure('PROJECT_DISK_MACHINE_MISMATCH', 'プロジェクトディスク用の本体設定を適用できませんでした', details);
+            }
+            return projectDiskFailure('PROJECT_DISK_MACHINE_UNAVAILABLE', 'プロジェクトディスクを通常起動するための機能を利用できません', details);
+        }, function() {
+            for (var slotName in (expectedOtherSlots || {})) {
+                var expected = expectedOtherSlots[slotName];
+                if (slotState[slotName] !== expected.key || slotVfsPath[slotName] !== expected.vfsPath) {
+                    throw projectDiskFailure(
+                        'PROJECT_DISK_OTHER_SLOT_CHANGED',
+                        'プロジェクトディスクの起動中に' + slotName + 'の状態が変化しました',
+                        { conflictingSlot: slotName }
+                    );
+                }
+            }
+        });
     }
 
     // ライブラリから削除
@@ -4109,6 +4130,7 @@
                 return raw ? JSON.parse(raw) : {};
             } catch(e) { return {}; }
         },
+        coldPowerOn: coldPowerOn,
         coldPowerOnProjectDisk: coldPowerOnProjectDisk,
 
         // ROM/Font 管理
@@ -4147,10 +4169,28 @@
                 try { await ejectSlot(slotName); } catch(e) {}
             }
             var vfsPath = slotToVfsPath(slotName, 'd88');
-            writeFileToVFS(vfsPath, new Uint8Array(arrayBuffer));
-            if (module) {
-                var driveIndex = slotName === 'drive0' ? 0 : 1;
+            var driveIndex = slotName === 'drive0' ? 0 : 1;
+            var image = new Uint8Array(arrayBuffer);
+            if (!module || !module.FS || !module._js_eject_disk) throw new Error('VFS is not available');
+            // The native eject flushes a dirty track of the disk in the drive into its backing
+            // file, which for a previous temporary disk is vfsPath: eject before overwriting it.
+            module._js_eject_disk(driveIndex);
+            try {
+                // Unlike writeFileToVFS, a failed write must stop the caller before it boots the drive
+                module.FS.writeFile(vfsPath, image);
                 module.ccall('js_insert_disk', null, ['string', 'number'], [vfsPath, driveIndex]);
+                if (!buffersEqual(module.FS.readFile(vfsPath), image)) {
+                    throw new Error('Temporary disk image was not written intact');
+                }
+            } catch (e) {
+                // Leave the drive empty rather than holding a partial image
+                module._js_eject_disk(driveIndex);
+                slotState[slotName] = null;
+                slotVfsPath[slotName] = null;
+                slotEphemeral[slotName] = false;
+                slotDirty[slotName] = false;
+                slotDirtyPages[slotName] = null;
+                throw e;
             }
             slotState[slotName] = '__x1pen_temp__';
             slotVfsPath[slotName] = vfsPath;

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -2949,4 +2949,338 @@ test('both NMI buttons generate repeatable real NMI edges without resetting mach
     return ram[counter];
   }, { counter: counterAddress, handler: setup.handler });
   assert.equal(resetCancellation, 0, 'IPL reset must cancel a queued NMI');
+});
+
+async function setHuBasicProgram(source) {
+  return page.evaluate(async (hubasic) => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    return api.setProgram({ sourceMode: 'hubasic', hubasic }, current.revision, current.revisionEpoch);
+  }, source);
+}
+
+function textVramContains(text) {
+  return page.waitForFunction((wanted) => {
+    const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes;
+    const codes = [...wanted].map((c) => c.charCodeAt(0));
+    return bytes.some((_, index) => codes.every((code, k) => bytes[index + k] === code));
+  }, text, { timeout: 30_000 });
+}
+
+test('HuBASIC Run converts, compiles and cold-boots a disk image through the IPL', { timeout: 120_000 }, async () => {
+  const revision = JSON.parse(readFileSync(join(projectRoot, 'assets', 'hubasic', 'current.json'), 'utf8')).revision;
+  await setHuBasicProgram('10 CLS\n20 PRINT "HUBASIC OK";1.5*3\n30 GOTO 30\n');
+  const result = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const validation = await api.validate();
+    const run = await api.run();
+    return {
+      validation,
+      run,
+      status: api.getStatus(),
+      fdd0: window.XmilCore.getSlotState().drive0 || null,
+      activeTab: document.querySelector('.editor-tab.active').dataset.tab,
+    };
+  });
+  assert.equal(result.validation.ok, true, JSON.stringify(result.validation.diagnostics));
+  assert.equal(result.validation.output.stage, 'done');
+  assert.equal(result.run.ok, true, JSON.stringify(result.run));
+  assert.equal(result.run.sourceMode, 'hubasic');
+  assert.equal(result.run.runMode, 'x1native');
+  assert.equal(result.run.stage, 'booted');
+  assert.equal(result.run.runtimeRevision, revision);
+  assert.ok(result.run.workEnd <= 0xFFE0);
+  assert.equal(result.status.sourceMode, 'hubasic');
+  assert.equal(result.status.activeLanguageProfile.language, 'hubasic');
+  assert.equal(result.status.languageProfiles.hubasic.runtimeRevision, revision);
+  assert.ok(result.fdd0, 'FDD0 must hold the temporary HuBASIC disk');
+  assert.equal(result.activeTab, 'hubasic');
+  await textVramContains('HUBASIC OK 4.5');
+});
+
+test('HuBASIC conversion errors stop Run before the disk is touched', { timeout: 60_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "A"\n20 CIRCLE (10,10),5\n');
+  const result = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const before = window.XmilCore.getSlotState().drive0 || null;
+    let mounted = 0;
+    const original = window.XmilControls.mountTempDisk;
+    window.XmilControls.mountTempDisk = async (...args) => { mounted++; return original(...args); };
+    try {
+      return { validation: await api.validate(), run: await api.run(), mounted, before,
+        after: window.XmilCore.getSlotState().drive0 || null };
+    } finally {
+      window.XmilControls.mountTempDisk = original;
+    }
+  });
+  assert.equal(result.run.ok, false);
+  assert.equal(result.run.code, 'HUBASIC_TRANSPILE_FAILED');
+  assert.equal(result.run.stage, 'transpile');
+  const error = result.run.diagnostics.find((d) => d.severity === 'error');
+  assert.equal(error.code, 'HB0301');
+  assert.equal(error.basicLine, 20);
+  assert.equal(result.mounted, 0);
+  assert.equal(result.after, result.before);
+  assert.equal(result.validation.ok, false);
+  assert.ok(result.validation.diagnostics.some((d) => d.kind === 'hubasic' && d.line === 2 && /CIRCLE/.test(d.message)));
+});
+
+test('HuBASIC failures after the disk is replaced report a defined state', { timeout: 120_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "FAIL"\n20 GOTO 20\n');
+  const outcomes = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const results = {};
+
+    // Inserting the disk fails inside the real mountTempDisk
+    const ccall = module.ccall;
+    module.ccall = function(name, ...rest) {
+      if (name === 'js_insert_disk') throw new Error('injected insert failure');
+      return ccall.call(module, name, ...rest);
+    };
+    try { results.mount = await api.run(); } finally { module.ccall = ccall; }
+
+    // Another drive changes while the machine powers on
+    const powerOn = module._js_xmil_power_on;
+    const stop = module._js_xmil_stop;
+    let stopped = 0;
+    module._js_xmil_power_on = (...args) => {
+      powerOn.apply(module, args);
+      window.XmilControls.mountTempDisk(window.X1PenSlfsDisk.buildSlfsD88(new Uint8Array([0xC9])), 'drive1');
+    };
+    module._js_xmil_stop = (...args) => { stopped++; return stop.apply(module, args); };
+    try { results.changed = await api.run(); } finally {
+      module._js_xmil_power_on = powerOn;
+      module._js_xmil_stop = stop;
+    }
+    results.changedStopped = stopped;
+    await window.XmilCore.ejectSlot('drive1');
+
+    // Powering on itself fails
+    stopped = 0;
+    module._js_xmil_power_on = () => { throw new Error('injected power-on failure'); };
+    module._js_xmil_stop = (...args) => { stopped++; return stop.apply(module, args); };
+    try { results.boot = await api.run(); } finally {
+      module._js_xmil_power_on = powerOn;
+      module._js_xmil_stop = stop;
+    }
+    results.bootStopped = stopped;
+
+    results.retry = await api.run();
+    return results;
+  });
+  assert.equal(outcomes.mount.ok, false);
+  assert.equal(outcomes.mount.code, 'HUBASIC_MOUNT_FAILED');
+  assert.equal(outcomes.mount.stage, 'mount');
+  assert.equal(outcomes.changed.ok, false);
+  assert.equal(outcomes.changed.code, 'HUBASIC_OTHER_SLOT_CHANGED');
+  assert.equal(outcomes.changed.conflictingSlot, 'drive1');
+  assert.ok(outcomes.changedStopped > 0, 'a boot that sees another drive change must stop the machine');
+  assert.equal(outcomes.boot.ok, false);
+  assert.equal(outcomes.boot.code, 'HUBASIC_BOOT_FAILED');
+  assert.equal(outcomes.boot.poweredOn, false);
+  assert.ok(outcomes.bootStopped > 0, 'a failed cold boot must stop the machine');
+  for (const failed of [outcomes.mount, outcomes.changed, outcomes.boot]) {
+    assert.notEqual(failed.stage, 'booted');
+  }
+  assert.equal(outcomes.retry.ok, true, JSON.stringify(outcomes.retry));
+  await textVramContains('FAIL');
+});
+
+test('HuBASIC Run stops before booting when the disk image cannot be written', { timeout: 120_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "WRITE OK"\n20 GOTO 20\n');
+  const outcomes = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const writeFile = module.FS.writeFile;
+    const powerOn = module._js_xmil_power_on;
+    let poweredOn = 0;
+    module._js_xmil_power_on = (...args) => { poweredOn++; return powerOn.apply(module, args); };
+    const results = {};
+    try {
+      // The real mount helper's VFS write throws
+      module.FS.writeFile = function(path, data, ...rest) {
+        if (/d88$/i.test(String(path))) throw new Error('injected VFS write failure');
+        return writeFile.call(this, path, data, ...rest);
+      };
+      results.thrown = await api.run();
+      // The write silently stores a truncated image
+      module.FS.writeFile = function(path, data, ...rest) {
+        if (/d88$/i.test(String(path))) return writeFile.call(this, path, data.subarray(0, 256), ...rest);
+        return writeFile.call(this, path, data, ...rest);
+      };
+      results.truncated = await api.run();
+    } finally {
+      module.FS.writeFile = writeFile;
+      module._js_xmil_power_on = powerOn;
+    }
+    results.poweredOn = poweredOn;
+    results.retry = await api.run();
+    return results;
+  });
+  for (const failed of [outcomes.thrown, outcomes.truncated]) {
+    assert.equal(failed.ok, false);
+    assert.equal(failed.code, 'HUBASIC_MOUNT_FAILED');
+    assert.equal(failed.stage, 'mount');
+  }
+  assert.equal(outcomes.poweredOn, 0, 'a disk that was not written must not be booted');
+  assert.equal(outcomes.retry.ok, true, JSON.stringify(outcomes.retry));
+  await textVramContains('WRITE OK');
+});
+
+test('HuBASIC Run replaces a temporary disk whose last track is still dirty', { timeout: 120_000 }, async () => {
+  // A program on a temporary FDD0 disk writes its SLFS save area and keeps running, so the
+  // emulator holds that track unflushed when HuBASIC Run puts the new image in place.
+  await setHuBasicProgram('10 PRINT "NEW IMAGE"\n20 GOTO 20\n');
+  const result = await page.evaluate(async () => {
+    // Loads the HuBASIC toolchain scripts (SLANG compiler, assembler, disk builder)
+    const validation = await window.X1PenAutomation.validate();
+    if (!validation.ok) return { setup: validation.diagnostics };
+    const current = await (await fetch('hubasic/current.json')).json();
+    const base = `hubasic/${current.revision}/`;
+    const manifest = await (await fetch(`${base}manifest.json`)).json();
+    const env = manifest.envs.x1native_slfs;
+    const vfs = {};
+    for (const lib of env.libraries) vfs[lib] = await (await fetch(`${base}runtime/${lib}`)).text();
+    const constants = { ENV_TYPE: env.envType, OS_TYPE: env.osType, ...env.defines };
+    const writer = [
+      'ARRAY BYTE BUF[256];',
+      'ARRAY BYTE K_0[] = { 5,83,65,86,69,68 };',
+      'MAIN()',
+      'BEGIN',
+      `  BAS_ABI_${manifest.basAbi}();`,
+      '  BAS_INIT();',
+      '  FS_SAVE_W(0, 1, BUF);',
+      '  BAS_PSTR(K_0);',
+      'SPIN:',
+      '  GOTO SPIN;',
+      'END',
+    ].join('\n');
+    const compiled = window.X1PenSlangCompiler.compile(writer, vfs, { defaultOrg: env.defaultOrg, codeReadonly: false, defines: constants });
+    if (compiled.errors.length) return { setup: compiled.errors };
+    const assembled = window.X1PenZ80Asm.assemble(compiled.asm, constants, { allowTopLevelLocalLabels: true });
+    if (assembled.errors.length) return { setup: assembled.errors };
+    const writerDisk = window.X1PenSlfsDisk.buildSlfsD88(new Uint8Array(assembled.bytes), {
+      mainName: 'WRITER', loadAddr: env.diskMainLoad, execAddr: env.diskMainExec, volumeName: env.diskVolume,
+    });
+    await window.XmilControls.mountTempDisk(writerDisk, 'drive0');
+    window.XmilControls.coldPowerOn(window.Module._js_get_rom_type());
+    return { setup: null };
+  });
+  assert.equal(result.setup, null, JSON.stringify(result.setup));
+  await textVramContains('SAVED');
+
+  const run = await page.evaluate(async () => {
+    const built = await window.X1PenHuBasic.build('10 PRINT "NEW IMAGE"\n20 GOTO 20\n');
+    const run = await window.X1PenAutomation.run();
+    const mounted = window.Module.FS.readFile('/fdd0.d88');
+    const expected = new Uint8Array(built.d88);
+    let firstDiff = -1;
+    for (let i = 0; i < Math.max(mounted.length, expected.length); i++) {
+      if (mounted[i] !== expected[i]) { firstDiff = i; break; }
+    }
+    return { run, firstDiff };
+  });
+  assert.equal(run.run.ok, true, JSON.stringify(run.run));
+  assert.equal(run.firstDiff, -1, 'FDD0 must hold exactly the new HuBASIC image');
+  await textVramContains('NEW IMAGE');
+});
+
+test('HuBASIC Run applies a resolution chosen just before it', { timeout: 120_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "DIP OK"\n20 GOTO 20\n');
+  const runWith = (highres) => page.evaluate(async (on) => {
+    window.XmilControls.setDipHighres(on);
+    const pendingBeforeRun = window.Module._js_get_dip_sw();
+    const run = await window.X1PenAutomation.run();
+    return { run, pendingBeforeRun, active: window.Module._js_get_dip_sw() };
+  }, highres);
+  const high = await runWith(true);
+  assert.equal(high.pendingBeforeRun & 0x01, 0x01, 'the setter must not change the active DIP value by itself');
+  assert.equal(high.run.ok, true, JSON.stringify(high.run));
+  assert.equal(high.active & 0x01, 0);
+  await textVramContains('DIP OK');
+  const standard = await runWith(false);
+  assert.equal(standard.run.ok, true, JSON.stringify(standard.run));
+  assert.equal(standard.active & 0x01, 0x01);
+});
+
+test('HuBASIC Run leaves a library disk in FDD0 and the other drives alone', { timeout: 90_000 }, async () => {
+  const context = await browser.newContext();
+  const libraryPage = await context.newPage();
+  try {
+    await libraryPage.goto(`${baseUrl}/x1pen.html`);
+    await libraryPage.evaluate(() => window.X1PenAutomation.ready());
+    const result = await libraryPage.evaluate(async () => {
+      const bytes = await (await fetch('fuzzybasic_boot.v2.d88')).arrayBuffer();
+      const owner = await window.XmilLibrary.addToLibrary(new File([bytes], 'OWNER.D88'));
+      const data = await window.XmilLibrary.addToLibrary(new File([bytes], 'DATA.D88'));
+      await window.XmilLibrary.mountFromLibrary(owner.key, 'drive0');
+      await window.XmilLibrary.mountFromLibrary(data.key, 'drive1');
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT 1' }, current.revision, current.revisionEpoch);
+      let mounted = 0;
+      const mount = window.XmilControls.mountTempDisk;
+      window.XmilControls.mountTempDisk = async (...args) => { mounted++; return mount(...args); };
+      try {
+        const run = await api.run();
+        return { run, mounted, owner: owner.key, data: data.key, slots: window.XmilCore.getSlotState() };
+      } finally {
+        window.XmilControls.mountTempDisk = mount;
+      }
+    });
+    assert.equal(result.run.ok, false);
+    assert.equal(result.run.code, 'HUBASIC_FDD0_IN_USE');
+    assert.match(result.run.status, /FDD0/);
+    assert.equal(result.mounted, 0);
+    assert.equal(result.slots.drive0, result.owner);
+    assert.equal(result.slots.drive1, result.data);
+  } finally {
+    await context.close();
+  }
+});
+
+test('HuBASIC and the other source modes clear each other and persist', { timeout: 60_000 }, async () => {
+  const slangFirst = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    let current = api.getProgram();
+    await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT 1' }, current.revision, current.revisionEpoch);
+    current = api.getProgram();
+    return api.setProgram({ sourceMode: 'slang', slang: 'main() BEGIN\nEND;' }, current.revision, current.revisionEpoch);
+  });
+  assert.equal(slangFirst.hubasic, '');
+  assert.equal(slangFirst.sourceMode, 'slang');
+
+  const hubasic = '10 PRINT "KEEP"\n20 END';
+  const stored = await setHuBasicProgram(hubasic);
+  assert.equal(stored.sourceMode, 'hubasic');
+  assert.equal(stored.slang, '');
+  assert.equal(stored.basic, '');
+  assert.equal(stored.asm, '');
+  assert.equal(await page.evaluate(() => localStorage.getItem('x1pen_editor_hubasic')), hubasic);
+
+  await page.reload();
+  await page.evaluate(() => window.X1PenAutomation.ready());
+  const restored = await page.evaluate(() => ({
+    program: window.X1PenAutomation.getProgram(),
+    activeTab: document.querySelector('.editor-tab.active').dataset.tab,
+  }));
+  assert.equal(restored.program.hubasic, hubasic);
+  assert.equal(restored.program.sourceMode, 'hubasic');
+  assert.equal(restored.activeTab, 'hubasic');
+});
+
+test('Share refuses HuBASIC programs', { timeout: 30_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "NO SHARE"');
+  const status = await page.evaluate(async () => {
+    document.getElementById('btn-share').click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return document.getElementById('x1pen-status').textContent;
+  });
+  assert.equal(status, 'HuBASIC programs cannot be shared yet');
+  await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    await api.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT 1', asm: '' }, current.revision, current.revisionEpoch);
+  });
 });

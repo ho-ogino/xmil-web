@@ -1,0 +1,577 @@
+{
+  "slangCompilerRevision": "5abbffaa2e412f1b9792a3abc1de149908838c6b",
+  "dirty": false,
+  "hubasic2slVersion": "0.1.0-alpha",
+  "basAbi": 1,
+  "loadAddress": 4096,
+  "reservedStart": 65504,
+  "envs": {
+    "x1native_slfs": {
+      "envType": 1,
+      "osType": 4,
+      "defaultOrg": 4096,
+      "defines": {
+        "X1NATIVE": 1,
+        "SLFS": 1
+      },
+      "libraries": [
+        "runtime.asm",
+        "libfloat.asm",
+        "libx1native_base.asm",
+        "libx1native_input.asm",
+        "libx1native_print.asm",
+        "libx1_base.asm",
+        "libx1_pcg.asm",
+        "libx1_grp.asm",
+        "libx1_magic.asm",
+        "libx1_sgl.asm",
+        "libx1_psg.asm",
+        "libx1native_slfs.asm",
+        "libcompress.asm",
+        "libsoroban.asm",
+        "libx1_arkos.asm",
+        "libx1_banjo.asm",
+        "libx1_basic.asm"
+      ],
+      "defaultDiskMainName": "SLFSMAIN",
+      "diskMainLoad": 4096,
+      "diskMainExec": 4096,
+      "diskVolume": "SLFS DEMO"
+    },
+    "x1native": {
+      "envType": 1,
+      "osType": 4,
+      "defaultOrg": 4096,
+      "defines": {
+        "X1NATIVE": 1
+      },
+      "libraries": [
+        "runtime.asm",
+        "libfloat.asm",
+        "libx1native_base.asm",
+        "libx1native_input.asm",
+        "libx1native_print.asm",
+        "libx1_base.asm",
+        "libx1_pcg.asm",
+        "libx1_grp.asm",
+        "libx1_magic.asm",
+        "libx1_sgl.asm",
+        "libx1_psg.asm",
+        "libx1native_tape.asm",
+        "libcompress.asm",
+        "libsoroban.asm",
+        "libx1_arkos.asm",
+        "libx1_banjo.asm",
+        "libx1_basic.asm"
+      ],
+      "defaultDiskMainName": null,
+      "diskMainLoad": null,
+      "diskMainExec": null,
+      "diskVolume": null
+    }
+  },
+  "assembler": {
+    "name": "AILZ80ASM",
+    "version": "1.0.31.0",
+    "sha256": "dbfb597a2b24c94e8abe73052ce11cd029ea7f1d05cf631f7698c4f38451ff04"
+  },
+  "testdata": {
+    "env": "x1native_slfs",
+    "transpileOptions": {},
+    "cases": [
+      {
+        "name": "HELLO",
+        "bas": "testdata/HELLO.BAS",
+        "sl": "testdata/HELLO.SL",
+        "bin": "testdata/HELLO.bin",
+        "lst": "testdata/HELLO.LST",
+        "d88": "testdata/HELLO.d88",
+        "diskMainName": "HELLO"
+      },
+      {
+        "name": "GRAPH",
+        "bas": "testdata/GRAPH.BAS",
+        "sl": "testdata/GRAPH.SL",
+        "bin": "testdata/GRAPH.bin",
+        "lst": "testdata/GRAPH.LST",
+        "d88": "testdata/GRAPH.d88",
+        "diskMainName": "GRAPH"
+      },
+      {
+        "name": "MUSIC",
+        "bas": "testdata/MUSIC.BAS",
+        "sl": "testdata/MUSIC.SL",
+        "bin": "testdata/MUSIC.bin",
+        "lst": "testdata/MUSIC.LST",
+        "d88": "testdata/MUSIC.d88",
+        "diskMainName": "MUSIC"
+      },
+      {
+        "name": "FLOAT",
+        "bas": "testdata/FLOAT.BAS",
+        "sl": "testdata/FLOAT.SL",
+        "bin": "testdata/FLOAT.bin",
+        "lst": "testdata/FLOAT.LST",
+        "d88": "testdata/FLOAT.d88",
+        "diskMainName": "FLOAT"
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": "_framework/System.Collections.Concurrent.wasm",
+      "sha256": "8e81dc98c5ae56c097f5a011f1624630c46e17682aa64186e7c43ea9081125f1",
+      "size": 16149
+    },
+    {
+      "path": "_framework/System.Collections.Concurrent.wasm.br",
+      "sha256": "854dff8debdf42353efdab7e1930e0c75e34024ad391d727b8506d20d3a92942",
+      "size": 7141
+    },
+    {
+      "path": "_framework/System.Collections.Concurrent.wasm.gz",
+      "sha256": "66caaa87d580d99ad8346f61956f76be7261429cadb3daaba2ca7a3a418a743d",
+      "size": 7962
+    },
+    {
+      "path": "_framework/System.Collections.wasm",
+      "sha256": "9a07def9fe1edc29ef198d73e46ac568f83f10f00b89a5345b5e8f6553fc1594",
+      "size": 20245
+    },
+    {
+      "path": "_framework/System.Collections.wasm.br",
+      "sha256": "bb2793f3bfcca6a9f33ce5763d520036d096db88ed1e3ffcbf4af2e14d123785",
+      "size": 8071
+    },
+    {
+      "path": "_framework/System.Collections.wasm.gz",
+      "sha256": "8bdfa170d45b53643e683ad9bf01a3940c41911eb39605b1308fde6d1c3e0468",
+      "size": 9161
+    },
+    {
+      "path": "_framework/System.Linq.wasm",
+      "sha256": "ef9d7b2989a7d0083e48128b19a5871b81b3d67ef0b545a2c547df8679f80f04",
+      "size": 29973
+    },
+    {
+      "path": "_framework/System.Linq.wasm.br",
+      "sha256": "4f9e18224a48041ba397e8c03cd83d6ee0c62a9f8e9da6f5fd7e087344a73b0a",
+      "size": 12111
+    },
+    {
+      "path": "_framework/System.Linq.wasm.gz",
+      "sha256": "a24cc3e0085f1e07bd8507bcbe2352b98d1eeea1c3dcb077d5867186db5cbfc6",
+      "size": 14020
+    },
+    {
+      "path": "_framework/System.Memory.wasm",
+      "sha256": "673718b4567957ba29d3dbb4d83d969e81191368b54423f863834cc194482c71",
+      "size": 14613
+    },
+    {
+      "path": "_framework/System.Memory.wasm.br",
+      "sha256": "7ccb540a0168f17c733b3fd3c8307baf290ec8071a2acdc52ab362d58a914dad",
+      "size": 6188
+    },
+    {
+      "path": "_framework/System.Memory.wasm.gz",
+      "sha256": "4c64ce8c119af0ca3f0325b98c5ce5b4c52d5d19cdb1b4417abd095f0b0c86dd",
+      "size": 7042
+    },
+    {
+      "path": "_framework/System.Private.CoreLib.wasm",
+      "sha256": "17d70bb8692839c71a553fb4683325f14fc01431f613b796c1314ed00dbf1574",
+      "size": 1057045
+    },
+    {
+      "path": "_framework/System.Private.CoreLib.wasm.br",
+      "sha256": "57c0c3a59879534938756a6976e6970cd2c40d314b6482d4d80707702d6f2bce",
+      "size": 337214
+    },
+    {
+      "path": "_framework/System.Private.CoreLib.wasm.gz",
+      "sha256": "537cb0d0c9cb43c911c931e28d41c9ee0be49a3437227a3fa6b0464251edfe75",
+      "size": 412980
+    },
+    {
+      "path": "_framework/System.Runtime.InteropServices.JavaScript.wasm",
+      "sha256": "5340c338c319fb791038812caeb387d5adf2c4afe161344d274fba43c27cb776",
+      "size": 31509
+    },
+    {
+      "path": "_framework/System.Runtime.InteropServices.JavaScript.wasm.br",
+      "sha256": "6f6fb408ae9f5ace1b3c5aaf4e446b2e1cd256e4c07ab719f7dd1443967a34c2",
+      "size": 12925
+    },
+    {
+      "path": "_framework/System.Runtime.InteropServices.JavaScript.wasm.gz",
+      "sha256": "f4c64d7ed640a33be934be0db0c2066e3caba47dc37dfc8f0fdb877e60b43e2f",
+      "size": 15164
+    },
+    {
+      "path": "_framework/System.Runtime.Numerics.wasm",
+      "sha256": "7b49b3cdd5b53417d5956a9ae1c7d7e8da8a4b8836d3d13c44343e2072c50496",
+      "size": 53525
+    },
+    {
+      "path": "_framework/System.Runtime.Numerics.wasm.br",
+      "sha256": "f5944ac6aa6d6b908db4298dc5f4e850ab26550d4687ec28d72059ef48b497d6",
+      "size": 19729
+    },
+    {
+      "path": "_framework/System.Runtime.Numerics.wasm.gz",
+      "sha256": "bf1f4bc4d20c3fad22f30e9ae09d051c9d96b727a863c993e283756ba44a1256",
+      "size": 23063
+    },
+    {
+      "path": "_framework/System.Text.Encoding.CodePages.wasm",
+      "sha256": "1041fa3aa2f5cf9cd392b452ae95daf80ece8a4c3176e80c849ac9d056bc25e9",
+      "size": 684821
+    },
+    {
+      "path": "_framework/System.Text.Encoding.CodePages.wasm.br",
+      "sha256": "bbd7134a5c0f261898bcc42e6071ecdf0524157afaeba8ad1c5ee4620dcf0b87",
+      "size": 169799
+    },
+    {
+      "path": "_framework/System.Text.Encoding.CodePages.wasm.gz",
+      "sha256": "4e819a60bfe9cb1aade4b12f40a7a8afedaefe5c77e12e9f67308ad01bbd48f5",
+      "size": 503391
+    },
+    {
+      "path": "_framework/System.Text.Encodings.Web.wasm",
+      "sha256": "429bd2eb698c635edf5e6b538ded00da4c241b46fe40a6dcd1aede1a3b16fade",
+      "size": 26389
+    },
+    {
+      "path": "_framework/System.Text.Encodings.Web.wasm.br",
+      "sha256": "31515b730b56aa659b944fb150e6c51a7ff145bdef6ffaa9315ab31a1bab9f21",
+      "size": 8450
+    },
+    {
+      "path": "_framework/System.Text.Encodings.Web.wasm.gz",
+      "sha256": "2a993869e8df6c6602e817c9695c6b73e0381e0377720c63881cab540a56cbc2",
+      "size": 9690
+    },
+    {
+      "path": "_framework/System.Text.Json.wasm",
+      "sha256": "0074af223a1b42dd41440ce017c8139973bee9f651b1d58637c2d9bd07dc977e",
+      "size": 71445
+    },
+    {
+      "path": "_framework/System.Text.Json.wasm.br",
+      "sha256": "2e71c24fa705b50874398ed2eff79cf8a60445f022f895cd6747a997ead5db6a",
+      "size": 24562
+    },
+    {
+      "path": "_framework/System.Text.Json.wasm.gz",
+      "sha256": "18ef8f34979d007821477b763375ba32d76845ca0d599aa0821c57dd95ccb68b",
+      "size": 28770
+    },
+    {
+      "path": "_framework/System.Text.RegularExpressions.wasm",
+      "sha256": "74de96d832f25f7405c753c4beea3862c125edd60c792b88fd56fb9d108b21db",
+      "size": 130325
+    },
+    {
+      "path": "_framework/System.Text.RegularExpressions.wasm.br",
+      "sha256": "a425155eb4d0d4868fad68dfcf832691b6dc4ce9834b55e7e13ae6ee6100ff28",
+      "size": 46513
+    },
+    {
+      "path": "_framework/System.Text.RegularExpressions.wasm.gz",
+      "sha256": "51d56d1135396fd6f00079e5d7ca0f3b0729e580e215ad0e2c455a5d51f49ea6",
+      "size": 57505
+    },
+    {
+      "path": "_framework/blazor.boot.json",
+      "sha256": "c603246e34edd2632a6a7d1433573cd1342270a605d95b6d50bc62dc2e58eaff",
+      "size": 1735
+    },
+    {
+      "path": "_framework/blazor.boot.json.br",
+      "sha256": "4a2620c9a19222b4ec3a9822b827909e812ada0988a445a3f97d0c2b15efc136",
+      "size": 863
+    },
+    {
+      "path": "_framework/blazor.boot.json.gz",
+      "sha256": "c482f3d9f816ed673e20961b1a25c4ff51cedd55a8ea9ee221ceeea08c93b581",
+      "size": 961
+    },
+    {
+      "path": "_framework/dotnet.js",
+      "sha256": "0cf3f38cf7c9a4faff5633e13bdcd9b26f22ab7b2917105b73fbbc1e7437ea05",
+      "size": 35871
+    },
+    {
+      "path": "_framework/dotnet.js.br",
+      "sha256": "4c67690971fc9adfcf033b73eb9c9adfbdfafcf2f6da6b669c55b8d5360aad08",
+      "size": 10253
+    },
+    {
+      "path": "_framework/dotnet.js.gz",
+      "sha256": "0fead375c720c4cb372315c28420876248b0860b584186447f491a6ce6c66302",
+      "size": 11550
+    },
+    {
+      "path": "_framework/dotnet.native.js",
+      "sha256": "f4da17795528e1636b12aae3029ff2dd873c3660dcca6424ccc18e21b2291a2a",
+      "size": 160089
+    },
+    {
+      "path": "_framework/dotnet.native.js.br",
+      "sha256": "e24723068331db5aa8237e728d50cc0a0fadbbc069a6ff7f610544c14164f91c",
+      "size": 31474
+    },
+    {
+      "path": "_framework/dotnet.native.js.gz",
+      "sha256": "4bec774aeb2a6958a3a71eb34102da5679ce6edaa6007c6499ad90a0eb880384",
+      "size": 36547
+    },
+    {
+      "path": "_framework/dotnet.native.wasm",
+      "sha256": "7fa6fc38cccfc5989c7c1b89402ee96345ebaa77dfbc75fbeaba8b786a4bee82",
+      "size": 2921027
+    },
+    {
+      "path": "_framework/dotnet.native.wasm.br",
+      "sha256": "c52a73bb63aac3d15c6d6946cf50913c56dc1308be45c1ea76c0a98646bc6019",
+      "size": 951403
+    },
+    {
+      "path": "_framework/dotnet.native.wasm.gz",
+      "sha256": "31142a833070bdf1a707708731c00823fbd4d6df4122d2005519420f1d005319",
+      "size": 1174057
+    },
+    {
+      "path": "_framework/dotnet.runtime.js",
+      "sha256": "ab356df3aab418a80335e939f96141cf6854f231b123ce9825e6663465e3fea3",
+      "size": 223202
+    },
+    {
+      "path": "_framework/dotnet.runtime.js.br",
+      "sha256": "932adf063ba5075c2582321fa5afdf3c1dbf5d78e3e986d0940722bcb189a831",
+      "size": 54664
+    },
+    {
+      "path": "_framework/dotnet.runtime.js.gz",
+      "sha256": "adc8857ef4d28f840ea01e3837df159959101b5a715baee45e80d5378e22ccb7",
+      "size": 65705
+    },
+    {
+      "path": "_framework/hubasic2sl-wasm.wasm",
+      "sha256": "6854ec1afd481cac7a4422d3f14a309d490a2223a1d6f39467ebd0fc8fc1b2b4",
+      "size": 188693
+    },
+    {
+      "path": "_framework/hubasic2sl-wasm.wasm.br",
+      "sha256": "680d3407f71601158102f2b98fcda7fc07ed96c551b47c3b0c7298e88d341d4a",
+      "size": 62770
+    },
+    {
+      "path": "_framework/hubasic2sl-wasm.wasm.gz",
+      "sha256": "7ef70694cb3e18abb07b75ff44d57b2d5a0f9cb0788c441cec226c3ab4c96c46",
+      "size": 76922
+    },
+    {
+      "path": "env/x1native.env",
+      "sha256": "b18401356403152881260be16fe6a7e896a69c59f5cacebdf40b9806552280db",
+      "size": 1607
+    },
+    {
+      "path": "env/x1native_slfs.env",
+      "sha256": "8a4d53c0f0926e2b8f2a7e7183a760869e45ec3877002ac56730f30290362bef",
+      "size": 1274
+    },
+    {
+      "path": "runtime/libcompress.asm",
+      "sha256": "e6199d575ed2fb9910ddfaeb49fcf914ea60be8631808f40bd3ba1e900c9d4ca",
+      "size": 4847
+    },
+    {
+      "path": "runtime/libfloat.asm",
+      "sha256": "dcd929bc2da891bee2afbc34854f9f2417264780246c9cb8f27ff330d4340f14",
+      "size": 42441
+    },
+    {
+      "path": "runtime/libsoroban.asm",
+      "sha256": "0cd4840bb0336b3e93d92f98172ede01fa5d3c947b82f419960e1b094c420ef0",
+      "size": 34449
+    },
+    {
+      "path": "runtime/libx1_arkos.asm",
+      "sha256": "c102bdeac4547da99f09be4ce34b789686ca9edfaab298404f8165b6ac7b68a6",
+      "size": 5678
+    },
+    {
+      "path": "runtime/libx1_banjo.asm",
+      "sha256": "15d5a103479710ba14d358e858ad8cc4f3c62fd4f1529a159d743cf5c6006098",
+      "size": 4847
+    },
+    {
+      "path": "runtime/libx1_base.asm",
+      "sha256": "5126e6b3bf7aa253daf747a4524b102fd828a95b2a9a83887cc4698f6b8f6a53",
+      "size": 2316
+    },
+    {
+      "path": "runtime/libx1_basic.asm",
+      "sha256": "293812eeeb9a9df4b807dd73d118a4b038cbf01c9b463e4ba769784417186d05",
+      "size": 139895
+    },
+    {
+      "path": "runtime/libx1_grp.asm",
+      "sha256": "02b30e15026fdce7190bafe9b49b25143353e4ffda83fc139f2224b40df5fa0f",
+      "size": 43434
+    },
+    {
+      "path": "runtime/libx1_magic.asm",
+      "sha256": "b5ac53665a979a5ef48cf863b557e8fbf561ad032229e7fef5c45110bf00cfc5",
+      "size": 30692
+    },
+    {
+      "path": "runtime/libx1_pcg.asm",
+      "sha256": "913a65b1a32d432984b513f765b51ff4df30de0748ca0a7a351999b500dcf0d6",
+      "size": 6164
+    },
+    {
+      "path": "runtime/libx1_psg.asm",
+      "sha256": "07de7959b7db2a2a317dd3334e2528f95a20c72e1e44eaeb0aa9345df52271f2",
+      "size": 48545
+    },
+    {
+      "path": "runtime/libx1_sgl.asm",
+      "sha256": "b899dc5874b4e135de369dee28ca4ea94ff53098839a5a9fa5ea593f8cce1f6a",
+      "size": 147334
+    },
+    {
+      "path": "runtime/libx1native_base.asm",
+      "sha256": "68f3ce7aa124dd1911fa6adbce0a37e8b3c735f66881ce21978f022c727af641",
+      "size": 15192
+    },
+    {
+      "path": "runtime/libx1native_input.asm",
+      "sha256": "504ebb8b2103fbc279ea61dfcacbc5f1f65644fab102291c3566f20a4e1e84f5",
+      "size": 2692
+    },
+    {
+      "path": "runtime/libx1native_print.asm",
+      "sha256": "ff81f92ce862983afb7e1988b25b1295d494c7d5a2c560d7a43cd1d09f19ac1b",
+      "size": 14355
+    },
+    {
+      "path": "runtime/libx1native_slfs.asm",
+      "sha256": "af83dca88d206ad134c5bb28dd521e2caa39272ed430ddeea761103dcad6376e",
+      "size": 19688
+    },
+    {
+      "path": "runtime/libx1native_tape.asm",
+      "sha256": "6a83ec04d4908ed1922c724105e20ab53bbf86757ef651a754733d14313ee8a6",
+      "size": 9238
+    },
+    {
+      "path": "runtime/runtime.asm",
+      "sha256": "d32b05894ec0392abd41b6d03535e972845adf0d9552d0d0ba7667a6b0312b3d",
+      "size": 7200
+    },
+    {
+      "path": "testdata/FLOAT.BAS",
+      "sha256": "2eca9c2f3690680236f090f226f1528767394f82395d397e5a7a86a77065981e",
+      "size": 184
+    },
+    {
+      "path": "testdata/FLOAT.LST",
+      "sha256": "f71b7090722acbaa6ae94307361576fc8abd4295c60e202d80e50c9c711e5870",
+      "size": 220590
+    },
+    {
+      "path": "testdata/FLOAT.SL",
+      "sha256": "7edc9f578403492baed5b866146840be8c31aeae225bce3b3fe6546f47eaa37b",
+      "size": 1436
+    },
+    {
+      "path": "testdata/FLOAT.bin",
+      "sha256": "bacb4cbf4c3c33f7e3b620bf3ac4d8c9b3c297cf78a1fa5c1bcb6145b0ac21fd",
+      "size": 6061
+    },
+    {
+      "path": "testdata/FLOAT.d88",
+      "sha256": "f8756ce9bee5d95b01c9f4cbe78335304f5fbfbbbb4ab3addd0087bc2993ece0",
+      "size": 348848
+    },
+    {
+      "path": "testdata/GRAPH.BAS",
+      "sha256": "7bdae437f1b48c6fb88d4d3049ce3d1703081ae0e296bac8c8ba0464a16435c4",
+      "size": 408
+    },
+    {
+      "path": "testdata/GRAPH.LST",
+      "sha256": "848c56e45b8d620e3b23477179720079f821f142317e7f913fbf14ae2920f496",
+      "size": 289541
+    },
+    {
+      "path": "testdata/GRAPH.SL",
+      "sha256": "36f8fcbe4f0b8b40085bb6bf1ea2ebfab1eb38a3b61db94b6ee6eb5aee7e96b7",
+      "size": 1621
+    },
+    {
+      "path": "testdata/GRAPH.bin",
+      "sha256": "1221fe4fbc232d94a3bac56251fde1109d3c56e6fe066e34c5e440a37e9c29b7",
+      "size": 8251
+    },
+    {
+      "path": "testdata/GRAPH.d88",
+      "sha256": "cc47e91f2d027899681df5b09393f22d66040d62013f07a24571a952d27df304",
+      "size": 348848
+    },
+    {
+      "path": "testdata/HELLO.BAS",
+      "sha256": "c1b0399039f503f36c9c0da2d8a02804558f6c543634a9367c21b41f17a22fff",
+      "size": 245
+    },
+    {
+      "path": "testdata/HELLO.LST",
+      "sha256": "0c27417c5d1e2f161da8c84d5e7f70f1d6d102731022a2ce32f18d556d7018e4",
+      "size": 196894
+    },
+    {
+      "path": "testdata/HELLO.SL",
+      "sha256": "b83928e2467f95d4849ff625db2a067fdb8e2d2084c1cdb40625e6a40ab96dfe",
+      "size": 1664
+    },
+    {
+      "path": "testdata/HELLO.bin",
+      "sha256": "3d92fb502a23e268679e2aef806f44f45e76925365cebab6136c8a8845522bf3",
+      "size": 5368
+    },
+    {
+      "path": "testdata/HELLO.d88",
+      "sha256": "cff88cbb68b531092be1884e49079644f7cce41d0fd982fe20c0b34ec86f5bb0",
+      "size": 348848
+    },
+    {
+      "path": "testdata/MUSIC.BAS",
+      "sha256": "57f8227fc318cddc4f774c7ddb136fefa58193bc8c605b536d7828de5be10b28",
+      "size": 123
+    },
+    {
+      "path": "testdata/MUSIC.LST",
+      "sha256": "3fc043ad08f0f2bcd4d6c5ebc7844ecb445be1542d4abf489591e59c4772bd82",
+      "size": 94929
+    },
+    {
+      "path": "testdata/MUSIC.SL",
+      "sha256": "1e647ad7072575f6ca5aae2f951797ac48497ee9f208b9e396b845d1e8ceb098",
+      "size": 788
+    },
+    {
+      "path": "testdata/MUSIC.bin",
+      "sha256": "41ec9fdce1af5ac605d48185af3b2a7b6961d61d79fc646528aaf898f7b85d11",
+      "size": 2849
+    },
+    {
+      "path": "testdata/MUSIC.d88",
+      "sha256": "0c3382fefa6bfb50bc67ecc5415858349f49353c9c5d2652a43b234fa456c182",
+      "size": 348848
+    }
+  ]
+}

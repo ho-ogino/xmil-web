@@ -10,3 +10,6 @@
 
 /fuzzybasic_boot.*
   Cache-Control: public, max-age=31536000, immutable
+
+/hubasic/*/*
+  Cache-Control: public, max-age=31536000, immutable
