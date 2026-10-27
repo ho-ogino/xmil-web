@@ -92,7 +92,7 @@ HuBASIC タブの上の「Options」で、hubasic2sl の変換のオプション
 
 - `'#VSYNC n` のコメントは、速度が「`'#VSYNC` コメントで待つ」のときだけ効きます。`VSYNC` 文は、設定によらずいつも待ちます。
 - N は 1〜65535 です。
-- Share の画面（`?id=`）では、保存済みの設定を読みますが、そこで変えた設定は保存しません。
+- Share の画面（`?id=`）では、保存済みの設定を読みますが、そこで変えた設定は保存しません。HuBASIC の共有を開いたときは、共有に載っている設定を使います（載っていない項目は既定）。
 - 自動操作からは `X1PenAutomation.getHuBasicOptions()` / `setHuBasicOptions(patch)` で読み書きします。
   - 値は `{ wait: 'none' | 'line:N' | 'frame:N', noLineNumbers, assumeDefint, stringLen, dataBudget }` です。
   - `setHuBasicOptions` は渡した項目だけを変え、`null` の項目は既定に戻します。
@@ -100,12 +100,12 @@ HuBASIC タブの上の「Options」で、hubasic2sl の変換のオプション
   - RUN の準備中は `RUN_PENDING` で断ります。
   - 設定はプログラムの一部ではないので、`getProgram` には入らず、`revision` も変わりません。
   - feature の名前は足していません（feature は X1Pen・Connector・MCP で揃える決まりのため。MCP の対応のときに足します）。`typeof X1PenAutomation.setHuBasicOptions === 'function'` で見分けられます。
-- Share と X1Pen MCP は、まだこの設定を運びません。
+- Share はこの設定を運びます（下の「Share（共有）」）。X1Pen MCP は、まだ運びません。
 - 前の版（素の編集欄）で保存した HuBASIC のプログラムは、最初に開いたときに一度だけ移します。X1 で表せない文字は `?` になり、ステータス欄でお知らせします。元の文字列は localStorage の `x1pen_editor_hubasic` に残ります。
 - スマートフォンなど狭い画面では、エディタの右の欄が場所を取ります（「右欄を隠す」で畳むか、境界をドラッグして狭められます）。
 - 複数のタブに内容があるときは、HuBASIC を優先して実行します。
 - FDD0 にライブラリのディスクや外部のメディアが入っているときは RUN できません（取り出してください）。FDD1 などほかのドライブはそのままです。
-- Share、X1Pen MCP（x1pen-mcp）からの操作にはまだ対応していません（下の「注意事項」）。
+- Share できます（下の「Share（共有）」）。X1Pen MCP（x1pen-mcp）からの操作には、まだ対応していません（下の「注意事項」）。
 
 ## 実行
 
@@ -204,6 +204,14 @@ X millennium Web 本体のエミュレータで FDD にマウントして起動�
 - 共有 URL を開くと、コードが自動で読み込まれ実行されます
 - MODEL（X1 / X1turbo / X1turboZ）やランタイムバージョンも記録されます
 - 音声は自動再生ポリシーによりミュートされます。エミュレータ画面をクリックすると有効になります
+- HuBASIC タブのプログラムも共有できます。
+  - 共有されるのは、プログラム（X1 の文字コードのバイト列そのまま）、変換のオプション（既定と違うものだけ）、MODEL です。
+  - 開くと、共有したときと同じバイト列・同じ変換のオプション・同じ MODEL で RUN します。
+  - 2 回目からの RUN は、開いた人の MODEL の設定を使います（ほかのタブの共有と同じ）。変換のオプションは、その画面の間は共有のものを使います。
+  - その画面からもう一度 Share すると、その画面で最後に RUN した MODEL を載せます（RUN できなかったときは共有の MODEL。MODEL を選び直したときは、その MODEL）。
+  - 開いた人の保存済みのプログラム・変換のオプション・本体の設定は変わりません。
+  - 共有に変換のオプションが無いときは、すべて既定で変換します（開いた人の設定は使いません）。
+  - 共有のプログラムが読めないときは、「Shared HuBASIC program could not be read」と出し、何も実行しません。
 
 ## 文字入力
 
@@ -302,7 +310,6 @@ BASIC タブと ASM タブはそれぞれ独立して保存されます。
 
 ## 注意事項
 
-- HuBASIC タブのプログラムは Share できません（「HuBASIC programs cannot be shared yet」と出ます）
 - HuBASIC タブのプログラムを開いている（いまのソースが HuBASIC の）間は、公開済みの x1pen-mcp 2.7.x の `x1pen_get_program` などが `invalid source mode` で止まります。ほかのタブのプログラムには影響しません
 - エディタにフォーカスがある間、エミュレータは一時停止します（スクロール時の負荷軽減のため）
 - エミュレータ画面をクリックすると再開します

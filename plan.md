@@ -1,161 +1,206 @@
-# X1Pen HuBASIC tab: conversion options (one global setting) and an automation API for them
+# X1Pen HuBASIC Share: share HuBASIC programs (X1 bytes) with their conversion options
 
 ## Purpose
 
-hubasic2sl (the HuBASIC → SLANG converter X1Pen runs as .NET browser-wasm) has options that change the generated program: per-line wait, no line-number bookkeeping, integer default type, string length limit, static data budget. X1Pen passes none of them today; the owner wants to set them.
+Today Share refuses HuBASIC programs ("HuBASIC programs cannot be shared yet"). Make them shareable, together with the conversion options (PR #137's one global set). Without the options, a program converted with `wait: line:450` would run at a different speed for the person who opens the link.
 
-Goals:
-1. A place in the HuBASIC tab (X1Pen side, not inside the X1 BASIC Editor iframe) to set five options: `wait` (none / line:N / frame:N), `noLineNumbers`, `assumeDefint`, `stringLen`, `dataBudget`.
-   - **One global setting** (not per program), remembered in localStorage.
-   - The wait setting must make clear that `'#VSYNC n` directive comments only work with the frame mode.
-   - **Untouched settings give exactly today's behaviour**.
-2. `X1PenAutomation.getHuBasicOptions()` / `setHuBasicOptions()`, separate from `getProgram` (the MCP server checks `getProgram`'s result strictly, so it must not change).
+Rules from the owner (via Secretary):
+- Opening a share never changes the viewer's own saved settings (options, model) or saved program: it uses the shared ones for that tab only.
+- New payload fields are optional, read as "absent = default", so existing share URLs keep working unchanged.
+- The server (`functions/api/share*`) should stay as it is if possible. If it must change, report why.
+- The X1 bytes are the program (unchanged rule since PR #136): the share must give back exactly the bytes the sender had.
+- Share is an outward-facing path: nobody's program may get mixed with another, lost, or become unreadable.
 
-Non-goals (decided by the owner; order is API → Share → MCP, each with its own project):
-- Share URL: HuBASIC programs cannot be shared yet (`onShareClick` stops with "HuBASIC programs cannot be shared yet"); options go into Share together with HuBASIC Share.
-- MCP / the Chrome extension bridge: x1pen-mcp 2.7 does not know the hubasic source mode yet; npm releases are the owner's.
-- `emitLineComments`: only adds comments to the generated SLANG, which X1Pen never shows.
-- CLI-only options (`--env`, `--emit`, `--disk-main-name`, `--tape-name`, `--wav`, `--check-bin`, `--lst`, `--slangbuild`) and `inputEncoding` (X1Pen always passes `x1` because the tab holds X1 bytes).
-- No change to the SLANG-compiler bundle (`assets/hubasic/5abbffaa…`), the wasm, or the editor copy (`assets/x1basic`).
+Non-goals: MCP and the `hubasic.options` feature name (next project); OG tags / screenshot handling (unchanged); sharing the resolution or other machine settings (no share carries them today); any production deploy.
 
 ## Observed evidence
 
-- `html/x1pen_hubasic.js` `build(source)` (line ~157) calls
-  `state.api.Transpile(bytes, SOURCE_NAME, JSON.stringify({ inputEncoding: x1 ? 'x1' : 'utf8' }))`. `build` is called from `html/x1pen.js` in two places: `performHuBasicRun(source)` (Run, also automation `run`) and `validateHuBasicProgram` (automation `validate`). The success result contains `sl` (generated SLANG); failures carry `stage` and `diagnostics`.
-- `window.X1PenHuBasic` is a plain (not frozen) object `{ load, build, info, _checkManifest, _checkBasAbi }`.
-- The wasm entry `HuWebApi.ParseOptions` (SLANG-compiler 5abbffaa, `src/SLANGCompiler.HuBasic/Web/HuWebApi.cs`) accepts a JSON object with keys `inputEncoding`, `wait` (string `none` / `line[:N]` / `frame[:N]`; N unreadable or ≤0 → 1), `stringLen` (int 1..255), `dataBudget` (int > 0), `noLineNumbers`, `assumeDefint`, `emitLineComments` (booleans). Unknown keys and wrong types are errors.
-- Defaults (`HuTranspileOptions`): Wait=None, WaitArg=1, LineNumbers=true, AssumeDefint=false, StringLen=255 (`HuAnalyzer.MaxStringLen`), DataBudget=24576 (`HuAnalyzer.DefaultDataBudget`).
-- Meaning (CLI usage text and `HuLowerer`):
-  - `line:N`: `BAS_WLINE(N)` at the head of every line, N × ≈0.1 ms (N=450..500 ≈ Hu-BASIC speed).
-  - `frame:N`: `'#VSYNC n` directive comments call `BAS_VSYNC(n or N)`; without frame mode those comments do nothing. The `VSYNC [n]` statement always waits.
-  - `noLineNumbers`: no `CurrentLine` bookkeeping (`BAS_LNINIT` / hidden assignments), so the program is smaller and faster but runtime errors show no line number.
-  - `assumeDefint`: variables with no suffix and no DEFxxx become integers (Hu-BASIC default is single float).
-  - `stringLen`: maximum length of one string; smaller string variables/arrays, `String too long` past it.
-  - `dataBudget`: limit of static data bytes; exceeding it is a transpile error.
-- The runtime wait routines take N in HL (16 bit): `BAS_WLINE`, `BAS_VSYNC` → `BAS_WAITF` in `runtime/libx1_basic.asm`. An N above 65535 would wrap, so X1Pen limits N to 1..65535.
-- `html/x1pen.html`: `#editor-tabs` holds the tab buttons and per-tab `.editor-tab-action` buttons (`#btn-asm-import`, `#btn-slang-import`, `#btn-basic-manual`), shown and hidden by `setActiveEditorTab(target)` in `html/x1pen.js` (~line 4092).
-- While automation holds the interaction lock, `#editor-panel` becomes inert, so anything inside the tab bar is locked with it.
-- Ephemeral share sessions (`isEphemeralShareSession`) skip localStorage writes (`persistEditorSources` returns early) and do not restore saved sources.
-- `X1PenAutomation` (`html/x1pen.js` ~line 3027) is a frozen object.
-  - `setProgram` and `validate` reject with `createRunPendingError` while `isRunSetupPending()` and are serialised with `queueAutomationOperation`.
-  - `getStatus().x1pen.features` comes from `getAutomationFeatures()`; `tests/x1pen_automation_test.mjs:237` asserts the exact list.
-  - The MCP compatibility layer (`mcp/x1pen-compatibility.mjs` `normalizeFeatureList`) keeps unknown feature strings, so adding one is harmless to 2.7.
-- `html/x1pen.html` loads the small helper `x1pen_hubasic_text.js` before `x1pen-version.js`; a test requires `x1pen-version.js` to be directly followed by `x1pen.js`.
-- `tests/x1basic_editor_test.mjs` already loads helpers in a `vm` context (codec.js, x1pen_hubasic_text.js) for unit tests.
+### Server (Cloudflare Pages Functions, deployed together with the static files)
+- `functions/api/share.js` `onRequestPost`:
+  1. Takes a gzip blob (multipart `data`, or a legacy octet-stream body), at most 1 MiB compressed and 512 KiB decompressed.
+  2. Parses it as JSON, then requires one non-empty string among `basic`, `asm`, `slang`; otherwise **400 "No code"**.
+  3. Stores the compressed blob unchanged in D1 (`shares.data`) and returns `{ id }`.
+- `functions/api/share/[id].js` returns the stored blob with `X-X1pen-Codec: gzip`.
+- `functions/x1pen.js` only reads `screenshot_key` for OG tags.
+- **Consequence**: a HuBASIC-only payload (no basic/asm/slang) is rejected with 400. The server must also accept the HuBASIC field. This is a one-line condition change; nothing else on the server reads the payload.
+- There are no tests for `functions/api/share.js` today.
+
+### Client (`html/x1pen.js`)
+- `onShareClick()`:
+  - Returns early with "HuBASIC programs cannot be shared yet" when the HuBASIC editor has text.
+  - Otherwise builds `{ basic, asm, slang, meta: { model, coldState, bootDisk, runMode, sourceMode, relocAddrs? } }`.
+  - It hashes that payload string (`computePayloadHash`) and reuses `lastShareId` when the hash equals `lastShareHash`.
+  - It gzips the payload, adds a screenshot, POSTs to `/api/share`, then shows `location.origin + '/x1pen?id=' + id`.
+  - Media check: `inspectShareMediaState()` refuses when any slot holds saved media. X1Pen's temporary disk `__x1pen_temp__` (what a HuBASIC Run puts into FDD0) is allowed.
+- Share load (`__x1pen_onModuleReady`, `?id=`):
+  - Fetches `/api/share/<id>` and gunzips it when the header says gzip (else reads JSON).
+  - Sets the basic/asm/slang editors (`shared.x || ''`) and calls `markProgramChanged()`.
+  - From `meta` it builds `pendingShareRuntime = { model, coldState, bootDisk, relocAddrs, sourceMode }` and normalises it for the run mode.
+  - Builds a "replay" payload the same way as `onShareClick` and stores its hash as `lastShareHash` / `lastShareId` (so re-sharing an unchanged program reuses the URL).
+  - Then calls `onRunClick('share')`. Errors show "Shared code load failed"; 404 "Shared code not found"; 400 "Invalid share ID".
+- Share sessions:
+  - `?id=` makes `isEphemeralShareSession` true for the whole page life.
+  - Saved sources are neither restored nor written (`persistEditorSources` / `persistEditorSource` return early).
+  - Since PR #137, HuBASIC options are read from storage but not written.
+- `performRun(token)` decides `sourceMode` from `pendingShareRuntime.sourceMode` if set, else `inferSourceMode(...)` (HuBASIC first).
+  - The HuBASIC branch returns `performHuBasicRun(bytes, options)` **before** the code that clears `pendingShareRuntime`. Today that cannot happen in a share session (no HuBASIC share exists).
+  - The other branches use `baseRuntime = pendingShareRuntime || getUserDefaultRuntime(); pendingShareRuntime = null;` and record `lastUsedRuntime`, `lastRunWasShared = isSharedRun` (= `isEphemeralShareSession`).
+- `performHuBasicRun(source, options)` uses `model = getUserDefaultRuntime().model` (the user's MODEL setting).
+  - It cold-boots with `XmilControls.coldPowerOn(model, …)`, which sets the ROM type in the emulator only (it does not save settings, `html/pre.js` ~line 1223).
+  - It then sets `lastUsedRuntime = { model: machine.model, …, runMode: 'x1native' }`, `lastRunWasShared = false`.
+- `onShareClick` picks the runtime for meta in this order: `pendingShareRuntime`, then `lastUsedRuntime` if `lastRunWasShared`, else `getUserDefaultRuntime()`.
+- HuBASIC program state (`createHuBasicEditor`): X1 bytes held in the parent page; `getBytes()` / `setBytes(bytes, { silent })`; text form `X1PenHuBasicText.toText/fromText`.
+  - The text form round-trips every byte except that lone CR / lone LF / CRLF all become `\n` and come back as CRLF. So text is **not** an exact carrier of the bytes.
+- HuBASIC options (`html/x1pen.js`, PR #137):
+  - `hubasicOptions`, changed through `updateHuBasicOptions(patch)`, which validates, saves except in share sessions, and re-renders the panel.
+  - `X1PenHuBasicOptions.changed(options)` gives only the non-default keys.
+  - `X1PenHuBasicOptions.fromStored(value)` reads any value field by field and never throws.
+
+### Tests
+- `tests/x1pen_automation_test.mjs`:
+  - `installShareRoute(context, id, payload)` serves a share as plain JSON.
+  - Existing tests capture the POST to `**/api/share`, e.g. "Share refuses persistent media…", "Share runs isolate…".
+  - `assertEphemeralShareDocument` checks the share-mode markers.
+  - "Share refuses HuBASIC programs" asserts today's refusal; it gets replaced.
+  - `snapshotX1PenPersistence(page)` snapshots localStorage/IndexedDB state for "saved state unchanged" checks.
+
+## Design
+
+### Payload (format version unchanged; new fields optional)
+A HuBASIC share is:
+```json
+{ "basic": null, "asm": null, "slang": null,
+  "hubasicX1": "<base64 of the exact X1 bytes>",
+  "meta": { "model": 1, "runMode": "x1native", "sourceMode": "hubasic",
+            "hubasicOptions": { "wait": "line:450" } } }
+```
+- **`hubasicX1`**: standard base64 (RFC 4648, with padding) of the editor's X1 bytes, exactly as `hubasicEditor.getBytes()` returns them. Base64 rather than the text form, because the text form normalises lone CR/LF; the share must give back the sender's bytes byte for byte.
+- **`meta.hubasicOptions`**: `X1PenHuBasicOptions.changed(options)`, i.e. only non-default values. Omitted when all are defaults. Absent means all defaults.
+- **`meta.model`**: the model the program is run on (rule below). No `coldState` / `bootDisk` / `relocAddrs` (a HuBASIC Run does not use them).
+- Non-HuBASIC shares are built exactly as today (byte-identical payloads, so their hashes and URL reuse do not change).
+
+### Server: `functions/api/share.js`
+- Accept a payload whose only code is `hubasicX1`: `hasHubasic = typeof parsed.hubasicX1 === 'string' && parsed.hubasicX1.length > 0`, added to the "No code" condition.
+- Also reject a payload that is not a JSON object (`null`, array, number) with 400 "No code" instead of throwing.
+  - Today `parsed.basic` on `null` throws → 500. This is a one-line hardening of the condition being edited.
+- Nothing else changes: the blob is stored and served as before. Deploy note for the owner: the server and the page must ship together, which Cloudflare Pages does in one deployment.
+
+### Client: sharing (`onShareClick`)
+- If the HuBASIC editor has text (trimmed, as `inferSourceMode` decides), build a HuBASIC share. The order of checks stays the same: `Nothing to share`, then the media check.
+  - Bytes: `hubasicEditor.getBytes()` → base64.
+  - Options: `changed(hubasicOptions)` (the options the next Run would use).
+  - Model: `pendingShareRuntime.model` if a shared program has not been run yet in this tab; else `lastUsedRuntime.model` if `lastRunWasShared` and the last run was a HuBASIC run (`runMode === 'x1native'`); else `getUserDefaultRuntime().model`. This mirrors the existing runtime choice.
+  - Same hash → same URL reuse, same gzip/POST/screenshot path as today. The payload builder is one function (`buildHuBasicSharePayload(bytes, options, model)`) used for sharing and for the replay hash on load.
+- Other modes: unchanged.
+
+### Client: opening a share (`?id=`)
+- Decide the mode: `meta.sourceMode === 'hubasic'`, or no `meta.sourceMode` but a `hubasicX1` field present.
+- For a HuBASIC share, **decode and validate everything first; change nothing until all checks pass**:
+  - `hubasicX1` must be a non-empty string matching `^[A-Za-z0-9+/]*={0,2}$` with length % 4 == 0, decoding to ≥ 1 byte.
+  - Options: `X1PenHuBasicOptions.fromStored(meta.hubasicOptions)`. Absent → defaults; unknown or invalid fields fall back to their defaults (a newer sender's extra option must not break the link).
+  - Model: `validateModel(meta.model, 1)` (the existing validator).
+  - On a decode failure: status "Shared HuBASIC program could not be read", no Run, editors left empty (the share tab started empty).
+- Then:
+  - Set the basic/asm/slang editors to `''`.
+  - `hubasicEditor.setBytes(bytes, { silent: true })`, `markProgramChanged()`.
+  - Apply the options for this tab: `updateHuBasicOptions(fullOptions)` — in a share session it is not saved, which already holds since #137.
+  - `pendingShareRuntime = { model, coldState: null, bootDisk: null, relocAddrs: null, sourceMode: 'hubasic', runMode: 'x1native' }`.
+  - Replay hash: `buildHuBasicSharePayload(bytes, options, model)`.
+  - Show the HuBASIC tab, then `onRunClick('share')` as today.
+- For a share that is not HuBASIC: unchanged. The tab's HuBASIC options stay as since #137 (the saved ones; they are not used unless the viewer writes a HuBASIC program).
+
+### Client: running a shared HuBASIC program
+- In `performRun`'s HuBASIC branch:
+  - take `model = pendingShareRuntime ? pendingShareRuntime.model : getUserDefaultRuntime().model`;
+  - clear `pendingShareRuntime`, like the other branches do. That also fixes the "sourceMode stays forced" case;
+  - pass the model to `performHuBasicRun(bytes, options, model)`.
+- `performHuBasicRun` uses the given model and records `lastRunWasShared = isEphemeralShareSession`, like the other branches (it is `false` today).
+- Later Runs in the share tab use the viewer's MODEL setting, as for the other modes. The options stay the shared ones for the tab's life, because they replaced the tab's options.
+
+### Docs
+- `docs/X1PEN.md`:
+  - Share section: HuBASIC shares carry the program bytes, the options and the model.
+  - The HuBASIC notes: remove "cannot be shared"; the options paragraph says Share carries them.
+  - 注意事項.
+- `CHANGELOG.md`.
 
 ## Change scope
-
-- **New `html/x1pen_hubasic_options.js`** (`window.X1PenHuBasicOptions`): pure functions, no DOM.
-  - `DEFAULTS` (frozen): `{ wait: 'none', noLineNumbers: false, assumeDefint: false, stringLen: 255, dataBudget: 24576 }`.
-  - `parseWait(value)` → `{ mode, count }` or throws; `formatWait(mode, count)` → `'none'` / `'line:N'` / `'frame:N'`.
-  - `apply(current, patch)` → a new full options object, or throws `TypeError` naming the key.
-    - Strict validation: unknown key; wrong type; `wait` not `none` / `line[:N]` / `frame[:N]` with integer N 1..65535 (`line` alone = `line:1`, as the CLI); `stringLen` integer 1..255; `dataBudget` integer 1..65535.
-    - A `null` value resets that key to the default. Atomic: nothing changes when any key is invalid.
-    - The result is normalised (`wait` always has an explicit N unless `none`).
-  - `fromStored(json)` → full options. Invalid or unknown stored fields fall back to defaults one by one, never throws.
-  - `toTranspile(options)` → only the keys whose value differs from `DEFAULTS`, in the wasm key names. With all defaults this is `{}`.
-  - `isDefault(options)`.
-- **`html/x1pen_hubasic.js`**: `build(source, options)` merges `toTranspile`-style extra keys (a plain object, may be absent) into the Transpile options JSON: `Object.assign({ inputEncoding: … }, options || {})`. With no options, the JSON string is byte-identical to today's.
-- **`html/x1pen.js`**:
-  - State: `hubasicOptions` (full object), localStorage key `LS_HUBASIC_OPTIONS = 'x1pen_hubasic_options'` storing `{ version: 1, options: {...non-default keys...} }`.
-  - Loaded at start, also in share sessions (a preference, not program content). Saved on every change except in ephemeral share sessions (changes there last for the tab only, like other edits).
-  - `setHuBasicOptionsInternal(patch)` → apply, store, re-render the panel, return a copy.
-  - `performHuBasicRun` and `validateHuBasicProgram` call `build(bytes, X1PenHuBasicOptions.toTranspile(hubasicOptions))`, so Run, automation `run` and automation `validate` all use the current options.
-  - Automation: `getHuBasicOptions()` (synchronous, returns a fresh copy) and `setHuBasicOptions(patch)` (a Promise).
-    - Rejects with `createRunPendingError` while a Run is being set up, like `setProgram`; serialised through `queueAutomationOperation`; invalid input rejects with the `TypeError`.
-    - Allowed while the interaction lock is held (that lock is automation's own).
-    - Does not touch `revision` / `revisionEpoch` (options are not program content).
-  - No new feature string: `tests/x1pen_extension_bridge_test.mjs` requires X1Pen, the Connector and MCP to advertise the same feature IDs, so one is added with the MCP work. Callers detect the methods with `typeof X1PenAutomation.setHuBasicOptions === 'function'`.
-  - UI wiring for the panel below.
-- **`html/x1pen.html`**:
-  - An `Options` `.editor-tab-action` button (`#btn-hubasic-options`), shown only on the HuBASIC tab via `setActiveEditorTab`. It shows a marker (`Options •`, plus `aria-label` text) when any option differs from its default, so a user can tell a global setting is active.
-  - A non-modal panel `#hubasic-options-panel` (absolute, under the tab bar, right-aligned, max-width that fits at phone width with 16 px gutters). It closes on the button, Escape inside the panel, or a click outside.
-  - Panel contents (Japanese, like the editor and hubasic2sl's own help):
-    - 速度 (wait): a select なし / 行ごとに待つ / `'#VSYNC` コメントで待つ, plus a number N enabled for the latter two. Help text per mode:
-      - line: 「各行の頭で N × 約 0.1 ms 待ちます（450〜500 で Hu-BASIC に近い速さ）」
-      - frame: 「`'#VSYNC n` のコメントの所で n フレーム待ちます（n が無いときは N）」
-      - always shown: 「`'#VSYNC` コメントはこのモードのときだけ効きます。`VSYNC` 文はいつも効きます」
-    - 行番号を記録しない (noLineNumbers), with 「小さく速くなります。実行時エラーに行番号が出ません」.
-    - 型の無い変数を整数にする (assumeDefint).
-    - 文字列の長さの上限 (stringLen, 1〜255).
-    - 静的データの上限 (dataBudget, bytes).
-    - 「既定に戻す」.
-    - A line saying the settings apply to every HuBASIC program and take effect on the next RUN.
-  - Number fields commit on `change`. An invalid value is marked (`aria-invalid`) and not applied.
-  - Load `x1pen_hubasic_options.js` next to `x1pen_hubasic_text.js` (before `x1pen-version.js`).
-- **`build.sh`**: copy `x1pen_hubasic_options.js` like `x1pen_hubasic_text.js`.
-- **Docs**: `docs/X1PEN.md` (HuBASIC section: the options and the wait/VSYNC rule; automation section: the two methods and the feature string; note that Share and MCP do not carry them yet), `CHANGELOG.md`.
-- **Tests** (see below): unit tests in `tests/hubasic_toolchain_test.mjs` (already run by `npm run test:hubasic`), E2E in `tests/x1pen_automation_test.mjs`. No `package.json` change.
+- `functions/api/share.js`: the "No code" condition (accept `hubasicX1`; non-object JSON → 400).
+- `html/x1pen.js`:
+  - base64 helpers;
+  - `buildHuBasicSharePayload`;
+  - `onShareClick` HuBASIC branch;
+  - share-load HuBASIC branch;
+  - `performRun` HuBASIC branch;
+  - `performHuBasicRun(source, options, model)`.
+- `tests/share_api_test.mjs` (new, Node: calls `onRequestPost` with an in-memory D1 stub, no R2) and a `test:share` script in `package.json`, added to `npm test`.
+- `tests/x1pen_automation_test.mjs`: replace "Share refuses HuBASIC programs"; add the round-trip, isolation and frozen-link tests below.
+- `docs/X1PEN.md`, `CHANGELOG.md`.
 
 ## Implementation steps
-
-1. Archive the finished X1 BASIC Editor plan (done: `plans/20261027-x1-basic-editor.md`).
-2. Write `html/x1pen_hubasic_options.js` and its unit tests (vm context).
-3. Extend `build(source, options)` in `html/x1pen_hubasic.js`.
-4. `html/x1pen.js`: state, storage, the two build call sites, automation methods, feature string.
-5. `html/x1pen.html` + `build.sh`: script tag, button, panel, CSS; UI wiring in `x1pen.js`.
-6. E2E tests in `tests/x1pen_automation_test.mjs`; update the expected feature list.
-7. Docs, CHANGELOG. Build, full `npm test`, refresh the preview server (127.0.0.1:8000) with the new dist.
-8. Implementation review (secretary review, codex), then one PR.
+1. Archive the options plan (done: `plans/20261027-hubasic-options.md`), write this plan, design review.
+2. Server condition + `tests/share_api_test.mjs`.
+3. Client: payload builder and base64; Share click; Share load; Run model; docs.
+4. E2E tests, full `npm test`, rebuild `dist` for the preview server.
+5. Optional end-to-end smoke against `wrangler pages dev` with a local D1, if it runs without new tools (it is in node_modules; local only, `--compatibility-date=2026-08-01`, `WRANGLER_SEND_METRICS=false`).
+6. Implementation review, one PR.
 
 ## Edge cases and test plan
 
-Unit (`tests/hubasic_toolchain_test.mjs`, vm context loading `html/x1pen_hubasic_options.js`):
-- `toTranspile(DEFAULTS)` is `{}`; `isDefault(DEFAULTS)`.
-- `apply` happy paths:
-  - `line` → `line:1`, `line:450`, `frame:2`, `none`;
-  - boundaries 1 and 65535 for N, 1/255 for `stringLen`, 1/65535 for `dataBudget`;
-  - `null` resets one key.
-- `apply` rejects, leaving `current` unchanged:
-  - `line:0`, `line:65536`, `line:x`, `line:1:2`, `wait: 5`;
-  - `stringLen` 0 / 256 / 1.5 / '10';
-  - `dataBudget` 0 / 65536;
-  - booleans given as strings;
-  - an unknown key.
-- `fromStored`: garbage JSON, non-object, a mix of valid and invalid fields → valid ones kept, others default.
-- `toTranspile` of a changed set gives exactly the wasm key names and values.
+Server (`tests/share_api_test.mjs`):
+- A HuBASIC-only payload → 200 and the stored blob equals the posted bytes.
+- `basic` / `asm` / `slang` payloads are still accepted.
+- No code (all empty, `hubasicX1: ''`, `hubasicX1: 5`) → 400 "No code".
+- JSON `null` / `[]` / `42` → 400, not 500.
+- Bad gzip → 400.
 
-The real wasm is exercised only in the browser E2E below (the node toolchain test does not start .NET, and this change does not add that).
+Client E2E (Chrome; POST captured with `context.route('**/api/share')`, served back with `installShareRoute`):
+1. **Exact bytes round trip**:
+   - The program contains $5C, kana, graphic symbols, `$00`, `$FF`, a lone CR and a lone LF inside a line, and CRLF.
+   - Share captures the payload: `hubasicX1` decodes to exactly `getBytes()`; `sourceMode: 'hubasic'`; no basic/asm/slang code.
+   - Opening it in a new page gives byte-identical `getBytes()` in the share tab, and the Run boots (`run.sourceMode === 'hubasic'`, text VRAM shows the output).
+2. **Options travel, the viewer's do not change**:
+   - The sender sets `wait: 'line:450', noLineNumbers: true`; the payload has exactly those in `meta.hubasicOptions`.
+   - The viewer has its own saved options (e.g. `stringLen: 80`). In the share tab:
+     - `getHuBasicOptions()` equals the shared set (`stringLen` back at 255, not 80);
+     - the recorded build options are the shared ones;
+     - the viewer's localStorage value is unchanged afterwards, even after changing options in the share tab.
+3. **Absent = default**:
+   - A HuBASIC share without `meta.hubasicOptions` runs with all defaults, even though the viewer's saved options are not defaults.
+   - Unknown or invalid option fields fall back to defaults.
+4. **Old shares unchanged**:
+   - Existing share tests keep passing; a BASIC share payload built by the new code is byte-identical to the old one (same keys and order).
+   - Opening a legacy BASIC/SLANG share leaves the HuBASIC editor empty and the options as saved.
+5. **Model**:
+   - The share's `meta.model` is the sender's MODEL setting; the share tab's first Run boots that model.
+   - The viewer's saved settings (`xmil_settings`) are unchanged.
+6. **Bad data**: `hubasicX1` not base64 / empty → status "Shared HuBASIC program could not be read", no Run, empty HuBASIC editor, nothing saved.
+7. **Re-share without changes** in the share tab reuses the same ID (no POST); after an edit it POSTs a new one.
+8. **Saved state isolation**: with the owner's saved program and options in the same browser profile, opening a HuBASIC share, editing and running there leaves `snapshotX1PenPersistence` unchanged.
+9. **Refusals stay**: "Nothing to share" for an empty program; a saved disk in a slot still refuses Share; X1Pen's temporary FDD0 disk (after a HuBASIC Run) does not.
+10. `pendingShareRuntime` is cleared by a HuBASIC Run: after the share Run, clearing the HuBASIC program and writing BASIC runs BASIC (no forced `hubasic` source mode).
 
-E2E (`tests/x1pen_automation_test.mjs`, Chrome):
-- Default: wrap `window.X1PenHuBasic.build` to record its second argument.
-  - Automation `validate` of a HuBASIC program passes `{}`, which is the exact Transpile JSON `{"inputEncoding":"x1"}`.
-  - Its generated `sl` contains `BAS_LNINIT` and no `BAS_WLINE`.
-- `setHuBasicOptions({ wait: 'line:450', noLineNumbers: true })` → resolved value is the full object.
-  - The next `validate` records `{ wait: 'line:450', noLineNumbers: true }`.
-  - The SL contains `BAS_WLINE` and no `BAS_LNINIT`.
-- `frame:3` with a program containing `'#VSYNC` → SL calls `BAS_VSYNC`; with `none` it does not.
-- `dataBudget: 1` → `validate` reports the budget error; `setHuBasicOptions({ dataBudget: null })` → ok again.
-- Invalid input rejects with a `TypeError` and `getHuBasicOptions()` is unchanged.
-- During Run setup, `setHuBasicOptions` rejects with the run-pending error.
-- `getProgram()` has the same keys as before (no options); `revision` is unchanged by `setHuBasicOptions`.
-- Persistence: set options, reload the page → `getHuBasicOptions()` returns them.
-  - With a corrupt stored value → defaults.
-  - In a share session (`?id=` with the `**/api/share/<id>` route stub the existing share tests use, `tests/x1pen_automation_test.mjs` ~line 131), saved options are read and changes are not written to localStorage.
-- UI:
-  - The Options button is visible only on the HuBASIC tab.
-  - Opening the panel shows current values; changing the select/checkbox/number updates `getHuBasicOptions()` and storage.
-  - The `'#VSYNC` note is visible; an invalid number is marked and not applied.
-  - The button marker appears only with non-default options; Escape and an outside click close the panel.
-  - An automation `setHuBasicOptions` while the panel is open updates its controls.
-  - The panel is inert under the interaction lock.
-- Run uses the options: with `line:…`, Run succeeds (program still boots), checked via the recorded build argument.
-- The feature list is unchanged (the existing exact-list assertions still pass).
+11. **Frozen link** (rollback compatibility): a HuBASIC share payload written out literally in the test file, standing for a link created before any later change.
+    - It is served with `installShareRoute` and must open with exact bytes, options and model, and run.
+    - It does not go through the share-creation code, so it keeps passing when creating HuBASIC shares is switched off. The test file says it must not be updated to follow a format change.
 
-Rollback: the change is additive; removing the button and passing no options restores today's behaviour. Stored `x1pen_hubasic_options` is ignored by older builds.
+Rollback (links that exist must stay readable):
+- Never revert the reader.
+- To stop new HuBASIC shares, restore only the refusal at the top of `onShareClick` ("HuBASIC programs cannot be shared yet"). Keep:
+  - the share-load HuBASIC branch, the base64 decoding and the options and model handling;
+  - the `performRun` / `performHuBasicRun` changes;
+  - the server condition.
+- The reader and the creator are separate code blocks, so this is a one-block change. Test 11 checks that existing links still open after it.
+- Other shares are unaffected either way.
 
 ## Open decisions
-
-- Share sessions read the saved options and do not save changes (proposed). When HuBASIC Share comes, the shared options will override for that tab only.
-- Panel language: Japanese contents with an English `Options` button label, matching the neighbouring English tab actions (`Import`, `Manual`, `Charmap`) and the Japanese hubasic2sl help (proposed).
-- `dataBudget` UI/API upper bound 65535 (the wasm has none; larger values are meaningless on a 64 KiB machine) (proposed).
+- The field is `hubasicX1` (base64 of the bytes) rather than the readable text form, for exactness (proposed).
+- Later Runs in a share tab use the viewer's MODEL setting (same as the other modes); the shared options stay for the tab (proposed).
+- Hardening the server's "No code" check for non-object JSON (proposed; it is in the line being edited).
 
 ## Cross-review反映
 
 ### Round 1 — codex / gpt-6-astra/high
-- Verdict: APPROVED (model=APPROVED; policy=strict; host_override=no)
-- Implementation: READY (next_action=implement; reviewer=READY)
-- No findings.
-
-### Implementation note
-- Dropped the planned `hubasic.options` feature string: `tests/x1pen_extension_bridge_test.mjs` ("feature IDs match across X1Pen, Connector and MCP") requires one shared feature list, so adding it would change the Connector and MCP, which are out of scope. It comes with the MCP work.
+- Verdict: NEEDS_WORK (model=NEEDS_WORK; policy=strict; host_override=no)
+- Implementation: READY AFTER FIXES (R1-F1) (next_action=fix_then_implement; reviewer=READY_AFTER_FIXES)
+- [adopted][high] Rollback that reverts the reader would make existing HuBASIC links unreadable → "Edge cases and test plan": the rollback now restores only the creation refusal and keeps reading, running, options, model and the server condition; added test 11, a frozen hand-written HuBASIC payload that must keep opening.

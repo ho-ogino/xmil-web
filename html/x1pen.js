@@ -366,6 +366,7 @@ window.__X1PEN_MODE = true;
     function setModelAndClearShareState(model) {
         if (window.XmilControls) window.XmilControls.setRomType(model);
         lastRunWasShared = false;
+        hubasicShareModel = null;           // a MODEL chosen here wins when re-sharing HuBASIC
     }
 
     var LS_EDITOR_BASIC = 'x1pen_editor';
@@ -1325,8 +1326,11 @@ window.__X1PEN_MODE = true;
         // HuBASIC: 変換 → コンパイル → アセンブル → ディスクを作って IPL から起動
         // The program and the conversion options as they are now: the toolchain may still have
         // to load, and changes made meanwhile belong to the next RUN
+        // A shared program runs once on the sender's model; later Runs use the MODEL setting
         if (sourceMode === 'hubasic') {
-            return performHuBasicRun(hubasicEditor.getBytes(), window.X1PenHuBasicOptions.changed(hubasicOptions));
+            var hubasicModel = pendingShareRuntime ? pendingShareRuntime.model : getUserDefaultRuntime().model;
+            pendingShareRuntime = null;
+            return performHuBasicRun(hubasicEditor.getBytes(), window.X1PenHuBasicOptions.changed(hubasicOptions), hubasicModel);
         }
 
         // SLANG → コンパイル → ASM に変換
@@ -1722,7 +1726,7 @@ window.__X1PEN_MODE = true;
         return snapshot;
     }
 
-    async function performHuBasicRun(source, options) {
+    async function performHuBasicRun(source, options, model) {
         clearSymbols();
         elStatus.textContent = 'HuBASIC: loading...';
         var built;
@@ -1754,7 +1758,6 @@ window.__X1PEN_MODE = true;
             lastRunDetails = { code: 'HUBASIC_FDD0_IN_USE', stage: 'mount' };
             return false;
         }
-        var model = getUserDefaultRuntime().model;
         var otherSlots = otherSlotSnapshot();
         try {
             await window.XmilControls.mountTempDisk(built.d88, 'drive0');
@@ -1795,7 +1798,8 @@ window.__X1PEN_MODE = true;
         }
 
         lastUsedRuntime = { model: machine.model, coldState: null, bootDisk: null, relocAddrs: null, runMode: 'x1native' };
-        lastRunWasShared = false;
+        lastRunWasShared = isEphemeralShareSession;
+        if (isEphemeralShareSession) hubasicShareModel = machine.model;
         lastAsmSymbols = {
             symbols: built.symbols,
             predefined: { OS_TYPE: 4, ENV_TYPE: 1 },
@@ -2030,6 +2034,86 @@ window.__X1PEN_MODE = true;
         return new Promise(function(resolve) {
             canvas.toBlob(function(blob) { resolve(blob); }, 'image/png');
         });
+    }
+
+    // ── HuBASIC Share ──
+    // A HuBASIC share carries the program as its exact X1 bytes in base64 (hubasicX1; the text
+    // form would turn a lone CR or LF into CRLF), the conversion options that differ from the
+    // defaults (meta.hubasicOptions, absent = defaults) and the model it runs on.
+    // Creating and reading are separate: to stop new HuBASIC shares, restore only the refusal in
+    // onShareClick and keep the reader, so links that exist stay readable.
+
+    function bytesToBase64(bytes) {
+        var binary = '';
+        for (var i = 0; i < bytes.length; i += 0x8000) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        }
+        return btoa(binary);
+    }
+
+    // Strict base64 (with padding) -> bytes, or null for anything else or nothing
+    function base64ToBytes(text) {
+        if (typeof text !== 'string' || text.length === 0 || text.length % 4 !== 0 ||
+            !/^[A-Za-z0-9+/]*={0,2}$/.test(text)) return null;
+        var binary;
+        try { binary = atob(text); } catch (e) { return null; }
+        if (binary.length === 0) return null;
+        var bytes = new Uint8Array(binary.length);
+        for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return bytes;
+    }
+
+    // The payload of a HuBASIC share; options are X1PenHuBasicOptions.changed() values
+    function buildHuBasicSharePayload(bytes, options, model) {
+        var meta = { model: model, runMode: 'x1native', sourceMode: 'hubasic' };
+        if (Object.keys(options).length > 0) meta.hubasicOptions = options;
+        return JSON.stringify({ basic: null, asm: null, slang: null, hubasicX1: bytesToBase64(bytes), meta: meta });
+    }
+
+    // In a share tab, the model its HuBASIC program goes with when it is shared again: the
+    // sender's when the tab opened a HuBASIC share (also if that first Run failed), then the model
+    // of each HuBASIC Run here. Edits keep it; choosing a MODEL clears it. null: the MODEL setting.
+    var hubasicShareModel = null;
+
+    function isHuBasicShare(shared) {
+        var mode = shared.meta && shared.meta.sourceMode;
+        return mode === 'hubasic' || (!mode && shared.hubasicX1 !== undefined);
+    }
+
+    // Opens a HuBASIC share in this (share) tab. Everything is read and checked before anything
+    // changes; the options and the model are this tab's only (a share tab saves nothing).
+    async function openHuBasicShare(shared, id) {
+        var bytes = base64ToBytes(shared.hubasicX1);
+        if (!bytes) {
+            elStatus.textContent = 'Shared HuBASIC program could not be read';
+            return;
+        }
+        var meta = shared.meta && typeof shared.meta === 'object' ? shared.meta : {};
+        var options = window.X1PenHuBasicOptions.fromStored(meta.hubasicOptions);
+        var model = validateModel(meta.model, 1);
+
+        basicEditor.setValue('', { silent: true });
+        if (asmEditor) asmEditor.setValue('', { silent: true });
+        if (slangEditor) slangEditor.setValue('', { silent: true });
+        hubasicEditor.setBytes(bytes, { silent: true });
+        markProgramChanged();
+        updateHuBasicOptions(options);
+        pendingShareRuntime = { model: model, coldState: null, bootDisk: null, relocAddrs: null,
+                                sourceMode: 'hubasic', runMode: 'x1native' };
+        hubasicShareModel = model;
+        // Re-sharing the unchanged program gives the same link
+        lastShareHash = await computePayloadHash(
+            buildHuBasicSharePayload(bytes, window.X1PenHuBasicOptions.changed(options), model));
+        lastShareId = id;
+        forceResyncEditorTab('hubasic');
+
+        var runOk = await onRunClick('share');
+        if (runOk) showAudioUnmuteIfNeeded();
+    }
+
+    // The model a HuBASIC share is made with
+    function huBasicShareModel() {
+        return hubasicShareModel !== null ? hubasicShareModel : getUserDefaultRuntime().model;
     }
 
     async function computePayloadHash(payloadStr) {
@@ -3276,11 +3360,9 @@ window.__X1PEN_MODE = true;
         var src = basicEditor.getValue().trim();
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
         var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
-        if (hubasicEditor && hubasicEditor.getValue().trim()) {
-            elStatus.textContent = 'HuBASIC programs cannot be shared yet';
-            return;
-        }
-        if (!src && !asmSrc && !slangSrc) { elStatus.textContent = 'Nothing to share'; return; }
+        // HuBASIC first, as for Run (inferSourceMode)
+        var hubasicShare = !!(hubasicEditor && hubasicEditor.getValue().trim());
+        if (!hubasicShare && !src && !asmSrc && !slangSrc) { elStatus.textContent = 'Nothing to share'; return; }
 
         var shareMediaState = inspectShareMediaState();
         if (!shareMediaState.available) {
@@ -3292,43 +3374,49 @@ window.__X1PEN_MODE = true;
             return;
         }
 
-        var shareSourceMode = slangSrc ? 'slang' : (!src && asmSrc ? 'asm' : 'basic+asm');
-        var shareRunMode = (shareSourceMode === 'slang' || shareSourceMode === 'asm') ? 'lsx' : detectRunMode(src, asmSrc);
-
-        // Share 用 runtime を決定 (relocAddrs を正規化済みで取得)
-        var baseShareRuntime;
-        if (pendingShareRuntime) {
-            baseShareRuntime = pendingShareRuntime;
-        } else if (lastRunWasShared && lastUsedRuntime) {
-            baseShareRuntime = lastUsedRuntime;
+        var payload;
+        if (hubasicShare) {
+            payload = buildHuBasicSharePayload(hubasicEditor.getBytes(),
+                window.X1PenHuBasicOptions.changed(hubasicOptions), huBasicShareModel());
         } else {
-            baseShareRuntime = getUserDefaultRuntime();
-        }
-        var shareRuntime;
-        try {
-            normalizeRuntimeForRunMode(baseShareRuntime, shareRunMode);
-            shareRuntime = await getEffectiveRuntime(baseShareRuntime);
-        } catch(e) {
-            shareRuntime = baseShareRuntime;
-        }
+            var shareSourceMode = slangSrc ? 'slang' : (!src && asmSrc ? 'asm' : 'basic+asm');
+            var shareRunMode = (shareSourceMode === 'slang' || shareSourceMode === 'asm') ? 'lsx' : detectRunMode(src, asmSrc);
 
-        var meta = {
-            model: shareRuntime.model,
-            coldState: shareRuntime.coldState,
-            bootDisk: shareRuntime.bootDisk,
-            runMode: shareRunMode,
-            sourceMode: shareSourceMode
-        };
-        if (shareRuntime.relocAddrs) meta.relocAddrs = shareRuntime.relocAddrs;
+            // Share 用 runtime を決定 (relocAddrs を正規化済みで取得)
+            var baseShareRuntime;
+            if (pendingShareRuntime) {
+                baseShareRuntime = pendingShareRuntime;
+            } else if (lastRunWasShared && lastUsedRuntime) {
+                baseShareRuntime = lastUsedRuntime;
+            } else {
+                baseShareRuntime = getUserDefaultRuntime();
+            }
+            var shareRuntime;
+            try {
+                normalizeRuntimeForRunMode(baseShareRuntime, shareRunMode);
+                shareRuntime = await getEffectiveRuntime(baseShareRuntime);
+            } catch(e) {
+                shareRuntime = baseShareRuntime;
+            }
 
-        // SLANG モードでは生成 ASM を payload に含めない（slang が正）
-        var shareAsm = (shareSourceMode === 'slang') ? null : (asmSrc || null);
-        var payload = JSON.stringify({
-            basic: src,
-            asm: shareAsm,
-            slang: slangSrc || null,
-            meta: meta
-        });
+            var meta = {
+                model: shareRuntime.model,
+                coldState: shareRuntime.coldState,
+                bootDisk: shareRuntime.bootDisk,
+                runMode: shareRunMode,
+                sourceMode: shareSourceMode
+            };
+            if (shareRuntime.relocAddrs) meta.relocAddrs = shareRuntime.relocAddrs;
+
+            // SLANG モードでは生成 ASM を payload に含めない（slang が正）
+            var shareAsm = (shareSourceMode === 'slang') ? null : (asmSrc || null);
+            payload = JSON.stringify({
+                basic: src,
+                asm: shareAsm,
+                slang: slangSrc || null,
+                meta: meta
+            });
+        }
 
         // ハッシュ計算 (payload 全体 = BASIC + ASM + meta)
         var hashHex = await computePayloadHash(payload);
@@ -3503,71 +3591,75 @@ window.__X1PEN_MODE = true;
                     } else {
                         shared = await shareResp.json();
                     }
-                    basicEditor.setValue(shared.basic || '', { silent: true });
-                    if (asmEditor) {
-                        asmEditor.setValue(shared.asm || '', { silent: true });
-                    }
-                    if (slangEditor) {
-                        slangEditor.setValue(shared.slang || '', { silent: true });
-                    }
-                    markProgramChanged();
-                    // Share meta → pendingShareRuntime
-                    if (shared.meta) {
-                        var shareRelocAddrs = null;
-                        if (shared.meta.relocAddrs) {
-                            var rc = await loadRelocConfig();
-                            if (rc) {
-                                shareRelocAddrs = validateRelocAddresses(shared.meta.relocAddrs, rc);
-                            } else {
-                                // 新 Share なのに config が読めない → relocAddrs をそのまま保持（getEffectiveRuntime でエラーになる）
-                                shareRelocAddrs = shared.meta.relocAddrs;
-                            }
+                    if (shared && typeof shared === 'object' && isHuBasicShare(shared)) {
+                        await openHuBasicShare(shared, urlId);
+                    } else {
+                        basicEditor.setValue(shared.basic || '', { silent: true });
+                        if (asmEditor) {
+                            asmEditor.setValue(shared.asm || '', { silent: true });
                         }
-                        var sharedRunMode = shared.meta.runMode || detectRunMode(shared.basic || '', shared.asm || '');
-                        pendingShareRuntime = {
-                            model: validateModel(shared.meta.model, 1),
-                            coldState: validateAssetName(shared.meta.coldState, COLD_STATE_FILE),
-                            bootDisk: validateAssetName(shared.meta.bootDisk, BOOT_DISK_FILE),
-                            relocAddrs: shareRelocAddrs,
-                            sourceMode: shared.meta.sourceMode || (shared.slang ? 'slang' : null)
+                        if (slangEditor) {
+                            slangEditor.setValue(shared.slang || '', { silent: true });
+                        }
+                        markProgramChanged();
+                        // Share meta → pendingShareRuntime
+                        if (shared.meta) {
+                            var shareRelocAddrs = null;
+                            if (shared.meta.relocAddrs) {
+                                var rc = await loadRelocConfig();
+                                if (rc) {
+                                    shareRelocAddrs = validateRelocAddresses(shared.meta.relocAddrs, rc);
+                                } else {
+                                    // 新 Share なのに config が読めない → relocAddrs をそのまま保持（getEffectiveRuntime でエラーになる）
+                                    shareRelocAddrs = shared.meta.relocAddrs;
+                                }
+                            }
+                            var sharedRunMode = shared.meta.runMode || detectRunMode(shared.basic || '', shared.asm || '');
+                            pendingShareRuntime = {
+                                model: validateModel(shared.meta.model, 1),
+                                coldState: validateAssetName(shared.meta.coldState, COLD_STATE_FILE),
+                                bootDisk: validateAssetName(shared.meta.bootDisk, BOOT_DISK_FILE),
+                                relocAddrs: shareRelocAddrs,
+                                sourceMode: shared.meta.sourceMode || (shared.slang ? 'slang' : null)
+                            };
+                            normalizeRuntimeForRunMode(pendingShareRuntime, sharedRunMode);
+                        }
+                        // 読み込んだ内容のハッシュを記録 (再 Share 時の URL 再利用用)
+                        // effective runtime に揃えて、旧 Share でも default reloc が反映される
+                        var replayRuntime;
+                        try {
+                            replayRuntime = await getEffectiveRuntime(
+                                pendingShareRuntime || getUserDefaultRuntime()
+                            );
+                        } catch(e) {
+                            replayRuntime = pendingShareRuntime || getUserDefaultRuntime();
+                        }
+                        var replaySourceMode = (shared.meta && shared.meta.sourceMode)
+                            ? shared.meta.sourceMode
+                            : (shared.slang ? 'slang' : null);
+                        var replayMeta = {
+                            model: replayRuntime.model,
+                            coldState: replayRuntime.coldState,
+                            bootDisk: replayRuntime.bootDisk,
+                            runMode: replayRuntime.runMode || 'fuzzybasic',
+                            sourceMode: replaySourceMode
                         };
-                        normalizeRuntimeForRunMode(pendingShareRuntime, sharedRunMode);
-                    }
-                    // 読み込んだ内容のハッシュを記録 (再 Share 時の URL 再利用用)
-                    // effective runtime に揃えて、旧 Share でも default reloc が反映される
-                    var replayRuntime;
-                    try {
-                        replayRuntime = await getEffectiveRuntime(
-                            pendingShareRuntime || getUserDefaultRuntime()
-                        );
-                    } catch(e) {
-                        replayRuntime = pendingShareRuntime || getUserDefaultRuntime();
-                    }
-                    var replaySourceMode = (shared.meta && shared.meta.sourceMode)
-                        ? shared.meta.sourceMode
-                        : (shared.slang ? 'slang' : null);
-                    var replayMeta = {
-                        model: replayRuntime.model,
-                        coldState: replayRuntime.coldState,
-                        bootDisk: replayRuntime.bootDisk,
-                        runMode: replayRuntime.runMode || 'fuzzybasic',
-                        sourceMode: replaySourceMode
-                    };
-                    if (replayRuntime.relocAddrs) replayMeta.relocAddrs = replayRuntime.relocAddrs;
-                    // SLANG Share では生成 ASM を含めない（通常 Share 側と同じ正規化）
-                    var replayAsm = (replaySourceMode === 'slang') ? null : (shared.asm || null);
-                    var replayPayload = JSON.stringify({
-                        basic: shared.basic,
-                        asm: replayAsm,
-                        slang: shared.slang || null,
-                        meta: replayMeta
-                    });
-                    lastShareHash = await computePayloadHash(replayPayload);
-                    lastShareId = urlId;
+                        if (replayRuntime.relocAddrs) replayMeta.relocAddrs = replayRuntime.relocAddrs;
+                        // SLANG Share では生成 ASM を含めない（通常 Share 側と同じ正規化）
+                        var replayAsm = (replaySourceMode === 'slang') ? null : (shared.asm || null);
+                        var replayPayload = JSON.stringify({
+                            basic: shared.basic,
+                            asm: replayAsm,
+                            slang: shared.slang || null,
+                            meta: replayMeta
+                        });
+                        lastShareHash = await computePayloadHash(replayPayload);
+                        lastShareId = urlId;
 
-                    var runOk = await onRunClick('share');
-                    // 実行成功時のみ: AudioContext がまだ suspended ならオーバーレイ表示
-                    if (runOk) showAudioUnmuteIfNeeded();
+                        var runOk = await onRunClick('share');
+                        // 実行成功時のみ: AudioContext がまだ suspended ならオーバーレイ表示
+                        if (runOk) showAudioUnmuteIfNeeded();
+                    }
                 } else if (shareResp.status === 400) {
                     elStatus.textContent = 'Invalid share ID';
                 } else if (shareResp.status === 404) {
