@@ -3029,51 +3029,98 @@ test('Hu-BASIC failures after the disk is replaced report a defined state', { ti
   await setHuBasicProgram('10 PRINT "FAIL"\n20 GOTO 20\n');
   const outcomes = await page.evaluate(async () => {
     const api = window.X1PenAutomation;
-    const controls = window.XmilControls;
-    const library = window.XmilLibrary;
     const module = window.Module;
     const results = {};
 
-    const mount = controls.mountTempDisk;
-    controls.mountTempDisk = async () => { throw new Error('injected mount failure'); };
-    try { results.mount = await api.run(); } finally { controls.mountTempDisk = mount; }
-
-    const restore = library.autoRestoreMounts;
-    library.autoRestoreMounts = async (exclude) => {
-      if (exclude && exclude.length) throw new Error('injected restore failure');
-      return restore(exclude);
+    // Inserting the disk fails inside the real mountTempDisk
+    const ccall = module.ccall;
+    module.ccall = function(name, ...rest) {
+      if (name === 'js_insert_disk') throw new Error('injected insert failure');
+      return ccall.call(module, name, ...rest);
     };
-    try { results.restore = await api.run(); } finally { library.autoRestoreMounts = restore; }
+    try { results.mount = await api.run(); } finally { module.ccall = ccall; }
 
+    // Another drive changes while the machine powers on
     const powerOn = module._js_xmil_power_on;
     const stop = module._js_xmil_stop;
     let stopped = 0;
+    module._js_xmil_power_on = (...args) => {
+      powerOn.apply(module, args);
+      window.XmilControls.mountTempDisk(window.X1PenSlfsDisk.buildSlfsD88(new Uint8Array([0xC9])), 'drive1');
+    };
+    module._js_xmil_stop = (...args) => { stopped++; return stop.apply(module, args); };
+    try { results.changed = await api.run(); } finally {
+      module._js_xmil_power_on = powerOn;
+      module._js_xmil_stop = stop;
+    }
+    results.changedStopped = stopped;
+    await window.XmilCore.ejectSlot('drive1');
+
+    // Powering on itself fails
+    stopped = 0;
     module._js_xmil_power_on = () => { throw new Error('injected power-on failure'); };
     module._js_xmil_stop = (...args) => { stopped++; return stop.apply(module, args); };
     try { results.boot = await api.run(); } finally {
       module._js_xmil_power_on = powerOn;
       module._js_xmil_stop = stop;
     }
-    results.stopped = stopped;
+    results.bootStopped = stopped;
 
     results.retry = await api.run();
     return results;
   });
   assert.equal(outcomes.mount.ok, false);
   assert.equal(outcomes.mount.code, 'HUBASIC_MOUNT_FAILED');
-  assert.equal(outcomes.mount.restored, true);
   assert.equal(outcomes.mount.stage, 'mount');
-  assert.equal(outcomes.restore.ok, false);
-  assert.equal(outcomes.restore.code, 'HUBASIC_MOUNT_RESTORE_FAILED');
+  assert.equal(outcomes.changed.ok, false);
+  assert.equal(outcomes.changed.code, 'HUBASIC_OTHER_SLOT_CHANGED');
+  assert.equal(outcomes.changed.conflictingSlot, 'drive1');
+  assert.ok(outcomes.changedStopped > 0, 'a boot that sees another drive change must stop the machine');
   assert.equal(outcomes.boot.ok, false);
   assert.equal(outcomes.boot.code, 'HUBASIC_BOOT_FAILED');
   assert.equal(outcomes.boot.poweredOn, false);
-  assert.ok(outcomes.stopped > 0, 'a failed cold boot must stop the machine');
-  for (const failed of [outcomes.mount, outcomes.restore, outcomes.boot]) {
+  assert.ok(outcomes.bootStopped > 0, 'a failed cold boot must stop the machine');
+  for (const failed of [outcomes.mount, outcomes.changed, outcomes.boot]) {
     assert.notEqual(failed.stage, 'booted');
   }
   assert.equal(outcomes.retry.ok, true, JSON.stringify(outcomes.retry));
   await textVramContains('FAIL');
+});
+
+test('Hu-BASIC Run leaves a library disk in FDD0 and the other drives alone', { timeout: 90_000 }, async () => {
+  const context = await browser.newContext();
+  const libraryPage = await context.newPage();
+  try {
+    await libraryPage.goto(`${baseUrl}/x1pen.html`);
+    await libraryPage.evaluate(() => window.X1PenAutomation.ready());
+    const result = await libraryPage.evaluate(async () => {
+      const bytes = await (await fetch('fuzzybasic_boot.v2.d88')).arrayBuffer();
+      const owner = await window.XmilLibrary.addToLibrary(new File([bytes], 'OWNER.D88'));
+      const data = await window.XmilLibrary.addToLibrary(new File([bytes], 'DATA.D88'));
+      await window.XmilLibrary.mountFromLibrary(owner.key, 'drive0');
+      await window.XmilLibrary.mountFromLibrary(data.key, 'drive1');
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT 1' }, current.revision, current.revisionEpoch);
+      let mounted = 0;
+      const mount = window.XmilControls.mountTempDisk;
+      window.XmilControls.mountTempDisk = async (...args) => { mounted++; return mount(...args); };
+      try {
+        const run = await api.run();
+        return { run, mounted, owner: owner.key, data: data.key, slots: window.XmilCore.getSlotState() };
+      } finally {
+        window.XmilControls.mountTempDisk = mount;
+      }
+    });
+    assert.equal(result.run.ok, false);
+    assert.equal(result.run.code, 'HUBASIC_FDD0_IN_USE');
+    assert.match(result.run.status, /FDD0/);
+    assert.equal(result.mounted, 0);
+    assert.equal(result.slots.drive0, result.owner);
+    assert.equal(result.slots.drive1, result.data);
+  } finally {
+    await context.close();
+  }
 });
 
 test('Hu-BASIC and the other source modes clear each other and persist', { timeout: 60_000 }, async () => {

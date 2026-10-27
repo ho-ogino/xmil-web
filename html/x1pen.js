@@ -1557,16 +1557,14 @@ window.__X1PEN_MODE = true;
             .map(function(d) { return d.text || d.message; });
     }
 
-    // Re-applies every saved library mount (FDD0 included). Best effort.
-    async function restoreSavedMounts() {
-        if (isEphemeralShareSession || !window.XmilLibrary || !window.XmilLibrary.autoRestoreMounts) return false;
-        try {
-            await window.XmilLibrary.autoRestoreMounts([]);
-            return true;
-        } catch (e) {
-            console.warn('[x1pen] Failed to restore mounts:', e);
-            return false;
-        }
+    function otherSlotSnapshot() {
+        var state = window.XmilCore.getSlotState();
+        var paths = window.XmilCore.getSlotVfsPath();
+        var snapshot = {};
+        Object.keys(state).forEach(function(slot) {
+            if (slot !== 'drive0') snapshot[slot] = { key: state[slot] || null, vfsPath: paths[slot] || null };
+        });
+        return snapshot;
     }
 
     async function performHuBasicRun(source) {
@@ -1593,38 +1591,51 @@ window.__X1PEN_MODE = true;
             return false;
         }
 
+        // The disk goes into FDD0 only when FDD0 is empty or already holds X1Pen's temporary disk.
+        // A library or external disk would be ejected and its saved mount cleared for good.
+        var previousDrive0 = window.XmilCore.getSlotState().drive0 || null;
+        if (previousDrive0 && previousDrive0 !== '__x1pen_temp__') {
+            elStatus.textContent = 'Hu-BASIC: FDD0にディスクが入っています。取り出してからRUNしてください';
+            lastRunDetails = { code: 'HUBASIC_FDD0_IN_USE', stage: 'mount' };
+            return false;
+        }
         var model = getUserDefaultRuntime().model;
+        var otherSlots = otherSlotSnapshot();
         try {
             await window.XmilControls.mountTempDisk(built.d88, 'drive0');
         } catch (e) {
+            // Nothing to put back: FDD0 was empty or held a previous temporary disk
             console.error('[x1pen] Hu-BASIC disk mount failed:', e);
-            var restoredAfterMount = await restoreSavedMounts();
             elStatus.textContent = 'Hu-BASIC: disk mount failed';
-            lastRunDetails = { code: 'HUBASIC_MOUNT_FAILED', stage: 'mount', restored: restoredAfterMount };
+            lastRunDetails = { code: 'HUBASIC_MOUNT_FAILED', stage: 'mount' };
             return false;
-        }
-        if (!isEphemeralShareSession && window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
-            try {
-                await window.XmilLibrary.autoRestoreMounts(['drive0']);
-            } catch (e) {
-                console.error('[x1pen] Hu-BASIC mount restore failed:', e);
-                var restoredAfterRestore = await restoreSavedMounts();
-                elStatus.textContent = 'Hu-BASIC: restoring other drives failed';
-                lastRunDetails = { code: 'HUBASIC_MOUNT_RESTORE_FAILED', stage: 'mount', restored: restoredAfterRestore };
-                return false;
-            }
         }
 
         // A previous debugger session may have left the machine paused.
         if (module._js_debug_resume) module._js_debug_resume();
         var machine;
         try {
-            // Cold boot: RAM, VRAM and PCG are cleared, the IPL loads the program from FDD0
-            machine = window.XmilControls.coldPowerOn(model);
+            // Cold boot: RAM, VRAM and PCG are cleared, the IPL loads the program from FDD0.
+            // Powering on keeps the other drives; check that nothing changed them meanwhile.
+            machine = window.XmilControls.coldPowerOn(model, null, function() {
+                var now = otherSlotSnapshot();
+                Object.keys(Object.assign({}, otherSlots, now)).forEach(function(slot) {
+                    var before = otherSlots[slot] || { key: null, vfsPath: null };
+                    var after = now[slot] || { key: null, vfsPath: null };
+                    if (before.key !== after.key || before.vfsPath !== after.vfsPath) {
+                        var changed = new Error(slot + ' changed while booting the Hu-BASIC disk');
+                        changed.code = 'HUBASIC_OTHER_SLOT_CHANGED';
+                        changed.conflictingSlot = slot;
+                        throw changed;
+                    }
+                });
+            });
         } catch (e) {
             console.error('[x1pen] Hu-BASIC boot failed:', e);
             elStatus.textContent = 'Hu-BASIC: boot failed: ' + (e && e.message || e);
-            lastRunDetails = { code: 'HUBASIC_BOOT_FAILED', stage: 'boot', poweredOn: false };
+            lastRunDetails = { code: e && e.code === 'HUBASIC_OTHER_SLOT_CHANGED' ? e.code : 'HUBASIC_BOOT_FAILED',
+                stage: 'boot', poweredOn: false };
+            if (e && e.conflictingSlot) lastRunDetails.conflictingSlot = e.conflictingSlot;
             return false;
         }
 
