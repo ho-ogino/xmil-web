@@ -45,21 +45,21 @@ SLANGタブの **Import** ボタンは、binary fileを現在のcursor位置へ�
 
 空fileは拒否します。最大読込sizeはASM Importと同じ128 KiBで、64 KiBを超える場合はshareへの影響を警告します。この上限はimporterがfileを読む上限であり、生成された配列がSLANG compilerやX1のaddress spaceへ収まることを保証しません。大きなassetはDisk Editorでproject diskへ追加し、`MAGLOAD`または`FOPEN`／`FREAD`で読む方法も検討してください。
 
-### Hu-BASIC タブ（試験中）
+### HuBASIC タブ（試験中）
 
-Hu-BASIC（CZ-8FB01 系）の行番号付きプログラムを書くタブです。RUN すると、次の順に動きます。
+HuBASIC（CZ-8FB01 系）の行番号付きプログラムを書くタブです。RUN すると、次の順に動きます。
 
-1. hubasic2sl（SLANG-compiler の Hu-BASIC → SLANG 変換。ブラウザの中で .NET の wasm として動きます）で SLANG に変換
+1. hubasic2sl（SLANG-compiler の HuBASIC → SLANG 変換。ブラウザの中で .NET の wasm として動きます）で SLANG に変換
 2. X1Pen の SLANG コンパイラとアセンブラで、OS なしの x1native 環境（$1000 から）の機械語に組み立て
 3. メモリに収まるか（作業領域が $FFE0 より前で終わるか）を確かめる
-4. Hu-BASIC の IPL で起動できるディスク（SLFS、2D）を作り、FDD0 に一時ディスクとして入れる
+4. HuBASIC の IPL で起動できるディスク（SLFS、2D）を作り、FDD0 に一時ディスクとして入れる
 5. 本体の電源を入れ直し、IPL からディスクを起動する（RAM・VRAM・PCG は消えます）
 
-- 対応している命令・関数、本物の Hu-BASIC との違いは、SLANG-compiler の `docs/HUBASIC.md` を見てください（アルファ版です）。
+- 対応している命令・関数、本物の HuBASIC との違いは、SLANG-compiler の `docs/HUBASIC.md` を見てください（アルファ版です）。
 - 変換・組み立てで止まったときは、ステータス欄に段階と最初のエラーを出し、ディスクも本体も変えません。
-- 最初に RUN したときに変換の仕組み（約 1.7MB、圧縮後）を読み込みます。Hu-BASIC タブを使わなければ読み込みません。
+- 最初に RUN したときに変換の仕組み（約 1.7MB、圧縮後）を読み込みます。HuBASIC タブを使わなければ読み込みません。
 - いまの入力は UTF-8 のテキストです（半角カナは書けます）。X1 のグラフィック文字はまだ入力できません。
-- 複数のタブに内容があるときは、Hu-BASIC を優先して実行します。
+- 複数のタブに内容があるときは、HuBASIC を優先して実行します。
 - FDD0 にライブラリのディスクや外部のメディアが入っているときは RUN できません（取り出してください）。FDD1 などほかのドライブはそのままです。
 - Share、X1Pen MCP（x1pen-mcp）からの操作にはまだ対応していません（下の「注意事項」）。
 
@@ -258,8 +258,8 @@ BASIC タブと ASM タブはそれぞれ独立して保存されます。
 
 ## 注意事項
 
-- Hu-BASIC タブのプログラムは Share できません（「Hu-BASIC programs cannot be shared yet」と出ます）
-- Hu-BASIC タブのプログラムを開いている（いまのソースが Hu-BASIC の）間は、公開済みの x1pen-mcp 2.7.x の `x1pen_get_program` などが `invalid source mode` で止まります。ほかのタブのプログラムには影響しません
+- HuBASIC タブのプログラムは Share できません（「HuBASIC programs cannot be shared yet」と出ます）
+- HuBASIC タブのプログラムを開いている（いまのソースが HuBASIC の）間は、公開済みの x1pen-mcp 2.7.x の `x1pen_get_program` などが `invalid source mode` で止まります。ほかのタブのプログラムには影響しません
 - エディタにフォーカスがある間、エミュレータは一時停止します（スクロール時の負荷軽減のため）
 - エミュレータ画面をクリックすると再開します
 - 共有 URL のプログラムはサーバーに保存されます

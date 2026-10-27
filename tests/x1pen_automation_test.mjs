@@ -2967,7 +2967,7 @@ function textVramContains(text) {
   }, text, { timeout: 30_000 });
 }
 
-test('Hu-BASIC Run converts, compiles and cold-boots a disk image through the IPL', { timeout: 120_000 }, async () => {
+test('HuBASIC Run converts, compiles and cold-boots a disk image through the IPL', { timeout: 120_000 }, async () => {
   const revision = JSON.parse(readFileSync(join(projectRoot, 'assets', 'hubasic', 'current.json'), 'utf8')).revision;
   await setHuBasicProgram('10 CLS\n20 PRINT "HUBASIC OK";1.5*3\n30 GOTO 30\n');
   const result = await page.evaluate(async () => {
@@ -2993,12 +2993,12 @@ test('Hu-BASIC Run converts, compiles and cold-boots a disk image through the IP
   assert.equal(result.status.sourceMode, 'hubasic');
   assert.equal(result.status.activeLanguageProfile.language, 'hubasic');
   assert.equal(result.status.languageProfiles.hubasic.runtimeRevision, revision);
-  assert.ok(result.fdd0, 'FDD0 must hold the temporary Hu-BASIC disk');
+  assert.ok(result.fdd0, 'FDD0 must hold the temporary HuBASIC disk');
   assert.equal(result.activeTab, 'hubasic');
   await textVramContains('HUBASIC OK 4.5');
 });
 
-test('Hu-BASIC conversion errors stop Run before the disk is touched', { timeout: 60_000 }, async () => {
+test('HuBASIC conversion errors stop Run before the disk is touched', { timeout: 60_000 }, async () => {
   await setHuBasicProgram('10 PRINT "A"\n20 CIRCLE (10,10),5\n');
   const result = await page.evaluate(async () => {
     const api = window.X1PenAutomation;
@@ -3025,7 +3025,7 @@ test('Hu-BASIC conversion errors stop Run before the disk is touched', { timeout
   assert.ok(result.validation.diagnostics.some((d) => d.kind === 'hubasic' && d.line === 2 && /CIRCLE/.test(d.message)));
 });
 
-test('Hu-BASIC failures after the disk is replaced report a defined state', { timeout: 120_000 }, async () => {
+test('HuBASIC failures after the disk is replaced report a defined state', { timeout: 120_000 }, async () => {
   await setHuBasicProgram('10 PRINT "FAIL"\n20 GOTO 20\n');
   const outcomes = await page.evaluate(async () => {
     const api = window.X1PenAutomation;
@@ -3087,7 +3087,7 @@ test('Hu-BASIC failures after the disk is replaced report a defined state', { ti
   await textVramContains('FAIL');
 });
 
-test('Hu-BASIC Run stops before booting when the disk image cannot be written', { timeout: 120_000 }, async () => {
+test('HuBASIC Run stops before booting when the disk image cannot be written', { timeout: 120_000 }, async () => {
   await setHuBasicProgram('10 PRINT "WRITE OK"\n20 GOTO 20\n');
   const outcomes = await page.evaluate(async () => {
     const api = window.X1PenAutomation;
@@ -3128,12 +3128,12 @@ test('Hu-BASIC Run stops before booting when the disk image cannot be written', 
   await textVramContains('WRITE OK');
 });
 
-test('Hu-BASIC Run replaces a temporary disk whose last track is still dirty', { timeout: 120_000 }, async () => {
+test('HuBASIC Run replaces a temporary disk whose last track is still dirty', { timeout: 120_000 }, async () => {
   // A program on a temporary FDD0 disk writes its SLFS save area and keeps running, so the
-  // emulator holds that track unflushed when Hu-BASIC Run puts the new image in place.
+  // emulator holds that track unflushed when HuBASIC Run puts the new image in place.
   await setHuBasicProgram('10 PRINT "NEW IMAGE"\n20 GOTO 20\n');
   const result = await page.evaluate(async () => {
-    // Loads the Hu-BASIC toolchain scripts (SLANG compiler, assembler, disk builder)
+    // Loads the HuBASIC toolchain scripts (SLANG compiler, assembler, disk builder)
     const validation = await window.X1PenAutomation.validate();
     if (!validation.ok) return { setup: validation.diagnostics };
     const current = await (await fetch('hubasic/current.json')).json();
@@ -3182,11 +3182,11 @@ test('Hu-BASIC Run replaces a temporary disk whose last track is still dirty', {
     return { run, firstDiff };
   });
   assert.equal(run.run.ok, true, JSON.stringify(run.run));
-  assert.equal(run.firstDiff, -1, 'FDD0 must hold exactly the new Hu-BASIC image');
+  assert.equal(run.firstDiff, -1, 'FDD0 must hold exactly the new HuBASIC image');
   await textVramContains('NEW IMAGE');
 });
 
-test('Hu-BASIC Run applies a resolution chosen just before it', { timeout: 120_000 }, async () => {
+test('HuBASIC Run applies a resolution chosen just before it', { timeout: 120_000 }, async () => {
   await setHuBasicProgram('10 PRINT "DIP OK"\n20 GOTO 20\n');
   const runWith = (highres) => page.evaluate(async (on) => {
     window.XmilControls.setDipHighres(on);
@@ -3204,7 +3204,7 @@ test('Hu-BASIC Run applies a resolution chosen just before it', { timeout: 120_0
   assert.equal(standard.active & 0x01, 0x01);
 });
 
-test('Hu-BASIC Run leaves a library disk in FDD0 and the other drives alone', { timeout: 90_000 }, async () => {
+test('HuBASIC Run leaves a library disk in FDD0 and the other drives alone', { timeout: 90_000 }, async () => {
   const context = await browser.newContext();
   const libraryPage = await context.newPage();
   try {
@@ -3240,7 +3240,7 @@ test('Hu-BASIC Run leaves a library disk in FDD0 and the other drives alone', { 
   }
 });
 
-test('Hu-BASIC and the other source modes clear each other and persist', { timeout: 60_000 }, async () => {
+test('HuBASIC and the other source modes clear each other and persist', { timeout: 60_000 }, async () => {
   const slangFirst = await page.evaluate(async () => {
     const api = window.X1PenAutomation;
     let current = api.getProgram();
@@ -3270,14 +3270,14 @@ test('Hu-BASIC and the other source modes clear each other and persist', { timeo
   assert.equal(restored.activeTab, 'hubasic');
 });
 
-test('Share refuses Hu-BASIC programs', { timeout: 30_000 }, async () => {
+test('Share refuses HuBASIC programs', { timeout: 30_000 }, async () => {
   await setHuBasicProgram('10 PRINT "NO SHARE"');
   const status = await page.evaluate(async () => {
     document.getElementById('btn-share').click();
     await new Promise((resolve) => setTimeout(resolve, 100));
     return document.getElementById('x1pen-status').textContent;
   });
-  assert.equal(status, 'Hu-BASIC programs cannot be shared yet');
+  assert.equal(status, 'HuBASIC programs cannot be shared yet');
   await page.evaluate(async () => {
     const api = window.X1PenAutomation;
     const current = api.getProgram();

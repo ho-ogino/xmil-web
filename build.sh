@@ -124,11 +124,11 @@ if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
         [ -f "$f" ] && cp "$f" ./slang_runtime/
     done
 fi
-# Hu-BASIC bundle (wasm + x1native runtime, one SLANG-compiler revision per directory).
-# X1Pen's Hu-BASIC tab cannot work without it, so a missing bundle stops the build.
+# HuBASIC bundle (wasm + x1native runtime, one SLANG-compiler revision per directory).
+# X1Pen's HuBASIC tab cannot work without it, so a missing bundle stops the build.
 HUBASIC_REVISION="$(sed -n 's/.*"revision": *"\([0-9a-f]\{40\}\)".*/\1/p' "${SCRIPT_DIR}/assets/hubasic/current.json" 2>/dev/null || true)"
 if [ -z "${HUBASIC_REVISION}" ] || [ ! -f "${SCRIPT_DIR}/assets/hubasic/${HUBASIC_REVISION}/manifest.json" ]; then
-    echo "Error: Hu-BASIC bundle is missing (assets/hubasic/current.json and its revision directory)."
+    echo "Error: HuBASIC bundle is missing (assets/hubasic/current.json and its revision directory)."
     echo "Import one with: node scripts/import-hubasic-bundle.mjs <bundle-dir>"
     exit 1
 fi

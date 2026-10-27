@@ -65,7 +65,7 @@
 
         var sectors = new Uint8Array(LOGICAL_SECTORS * SECTOR_SIZE);
 
-        // Sector 0: Hu-BASIC IPL header
+        // Sector 0: HuBASIC IPL header
         var h = 0;
         sectors[h] = 0x01;
         writeAsciiPadded(sectors, h + 0x01, 13, mainName);

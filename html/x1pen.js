@@ -899,7 +899,7 @@ window.__X1PEN_MODE = true;
         });
     }
 
-    // Hu-BASIC first: it is the newest tab and boots its own disk, so a leftover
+    // HuBASIC first: it is the newest tab and boots its own disk, so a leftover
     // SLANG/BASIC source must not silently take over its Run.
     function inferSourceMode(basicSrc, asmSrc, slangSrc, hubasicSrc) {
         if (hubasicSrc) return 'hubasic';
@@ -948,7 +948,7 @@ window.__X1PEN_MODE = true;
         window._slangRuntimeVFS = vfs;
     }
 
-    // Hu-BASIC: x1pen_hubasic.js (lazy) + the SLANG compiler; the x1native runtime VFS lives in X1PenHuBasic
+    // HuBASIC: x1pen_hubasic.js (lazy) + the SLANG compiler; the x1native runtime VFS lives in X1PenHuBasic
     async function ensureHuBasicToolchain() {
         await ensureSlangToolchain();
         if (!window.X1PenHuBasic) {
@@ -957,7 +957,7 @@ window.__X1PEN_MODE = true;
                 s.src = 'x1pen_hubasic.js' + ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
                 s.onload = resolve;
                 s.onerror = function() {
-                    var error = new Error('Failed to load the Hu-BASIC toolchain');
+                    var error = new Error('Failed to load the HuBASIC toolchain');
                     error.code = 'HUBASIC_TOOLCHAIN_UNAVAILABLE';
                     reject(error);
                 };
@@ -1171,7 +1171,7 @@ window.__X1PEN_MODE = true;
             return false;
         }
 
-        // Hu-BASIC: 変換 → コンパイル → アセンブル → ディスクを作って IPL から起動
+        // HuBASIC: 変換 → コンパイル → アセンブル → ディスクを作って IPL から起動
         if (sourceMode === 'hubasic') return performHuBasicRun(hubasicEditor.getValue());
 
         // SLANG → コンパイル → ASM に変換
@@ -1543,7 +1543,7 @@ window.__X1PEN_MODE = true;
         return true;
     }
 
-    // ── Hu-BASIC RUN (x1native_slfs のディスクを FDD0 に差し、電源を入れ直して IPL から起動) ──
+    // ── HuBASIC RUN (x1native_slfs のディスクを FDD0 に差し、電源を入れ直して IPL から起動) ──
 
     var HUBASIC_STAGE_CODES = {
         transpile: 'HUBASIC_TRANSPILE_FAILED',
@@ -1569,20 +1569,20 @@ window.__X1PEN_MODE = true;
 
     async function performHuBasicRun(source) {
         clearSymbols();
-        elStatus.textContent = 'Hu-BASIC: loading...';
+        elStatus.textContent = 'HuBASIC: loading...';
         var built;
         try {
             await ensureHuBasicToolchain();
-            elStatus.textContent = 'Hu-BASIC: converting...';
+            elStatus.textContent = 'HuBASIC: converting...';
             built = await window.X1PenHuBasic.build(source);
         } catch (e) {
-            console.error('[x1pen] Hu-BASIC toolchain failed:', e);
-            elStatus.textContent = 'Hu-BASIC: ' + (e && e.message || e);
+            console.error('[x1pen] HuBASIC toolchain failed:', e);
+            elStatus.textContent = 'HuBASIC: ' + (e && e.message || e);
             lastRunDetails = { code: (e && e.code) || 'HUBASIC_TOOLCHAIN_UNAVAILABLE', stage: 'toolchain' };
             return false;
         }
         if (!built.ok) {
-            elStatus.textContent = 'Hu-BASIC: ' + built.stage + ': ' + built.message;
+            elStatus.textContent = 'HuBASIC: ' + built.stage + ': ' + built.message;
             lastRunDetails = {
                 code: HUBASIC_STAGE_CODES[built.stage] || 'HUBASIC_BUILD_FAILED',
                 stage: built.stage,
@@ -1595,7 +1595,7 @@ window.__X1PEN_MODE = true;
         // A library or external disk would be ejected and its saved mount cleared for good.
         var previousDrive0 = window.XmilCore.getSlotState().drive0 || null;
         if (previousDrive0 && previousDrive0 !== '__x1pen_temp__') {
-            elStatus.textContent = 'Hu-BASIC: FDD0にディスクが入っています。取り出してからRUNしてください';
+            elStatus.textContent = 'HuBASIC: FDD0にディスクが入っています。取り出してからRUNしてください';
             lastRunDetails = { code: 'HUBASIC_FDD0_IN_USE', stage: 'mount' };
             return false;
         }
@@ -1605,8 +1605,8 @@ window.__X1PEN_MODE = true;
             await window.XmilControls.mountTempDisk(built.d88, 'drive0');
         } catch (e) {
             // Nothing to put back: FDD0 was empty or held a previous temporary disk
-            console.error('[x1pen] Hu-BASIC disk mount failed:', e);
-            elStatus.textContent = 'Hu-BASIC: disk mount failed';
+            console.error('[x1pen] HuBASIC disk mount failed:', e);
+            elStatus.textContent = 'HuBASIC: disk mount failed';
             lastRunDetails = { code: 'HUBASIC_MOUNT_FAILED', stage: 'mount' };
             return false;
         }
@@ -1623,7 +1623,7 @@ window.__X1PEN_MODE = true;
                     var before = otherSlots[slot] || { key: null, vfsPath: null };
                     var after = now[slot] || { key: null, vfsPath: null };
                     if (before.key !== after.key || before.vfsPath !== after.vfsPath) {
-                        var changed = new Error(slot + ' changed while booting the Hu-BASIC disk');
+                        var changed = new Error(slot + ' changed while booting the HuBASIC disk');
                         changed.code = 'HUBASIC_OTHER_SLOT_CHANGED';
                         changed.conflictingSlot = slot;
                         throw changed;
@@ -1631,8 +1631,8 @@ window.__X1PEN_MODE = true;
                 });
             });
         } catch (e) {
-            console.error('[x1pen] Hu-BASIC boot failed:', e);
-            elStatus.textContent = 'Hu-BASIC: boot failed: ' + (e && e.message || e);
+            console.error('[x1pen] HuBASIC boot failed:', e);
+            elStatus.textContent = 'HuBASIC: boot failed: ' + (e && e.message || e);
             lastRunDetails = { code: e && e.code === 'HUBASIC_OTHER_SLOT_CHANGED' ? e.code : 'HUBASIC_BOOT_FAILED',
                 stage: 'boot', poweredOn: false };
             if (e && e.conflictingSlot) lastRunDetails.conflictingSlot = e.conflictingSlot;
@@ -1650,7 +1650,7 @@ window.__X1PEN_MODE = true;
         if (symBtn) symBtn.disabled = false;
         var warnings = hubasicWarnings(built.diagnostics);
         var hubasicInfo = window.X1PenHuBasic.info();
-        elStatus.textContent = 'Hu-BASIC: booting from disk (' + built.bytes.length + ' bytes' +
+        elStatus.textContent = 'HuBASIC: booting from disk (' + built.bytes.length + ' bytes' +
             (warnings.length ? ', ' + warnings.length + ' warning(s)' : '') + ')';
         lastRunDetails = {
             stage: 'booted',
@@ -2795,7 +2795,7 @@ window.__X1PEN_MODE = true;
                     id: 'x1pen-hubasic-x1native-slfs',
                     environment: 'x1native_slfs',
                     defaultOrg: 0x1000,
-                    // Known after the Hu-BASIC toolchain has been loaded once
+                    // Known after the HuBASIC toolchain has been loaded once
                     runtimeRevision: hubasicInfo ? hubasicInfo.revision : null,
                     hubasic2slVersion: hubasicInfo ? hubasicInfo.hubasic2slVersion : null
                 }
@@ -3103,7 +3103,7 @@ window.__X1PEN_MODE = true;
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
         var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
         if (hubasicEditor && hubasicEditor.getValue().trim()) {
-            elStatus.textContent = 'Hu-BASIC programs cannot be shared yet';
+            elStatus.textContent = 'HuBASIC programs cannot be shared yet';
             return;
         }
         if (!src && !asmSrc && !slangSrc) { elStatus.textContent = 'Nothing to share'; return; }

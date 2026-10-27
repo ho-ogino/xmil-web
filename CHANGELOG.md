@@ -2,12 +2,12 @@
 
 ## Unreleased
 
-- X1Pen に Hu-BASIC タブを追加しました（試験中）。RUN すると、Hu-BASIC を SLANG に変換し（hubasic2sl をブラウザの中の .NET wasm で実行）、OS なしの x1native 環境の機械語に組み立て、Hu-BASIC の IPL で起動できるディスクを作って FDD0 から起動します。変換の仕組みとランタイムは SLANG-compiler の同じリビジョンから取り込みます（`scripts/import-hubasic-bundle.mjs`）。読み込むときに、リビジョンと BAS_ABI（変換結果とランタイムの組の番号）が変換の仕組み・ランタイム・manifest で揃っていることを確かめます。
+- X1Pen に HuBASIC タブを追加しました（試験中）。RUN すると、HuBASIC を SLANG に変換し（hubasic2sl をブラウザの中の .NET wasm で実行）、OS なしの x1native 環境の機械語に組み立て、HuBASIC の IPL で起動できるディスクを作って FDD0 から起動します。変換の仕組みとランタイムは SLANG-compiler の同じリビジョンから取り込みます（`scripts/import-hubasic-bundle.mjs`）。読み込むときに、リビジョンと BAS_ABI（変換結果とランタイムの組の番号）が変換の仕組み・ランタイム・manifest で揃っていることを確かめます。
 - X1Pen の Z80 アセンブラが、文字の定数 `','`、`#IF exists` で前に定義されたラベル（AILZ80ASM と同じ順の扱い）を正しく扱うようにしました。
 - X1Pen のプロジェクトディスクの RUN で、直前に解像度（高解像度・標準）やディスクの種類を切り替えると「本体設定を適用できませんでした」で止まっていた問題を修正しました。設定は電源を入れ直したときに反映されるので、起動のあとで確かめるようにしました。
 - X1Pen の RUN で、作ったディスクを書き込めなかったときは、起動せずに失敗として止まるようにしました（これまでは前のディスクのまま起動することがありました）。
 - X1Pen の RUN で前のプログラムがディスクに書き込んでいたとき、まだ書き戻していないトラックが新しく作ったディスクの上に書き戻され、ディスクが壊れることがあった問題を修正しました。前のディスクを取り出してから新しいディスクを書き込みます。
-- 既知の制限: Hu-BASIC のプログラムは Share できません。Hu-BASIC がいまのソースの間は、公開済みの x1pen-mcp 2.7.x の getProgram 系が `invalid source mode` で止まります（MCP の対応は後の版で）。
+- 既知の制限: HuBASIC のプログラムは Share できません。HuBASIC がいまのソースの間は、公開済みの x1pen-mcp 2.7.x の getProgram 系が `invalid source mode` で止まります（MCP の対応は後の版で）。
 
 ## X millennium Web / X1Pen Web 0.10.1
 

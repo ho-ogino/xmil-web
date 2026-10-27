@@ -1,5 +1,5 @@
-// x1pen_hubasic.js — Hu-BASIC toolchain for X1Pen
-// Hu-BASIC → (hubasic2sl, .NET browser-wasm) SLANG → (X1PenSlangCompiler) ASM
+// x1pen_hubasic.js — HuBASIC toolchain for X1Pen
+// HuBASIC → (hubasic2sl, .NET browser-wasm) SLANG → (X1PenSlangCompiler) ASM
 // → (X1PenZ80Asm) binary → size check → (X1PenSlfsDisk) SLFS D88 for the x1native_slfs environment.
 //
 // The wasm converter and the x1native runtime come from one SLANG-compiler bundle
@@ -33,12 +33,12 @@
 
     // The bundle must describe exactly the x1native_slfs environment X1Pen boots.
     function checkManifest(manifest) {
-        if (!manifest || typeof manifest !== 'object') throw toolchainError('Hu-BASIC manifest is invalid');
+        if (!manifest || typeof manifest !== 'object') throw toolchainError('HuBASIC manifest is invalid');
         if (manifest.dirty !== false && !isDevHost()) {
-            throw toolchainError('Hu-BASIC bundle was built from uncommitted sources');
+            throw toolchainError('HuBASIC bundle was built from uncommitted sources');
         }
         var env = manifest.envs && manifest.envs[ENV_NAME];
-        if (!env) throw toolchainError('Hu-BASIC manifest has no ' + ENV_NAME + ' environment');
+        if (!env) throw toolchainError('HuBASIC manifest has no ' + ENV_NAME + ' environment');
         var defines = env.defines || {};
         var checks = [
             ['envType', env.envType === 1],
@@ -60,7 +60,7 @@
                 })]
         ];
         for (var i = 0; i < checks.length; i++) {
-            if (!checks[i][1]) throw toolchainError('Hu-BASIC manifest has an unexpected ' + checks[i][0]);
+            if (!checks[i][1]) throw toolchainError('HuBASIC manifest has an unexpected ' + checks[i][0]);
         }
         return env;
     }
@@ -74,10 +74,10 @@
             while ((m = re.exec(vfs[name]))) found.push(Number(m[1]));
         });
         if (found.length !== 1 || found[0] !== manifest.basAbi) {
-            throw toolchainError('Hu-BASIC runtime BAS_ABI does not match the manifest');
+            throw toolchainError('HuBASIC runtime BAS_ABI does not match the manifest');
         }
         if (converterAbi !== manifest.basAbi) {
-            throw toolchainError('Hu-BASIC converter BAS_ABI does not match the runtime');
+            throw toolchainError('HuBASIC converter BAS_ABI does not match the runtime');
         }
     }
 
@@ -95,7 +95,7 @@
         var base = 'hubasic/' + current.revision + '/';
         var manifest = JSON.parse(await fetchText(base + 'manifest.json'));
         if (manifest.slangCompilerRevision !== current.revision) {
-            throw toolchainError('Hu-BASIC manifest revision does not match its directory');
+            throw toolchainError('HuBASIC manifest revision does not match its directory');
         }
         var env = checkManifest(manifest);
 
@@ -111,11 +111,11 @@
             var exports = await runtime.getAssemblyExports('hubasic2sl-wasm');
             api = exports.SLANGCompiler.HuBasic.Wasm.HuBasicWeb;
         } catch (e) {
-            throw toolchainError('Failed to start the Hu-BASIC converter: ' + (e && e.message || e));
+            throw toolchainError('Failed to start the HuBASIC converter: ' + (e && e.message || e));
         }
         var version = JSON.parse(api.Version());
         if (!version.informational || version.informational.slice(-41) !== '+' + current.revision) {
-            throw toolchainError('Hu-BASIC converter revision does not match the runtime');
+            throw toolchainError('HuBASIC converter revision does not match the runtime');
         }
         checkBasAbi(manifest, vfs, version.basAbi);
         state = { revision: current.revision, base: base, manifest: manifest, env: env, api: api, vfs: vfs,
@@ -165,7 +165,7 @@
         var diagnostics = Array.isArray(transpiled.diagnostics) ? transpiled.diagnostics : [];
         if (!transpiled.ok) {
             var firstError = diagnostics.filter(function(d) { return d.severity === 'error'; })[0];
-            return stageFailure('transpile', firstError ? firstError.text : (transpiled.error || 'Hu-BASIC conversion failed'),
+            return stageFailure('transpile', firstError ? firstError.text : (transpiled.error || 'HuBASIC conversion failed'),
                 { diagnostics: diagnostics });
         }
 

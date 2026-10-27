@@ -1,4 +1,4 @@
-// Copy a Hu-BASIC bundle into assets/hubasic/<revision>/, make it current, and refresh the
+// Copy a HuBASIC bundle into assets/hubasic/<revision>/, make it current, and refresh the
 // conformance fixtures in tests/fixtures/hubasic/ from the bundle's testdata.
 //
 //   node scripts/import-hubasic-bundle.mjs <bundle-dir> [--allow-dirty]
