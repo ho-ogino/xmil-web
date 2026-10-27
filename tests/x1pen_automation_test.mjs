@@ -13,6 +13,7 @@ const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.ttf': 'font/ttf',
   '.wasm': 'application/wasm',
 };
 let server;
@@ -3257,7 +3258,7 @@ test('HuBASIC and the other source modes clear each other and persist', { timeou
   assert.equal(stored.slang, '');
   assert.equal(stored.basic, '');
   assert.equal(stored.asm, '');
-  assert.equal(await page.evaluate(() => localStorage.getItem('x1pen_editor_hubasic')), hubasic);
+  assert.equal(await page.evaluate(() => localStorage.getItem('x1pen_editor_hubasic_x1')), hubasic);
 
   await page.reload();
   await page.evaluate(() => window.X1PenAutomation.ready());
@@ -3268,6 +3269,143 @@ test('HuBASIC and the other source modes clear each other and persist', { timeou
   assert.equal(restored.program.hubasic, hubasic);
   assert.equal(restored.program.sourceMode, 'hubasic');
   assert.equal(restored.activeTab, 'hubasic');
+});
+
+function hubasicEditorFrame(target = page) {
+  return target.frameLocator('#hubasic-editor-container iframe');
+}
+
+// The editor page draws the program as X1 glyphs (U+E000 + byte for non-ASCII) in #editor
+async function hubasicEditorText(target = page) {
+  const editor = hubasicEditorFrame(target).locator('#editor');
+  await editor.waitFor();
+  return editor.inputValue();
+}
+
+test('the HuBASIC tab edits the program in X1 BASIC Editor and Run uses its X1 bytes', { timeout: 120_000 }, async () => {
+  // \{heart}, half-width kana and ¥ are X1 bytes $E3 $B1 $5C; the old UTF-8 path would have
+  // passed the escape as eight characters
+  const stored = await setHuBasicProgram('10 CLS\n20 PRINT "\\{heart}ｱ¥OK"\n30 GOTO 30\n');
+  assert.equal(stored.hubasic, '10 CLS\n20 PRINT "\\{heart}ｱ¥OK"\n30 GOTO 30\n');
+  await page.waitForFunction(() => document.querySelector('.editor-tab.active').dataset.tab === 'hubasic');
+  await page.waitForFunction(() => {
+    const frame = document.querySelector('#hubasic-editor-container iframe');
+    const editor = frame && frame.contentDocument && frame.contentDocument.getElementById('editor');
+    return editor && editor.value.includes('GOTO 30');
+  }, null, { timeout: 30_000 });
+  assert.equal(await hubasicEditorText(), '10 CLS\n20 PRINT "\uE0E3\uE0B1\\OK"\n30 GOTO 30\n');
+
+  const before = await page.evaluate(() => window.X1PenAutomation.getProgram().revision);
+  await hubasicEditorFrame().locator('#editor').click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('40 REM X');
+  const typed = await page.evaluate(() => ({
+    program: window.X1PenAutomation.getProgram(),
+    stored: localStorage.getItem('x1pen_editor_hubasic_x1'),
+  }));
+  assert.equal(typed.program.hubasic, '10 CLS\n20 PRINT "\\{heart}ｱ¥OK"\n30 GOTO 30\n40 REM X');
+  assert.ok(typed.program.revision > before, 'typing in the editor is a program change');
+  assert.equal(typed.stored, typed.program.hubasic);
+
+  const run = await page.evaluate(() => window.X1PenAutomation.run());
+  assert.equal(run.ok, true, JSON.stringify(run));
+  await page.waitForFunction(() => {
+    const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes;
+    return bytes.some((_, i) => bytes[i] === 0xE3 && bytes[i + 1] === 0xB1 && bytes[i + 2] === 0x5C &&
+      bytes[i + 3] === 0x4F && bytes[i + 4] === 0x4B);
+  }, null, { timeout: 30_000 });
+});
+
+test('setProgram refuses HuBASIC text the X1 cannot show and changes nothing', { timeout: 30_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "KEEP"');
+  const result = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    let error = null;
+    try {
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 REM 漢' }, current.revision, current.revisionEpoch);
+    } catch (e) {
+      error = e.message;
+    }
+    return { error, current, after: api.getProgram() };
+  });
+  assert.match(result.error, /hubasic: X1で表現できない文字があります/);
+  assert.equal(result.after.hubasic, '10 PRINT "KEEP"');
+  assert.equal(result.after.revision, result.current.revision);
+  assert.equal(await hubasicEditorText(), '10 PRINT "KEEP"');
+});
+
+test('text saved by the former plain HuBASIC tab is migrated once and kept', { timeout: 90_000 }, async () => {
+  const context = await browser.newContext();
+  const legacyPage = await context.newPage();
+  // Literal backslash sequences: the old tab passed them to the converter as UTF-8 characters
+  const legacy = '10 REM 漢\\x41\\{heart}\n20 END';
+  try {
+    await legacyPage.goto(`${baseUrl}/x1pen.html`);
+    await legacyPage.evaluate(() => window.X1PenAutomation.ready());
+    await legacyPage.evaluate((text) => {
+      localStorage.removeItem('x1pen_editor_hubasic_x1');
+      localStorage.setItem('x1pen_editor_hubasic', text);
+    }, legacy);
+
+    const load = async () => {
+      await legacyPage.reload();
+      await legacyPage.evaluate(() => window.X1PenAutomation.ready());
+      return legacyPage.evaluate(() => ({
+        hubasic: window.X1PenAutomation.getProgram().hubasic,
+        legacy: localStorage.getItem('x1pen_editor_hubasic'),
+        stored: localStorage.getItem('x1pen_editor_hubasic_x1'),
+        status: document.getElementById('x1pen-status').textContent,
+      }));
+    };
+    const first = await load();
+    // ? for 漢; each backslash is $5C (¥), not an escape
+    assert.equal(first.hubasic, '10 REM ?¥x41¥{heart}\n20 END');
+    assert.equal(first.stored, first.hubasic);
+    assert.equal(first.legacy, legacy, 'the original text is kept');
+    assert.match(first.status, /1 character\(s\) the X1 cannot show became "\?"/);
+
+    const second = await load();
+    assert.equal(second.hubasic, first.hubasic);
+    assert.doesNotMatch(second.status, /cannot show/);
+
+    await legacyPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT "NEW"' }, current.revision, current.revisionEpoch);
+    });
+    const third = await load();
+    assert.equal(third.hubasic, '10 PRINT "NEW"', 'the new key wins over the old one');
+    assert.equal(third.legacy, legacy);
+  } finally {
+    await context.close();
+  }
+});
+
+test('the HuBASIC editor follows the automation lock and builds PCG fonts', { timeout: 60_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "LOCK"');
+  await hubasicEditorText();
+  const result = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const frame = document.querySelector('#hubasic-editor-container iframe');
+    api.setInteractionLocked(true, 'testing');
+    let lockedFocus;
+    try {
+      frame.contentDocument.getElementById('editor').focus();
+      lockedFocus = frame.contentDocument.activeElement && frame.contentDocument.activeElement.id;
+    } finally {
+      api.setInteractionLocked(false);
+    }
+    frame.contentDocument.getElementById('editor').focus();
+    const unlockedFocus = frame.contentDocument.activeElement.id;
+    const ttf = await frame.contentWindow.X1Host.pcgFont({
+      entries: [{ code: 0, hex: 'FF'.repeat(24) }], order: 'BRG', layout: 'planar' });
+    return { lockedFocus, unlockedFocus, ttfLength: ttf.length, ttfTag: Array.from(ttf.slice(0, 4)) };
+  });
+  assert.notEqual(result.lockedFocus, 'editor', 'the locked editor panel is inert');
+  assert.equal(result.unlockedFocus, 'editor');
+  assert.ok(result.ttfLength > 1000);
+  assert.deepEqual(result.ttfTag, [0, 1, 0, 0]);
 });
 
 test('Share refuses HuBASIC programs', { timeout: 30_000 }, async () => {

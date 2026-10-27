@@ -371,7 +371,11 @@ window.__X1PEN_MODE = true;
     var LS_EDITOR_BASIC = 'x1pen_editor';
     var LS_EDITOR_ASM   = 'x1pen_editor_asm';
     var LS_EDITOR_SLANG = 'x1pen_editor_slang';
-    var LS_EDITOR_HUBASIC = 'x1pen_editor_hubasic';
+    // HuBASIC text (X1PenHuBasicText.toText). The former plain tab kept its Unicode text under
+    // x1pen_editor_hubasic; it is migrated once (without reading escapes) and never written.
+    var LS_EDITOR_HUBASIC = 'x1pen_editor_hubasic_x1';
+    var LS_EDITOR_HUBASIC_LEGACY = 'x1pen_editor_hubasic';
+    var hubasicRestoreNotice = null;   // shown instead of 'Ready' after startup
 
     function persistEditorSources(basic, asm, slang, hubasic) {
         if (isEphemeralShareSession) return;
@@ -458,15 +462,97 @@ window.__X1PEN_MODE = true;
           onBlur:  pauseCallbacks.onBlur }
     );
 
-    var hubasicEditor = window.X1PenEditor.create(
-        document.getElementById('hubasic-editor-container'),
-        { language: 'basic',
-          showLineNumbers: false,
-          placeholder: '10 PRINT "HELLO WORLD"\n20 GOTO 10',
-          onChange: function(text) { markProgramChanged(); persistEditorSource(LS_EDITOR_HUBASIC, text); },
-          onFocus: pauseCallbacks.onFocus,
-          onBlur:  pauseCallbacks.onBlur }
-    );
+    // HuBASIC: X1 BASIC Editor (x1basic/, imported by scripts/import-x1-basic-editor.mjs) in an
+    // iframe. The program is X1 bytes and lives here, so Run, storage and automation work before
+    // (or without) the iframe; getValue/setValue speak X1PenHuBasicText like the other editors' text.
+    var hubasicEditor = createHuBasicEditor(document.getElementById('hubasic-editor-container'), {
+        onChange: function(text) { markProgramChanged(); persistEditorSource(LS_EDITOR_HUBASIC, text); },
+        onFocus: pauseCallbacks.onFocus,
+        onBlur:  pauseCallbacks.onBlur
+    });
+
+    function createHuBasicEditor(container, opts) {
+        var bytes = new Uint8Array(0);
+        var loaded = null;      // the editor's onLoaded callback, once its page has started
+        var frame = null;
+        var locked = false;
+        var builtinBitmap = null;
+
+        function sameBytes(a, b) {
+            if (a.length !== b.length) return false;
+            for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+            return true;
+        }
+
+        function show() {
+            if (!loaded) return;
+            loaded({ name: 'PROGRAM.BAS', bytes: bytes });
+        }
+
+        // inert on #editor-panel does not reach into the iframe's document
+        function applyLock() {
+            var doc = frame && frame.contentDocument;
+            if (!doc || !doc.body) return;
+            doc.body.inert = locked;
+            if (locked && doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
+        }
+
+        // Called by x1basic/src/x1pen-host.js inside the iframe (same origin)
+        window.X1PenHuBasicEditorBridge = {
+            attach: function(callback) { loaded = callback; show(); applyLock(); },
+            contentChanged: function(next) {
+                if (sameBytes(next, bytes)) return;
+                bytes = Uint8Array.from(next);
+                if (opts.onChange) opts.onChange(window.X1PenHuBasicText.toText(bytes));
+            },
+            fontRom: function() {
+                var m = window.Module;
+                try {
+                    var rom = m && m.FS && m.FS.analyzePath('/FNT0808.X1').exists ? m.FS.readFile('/FNT0808.X1') : null;
+                    return rom && rom.length === 2048 ? rom : null;
+                } catch (e) { return null; }
+            },
+            builtinFontBitmap: function() {
+                if (!builtinBitmap) {
+                    builtinBitmap = fetch('x1basic/assets/x1-font.json').then(function(r) {
+                        if (!r.ok) throw new Error('x1-font.json: HTTP ' + r.status);
+                        return r.json();
+                    }).catch(function(e) { builtinBitmap = null; throw e; });
+                }
+                return builtinBitmap;
+            },
+            focus: function() { if (opts.onFocus) opts.onFocus(); },
+            blur: function() { if (opts.onBlur) opts.onBlur(); }
+        };
+
+        return {
+            // Creates the iframe the first time the HuBASIC tab is shown
+            mount: function() {
+                if (frame) return;
+                frame = document.createElement('iframe');
+                frame.title = 'X1 BASIC Editor';
+                frame.src = 'x1basic/src/index.html' +
+                    ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
+                frame.addEventListener('error', function() { elStatus.textContent = 'HuBASIC: editor failed to load'; });
+                container.appendChild(frame);
+            },
+            setLocked: function(value) { locked = !!value; applyLock(); },
+            getValue: function() { return window.X1PenHuBasicText.toText(bytes); },
+            getBytes: function() { return bytes.slice(); },
+            // Throws (and changes nothing) for text the X1 cannot show
+            setValue: function(text, setOpts) {
+                this.setBytes(window.X1PenHuBasicText.fromText(text), setOpts);
+            },
+            setBytes: function(next, setOpts) {
+                var changed = !sameBytes(next, bytes);
+                bytes = Uint8Array.from(next);
+                show();
+                if (changed && !(setOpts && setOpts.silent) && opts.onChange) {
+                    opts.onChange(window.X1PenHuBasicText.toText(bytes));
+                }
+            }
+        };
+    }
 
     // localStorage から復元 (silent: onChange を発火させない)
     if (!isEphemeralShareSession) {
@@ -477,11 +563,35 @@ window.__X1PEN_MODE = true;
             if (savedAsm) { asmEditor.setValue(savedAsm, { silent: true }); lastAsmTabOrigin = 'user'; }
             var savedSlang = localStorage.getItem(LS_EDITOR_SLANG);
             if (savedSlang) slangEditor.setValue(savedSlang, { silent: true });
-            var savedHubasic = localStorage.getItem(LS_EDITOR_HUBASIC);
-            if (savedHubasic) hubasicEditor.setValue(savedHubasic, { silent: true });
+            restoreHuBasicSource();
         } catch(e) {}
     }
 
+
+    function restoreHuBasicSource() {
+        var saved = localStorage.getItem(LS_EDITOR_HUBASIC);
+        if (saved !== null) {
+            try {
+                hubasicEditor.setValue(saved, { silent: true });
+            } catch (e) {
+                // Only a hand-edited value can fail; keep it until the next edit
+                hubasicRestoreNotice = 'HuBASIC: the saved program could not be read: ' + e.message;
+                elStatus.textContent = hubasicRestoreNotice;
+            }
+            return;
+        }
+        var legacy = localStorage.getItem(LS_EDITOR_HUBASIC_LEGACY);
+        if (!legacy) return;
+        var migrated = window.X1PenHuBasicText.fromLegacyText(legacy);
+        hubasicEditor.setBytes(migrated.bytes, { silent: true });
+        persistEditorSource(LS_EDITOR_HUBASIC, hubasicEditor.getValue());
+        if (migrated.replaced > 0) {
+            hubasicRestoreNotice = 'HuBASIC: ' + migrated.replaced +
+                ' character(s) the X1 cannot show became "?" (the original is kept in localStorage ' +
+                LS_EDITOR_HUBASIC_LEGACY + ')';
+            elStatus.textContent = hubasicRestoreNotice;
+        }
+    }
 
     // ── ステート復元 (専用経路 — マウント復元なし) ──
 
@@ -1172,7 +1282,7 @@ window.__X1PEN_MODE = true;
         }
 
         // HuBASIC: 変換 → コンパイル → アセンブル → ディスクを作って IPL から起動
-        if (sourceMode === 'hubasic') return performHuBasicRun(hubasicEditor.getValue());
+        if (sourceMode === 'hubasic') return performHuBasicRun(hubasicEditor.getBytes());
 
         // SLANG → コンパイル → ASM に変換
         if (sourceMode === 'slang') {
@@ -1924,6 +2034,13 @@ window.__X1PEN_MODE = true;
         if (sourceMode === 'hubasic' && !hubasic.trim()) {
             throw new TypeError('hubasic source is required for sourceMode hubasic');
         }
+        if (sourceMode === 'hubasic') {
+            try {
+                window.X1PenHuBasicText.fromText(hubasic);
+            } catch (e) {
+                throw new TypeError('hubasic: ' + e.message);
+            }
+        }
         if (sourceMode === 'slang' && !slang.trim()) {
             throw new TypeError('slang source is required for sourceMode slang');
         }
@@ -2100,7 +2217,7 @@ window.__X1PEN_MODE = true;
         var built = null;
         try {
             await ensureHuBasicToolchain();
-            built = await window.X1PenHuBasic.build(program.hubasic);
+            built = await window.X1PenHuBasic.build(hubasicEditor.getBytes());
         } catch (e) {
             diagnostics.push(makeAutomationDiagnostic('hubasic', e.message));
         }
@@ -2830,6 +2947,7 @@ window.__X1PEN_MODE = true;
             document.activeElement.blur();
         }
         if (panel) panel.inert = automationInteractionLocked;
+        if (hubasicEditor) hubasicEditor.setLocked(automationInteractionLocked);
         if (overlay) {
             if (automationInteractionLocked && label) overlay.textContent = label;
             if (!automationInteractionLocked) overlay.textContent = 'AI is editing...';
@@ -3286,7 +3404,8 @@ window.__X1PEN_MODE = true;
         // 6. エミュレータ開始
         module._js_xmil_start();
 
-        elStatus.textContent = 'Ready';
+        // A note from restoring the HuBASIC program outlives the startup messages
+        elStatus.textContent = hubasicRestoreNotice || 'Ready';
         automationReadyState = 'ready';
         refreshRunTriggerState();
         automationReadyResolve();
@@ -4003,6 +4122,7 @@ window.__X1PEN_MODE = true;
             if (slangImportAction) slangImportAction.classList.remove('hidden');
         } else if (target === 'hubasic') {
             if (hubasicContainer) hubasicContainer.classList.remove('hidden');
+            hubasicEditor.mount();
         }
     }
     if (editorTabs) {
