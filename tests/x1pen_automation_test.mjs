@@ -4214,3 +4214,35 @@ test('a HuBASIC link whose program cannot be read runs nothing and changes nothi
     await context.close();
   }
 });
+
+test('re-sharing a HuBASIC link whose first Run failed keeps the sender\'s model', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext();
+  try {
+    // The toolchain cannot load, so the first Run fails before it boots anything
+    await context.route('**/x1pen_hubasic.js*', (route) => route.abort());
+    const posts = await captureSharePosts(context, ['Again001']);
+    await installShareRoute(context, 'Frozen02', FROZEN_HUBASIC_SHARE);
+    const sharePage = await openShare(context, 'Frozen02');
+    const opened = await shareState(sharePage);
+    assert.match(opened.status, /^HuBASIC: /);
+    assert.doesNotMatch(opened.status, /booting/);
+    assert.notEqual(opened.model, 2, 'nothing booted the shared model');
+    // The unchanged program is the same link, model 2 included
+    const again = await shareFrom(sharePage);
+    assert.equal(again.status, 'Same content - URL reused');
+    assert.match(again.url, /\/x1pen\?id=Frozen02$/);
+    assert.equal(posts.length, 0);
+    // An edit makes a new link, still with the sender's model
+    await sharePage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: current.hubasic + '40 END\n' }, current.revision, current.revisionEpoch);
+    });
+    assert.equal((await shareFrom(sharePage)).status, 'Shared!');
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].meta.model, 2);
+    assert.deepEqual(posts[0].meta.hubasicOptions, { wait: 'frame:2', stringLen: 40 });
+  } finally {
+    await context.close();
+  }
+});
