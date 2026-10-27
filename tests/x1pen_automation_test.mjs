@@ -3881,16 +3881,27 @@ test('options changed while a HuBASIC Run or validation waits for the toolchain 
     assert.equal(next.ok, false);
     assert.ok(next.diagnostics.some((d) => /HB0309/.test(d.message)), JSON.stringify(next.diagnostics));
 
-    // The same for a validation, the other way round
+    // The same for a validation, the other way round; an edit made meanwhile is not part of the
+    // result either, which keeps the revision it validated
     held = holdToolchain();
     await load();
+    await hubasicEditorText(slowPage);
+    const startRevision = await slowPage.evaluate(() => window.X1PenAutomation.getProgram().revision);
     const validation = slowPage.evaluate(() => window.X1PenAutomation.validate());
     await held.requested;
     await setBudgetInPanel('24576');
+    await hubasicEditorFrame(slowPage).locator('#editor').click();
+    await slowPage.keyboard.press('Control+End');
+    await slowPage.keyboard.type('30 PRINT "EDITED"');
+    await slowPage.waitForFunction((revision) => window.X1PenAutomation.getProgram().revision > revision, startRevision);
     held.release();
     const validated = await validation;
     assert.equal(validated.ok, false, 'validated with the 1-byte budget it started with');
-    assert.equal((await slowPage.evaluate(() => window.X1PenAutomation.validate())).ok, true);
+    assert.equal(validated.revision, startRevision);
+    const again = await slowPage.evaluate(() => window.X1PenAutomation.validate());
+    assert.equal(again.ok, true);
+    assert.ok(again.revision > startRevision);
+    assert.match(await slowPage.evaluate(() => window.X1PenAutomation.getProgram().hubasic), /30 PRINT "EDITED"/);
   } finally {
     if (gate) gate.release();
     await context.close();

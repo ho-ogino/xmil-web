@@ -2260,7 +2260,7 @@ window.__X1PEN_MODE = true;
     async function validateHuBasicProgram(program) {
         var diagnostics = [];
         var built = null;
-        // Validate what is there now, not what changes while the toolchain loads
+        // Validate what is there now (program.revision), not what changes while the toolchain loads
         var bytes = hubasicEditor.getBytes();
         var options = window.X1PenHuBasicOptions.changed(hubasicOptions);
         try {
@@ -2286,7 +2286,7 @@ window.__X1PEN_MODE = true;
         return {
             ok: !!(built && built.ok) && !hasError,
             sourceMode: program.sourceMode,
-            revision: automationRevision,
+            revision: program.revision,
             diagnostics: diagnostics,
             output: {
                 basicBytes: 0,
