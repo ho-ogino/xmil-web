@@ -13,12 +13,19 @@
     var MAX_BYTES = 2 * 1024 * 1024;
     var fileName = 'PROGRAM.BAS';
     var command = null;
+    var loads = 0;              // programs X1Pen has handed to the editor
+    // The font the editor shows, as a 256x8 bitmap for PCG fonts: null until the user picks one
+    // (X1Pen's registered ROM, else the built-in font), 'builtin' after "内蔵に戻す"
+    var baseFont = null;
+    var fontCandidate = null;
+    var fontTokens = 0;
 
     // Bytes from X1Pen's window: copy them into this window before the editor sees them
     var local = function(bytes) { return Uint8Array.from(bytes); };
 
     function baseBitmap() {
-        var rom = bridge.fontRom();
+        if (Array.isArray(baseFont)) return Promise.resolve(baseFont);
+        var rom = baseFont === 'builtin' ? null : bridge.fontRom();
         if (rom) return Promise.resolve(window.X1FontBuilder.parseFontRom(local(rom)));
         return bridge.builtinFontBitmap();
     }
@@ -41,9 +48,13 @@
         });
     }
 
+    // A file read that finishes after X1Pen replaced the program, or while automation holds the
+    // interaction lock, is dropped: it must not overwrite the newer program.
     function chooseFile() {
+        var loadsAtStart = loads;
         return pickFile('.bas,.BAS,.txt,.asc,*/*', MAX_BYTES, '開けるのは 2 MiB までです。').then(function(file) {
-            if (file) fileName = file.name;
+            if (!file || loads !== loadsAtStart || bridge.isLocked()) return null;
+            fileName = file.name;
             return file;
         });
     }
@@ -53,7 +64,9 @@
     function chooseFont() {
         return pickFile('.x1,.X1,.rom,.bin,*/*', 2048, 'X1 のフォント（2048 バイト）を選んでください。').then(function(file) {
             if (!file) return null;
-            return { name: file.name, data: window.X1FontBuilder.buildFontFromRom(file.bytes), token: file.name };
+            var bitmap = window.X1FontBuilder.parseFontRom(file.bytes);
+            fontCandidate = { token: 'font-' + (++fontTokens), bitmap: bitmap };
+            return { name: file.name, data: window.X1FontBuilder.buildFont(bitmap), token: fontCandidate.token };
         });
     }
 
@@ -94,12 +107,49 @@
         command(name);
     }, true);
 
-    window.addEventListener('focus', function() { bridge.focus(); });
-    window.addEventListener('blur', function() { bridge.blur(); });
+    // The editor focuses its textarea whenever it shows a document (at start and on every load
+    // from X1Pen). Those focus changes are not the user's: they must not pause the emulator or
+    // take the keyboard away from wherever the user is in X1Pen.
+    var starting = true;
+    var loading = false;
+    var focusBeforeStart = window.parent.document.activeElement;
+
+    function giveFocusBack(before) {
+        if (!document.hasFocus()) return;
+        var parentDoc = window.parent.document;
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        if (before && before !== window.frameElement && before !== parentDoc.body && before.focus) {
+            before.focus();
+        } else if (parentDoc.activeElement === window.frameElement) {
+            window.frameElement.blur();
+        }
+    }
+
+    function showFromX1Pen(show) {
+        var hadFocus = document.hasFocus();
+        var before = window.parent.document.activeElement;
+        loading = true;
+        try {
+            show();
+        } finally {
+            if (!hadFocus && !starting) giveFocusBack(before);
+            loading = false;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        giveFocusBack(focusBeforeStart);
+        starting = false;
+    });
+    window.addEventListener('focus', function() { if (!starting && !loading) bridge.focus(); });
+    window.addEventListener('blur', function() { if (!starting && !loading) bridge.blur(); });
 
     window.X1Host = {
         onLoaded: function(callback) {
-            bridge.attach(function(data) { callback({ name: data.name, bytes: local(data.bytes) }); });
+            bridge.attach(function(data) {
+                loads++;
+                showFromX1Pen(function() { callback({ name: data.name, bytes: local(data.bytes) }); });
+            });
         },
         onCommand: function(callback) { command = callback; },
         contentChanged: function(data) { bridge.contentChanged(data.bytes); },
@@ -126,12 +176,18 @@
             return { name: 'X1Pen に登録したフォント', data: window.X1FontBuilder.buildFontFromRom(local(rom)) };
         },
         chooseFont: chooseFont,
-        commitFont: function() { return true; },
-        resetFont: function() { return true; },
+        commitFont: function(token) {
+            if (!fontCandidate || fontCandidate.token !== token) return false;
+            baseFont = fontCandidate.bitmap;
+            fontCandidate = null;
+            return true;
+        },
+        resetFont: function() { baseFont = 'builtin'; return true; },
         pcgFont: function(request) {
             return baseBitmap().then(function(bitmap) {
                 return window.X1FontBuilder.buildFont(bitmap, request.entries, request.order, request.layout);
             });
-        }
+        },
+        _baseBitmap: baseBitmap     // for tests
     };
 })();

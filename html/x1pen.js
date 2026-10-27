@@ -522,6 +522,7 @@ window.__X1PEN_MODE = true;
                 }
                 return builtinBitmap;
             },
+            isLocked: function() { return locked; },
             run: function() { if (opts.onRun) opts.onRun(); },
             focus: function() { if (opts.onFocus) opts.onFocus(); },
             blur: function() { if (opts.onBlur) opts.onBlur(); }

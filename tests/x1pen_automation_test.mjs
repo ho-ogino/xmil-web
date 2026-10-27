@@ -3328,6 +3328,126 @@ test('Ctrl+Enter in the HuBASIC editor runs the program', { timeout: 120_000 }, 
     '10 CLS\n20 PRINT "CTRL ENTER"\n30 GOTO 30\n');
 });
 
+// Opens a file in the editor whose read waits until release() is called inside the iframe
+async function openDelayedFile(name, content) {
+  const frame = page.frame({ url: /x1basic\/src\// });
+  await frame.evaluate(() => {
+    // Keep the real arrayBuffer across calls; wrapping the wrapper would never finish
+    const original = window.__realArrayBuffer || (window.__realArrayBuffer = File.prototype.arrayBuffer);
+    window.__releaseRead = null;
+    File.prototype.arrayBuffer = function() {
+      return new Promise((resolve) => { window.__releaseRead = () => resolve(original.call(this)); });
+    };
+  });
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    hubasicEditorFrame().locator('header [data-command="open"]').click(),
+  ]);
+  await chooser.setFiles({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(content, 'latin1') });
+  await frame.waitForFunction(() => typeof window.__releaseRead === 'function');
+  return {
+    release: async () => {
+      await frame.evaluate(() => {
+        File.prototype.arrayBuffer = window.__realArrayBuffer;
+        window.__releaseRead();
+      });
+      await page.waitForTimeout(200);
+    },
+  };
+}
+
+test('a file read in the HuBASIC editor never overwrites a newer program', { timeout: 60_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "FIRST"');
+  await hubasicEditorText();
+
+  // setProgram while the read is pending: the read is dropped
+  let read = await openDelayedFile('OLD.BAS', '10 PRINT "OLD"\r\n');
+  await setHuBasicProgram('10 PRINT "NEWER"');
+  await read.release();
+  assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic), '10 PRINT "NEWER"');
+  assert.equal(await hubasicEditorText(), '10 PRINT "NEWER"');
+
+  // The automation lock starts while the read is pending: the read is dropped
+  read = await openDelayedFile('OLD.BAS', '10 PRINT "OLD"\r\n');
+  await page.evaluate(() => window.X1PenAutomation.setInteractionLocked(true, 'testing'));
+  try {
+    await read.release();
+  } finally {
+    await page.evaluate(() => window.X1PenAutomation.setInteractionLocked(false));
+  }
+  assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic), '10 PRINT "NEWER"');
+
+  // Nothing in between: the file is loaded
+  read = await openDelayedFile('NEW.BAS', '10 PRINT "FILE"\r\n');
+  await read.release();
+  assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic), '10 PRINT "FILE"\n');
+});
+
+test('PCG fonts of the HuBASIC editor are built on the font the editor shows', { timeout: 60_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "FONT"');
+  await hubasicEditorText();
+  const frame = page.frame({ url: /x1basic\/src\// });
+  const glyphA = () => frame.evaluate(async () => (await window.X1Host._baseBitmap())[0x41]);
+  const builtin = await glyphA();
+
+  const rom = Buffer.alloc(2048);
+  rom.fill(0xAA, 0x41 * 8, 0x41 * 8 + 8);
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    hubasicEditorFrame().locator('[data-command="font-load"]').click(),
+  ]);
+  await chooser.setFiles({ name: 'TEST.X1', mimeType: 'application/octet-stream', buffer: rom });
+  await frame.waitForFunction(() => document.getElementById('font-name').textContent === 'TEST.X1');
+  assert.deepEqual(await glyphA(), Array(8).fill(0xAA));
+
+  await hubasicEditorFrame().locator('[data-command="font-reset"]').click();
+  await frame.waitForFunction(() => document.getElementById('font-name').textContent === '内蔵フォント');
+  assert.deepEqual(await glyphA(), builtin);
+});
+
+test('showing a HuBASIC program neither pauses the emulator nor takes the focus', { timeout: 90_000 }, async () => {
+  const context = await browser.newContext();
+  const freshPage = await context.newPage();
+  try {
+    await freshPage.goto(`${baseUrl}/x1pen.html`);
+    await freshPage.evaluate(() => window.X1PenAutomation.ready());
+    const watch = () => freshPage.evaluate(() => {
+      window.__stops = 0;
+      const module = window.Module;
+      if (!window.__realStop) window.__realStop = module._js_xmil_stop;
+      module._js_xmil_stop = (...args) => { window.__stops++; return window.__realStop.apply(module, args); };
+      document.getElementById('canvas').focus();
+    });
+    const setAndWait = async (hubasic) => {
+      await freshPage.evaluate(async (text) => {
+        const api = window.X1PenAutomation;
+        const current = api.getProgram();
+        await api.setProgram({ sourceMode: 'hubasic', hubasic: text }, current.revision, current.revisionEpoch);
+      }, hubasic);
+      await freshPage.waitForFunction((text) => {
+        const frame = document.querySelector('#hubasic-editor-container iframe');
+        const editor = frame && frame.contentDocument && frame.contentDocument.getElementById('editor');
+        return editor && editor.value === text && frame.contentDocument.readyState === 'complete';
+      }, hubasic, { timeout: 30_000 });
+      await freshPage.waitForTimeout(200);
+      return freshPage.evaluate(() => ({ stops: window.__stops, active: document.activeElement && document.activeElement.id }));
+    };
+
+    // The first program mounts the editor iframe; the second one loads into the running editor
+    await watch();
+    assert.deepEqual(await setAndWait('10 PRINT "MOUNT"'), { stops: 0, active: 'canvas' });
+    await watch();
+    assert.deepEqual(await setAndWait('10 PRINT "LOAD"'), { stops: 0, active: 'canvas' });
+
+    // Focusing the editor yourself still pauses the emulator, like the other editors
+    await watch();
+    await freshPage.frameLocator('#hubasic-editor-container iframe').locator('#editor').click();
+    assert.ok(await freshPage.evaluate(() => window.__stops) > 0);
+  } finally {
+    await context.close();
+  }
+});
+
 test('setProgram refuses HuBASIC text the X1 cannot show and changes nothing', { timeout: 30_000 }, async () => {
   await setHuBasicProgram('10 PRINT "KEEP"');
   const result = await page.evaluate(async () => {
