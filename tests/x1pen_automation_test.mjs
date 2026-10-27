@@ -4255,3 +4255,31 @@ test('re-sharing a HuBASIC link whose first Run failed keeps the sender\'s model
     await context.close();
   }
 });
+
+test('re-sharing in a HuBASIC share tab uses the model of its last Run, also after an edit', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext();
+  try {
+    const posts = await captureSharePosts(context, ['Again002']);
+    await installShareRoute(context, 'Frozen03', FROZEN_HUBASIC_SHARE);
+    const sharePage = await openShare(context, 'Frozen03');
+    assert.equal((await shareState(sharePage)).model, 2);
+    // The second Run boots the viewer's MODEL setting
+    const second = await sharePage.evaluate(async () => {
+      const result = await window.X1PenAutomation.run();
+      return { ok: result.ok, model: window.Module._js_get_rom_type() };
+    });
+    assert.equal(second.ok, true);
+    assert.notEqual(second.model, 2, 'the viewer\'s setting differs from the sender\'s model');
+    // An edit through automation does not bring the sender's model back
+    await sharePage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: current.hubasic + '40 END\n' }, current.revision, current.revisionEpoch);
+    });
+    assert.equal((await shareFrom(sharePage)).status, 'Shared!');
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].meta.model, second.model);
+  } finally {
+    await context.close();
+  }
+});

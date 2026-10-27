@@ -366,7 +366,7 @@ window.__X1PEN_MODE = true;
     function setModelAndClearShareState(model) {
         if (window.XmilControls) window.XmilControls.setRomType(model);
         lastRunWasShared = false;
-        openedHuBasicShareModel = null;     // a MODEL chosen here wins over the opened share's
+        hubasicShareModel = null;           // a MODEL chosen here wins when re-sharing HuBASIC
     }
 
     var LS_EDITOR_BASIC = 'x1pen_editor';
@@ -1799,6 +1799,7 @@ window.__X1PEN_MODE = true;
 
         lastUsedRuntime = { model: machine.model, coldState: null, bootDisk: null, relocAddrs: null, runMode: 'x1native' };
         lastRunWasShared = isEphemeralShareSession;
+        if (isEphemeralShareSession) hubasicShareModel = machine.model;
         lastAsmSymbols = {
             symbols: built.symbols,
             predefined: { OS_TYPE: 4, ENV_TYPE: 1 },
@@ -2069,9 +2070,10 @@ window.__X1PEN_MODE = true;
         return JSON.stringify({ basic: null, asm: null, slang: null, hubasicX1: bytesToBase64(bytes), meta: meta });
     }
 
-    // The model of the HuBASIC share this tab opened (null when it opened none): kept for
-    // re-sharing even when the first Run, which takes pendingShareRuntime, fails
-    var openedHuBasicShareModel = null;
+    // In a share tab, the model its HuBASIC program goes with when it is shared again: the
+    // sender's when the tab opened a HuBASIC share (also if that first Run failed), then the model
+    // of each HuBASIC Run here. Edits keep it; choosing a MODEL clears it. null: the MODEL setting.
+    var hubasicShareModel = null;
 
     function isHuBasicShare(shared) {
         var mode = shared.meta && shared.meta.sourceMode;
@@ -2098,7 +2100,7 @@ window.__X1PEN_MODE = true;
         updateHuBasicOptions(options);
         pendingShareRuntime = { model: model, coldState: null, bootDisk: null, relocAddrs: null,
                                 sourceMode: 'hubasic', runMode: 'x1native' };
-        openedHuBasicShareModel = model;
+        hubasicShareModel = model;
         // Re-sharing the unchanged program gives the same link
         lastShareHash = await computePayloadHash(
             buildHuBasicSharePayload(bytes, window.X1PenHuBasicOptions.changed(options), model));
@@ -2109,14 +2111,9 @@ window.__X1PEN_MODE = true;
         if (runOk) showAudioUnmuteIfNeeded();
     }
 
-    // The model a HuBASIC share is made with: a shared program not run yet in this tab keeps the
-    // sender's; else the model of the tab's last HuBASIC Run in a share tab; else the model of the
-    // HuBASIC share the tab opened (its first Run may have failed); else the setting
+    // The model a HuBASIC share is made with
     function huBasicShareModel() {
-        if (pendingShareRuntime && pendingShareRuntime.sourceMode === 'hubasic') return pendingShareRuntime.model;
-        if (lastRunWasShared && lastUsedRuntime && lastUsedRuntime.runMode === 'x1native') return lastUsedRuntime.model;
-        if (openedHuBasicShareModel !== null) return openedHuBasicShareModel;
-        return getUserDefaultRuntime().model;
+        return hubasicShareModel !== null ? hubasicShareModel : getUserDefaultRuntime().model;
     }
 
     async function computePayloadHash(payloadStr) {
