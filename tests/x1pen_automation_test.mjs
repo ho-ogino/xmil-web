@@ -3316,6 +3316,18 @@ test('the HuBASIC tab edits the program in X1 BASIC Editor and Run uses its X1 b
   }, null, { timeout: 30_000 });
 });
 
+test('Ctrl+Enter in the HuBASIC editor runs the program', { timeout: 120_000 }, async () => {
+  await setHuBasicProgram('10 CLS\n20 PRINT "CTRL ENTER"\n30 GOTO 30\n');
+  await hubasicEditorText();
+  await hubasicEditorFrame().locator('#editor').click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.press('Control+Enter');
+  await textVramContains('CTRL ENTER');
+  // The key ran the program and did not type a newline into it
+  assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic),
+    '10 CLS\n20 PRINT "CTRL ENTER"\n30 GOTO 30\n');
+});
+
 test('setProgram refuses HuBASIC text the X1 cannot show and changes nothing', { timeout: 30_000 }, async () => {
   await setHuBasicProgram('10 PRINT "KEEP"');
   const result = await page.evaluate(async () => {

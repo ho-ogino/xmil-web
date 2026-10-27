@@ -468,7 +468,8 @@ window.__X1PEN_MODE = true;
     var hubasicEditor = createHuBasicEditor(document.getElementById('hubasic-editor-container'), {
         onChange: function(text) { markProgramChanged(); persistEditorSource(LS_EDITOR_HUBASIC, text); },
         onFocus: pauseCallbacks.onFocus,
-        onBlur:  pauseCallbacks.onBlur
+        onBlur:  pauseCallbacks.onBlur,
+        onRun: function() { runFromShortcut(); }
     });
 
     function createHuBasicEditor(container, opts) {
@@ -521,6 +522,7 @@ window.__X1PEN_MODE = true;
                 }
                 return builtinBitmap;
             },
+            run: function() { if (opts.onRun) opts.onRun(); },
             focus: function() { if (opts.onFocus) opts.onFocus(); },
             blur: function() { if (opts.onBlur) opts.onBlur(); }
         };
@@ -4067,13 +4069,14 @@ window.__X1PEN_MODE = true;
         });
     }
 
-    // Ctrl+Enter で RUN
+    // Ctrl+Enter で RUN (the HuBASIC editor iframe forwards its own Ctrl+Enter here)
+    function runFromShortcut() {
+        if (elBtnRun.disabled || elBtnRun.getAttribute('aria-disabled') === 'true') return false;
+        onRunClick('ui');
+        return true;
+    }
     document.addEventListener('keydown', function(e) {
-        if (e.ctrlKey && e.key === 'Enter' && !elBtnRun.disabled &&
-            elBtnRun.getAttribute('aria-disabled') !== 'true') {
-            e.preventDefault();
-            onRunClick('ui');
-        }
+        if (e.ctrlKey && e.key === 'Enter' && runFromShortcut()) e.preventDefault();
     });
 
     // Tab, focus/blur, localStorage は CodeMirror 初期化時に設定済み

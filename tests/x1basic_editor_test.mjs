@@ -7,7 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import vm from 'node:vm';
-import { HOST_ANCHOR, HOST_LINE, importEditor, injectHost } from '../scripts/import-x1-basic-editor.mjs';
+import { HOST_ANCHOR, HOST_LINE, importEditor, injectHost, parseArgs } from '../scripts/import-x1-basic-editor.mjs';
 
 // X1 BASIC Editor (HuBASIC tab): the committed copy in assets/x1basic, X1Pen's text form of the
 // program (html/x1pen_hubasic_text.js) and the header rule that lets x1pen.html frame it.
@@ -94,6 +94,39 @@ test('only x1basic/ may be framed, and only by the same origin', () => {
   assert.ok(rule('/*').includes("Content-Security-Policy: frame-ancestors 'none'"));
   assert.deepEqual(rule('/x1basic/*'), ['! X-Frame-Options', '! Content-Security-Policy',
     "Content-Security-Policy: frame-ancestors 'self'"]);
+});
+
+test('the import command takes a checkout and an optional --expect commit', () => {
+  const commit = 'a'.repeat(40);
+  assert.deepEqual(parseArgs(['dir']), { checkout: 'dir', expect: undefined });
+  assert.deepEqual(parseArgs(['dir', '--expect', commit]), { checkout: 'dir', expect: commit });
+  assert.deepEqual(parseArgs(['--expect', commit, 'dir']), { checkout: 'dir', expect: commit });
+  assert.equal(parseArgs([]), null);
+  assert.equal(parseArgs(['--expect', commit]), null);
+  assert.equal(parseArgs(['dir', '--expect']), null);
+  assert.equal(parseArgs(['dir', '--expect', 'abc']), null);
+  assert.equal(parseArgs(['dir', 'other']), null);
+  assert.equal(parseArgs(['dir', '--allow-dirty']), null);
+});
+
+test('the import command runs from the command line without --expect', () => {
+  const work = mkdtempSync(join(tmpdir(), 'x1basic-cli-'));
+  try {
+    const run = (...args) => {
+      try {
+        execFileSync(process.execPath, [join(repoRoot, 'scripts', 'import-x1-basic-editor.mjs'), ...args], { stdio: 'pipe' });
+        return 0;
+      } catch (e) {
+        return e.status;
+      }
+    };
+    assert.equal(run(), 2, 'no checkout is a usage error');
+    // A directory that is not a checkout gets past the usage check and fails the import itself
+    assert.equal(run(work), 1);
+    assert.equal(run(work, '--expect', 'a'.repeat(40)), 1);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
 });
 
 test('the import script copies one clean commit and refuses anything else', async () => {

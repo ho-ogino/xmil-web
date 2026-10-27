@@ -80,7 +80,14 @@
         return { n: 'new', o: 'open', f: 'find', i: 'insert', '+': 'zoom-in', '=': 'zoom-in', ';': 'zoom-in', '-': 'zoom-out' }[key] || null;
     }
     document.addEventListener('keydown', function(event) {
-        if (!command || event.isComposing) return;
+        if (event.isComposing) return;
+        // X1Pen's Run shortcut; the parent page does not see keys typed in this iframe
+        if (event.ctrlKey && event.key === 'Enter') {
+            event.preventDefault();
+            bridge.run();
+            return;
+        }
+        if (!command) return;
         var name = shortcut(event);
         if (!name) return;
         event.preventDefault();

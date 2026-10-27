@@ -71,17 +71,31 @@ export async function importEditor(checkout, { expect, target = join(repoRoot, '
   return commit;
 }
 
+// Command-line arguments -> { checkout, expect }, or null when they do not match the usage
+export function parseArgs(args) {
+  let checkout;
+  let expect;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--expect') {
+      expect = args[++i];
+      if (!/^[0-9a-f]{40}$/.test(expect || '')) return null;
+    } else if (args[i].startsWith('--') || checkout !== undefined) {
+      return null;
+    } else {
+      checkout = args[i];
+    }
+  }
+  return checkout === undefined ? null : { checkout, expect };
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const args = process.argv.slice(2);
-  const expectAt = args.indexOf('--expect');
-  const expect = expectAt >= 0 ? args[expectAt + 1] : undefined;
-  const checkout = args.find((arg, i) => !arg.startsWith('--') && i !== expectAt + 1);
-  if (!checkout || (expectAt >= 0 && !/^[0-9a-f]{40}$/.test(expect || ''))) {
+  const args = parseArgs(process.argv.slice(2));
+  if (!args) {
     console.error('usage: node scripts/import-x1-basic-editor.mjs <checkout-dir> [--expect <40-hex commit>]');
     process.exit(2);
   }
   try {
-    const commit = await importEditor(resolve(checkout), { expect });
+    const commit = await importEditor(resolve(args.checkout), { expect: args.expect });
     console.log(`import-x1-basic-editor: assets/x1basic is X1 BASIC Editor ${commit} (${FILES.length} files)`);
   } catch (e) {
     console.error(e.message);
