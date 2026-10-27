@@ -666,6 +666,46 @@ testOK('exists case insensitive', 'FOO EQU 1\n#IF exists foo\n NOP\n#ENDIF', [0x
 // CALL MAIN resolves to main: (SLANG pattern)
 testOK('CALL MAIN matches main:', 'main:\n RET\nentry:\n CALL MAIN', [0xC9, 0xCD, 0x00, 0x00]);
 
+// --- AILZ80ASM compatibility used by the SLANG x1native runtime ---
+console.log('\n--- x1native runtime compatibility ---');
+
+function testOKWith(name, source, expectedBytes, options) {
+    var result = asm.assemble(source, null, options);
+    var actual = Array.from(result.bytes);
+    if (result.errors.length > 0 || JSON.stringify(actual) !== JSON.stringify(expectedBytes)) {
+        console.error('FAIL:', name, result.errors);
+        console.error('  expected:', expectedBytes.map(hex).join(' '));
+        console.error('  actual:  ', actual.map(hex).join(' '));
+        failures++;
+    } else { passes++; }
+}
+
+// Character literal ',' is one operand
+testOK("CP ','", "CP ','", [0xFE, 0x2C]);
+testOK("LD A,','", "LD A,','", [0x3E, 0x2C]);
+testOK("DB ',',1", "DB ',',1", [0x2C, 0x01]);
+testOK("LD A,'('", "LD A,'('", [0x3E, 0x28]);
+testOK("EX AF,AF' still works", "EX AF,AF'\n NOP", [0x08, 0x00]);
+
+// #IF exists sees labels defined on earlier active lines (libfloat return_CDE pattern)
+var existsPattern =
+    'F1:\n#IF exists RET1\n JP RET1\n#ELSE\n JR NZ,F1X\nRET1:\n RET\nF1X:\n#ENDIF\n' +
+    'F2:\n#IF exists RET1\n JP RET1\n#ELSE\nRET1:\n RET\n#ENDIF';
+testOK('#IF exists: first defines, second jumps', existsPattern,
+    [0x20, 0x01, 0xC9, 0xC3, 0x02, 0x00]);
+testOK('#IF exists: label defined only later is false',
+    '#IF exists LATER\n NOP\n#ELSE\n HALT\n#ENDIF\nLATER:', [0x76]);
+testOK('#IF exists: label in inactive branch is not defined',
+    '#IF 0\nHIDDEN:\n#ENDIF\n#IF exists HIDDEN\n NOP\n#ELSE\n HALT\n#ENDIF', [0x76]);
+testOK('#IF exists: undefined name is false', '#IF exists NOPE\n NOP\n#ENDIF\n HALT', [0x76]);
+testOK('#IF exists: namespaced label', '[LIBA]\nFOO:\n RET\n#IF exists LIBA.FOO\n NOP\n#ENDIF', [0xC9, 0x00]);
+
+// Local label before any global label: error by default, scoped with the option
+testFail('Top-level local label is an error by default', ' JR .L\n.L:\n RET');
+testOKWith('Top-level local label with allowTopLevelLocalLabels',
+    ' JR .L\n NOP\n.L:\n RET\nG:\n.L:\n JR .L',
+    [0x18, 0x01, 0x00, 0xC9, 0x18, 0xFE], { allowTopLevelLocalLabels: true });
+
 console.log('\n' + '='.repeat(40));
 console.log('Results: ' + passes + ' passed, ' + failures + ' failed');
 console.log('='.repeat(40));

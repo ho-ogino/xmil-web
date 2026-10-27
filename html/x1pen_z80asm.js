@@ -150,6 +150,8 @@
                         next();
                     }
                     if (existsName === null) return undefinedIsZero ? 0 : undefined;
+                    // #IF の前処理では、それまでの有効な行で定義されたラベルも見る
+                    if (options && options.definedLabels && (existsName in options.definedLabels)) return 1;
                     // シンボルテーブル + 名前空間解決で存在チェック
                     if (existsName in symbols) return 1;
                     if (currentNamespace) {
@@ -425,6 +427,13 @@
         for (var i = 0; i < s.length; i++) {
             var c = s[i];
             if (c === '"') inString = !inString;
+            // Character literal 'x' is one unit, so ',' is not a separator.
+            // Only the 3-character form, so the quote in AF' is left alone.
+            if (!inString && c === "'" && i + 2 < s.length && s[i + 2] === "'") {
+                current += s.substring(i, i + 3);
+                i += 2;
+                continue;
+            }
             if (!inString) {
                 if (c === '(') depth++;
                 if (c === ')') depth--;
@@ -866,7 +875,11 @@
     // Main assembler
     // ================================================================
 
-    function assemble(source, predefinedSymbols) {
+    // options.allowTopLevelLocalLabels: a local label (.foo) before any global
+    // label is scoped to its namespace instead of being an error. The SLANG
+    // x1native runtime relies on this (AILZ80ASM accepts it).
+    function assemble(source, predefinedSymbols, options) {
+        var allowTopLevelLocalLabels = !!(options && options.allowTopLevelLocalLabels);
         var lines = source.split('\n');
         var symbols = {};
         // predefined symbols (addrmap 由来) を初期値として注入
@@ -891,6 +904,10 @@
                 }
             }
         }
+        // `exists` in #IF sees labels defined on earlier active lines
+        // (AILZ80ASM order: a later #IF can use a label an earlier branch defined).
+        var ppLabels = {};
+        var ppNamespace = '';
         var ifStack = [];
         function ppIsActive() {
             if (ifStack.length === 0) return true;
@@ -908,7 +925,7 @@
                     var condActive = false;
                     if (parentActive) {
                         var exprStr = (directive[2] || '').replace(/;.*$/, '').trim();
-                        var condVal = evalExpr(exprStr, ppSymbols, 0, '', '', { undefinedIsZero: true });
+                        var condVal = evalExpr(exprStr, ppSymbols, 0, '', '', { undefinedIsZero: true, definedLabels: ppLabels });
                         if (condVal === null) {
                             errors.push({ line: pi + 1, msg: 'Invalid #IF expression' });
                             condVal = 0;
@@ -928,7 +945,7 @@
                             top.condTrue = false;
                         } else {
                             var exprStr = (directive[2] || '').replace(/;.*$/, '').trim();
-                            var condVal = evalExpr(exprStr, ppSymbols, 0, '', '', { undefinedIsZero: true });
+                            var condVal = evalExpr(exprStr, ppSymbols, 0, '', '', { undefinedIsZero: true, definedLabels: ppLabels });
                             if (condVal === null) {
                                 errors.push({ line: pi + 1, msg: 'Invalid #ELIF expression' });
                                 condVal = 0;
@@ -970,6 +987,12 @@
             // active な行の EQU を ppSymbols に収集（後続の #IF で参照可能）
             // 注: 前処理段階の EQU は定数式のみ保証（$ やローカルラベルは不正確）
             var ppParsed = parseLine(lines[pi]);
+            if (ppParsed.mnemonic === '_NAMESPACE') ppNamespace = ppParsed.operands;
+            if (ppParsed.label && ppParsed.label[0] !== '.') {
+                var ppLabel = ppParsed.label.toUpperCase();
+                ppLabels[ppLabel] = true;
+                if (ppNamespace) ppLabels[ppNamespace + '.' + ppLabel] = true;
+            }
             if (ppParsed.label && ppParsed.mnemonic === 'EQU') {
                 var ppVal = evalExpr(ppParsed.operands, ppSymbols, 0, '');
                 if (ppVal !== null && ppVal !== undefined) {
@@ -1124,6 +1147,7 @@
         function resolveLocalLabel(name, lineNum) {
             if (name[0] === '.') {
                 if (!lastGlobalLabel) {
+                    if (allowTopLevelLocalLabels) return currentNamespace + '.' + name;
                     errors.push({ line: lineNum, msg: 'Local label "' + name + '" without preceding global label' });
                     return name;
                 }
@@ -1347,6 +1371,11 @@
         var inStr = false;
         for (var i = 0; i < opStr.length; i++) {
             if (opStr[i] === '"') { inStr = !inStr; current += opStr[i]; continue; }
+            if (!inStr && opStr[i] === "'" && i + 2 < opStr.length && opStr[i + 2] === "'") {
+                current += opStr.substring(i, i + 3);
+                i += 2;
+                continue;
+            }
             if (!inStr && opStr[i] === ',') { parts.push(current.trim()); current = ''; continue; }
             current += opStr[i];
         }
