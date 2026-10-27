@@ -100,6 +100,7 @@ cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
 cp "${SCRIPT_DIR}/html/x1pen_slfs_disk.js"   ./x1pen_slfs_disk.js
 cp "${SCRIPT_DIR}/html/x1pen_hubasic.js"     ./x1pen_hubasic.js
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_text.js" ./x1pen_hubasic_text.js
+cp "${SCRIPT_DIR}/html/x1pen_hubasic_options.js" ./x1pen_hubasic_options.js
 [ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ./x1pen_slang_compiler.js
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" ./x1pen_charmap.html
@@ -217,6 +218,7 @@ cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_slfs_disk.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_hubasic.js"     "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_text.js" "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_hubasic_options.js" "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" "${DIST_DIR}/"

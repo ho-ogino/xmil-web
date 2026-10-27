@@ -211,6 +211,59 @@
             transition: all 0.15s;
         }
         .editor-tab-action:hover { background: #0d2244; color: #88bbff; }
+        #btn-hubasic-options.changed { color: #e9c46a; border-color: #8a6d1f; }
+
+        #hubasic-options-panel {
+            position: absolute;
+            top: 30px;
+            right: 8px;
+            z-index: 60;
+            width: 320px;
+            max-width: calc(100% - 32px);
+            max-height: calc(100% - 40px);
+            overflow-y: auto;
+            box-sizing: border-box;
+            padding: 10px 12px;
+            background: #16213e;
+            border: 1px solid #1a4a88;
+            border-radius: 4px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+            color: #c8d0e0;
+            font-size: 0.8em;
+        }
+        #hubasic-options-panel p { margin: 0 0 6px; }
+        .hubasic-options-note { color: #8899bb; }
+        .hubasic-options-help { color: #7f8aa3; font-size: 0.9em; }
+        .hubasic-options-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin: 0 0 6px;
+        }
+        .hubasic-options-check { display: block; margin: 8px 0 2px; }
+        #hubasic-options-panel select,
+        #hubasic-options-panel input[type="number"] {
+            background: #0d1117;
+            color: #c8d0e0;
+            border: 1px solid #1a4a88;
+            border-radius: 3px;
+            padding: 2px 4px;
+            font: inherit;
+        }
+        #hubasic-options-panel input[type="number"] { width: 6em; }
+        #hubasic-options-panel input[aria-invalid="true"] { border-color: #e94560; }
+        #hubasic-options-panel .disabled { opacity: 0.45; }
+        .hubasic-options-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+        .hubasic-options-actions button {
+            background: #0d1e36;
+            border: 1px solid #1a4a88;
+            border-radius: 3px;
+            color: #5599ee;
+            padding: 3px 10px;
+            cursor: pointer;
+            font: inherit;
+        }
 
         #basic-editor-container, #asm-editor-container, #slang-editor-container, #hubasic-editor-container {
             flex: 1;
@@ -654,7 +707,37 @@
                 <button class="editor-tab-action hidden" id="btn-slang-import" title="Insert binary array values at the SLANG cursor">Import</button>
                 <input type="file" id="slang-import-file" style="display:none">
                 <a href="http://retropc.net/ohishi/s-os/fubasic.htm" class="editor-tab-action" id="btn-basic-manual" style="text-decoration:none; margin-left:auto;" title="FuzzyBASIC Manual" target="_blank" rel="noopener">Manual</a>
+                <button class="editor-tab-action hidden" id="btn-hubasic-options" title="HuBASIC conversion options (all HuBASIC programs)" aria-expanded="false" aria-controls="hubasic-options-panel">Options</button>
                 <a href="x1pen_charmap.html" class="editor-tab-action" style="text-decoration:none; margin-left:4px;" title="Character code reference" target="_blank">Charmap</a>
+            </div>
+            <div id="hubasic-options-panel" class="hidden" role="group" aria-label="HuBASIC の変換オプション">
+                <p class="hubasic-options-note">すべての HuBASIC プログラムに効きます。次の RUN から使われます。</p>
+                <label class="hubasic-options-row">速度
+                    <select id="hubasic-opt-wait-mode">
+                        <option value="none">待たない</option>
+                        <option value="line">行ごとに待つ</option>
+                        <option value="frame">'#VSYNC コメントで待つ</option>
+                    </select>
+                </label>
+                <label class="hubasic-options-row" id="hubasic-opt-wait-count-row">N
+                    <input type="number" id="hubasic-opt-wait-count" min="1" max="65535" step="1" inputmode="numeric">
+                </label>
+                <p class="hubasic-options-help" id="hubasic-opt-wait-help"></p>
+                <p class="hubasic-options-help">'#VSYNC n のコメントは「'#VSYNC コメントで待つ」のときだけ効きます。VSYNC 文はいつも効きます。</p>
+                <label class="hubasic-options-check"><input type="checkbox" id="hubasic-opt-no-line-numbers"> 行番号を記録しない</label>
+                <p class="hubasic-options-help">小さく速くなります。実行時エラーに行番号が出ません。</p>
+                <label class="hubasic-options-check"><input type="checkbox" id="hubasic-opt-assume-defint"> 型の無い変数を整数にする</label>
+                <p class="hubasic-options-help">接尾辞も DEFxxx も無い変数が整数になります（Hu-BASIC の既定は単精度）。</p>
+                <label class="hubasic-options-row">文字列の長さの上限
+                    <input type="number" id="hubasic-opt-string-len" min="1" max="255" step="1" inputmode="numeric">
+                </label>
+                <label class="hubasic-options-row">静的データの上限（バイト）
+                    <input type="number" id="hubasic-opt-data-budget" min="1" max="65535" step="1" inputmode="numeric">
+                </label>
+                <div class="hubasic-options-actions">
+                    <button type="button" id="hubasic-opt-reset">既定に戻す</button>
+                    <button type="button" id="hubasic-opt-close">閉じる</button>
+                </div>
             </div>
             <div id="basic-editor-container"></div>
             <div id="asm-editor-container" class="hidden"></div>
@@ -855,6 +938,7 @@
     <script src="x1pen_slfs_disk.js"></script>
     <script src="x1basic/src/codec.js"></script>
     <script src="x1pen_hubasic_text.js"></script>
+    <script src="x1pen_hubasic_options.js"></script>
     <script src="x1pen-version.js"></script>
     <script src="x1pen.js"></script>
     <script src="disk_container.js"></script>

@@ -3598,3 +3598,234 @@ test('Share refuses HuBASIC programs', { timeout: 30_000 }, async () => {
     await api.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT 1', asm: '' }, current.revision, current.revisionEpoch);
   });
 });
+
+// Records the options X1Pen passes to the HuBASIC converter, with the SLANG it generated
+async function recordHuBasicBuilds(target = page) {
+  await target.evaluate(async () => {
+    const hu = window.X1PenHuBasic || (await window.X1PenAutomation.validate(), window.X1PenHuBasic);
+    if (!window.__huBuild) window.__huBuild = hu.build;
+    window.__huBuilds = [];
+    hu.build = async (source, options) => {
+      const built = await window.__huBuild(source, options);
+      window.__huBuilds.push({ options: JSON.parse(JSON.stringify(options)), ok: built.ok, sl: built.sl || '' });
+      return built;
+    };
+  });
+}
+
+async function validateHuBasicWithOptions(target = page) {
+  return target.evaluate(async () => {
+    const validation = await window.X1PenAutomation.validate();
+    const built = window.__huBuilds[window.__huBuilds.length - 1];
+    return {
+      ok: validation.ok,
+      messages: validation.diagnostics.map((d) => d.message),
+      options: built.options,
+      wline: /\bBAS_WLINE\b/.test(built.sl),
+      lninit: /\bBAS_LNINIT\b/.test(built.sl),
+      vsync: /\bBAS_VSYNC\b/.test(built.sl),
+    };
+  });
+}
+
+const HUBASIC_DEFAULT_OPTIONS = { wait: 'none', noLineNumbers: false, assumeDefint: false, stringLen: 255, dataBudget: 24576 };
+
+test('HuBASIC conversion options reach the converter only when changed', { timeout: 120_000 }, async () => {
+  await setHuBasicProgram("10 '#VSYNC 2\n20 PRINT \"OPTIONS\"\n30 A$=\"ABC\"\n");
+  await recordHuBasicBuilds();
+  try {
+    assert.deepEqual(await page.evaluate(() => window.X1PenAutomation.getHuBasicOptions()), HUBASIC_DEFAULT_OPTIONS);
+    // Untouched: the converter gets exactly what it got before the options existed
+    assert.deepEqual(await validateHuBasicWithOptions(),
+      { ok: true, messages: [], options: {}, wline: false, lninit: true, vsync: false });
+
+    const before = await page.evaluate(() => window.X1PenAutomation.getProgram());
+    const set = await page.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ wait: 'line:450', noLineNumbers: true }));
+    assert.deepEqual(set, { ...HUBASIC_DEFAULT_OPTIONS, wait: 'line:450', noLineNumbers: true });
+    const after = await page.evaluate(() => window.X1PenAutomation.getProgram());
+    assert.deepEqual(Object.keys(after).sort(), Object.keys(before).sort(), 'getProgram does not carry the options');
+    assert.equal(after.revision, before.revision, 'options are not program content');
+    assert.deepEqual(await validateHuBasicWithOptions(),
+      { ok: true, messages: [], options: { wait: 'line:450', noLineNumbers: true }, wline: true, lninit: false, vsync: false });
+
+    // '#VSYNC comments wait only in the frame mode
+    await page.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ wait: 'frame:3', noLineNumbers: null }));
+    assert.deepEqual(await validateHuBasicWithOptions(),
+      { ok: true, messages: [], options: { wait: 'frame:3' }, wline: false, lninit: true, vsync: true });
+
+    await page.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ wait: null, dataBudget: 1 }));
+    const budget = await validateHuBasicWithOptions();
+    assert.equal(budget.ok, false);
+    assert.deepEqual(budget.options, { dataBudget: 1 });
+    assert.ok(budget.messages.some((m) => /HB0309/.test(m)), JSON.stringify(budget.messages));
+
+    // A bad patch is refused as a whole
+    const refused = await page.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const errors = [];
+      for (const patch of [{ stringLen: 80, wait: 'line:0' }, { emitLineComments: true }, null]) {
+        await api.setHuBasicOptions(patch).catch((e) => errors.push(e.name));
+      }
+      return { errors, options: api.getHuBasicOptions() };
+    });
+    assert.deepEqual(refused, { errors: ['TypeError', 'TypeError', 'TypeError'], options: { ...HUBASIC_DEFAULT_OPTIONS, dataBudget: 1 } });
+
+    // Run uses the options too; they cannot change while a Run is being set up
+    await page.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ dataBudget: null, wait: 'line:450' }));
+    const run = await page.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const runPromise = api.run();
+      const pending = await api.setHuBasicOptions({ wait: 'none' }).then(() => null, (e) => e.code);
+      const result = await runPromise;
+      return { ok: result.ok, pending, options: window.__huBuilds[window.__huBuilds.length - 1].options, now: api.getHuBasicOptions().wait };
+    });
+    assert.deepEqual(run, { ok: true, pending: 'RUN_PENDING', options: { wait: 'line:450' }, now: 'line:450' });
+    await textVramContains('OPTIONS');
+  } finally {
+    await page.evaluate(() => window.X1PenAutomation.setHuBasicOptions({
+      wait: null, noLineNumbers: null, assumeDefint: null, stringLen: null, dataBudget: null }));
+  }
+});
+
+test('HuBASIC conversion options are saved, except from share sessions', { timeout: 90_000 }, async () => {
+  const context = await browser.newContext();
+  const optionsPage = await context.newPage();
+  const reload = async (target) => {
+    await target.reload();
+    await target.evaluate(() => window.X1PenAutomation.ready());
+    return target.evaluate(() => ({
+      options: window.X1PenAutomation.getHuBasicOptions(),
+      stored: localStorage.getItem('x1pen_hubasic_options'),
+    }));
+  };
+  try {
+    await optionsPage.goto(`${baseUrl}/x1pen.html`);
+    await optionsPage.evaluate(() => window.X1PenAutomation.ready());
+    await optionsPage.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ wait: 'frame:2', stringLen: 80 }));
+    // Only the changed options are stored
+    assert.deepEqual(await reload(optionsPage), {
+      options: { ...HUBASIC_DEFAULT_OPTIONS, wait: 'frame:2', stringLen: 80 },
+      stored: JSON.stringify({ version: 1, options: { wait: 'frame:2', stringLen: 80 } }),
+    });
+
+    // A share session reads them but keeps its changes to itself
+    await installShareRoute(context, 'options-share', null, 404);
+    const sharePage = await context.newPage();
+    await sharePage.goto(`${baseUrl}/x1pen.html?id=options-share`);
+    await sharePage.evaluate(() => window.X1PenAutomation.ready());
+    await assertEphemeralShareDocument(sharePage);
+    const shared = await sharePage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const read = api.getHuBasicOptions();
+      const changed = await api.setHuBasicOptions({ noLineNumbers: true });
+      return { read, changed, stored: localStorage.getItem('x1pen_hubasic_options') };
+    });
+    await sharePage.close();
+    assert.deepEqual(shared.read, { ...HUBASIC_DEFAULT_OPTIONS, wait: 'frame:2', stringLen: 80 });
+    assert.equal(shared.changed.noLineNumbers, true);
+    assert.equal(shared.stored, JSON.stringify({ version: 1, options: { wait: 'frame:2', stringLen: 80 } }));
+
+    // Back to the defaults: nothing is stored
+    await optionsPage.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ wait: null, stringLen: null }));
+    assert.deepEqual(await reload(optionsPage), { options: HUBASIC_DEFAULT_OPTIONS, stored: null });
+
+    // A broken or unknown stored value is read field by field
+    await optionsPage.evaluate(() => localStorage.setItem('x1pen_hubasic_options', '{broken'));
+    assert.deepEqual((await reload(optionsPage)).options, HUBASIC_DEFAULT_OPTIONS);
+    await optionsPage.evaluate(() => localStorage.setItem('x1pen_hubasic_options',
+      JSON.stringify({ version: 1, options: { wait: 'line:0', assumeDefint: true, other: 1 } })));
+    assert.deepEqual((await reload(optionsPage)).options, { ...HUBASIC_DEFAULT_OPTIONS, assumeDefint: true });
+    await optionsPage.evaluate(() => localStorage.setItem('x1pen_hubasic_options',
+      JSON.stringify({ version: 2, options: { assumeDefint: true } })));
+    assert.deepEqual((await reload(optionsPage)).options, HUBASIC_DEFAULT_OPTIONS);
+  } finally {
+    await context.close();
+  }
+});
+
+test('the HuBASIC tab sets the conversion options in its Options panel', { timeout: 90_000 }, async () => {
+  const button = page.locator('#btn-hubasic-options');
+  const panel = page.locator('#hubasic-options-panel');
+  const options = () => page.evaluate(() => window.X1PenAutomation.getHuBasicOptions());
+  try {
+    await setHuBasicProgram('10 PRINT "PANEL"');
+    await page.locator('.editor-tab[data-tab="basic"]').click();
+    assert.equal(await button.isVisible(), false, 'only on the HuBASIC tab');
+    await page.locator('.editor-tab[data-tab="hubasic"]').click();
+    assert.equal(await button.textContent(), 'Options');
+    await button.click();
+    assert.equal(await panel.isVisible(), true);
+    assert.equal(await button.getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.locator('#hubasic-opt-wait-count').isDisabled(), true);
+    assert.match(await panel.textContent(), /'#VSYNC n のコメントは「'#VSYNC コメントで待つ」のときだけ効きます/);
+
+    // Line mode starts from the documented Hu-BASIC-like count
+    await page.locator('#hubasic-opt-wait-mode').selectOption('line');
+    assert.equal((await options()).wait, 'line:450');
+    assert.match(await page.locator('#hubasic-opt-wait-help').textContent(), /0\.1 ms/);
+    await page.locator('#hubasic-opt-wait-count').fill('500');
+    await page.locator('#hubasic-opt-wait-count').press('Tab');
+    assert.equal((await options()).wait, 'line:500');
+    await page.locator('#hubasic-opt-wait-mode').selectOption('none');
+    await page.locator('#hubasic-opt-wait-mode').selectOption('line');
+    assert.equal((await options()).wait, 'line:500', 'the count is kept across modes');
+
+    await page.locator('#hubasic-opt-no-line-numbers').check();
+    await page.locator('#hubasic-opt-assume-defint').check();
+    await page.locator('#hubasic-opt-string-len').fill('80');
+    await page.locator('#hubasic-opt-string-len').press('Tab');
+    assert.deepEqual(await options(), { wait: 'line:500', noLineNumbers: true, assumeDefint: true, stringLen: 80, dataBudget: 24576 });
+    assert.match(await button.textContent(), /^Options •$/);
+    assert.ok(await page.evaluate(() => localStorage.getItem('x1pen_hubasic_options').includes('"stringLen":80')));
+
+    // A bad number is marked and not applied
+    await page.locator('#hubasic-opt-data-budget').fill('70000');
+    await page.locator('#hubasic-opt-data-budget').press('Tab');
+    assert.equal(await page.locator('#hubasic-opt-data-budget').getAttribute('aria-invalid'), 'true');
+    assert.equal((await options()).dataBudget, 24576);
+
+    // Automation changes show in the open panel
+    await page.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ dataBudget: 4096, wait: 'frame:2' }));
+    assert.equal(await page.locator('#hubasic-opt-data-budget').inputValue(), '4096');
+    assert.equal(await page.locator('#hubasic-opt-data-budget').getAttribute('aria-invalid'), null);
+    assert.equal(await page.locator('#hubasic-opt-wait-mode').inputValue(), 'frame');
+    assert.equal(await page.locator('#hubasic-opt-wait-count').inputValue(), '2');
+
+    // Escape, an outside click and a click into the editor close it
+    await page.locator('#hubasic-opt-string-len').focus();
+    await page.keyboard.press('Escape');
+    assert.equal(await panel.isVisible(), false);
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'btn-hubasic-options');
+    await button.click();
+    await page.locator('#x1pen-toolbar .brand').click();
+    assert.equal(await panel.isVisible(), false);
+    await button.click();
+    await hubasicEditorFrame().locator('#editor').click();
+    await page.waitForFunction(() => document.getElementById('hubasic-options-panel').classList.contains('hidden'));
+
+    // Locked with the editor panel while automation holds the interaction lock
+    await button.click();
+    const locked = await page.evaluate(() => {
+      const api = window.X1PenAutomation;
+      api.setInteractionLocked(true, 'testing');
+      try {
+        const field = document.getElementById('hubasic-opt-string-len');
+        field.focus();
+        return document.activeElement === field;
+      } finally {
+        api.setInteractionLocked(false);
+      }
+    });
+    assert.equal(locked, false);
+
+    await page.locator('#hubasic-opt-reset').click();
+    assert.deepEqual(await options(), HUBASIC_DEFAULT_OPTIONS);
+    assert.equal(await button.textContent(), 'Options');
+    assert.equal(await page.evaluate(() => localStorage.getItem('x1pen_hubasic_options')), null);
+    await page.locator('.editor-tab[data-tab="basic"]').click();
+    assert.equal(await panel.isVisible(), false, 'leaving the tab closes the panel');
+  } finally {
+    await page.evaluate(() => window.X1PenAutomation.setHuBasicOptions({
+      wait: null, noLineNumbers: null, assumeDefint: null, stringLen: null, dataBudget: null }));
+  }
+});
