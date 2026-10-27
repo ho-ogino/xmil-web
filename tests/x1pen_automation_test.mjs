@@ -3336,7 +3336,9 @@ async function openDelayedFile(name, content) {
     const original = window.__realArrayBuffer || (window.__realArrayBuffer = File.prototype.arrayBuffer);
     window.__releaseRead = null;
     File.prototype.arrayBuffer = function() {
-      return new Promise((resolve) => { window.__releaseRead = () => resolve(original.call(this)); });
+      return new Promise((resolve, reject) => {
+        window.__releaseRead = (fail) => (fail ? reject(new Error('injected read failure')) : resolve(original.call(this)));
+      });
     };
   });
   const [chooser] = await Promise.all([
@@ -3346,11 +3348,11 @@ async function openDelayedFile(name, content) {
   await chooser.setFiles({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(content, 'latin1') });
   await frame.waitForFunction(() => typeof window.__releaseRead === 'function');
   return {
-    release: async () => {
-      await frame.evaluate(() => {
+    release: async (fail = false) => {
+      await frame.evaluate((failRead) => {
         File.prototype.arrayBuffer = window.__realArrayBuffer;
-        window.__releaseRead();
-      });
+        window.__releaseRead(failRead);
+      }, fail);
       await page.waitForTimeout(200);
     },
   };
@@ -3360,26 +3362,30 @@ test('a file read in the HuBASIC editor never overwrites a newer program', { tim
   await setHuBasicProgram('10 PRINT "FIRST"');
   await hubasicEditorText();
 
-  // setProgram while the read is pending: the read is dropped, and the editor's focus at the
-  // end of the import neither takes the focus from the emulator nor pauses it
-  let read = await openDelayedFile('OLD.BAS', '10 PRINT "OLD"\r\n');
-  await setHuBasicProgram('10 PRINT "NEWER"');
-  await page.evaluate(() => {
-    window.__stops = 0;
-    const module = window.Module;
-    window.__realStop = window.__realStop || module._js_xmil_stop;
-    module._js_xmil_stop = (...args) => { window.__stops++; return window.__realStop.apply(module, args); };
-    document.getElementById('canvas').focus();
-  });
-  try {
-    await read.release();
-    assert.deepEqual(await page.evaluate(() => ({ stops: window.__stops, active: document.activeElement.id })),
-      { stops: 0, active: 'canvas' });
-  } finally {
-    await page.evaluate(() => { window.Module._js_xmil_stop = window.__realStop; });
+  // setProgram while the read is pending: the read is dropped, whether it succeeds or fails, and
+  // the editor's focus at the end of the import neither takes the focus from the emulator nor
+  // pauses it
+  let read;
+  for (const fail of [false, true]) {
+    read = await openDelayedFile('OLD.BAS', '10 PRINT "OLD"\r\n');
+    await setHuBasicProgram('10 PRINT "NEWER"');
+    await page.evaluate(() => {
+      window.__stops = 0;
+      const module = window.Module;
+      window.__realStop = window.__realStop || module._js_xmil_stop;
+      module._js_xmil_stop = (...args) => { window.__stops++; return window.__realStop.apply(module, args); };
+      document.getElementById('canvas').focus();
+    });
+    try {
+      await read.release(fail);
+      assert.deepEqual(await page.evaluate(() => ({ stops: window.__stops, active: document.activeElement.id })),
+        { stops: 0, active: 'canvas' }, fail ? 'failed read' : 'successful read');
+    } finally {
+      await page.evaluate(() => { window.Module._js_xmil_stop = window.__realStop; });
+    }
+    assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic), '10 PRINT "NEWER"');
+    assert.equal(await hubasicEditorText(), '10 PRINT "NEWER"');
   }
-  assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic), '10 PRINT "NEWER"');
-  assert.equal(await hubasicEditorText(), '10 PRINT "NEWER"');
 
   // The automation lock starts while the read is pending: the read is dropped
   read = await openDelayedFile('OLD.BAS', '10 PRINT "OLD"\r\n');

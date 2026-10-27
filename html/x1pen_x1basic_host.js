@@ -53,15 +53,24 @@
     // interaction lock, is dropped: it must not overwrite the newer program.
     // The editor focuses its textarea when the command ends; for a dropped read that is not the
     // user's either, so it is handled like a load from X1Pen (see showFromX1Pen).
+    // Whatever the outcome (a file, a cancel or a failed read), an import that X1Pen overtook
+    // ends quietly.
     function chooseFile() {
         var loadsAtStart = loads;
+        var overtaken = function() { return loads !== loadsAtStart || bridge.isLocked(); };
         return pickFile('.bas,.BAS,.txt,.asc,*/*', MAX_BYTES, '開けるのは 2 MiB までです。').then(function(file) {
-            if (file && (loads !== loadsAtStart || bridge.isLocked())) {
+            if (overtaken()) {
                 ignoreFocusUntilSettled();
                 return null;
             }
             if (file) fileName = file.name;
             return file;
+        }, function(error) {
+            if (overtaken()) {
+                ignoreFocusUntilSettled();
+                return null;
+            }
+            throw error;
         });
     }
 
