@@ -96,6 +96,8 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 
 公開済みのConnector 1.0.1、1.1.0、1.1.1だけは、明示featureがないためMCPサーバーが既知の機能を推定します。この表は歴史的互換性のために凍結されており、Connector 1.2.0以降は明示featureを申告します。未対応機能はConnectorへ送信する前に拒否され、`component`、`feature`、現在版、必要な場合は必要版、対処方法を含む機械可読エラーが返ります。
 
+Hu-BASIC タブ（X1Pen Web の次の版で追加、試験中）には、x1pen-mcp 2.7.x はまだ対応していません。X1Pen のいまのソースが Hu-BASIC の間は、X1Pen が `sourceMode: "hubasic"` を返すため、`x1pen_get_program` などがエラー（`invalid source mode`）で止まります。黙って別のモードとして扱うことはありません。ほかのタブのプログラムでは今までどおり使えます。
+
 ## ツール
 
 | Tool | 内容 |

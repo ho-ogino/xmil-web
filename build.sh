@@ -97,6 +97,8 @@ cp "${SCRIPT_DIR}/html/x1pen-version.js"     ./x1pen-version.js
 cp "${SCRIPT_DIR}/html/x1pen.js"             ./x1pen.js
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
+cp "${SCRIPT_DIR}/html/x1pen_slfs_disk.js"   ./x1pen_slfs_disk.js
+cp "${SCRIPT_DIR}/html/x1pen_hubasic.js"     ./x1pen_hubasic.js
 [ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ./x1pen_slang_compiler.js
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" ./x1pen_charmap.html
@@ -121,6 +123,11 @@ if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
     for f in "${SCRIPT_DIR}"/assets/slang_runtime/*.asm; do
         [ -f "$f" ] && cp "$f" ./slang_runtime/
     done
+fi
+# Hu-BASIC bundle (wasm + x1native runtime, one SLANG-compiler revision per directory)
+if [ -d "${SCRIPT_DIR}/assets/hubasic" ]; then
+    rm -rf ./hubasic
+    cp -R "${SCRIPT_DIR}/assets/hubasic" ./hubasic
 fi
 if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
     mkdir -p ./slang_include
@@ -192,6 +199,8 @@ cp "${SCRIPT_DIR}/html/x1pen-version.js"     "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen.js"             "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_slfs_disk.js"   "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_hubasic.js"     "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" "${DIST_DIR}/"
@@ -215,6 +224,10 @@ if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
     for f in "${SCRIPT_DIR}"/assets/slang_runtime/*.asm; do
         [ -f "$f" ] && cp "$f" "${DIST_DIR}/slang_runtime/"
     done
+fi
+if [ -d "${SCRIPT_DIR}/assets/hubasic" ]; then
+    rm -rf "${DIST_DIR}/hubasic"
+    cp -R "${SCRIPT_DIR}/assets/hubasic" "${DIST_DIR}/hubasic"
 fi
 if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
     mkdir -p "${DIST_DIR}/slang_include"

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- X1Pen に Hu-BASIC タブを追加しました（試験中）。RUN すると、Hu-BASIC を SLANG に変換し（hubasic2sl をブラウザの中の .NET wasm で実行）、OS なしの x1native 環境の機械語に組み立て、Hu-BASIC の IPL で起動できるディスクを作って FDD0 から起動します。変換の仕組みとランタイムは SLANG-compiler の同じリビジョンから取り込みます（`scripts/import-hubasic-bundle.mjs`）。
+- X1Pen の Z80 アセンブラが、文字の定数 `','`、`#IF exists` で前に定義されたラベル（AILZ80ASM と同じ順の扱い）を正しく扱うようにしました。
+- 既知の制限: Hu-BASIC のプログラムは Share できません。Hu-BASIC がいまのソースの間は、公開済みの x1pen-mcp 2.7.x の getProgram 系が `invalid source mode` で止まります（MCP の対応は後の版で）。
+
 ## X millennium Web / X1Pen Web 0.10.1
 
 - 表示中の文字の PCG を定義し直したとき（Hu-BASIC の `DEFCHR$`、FuzzyBASIC の `PCGDEF` など）、画面に反映されなかった問題を修正しました。PCG の書き換えによるアニメーションが動くようになります。

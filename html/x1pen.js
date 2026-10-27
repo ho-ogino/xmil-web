@@ -371,13 +371,15 @@ window.__X1PEN_MODE = true;
     var LS_EDITOR_BASIC = 'x1pen_editor';
     var LS_EDITOR_ASM   = 'x1pen_editor_asm';
     var LS_EDITOR_SLANG = 'x1pen_editor_slang';
+    var LS_EDITOR_HUBASIC = 'x1pen_editor_hubasic';
 
-    function persistEditorSources(basic, asm, slang) {
+    function persistEditorSources(basic, asm, slang, hubasic) {
         if (isEphemeralShareSession) return;
         try {
             localStorage.setItem(LS_EDITOR_BASIC, basic);
             localStorage.setItem(LS_EDITOR_ASM, asm);
             localStorage.setItem(LS_EDITOR_SLANG, slang);
+            localStorage.setItem(LS_EDITOR_HUBASIC, hubasic || '');
         } catch(e) {
             console.warn('[x1pen] Failed to persist editor sources:', e);
         }
@@ -456,6 +458,16 @@ window.__X1PEN_MODE = true;
           onBlur:  pauseCallbacks.onBlur }
     );
 
+    var hubasicEditor = window.X1PenEditor.create(
+        document.getElementById('hubasic-editor-container'),
+        { language: 'basic',
+          showLineNumbers: false,
+          placeholder: '10 PRINT "HELLO WORLD"\n20 GOTO 10',
+          onChange: function(text) { markProgramChanged(); persistEditorSource(LS_EDITOR_HUBASIC, text); },
+          onFocus: pauseCallbacks.onFocus,
+          onBlur:  pauseCallbacks.onBlur }
+    );
+
     // localStorage から復元 (silent: onChange を発火させない)
     if (!isEphemeralShareSession) {
         try {
@@ -465,6 +477,8 @@ window.__X1PEN_MODE = true;
             if (savedAsm) { asmEditor.setValue(savedAsm, { silent: true }); lastAsmTabOrigin = 'user'; }
             var savedSlang = localStorage.getItem(LS_EDITOR_SLANG);
             if (savedSlang) slangEditor.setValue(savedSlang, { silent: true });
+            var savedHubasic = localStorage.getItem(LS_EDITOR_HUBASIC);
+            if (savedHubasic) hubasicEditor.setValue(savedHubasic, { silent: true });
         } catch(e) {}
     }
 
@@ -885,7 +899,10 @@ window.__X1PEN_MODE = true;
         });
     }
 
-    function inferSourceMode(basicSrc, asmSrc, slangSrc) {
+    // Hu-BASIC first: it is the newest tab and boots its own disk, so a leftover
+    // SLANG/BASIC source must not silently take over its Run.
+    function inferSourceMode(basicSrc, asmSrc, slangSrc, hubasicSrc) {
+        if (hubasicSrc) return 'hubasic';
         if (slangSrc) return 'slang';
         if (!basicSrc && asmSrc) return 'asm';
         return 'basic+asm';
@@ -929,6 +946,25 @@ window.__X1PEN_MODE = true;
             } catch(e) { /* optional file */ }
         }
         window._slangRuntimeVFS = vfs;
+    }
+
+    // Hu-BASIC: x1pen_hubasic.js (lazy) + the SLANG compiler; the x1native runtime VFS lives in X1PenHuBasic
+    async function ensureHuBasicToolchain() {
+        await ensureSlangToolchain();
+        if (!window.X1PenHuBasic) {
+            await new Promise(function(resolve, reject) {
+                var s = document.createElement('script');
+                s.src = 'x1pen_hubasic.js' + ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
+                s.onload = resolve;
+                s.onerror = function() {
+                    var error = new Error('Failed to load the Hu-BASIC toolchain');
+                    error.code = 'HUBASIC_TOOLCHAIN_UNAVAILABLE';
+                    reject(error);
+                };
+                document.head.appendChild(s);
+            });
+        }
+        return window.X1PenHuBasic.load();
     }
 
     async function getPredefinedSymbols(coldStateFile) {
@@ -1092,7 +1128,8 @@ window.__X1PEN_MODE = true;
         persistEditorSources(
             basicEditor ? basicEditor.getValue() : '',
             asmEditor ? asmEditor.getValue() : '',
-            slangEditor ? slangEditor.getValue() : ''
+            slangEditor ? slangEditor.getValue() : '',
+            hubasicEditor ? hubasicEditor.getValue() : ''
         );
         var snapshot = getRunAdmissionSnapshot();
         runAdmission.phase = 'recovering';
@@ -1119,19 +1156,23 @@ window.__X1PEN_MODE = true;
         var basicSrc = basicEditor.getValue().trim();
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
         var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
+        var hubasicSrc = hubasicEditor ? hubasicEditor.getValue().trim() : '';
 
         // sourceMode 判定
         var sourceMode;
         if (pendingShareRuntime && pendingShareRuntime.sourceMode) {
             sourceMode = pendingShareRuntime.sourceMode;
         } else {
-            sourceMode = inferSourceMode(basicSrc, asmSrc, slangSrc);
+            sourceMode = inferSourceMode(basicSrc, asmSrc, slangSrc, hubasicSrc);
         }
 
-        if (!basicSrc && !asmSrc && !slangSrc) {
+        if (!basicSrc && !asmSrc && !slangSrc && !hubasicSrc) {
             elStatus.textContent = 'Nothing to run';
             return false;
         }
+
+        // Hu-BASIC: 変換 → コンパイル → アセンブル → ディスクを作って IPL から起動
+        if (sourceMode === 'hubasic') return performHuBasicRun(hubasicEditor.getValue());
 
         // SLANG → コンパイル → ASM に変換
         if (sourceMode === 'slang') {
@@ -1502,6 +1543,120 @@ window.__X1PEN_MODE = true;
         return true;
     }
 
+    // ── Hu-BASIC RUN (x1native_slfs のディスクを FDD0 に差し、電源を入れ直して IPL から起動) ──
+
+    var HUBASIC_STAGE_CODES = {
+        transpile: 'HUBASIC_TRANSPILE_FAILED',
+        compile: 'HUBASIC_COMPILE_FAILED',
+        assemble: 'HUBASIC_ASSEMBLE_FAILED',
+        layout: 'HUBASIC_TOO_LARGE'
+    };
+
+    function hubasicWarnings(diagnostics) {
+        return (diagnostics || []).filter(function(d) { return d.severity === 'warning'; })
+            .map(function(d) { return d.text || d.message; });
+    }
+
+    // Re-applies every saved library mount (FDD0 included). Best effort.
+    async function restoreSavedMounts() {
+        if (isEphemeralShareSession || !window.XmilLibrary || !window.XmilLibrary.autoRestoreMounts) return false;
+        try {
+            await window.XmilLibrary.autoRestoreMounts([]);
+            return true;
+        } catch (e) {
+            console.warn('[x1pen] Failed to restore mounts:', e);
+            return false;
+        }
+    }
+
+    async function performHuBasicRun(source) {
+        clearSymbols();
+        elStatus.textContent = 'Hu-BASIC: loading...';
+        var built;
+        try {
+            await ensureHuBasicToolchain();
+            elStatus.textContent = 'Hu-BASIC: converting...';
+            built = await window.X1PenHuBasic.build(source);
+        } catch (e) {
+            console.error('[x1pen] Hu-BASIC toolchain failed:', e);
+            elStatus.textContent = 'Hu-BASIC: ' + (e && e.message || e);
+            lastRunDetails = { code: (e && e.code) || 'HUBASIC_TOOLCHAIN_UNAVAILABLE', stage: 'toolchain' };
+            return false;
+        }
+        if (!built.ok) {
+            elStatus.textContent = 'Hu-BASIC: ' + built.stage + ': ' + built.message;
+            lastRunDetails = {
+                code: HUBASIC_STAGE_CODES[built.stage] || 'HUBASIC_BUILD_FAILED',
+                stage: built.stage,
+                diagnostics: built.diagnostics || []
+            };
+            return false;
+        }
+
+        var model = getUserDefaultRuntime().model;
+        try {
+            await window.XmilControls.mountTempDisk(built.d88, 'drive0');
+        } catch (e) {
+            console.error('[x1pen] Hu-BASIC disk mount failed:', e);
+            var restoredAfterMount = await restoreSavedMounts();
+            elStatus.textContent = 'Hu-BASIC: disk mount failed';
+            lastRunDetails = { code: 'HUBASIC_MOUNT_FAILED', stage: 'mount', restored: restoredAfterMount };
+            return false;
+        }
+        if (!isEphemeralShareSession && window.XmilLibrary && window.XmilLibrary.autoRestoreMounts) {
+            try {
+                await window.XmilLibrary.autoRestoreMounts(['drive0']);
+            } catch (e) {
+                console.error('[x1pen] Hu-BASIC mount restore failed:', e);
+                var restoredAfterRestore = await restoreSavedMounts();
+                elStatus.textContent = 'Hu-BASIC: restoring other drives failed';
+                lastRunDetails = { code: 'HUBASIC_MOUNT_RESTORE_FAILED', stage: 'mount', restored: restoredAfterRestore };
+                return false;
+            }
+        }
+
+        // A previous debugger session may have left the machine paused.
+        if (module._js_debug_resume) module._js_debug_resume();
+        var machine;
+        try {
+            // Cold boot: RAM, VRAM and PCG are cleared, the IPL loads the program from FDD0
+            machine = window.XmilControls.coldPowerOn(model);
+        } catch (e) {
+            console.error('[x1pen] Hu-BASIC boot failed:', e);
+            elStatus.textContent = 'Hu-BASIC: boot failed: ' + (e && e.message || e);
+            lastRunDetails = { code: 'HUBASIC_BOOT_FAILED', stage: 'boot', poweredOn: false };
+            return false;
+        }
+
+        lastUsedRuntime = { model: machine.model, coldState: null, bootDisk: null, relocAddrs: null, runMode: 'x1native' };
+        lastRunWasShared = false;
+        lastAsmSymbols = {
+            symbols: built.symbols,
+            predefined: { OS_TYPE: 4, ENV_TYPE: 1 },
+            sourceMode: 'hubasic'
+        };
+        var symBtn = document.getElementById('btn-symbols');
+        if (symBtn) symBtn.disabled = false;
+        var warnings = hubasicWarnings(built.diagnostics);
+        var hubasicInfo = window.X1PenHuBasic.info();
+        elStatus.textContent = 'Hu-BASIC: booting from disk (' + built.bytes.length + ' bytes' +
+            (warnings.length ? ', ' + warnings.length + ' warning(s)' : '') + ')';
+        lastRunDetails = {
+            stage: 'booted',
+            runMode: 'x1native',
+            poweredOn: true,
+            bootVerified: false,
+            binLength: built.bytes.length,
+            workEnd: built.workEnd,
+            layout: built.message,
+            warnings: warnings,
+            runtimeRevision: hubasicInfo ? hubasicInfo.revision : null
+        };
+        var canvas = document.getElementById('canvas');
+        if (canvas) canvas.focus();
+        return true;
+    }
+
     // ── PROGRAM ディスク マウント ──
 
     async function collectRelocationDiskFiles(relocAddresses) {
@@ -1718,11 +1873,13 @@ window.__X1PEN_MODE = true;
         var basic = basicEditor ? basicEditor.getValue() : '';
         var asm = asmEditor ? asmEditor.getValue() : '';
         var slang = slangEditor ? slangEditor.getValue() : '';
+        var hubasic = hubasicEditor ? hubasicEditor.getValue() : '';
         return {
             basic: basic,
             asm: asm,
             slang: slang,
-            sourceMode: inferSourceMode(basic.trim(), asm.trim(), slang.trim()),
+            hubasic: hubasic,
+            sourceMode: inferSourceMode(basic.trim(), asm.trim(), slang.trim(), hubasic.trim()),
             revision: automationRevision,
             revisionEpoch: automationRevisionEpoch,
             instanceId: automationInstanceId
@@ -1737,13 +1894,18 @@ window.__X1PEN_MODE = true;
         var basic = program.basic === undefined ? '' : program.basic;
         var asm = program.asm === undefined ? '' : program.asm;
         var slang = program.slang === undefined ? '' : program.slang;
-        if (typeof basic !== 'string' || typeof asm !== 'string' || typeof slang !== 'string') {
-            throw new TypeError('basic, asm and slang must be strings');
+        var hubasic = program.hubasic === undefined ? '' : program.hubasic;
+        if (typeof basic !== 'string' || typeof asm !== 'string' || typeof slang !== 'string' ||
+            typeof hubasic !== 'string') {
+            throw new TypeError('basic, asm, slang and hubasic must be strings');
         }
 
-        var sourceMode = program.sourceMode || inferSourceMode(basic.trim(), asm.trim(), slang.trim());
-        if (sourceMode !== 'basic+asm' && sourceMode !== 'asm' && sourceMode !== 'slang') {
-            throw new TypeError('sourceMode must be basic+asm, asm or slang');
+        var sourceMode = program.sourceMode || inferSourceMode(basic.trim(), asm.trim(), slang.trim(), hubasic.trim());
+        if (sourceMode !== 'basic+asm' && sourceMode !== 'asm' && sourceMode !== 'slang' && sourceMode !== 'hubasic') {
+            throw new TypeError('sourceMode must be basic+asm, asm, slang or hubasic');
+        }
+        if (sourceMode === 'hubasic' && !hubasic.trim()) {
+            throw new TypeError('hubasic source is required for sourceMode hubasic');
         }
         if (sourceMode === 'slang' && !slang.trim()) {
             throw new TypeError('slang source is required for sourceMode slang');
@@ -1756,17 +1918,24 @@ window.__X1PEN_MODE = true;
         }
 
         // A complete program replaces all editor state so stale sources cannot change run mode.
-        if (sourceMode === 'slang') {
+        if (sourceMode === 'hubasic') {
             basic = '';
             asm = '';
+            slang = '';
+        } else if (sourceMode === 'slang') {
+            basic = '';
+            asm = '';
+            hubasic = '';
         } else if (sourceMode === 'asm') {
             basic = '';
             slang = '';
+            hubasic = '';
         } else {
             slang = '';
+            hubasic = '';
         }
 
-        return { basic: basic, asm: asm, slang: slang, sourceMode: sourceMode };
+        return { basic: basic, asm: asm, slang: slang, hubasic: hubasic, sourceMode: sourceMode };
     }
 
     function createProgramConflictError(code, message, details) {
@@ -1807,14 +1976,15 @@ window.__X1PEN_MODE = true;
                     currentRevisionEpoch: automationRevisionEpoch, instanceId: automationInstanceId }
             );
         }
-        if (!basicEditor || !asmEditor || !slangEditor) {
+        if (!basicEditor || !asmEditor || !slangEditor || !hubasicEditor) {
             throw new Error('X1Pen editors are not ready');
         }
         var normalized = normalizeAutomationProgram(program);
         basicEditor.setValue(normalized.basic, { silent: true });
         asmEditor.setValue(normalized.asm, { silent: true });
         slangEditor.setValue(normalized.slang, { silent: true });
-        persistEditorSources(normalized.basic, normalized.asm, normalized.slang);
+        hubasicEditor.setValue(normalized.hubasic, { silent: true });
+        persistEditorSources(normalized.basic, normalized.asm, normalized.slang, normalized.hubasic);
         lastAsmTabOrigin = normalized.asm ? 'user' : null;
         pendingShareRuntime = null;
         lastRunWasShared = false;
@@ -1849,8 +2019,11 @@ window.__X1PEN_MODE = true;
         var asmBytes = 0;
         var basicBytes = 0;
 
-        if (!program.basic.trim() && !program.asm.trim() && !program.slang.trim()) {
+        if (!program.basic.trim() && !program.asm.trim() && !program.slang.trim() && !program.hubasic.trim()) {
             diagnostics.push(makeAutomationDiagnostic('program', 'Nothing to validate'));
+        }
+        if (program.sourceMode === 'hubasic' && diagnostics.length === 0) {
+            return validateHuBasicProgram(program);
         }
         if (program.sourceMode === 'slang' && diagnostics.length === 0) {
             try {
@@ -1901,6 +2074,43 @@ window.__X1PEN_MODE = true;
                 basicBytes: basicBytes,
                 asmBytes: asmBytes,
                 generatedAsmLines: generatedAsmLines
+            }
+        };
+    }
+
+    async function validateHuBasicProgram(program) {
+        var diagnostics = [];
+        var built = null;
+        try {
+            await ensureHuBasicToolchain();
+            built = await window.X1PenHuBasic.build(program.hubasic);
+        } catch (e) {
+            diagnostics.push(makeAutomationDiagnostic('hubasic', e.message));
+        }
+        if (built) {
+            (built.diagnostics || []).forEach(function(d) {
+                diagnostics.push(makeAutomationDiagnostic('hubasic', d.text || d.message, {
+                    severity: d.severity,
+                    line: d.sourceLine,
+                    column: d.column
+                }));
+            });
+            if (!built.ok && built.stage !== 'transpile') {
+                diagnostics.push(makeAutomationDiagnostic(built.stage === 'assemble' ? 'asm' :
+                    (built.stage === 'compile' ? 'slang' : 'hubasic'), built.message));
+            }
+        }
+        var hasError = diagnostics.some(function(d) { return d.severity === 'error'; });
+        return {
+            ok: !!(built && built.ok) && !hasError,
+            sourceMode: program.sourceMode,
+            revision: automationRevision,
+            diagnostics: diagnostics,
+            output: {
+                basicBytes: 0,
+                asmBytes: built && built.ok ? built.bytes.length : 0,
+                generatedAsmLines: built && built.asm ? built.asm.split('\n').length : 0,
+                stage: built ? built.stage : 'toolchain'
             }
         };
     }
@@ -2495,13 +2705,17 @@ window.__X1PEN_MODE = true;
         var sourceMode = inferSourceMode(
             basicEditor ? basicEditor.getValue().trim() : '',
             asmEditor ? asmEditor.getValue().trim() : '',
-            slangEditor ? slangEditor.getValue().trim() : ''
+            slangEditor ? slangEditor.getValue().trim() : '',
+            hubasicEditor ? hubasicEditor.getValue().trim() : ''
         );
+        var hubasicInfo = window.X1PenHuBasic ? window.X1PenHuBasic.info() : null;
         var activeLanguageProfile = sourceMode === 'slang'
             ? { language: 'slang', id: 'x1pen-slang-c9e8f53-lsx' }
             : (sourceMode === 'basic+asm'
                 ? { language: 'fuzzybasic', id: 'x1pen-fuzzybasic-1.2L' }
-                : null);
+                : (sourceMode === 'hubasic'
+                    ? { language: 'hubasic', id: 'x1pen-hubasic-x1native-slfs' }
+                    : null));
         return {
             instanceId: automationInstanceId,
             revision: automationRevision,
@@ -2559,6 +2773,14 @@ window.__X1PEN_MODE = true;
                     environment: 'lsx-dodgers',
                     envType: 1,
                     defaultOrg: 0x100
+                },
+                hubasic: {
+                    id: 'x1pen-hubasic-x1native-slfs',
+                    environment: 'x1native_slfs',
+                    defaultOrg: 0x1000,
+                    // Known after the Hu-BASIC toolchain has been loaded once
+                    runtimeRevision: hubasicInfo ? hubasicInfo.revision : null,
+                    hubasic2slVersion: hubasicInfo ? hubasicInfo.hubasic2slVersion : null
                 }
             }
         };
@@ -2863,6 +3085,10 @@ window.__X1PEN_MODE = true;
         var src = basicEditor.getValue().trim();
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
         var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
+        if (hubasicEditor && hubasicEditor.getValue().trim()) {
+            elStatus.textContent = 'Hu-BASIC programs cannot be shared yet';
+            return;
+        }
         if (!src && !asmSrc && !slangSrc) { elStatus.textContent = 'Nothing to share'; return; }
 
         var shareMediaState = inspectShareMediaState();
@@ -3058,8 +3284,10 @@ window.__X1PEN_MODE = true;
             var hasBasic = basicEditor.getValue().trim().length > 0;
             var hasSlang = slangEditor && slangEditor.getValue().trim().length > 0;
             var hasAsm   = asmEditor && asmEditor.getValue().trim().length > 0;
+            var hasHubasic = hubasicEditor && hubasicEditor.getValue().trim().length > 0;
             var targetTab;
-            if (!hasBasic && hasSlang) targetTab = 'slang';
+            if (hasHubasic) targetTab = 'hubasic';
+            else if (!hasBasic && hasSlang) targetTab = 'slang';
             else if (!hasBasic && !hasSlang && hasAsm) targetTab = 'asm';
             else targetTab = 'basic';
             // activeTab と同じでも強制的にコンテナ状態を同期する
@@ -3732,6 +3960,7 @@ window.__X1PEN_MODE = true;
         var basicContainer = document.getElementById('basic-editor-container');
         var asmContainer = document.getElementById('asm-editor-container');
         var slangContainer = document.getElementById('slang-editor-container');
+        var hubasicContainer = document.getElementById('hubasic-editor-container');
         var asmImportAction = document.getElementById('btn-asm-import');
         var slangImportAction = document.getElementById('btn-slang-import');
         var manualBtn = document.getElementById('btn-basic-manual');
@@ -3740,6 +3969,7 @@ window.__X1PEN_MODE = true;
         if (basicContainer) basicContainer.classList.add('hidden');
         if (asmContainer) asmContainer.classList.add('hidden');
         if (slangContainer) slangContainer.classList.add('hidden');
+        if (hubasicContainer) hubasicContainer.classList.add('hidden');
         if (asmImportAction) asmImportAction.classList.add('hidden');
         if (slangImportAction) slangImportAction.classList.add('hidden');
         if (manualBtn) manualBtn.classList.add('hidden');
@@ -3754,6 +3984,8 @@ window.__X1PEN_MODE = true;
         } else if (target === 'slang') {
             if (slangContainer) slangContainer.classList.remove('hidden');
             if (slangImportAction) slangImportAction.classList.remove('hidden');
+        } else if (target === 'hubasic') {
+            if (hubasicContainer) hubasicContainer.classList.remove('hidden');
         }
     }
     if (editorTabs) {
@@ -3784,7 +4016,8 @@ window.__X1PEN_MODE = true;
             setActiveEditorTab(panel);
             setTimeout(function() {
                 var editor = (panel === 'basic') ? basicEditor :
-                             (panel === 'slang') ? slangEditor : asmEditor;
+                             (panel === 'slang') ? slangEditor :
+                             (panel === 'hubasic') ? hubasicEditor : asmEditor;
                 if (editor && editor.view) editor.view.requestMeasure();
             }, 0);
         }
@@ -3814,7 +4047,8 @@ window.__X1PEN_MODE = true;
             document.getElementById('emu-panel').classList.remove('mobile-hidden');
             setTimeout(function() {
                 var editor = (activeTab === 'basic') ? basicEditor :
-                             (activeTab === 'slang') ? slangEditor : asmEditor;
+                             (activeTab === 'slang') ? slangEditor :
+                             (activeTab === 'hubasic') ? hubasicEditor : asmEditor;
                 if (editor && editor.view) editor.view.requestMeasure();
             }, 0);
         } else {

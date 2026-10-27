@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -2949,4 +2949,174 @@ test('both NMI buttons generate repeatable real NMI edges without resetting mach
     return ram[counter];
   }, { counter: counterAddress, handler: setup.handler });
   assert.equal(resetCancellation, 0, 'IPL reset must cancel a queued NMI');
+});
+
+async function setHuBasicProgram(source) {
+  return page.evaluate(async (hubasic) => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    return api.setProgram({ sourceMode: 'hubasic', hubasic }, current.revision, current.revisionEpoch);
+  }, source);
+}
+
+function textVramContains(text) {
+  return page.waitForFunction((wanted) => {
+    const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes;
+    const codes = [...wanted].map((c) => c.charCodeAt(0));
+    return bytes.some((_, index) => codes.every((code, k) => bytes[index + k] === code));
+  }, text, { timeout: 30_000 });
+}
+
+test('Hu-BASIC Run converts, compiles and cold-boots a disk image through the IPL', { timeout: 120_000 }, async () => {
+  const revision = JSON.parse(readFileSync(join(projectRoot, 'assets', 'hubasic', 'current.json'), 'utf8')).revision;
+  await setHuBasicProgram('10 CLS\n20 PRINT "HUBASIC OK";1.5*3\n30 GOTO 30\n');
+  const result = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const validation = await api.validate();
+    const run = await api.run();
+    return {
+      validation,
+      run,
+      status: api.getStatus(),
+      fdd0: window.XmilCore.getSlotState().drive0 || null,
+      activeTab: document.querySelector('.editor-tab.active').dataset.tab,
+    };
+  });
+  assert.equal(result.validation.ok, true, JSON.stringify(result.validation.diagnostics));
+  assert.equal(result.validation.output.stage, 'done');
+  assert.equal(result.run.ok, true, JSON.stringify(result.run));
+  assert.equal(result.run.sourceMode, 'hubasic');
+  assert.equal(result.run.runMode, 'x1native');
+  assert.equal(result.run.stage, 'booted');
+  assert.equal(result.run.runtimeRevision, revision);
+  assert.ok(result.run.workEnd <= 0xFFE0);
+  assert.equal(result.status.sourceMode, 'hubasic');
+  assert.equal(result.status.activeLanguageProfile.language, 'hubasic');
+  assert.equal(result.status.languageProfiles.hubasic.runtimeRevision, revision);
+  assert.ok(result.fdd0, 'FDD0 must hold the temporary Hu-BASIC disk');
+  assert.equal(result.activeTab, 'hubasic');
+  await textVramContains('HUBASIC OK 4.5');
+});
+
+test('Hu-BASIC conversion errors stop Run before the disk is touched', { timeout: 60_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "A"\n20 CIRCLE (10,10),5\n');
+  const result = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const before = window.XmilCore.getSlotState().drive0 || null;
+    let mounted = 0;
+    const original = window.XmilControls.mountTempDisk;
+    window.XmilControls.mountTempDisk = async (...args) => { mounted++; return original(...args); };
+    try {
+      return { validation: await api.validate(), run: await api.run(), mounted, before,
+        after: window.XmilCore.getSlotState().drive0 || null };
+    } finally {
+      window.XmilControls.mountTempDisk = original;
+    }
+  });
+  assert.equal(result.run.ok, false);
+  assert.equal(result.run.code, 'HUBASIC_TRANSPILE_FAILED');
+  assert.equal(result.run.stage, 'transpile');
+  const error = result.run.diagnostics.find((d) => d.severity === 'error');
+  assert.equal(error.code, 'HB0301');
+  assert.equal(error.basicLine, 20);
+  assert.equal(result.mounted, 0);
+  assert.equal(result.after, result.before);
+  assert.equal(result.validation.ok, false);
+  assert.ok(result.validation.diagnostics.some((d) => d.kind === 'hubasic' && d.line === 2 && /CIRCLE/.test(d.message)));
+});
+
+test('Hu-BASIC failures after the disk is replaced report a defined state', { timeout: 120_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "FAIL"\n20 GOTO 20\n');
+  const outcomes = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const controls = window.XmilControls;
+    const library = window.XmilLibrary;
+    const module = window.Module;
+    const results = {};
+
+    const mount = controls.mountTempDisk;
+    controls.mountTempDisk = async () => { throw new Error('injected mount failure'); };
+    try { results.mount = await api.run(); } finally { controls.mountTempDisk = mount; }
+
+    const restore = library.autoRestoreMounts;
+    library.autoRestoreMounts = async (exclude) => {
+      if (exclude && exclude.length) throw new Error('injected restore failure');
+      return restore(exclude);
+    };
+    try { results.restore = await api.run(); } finally { library.autoRestoreMounts = restore; }
+
+    const powerOn = module._js_xmil_power_on;
+    const stop = module._js_xmil_stop;
+    let stopped = 0;
+    module._js_xmil_power_on = () => { throw new Error('injected power-on failure'); };
+    module._js_xmil_stop = (...args) => { stopped++; return stop.apply(module, args); };
+    try { results.boot = await api.run(); } finally {
+      module._js_xmil_power_on = powerOn;
+      module._js_xmil_stop = stop;
+    }
+    results.stopped = stopped;
+
+    results.retry = await api.run();
+    return results;
+  });
+  assert.equal(outcomes.mount.ok, false);
+  assert.equal(outcomes.mount.code, 'HUBASIC_MOUNT_FAILED');
+  assert.equal(outcomes.mount.restored, true);
+  assert.equal(outcomes.mount.stage, 'mount');
+  assert.equal(outcomes.restore.ok, false);
+  assert.equal(outcomes.restore.code, 'HUBASIC_MOUNT_RESTORE_FAILED');
+  assert.equal(outcomes.boot.ok, false);
+  assert.equal(outcomes.boot.code, 'HUBASIC_BOOT_FAILED');
+  assert.equal(outcomes.boot.poweredOn, false);
+  assert.ok(outcomes.stopped > 0, 'a failed cold boot must stop the machine');
+  for (const failed of [outcomes.mount, outcomes.restore, outcomes.boot]) {
+    assert.notEqual(failed.stage, 'booted');
+  }
+  assert.equal(outcomes.retry.ok, true, JSON.stringify(outcomes.retry));
+  await textVramContains('FAIL');
+});
+
+test('Hu-BASIC and the other source modes clear each other and persist', { timeout: 60_000 }, async () => {
+  const slangFirst = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    let current = api.getProgram();
+    await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT 1' }, current.revision, current.revisionEpoch);
+    current = api.getProgram();
+    return api.setProgram({ sourceMode: 'slang', slang: 'main() BEGIN\nEND;' }, current.revision, current.revisionEpoch);
+  });
+  assert.equal(slangFirst.hubasic, '');
+  assert.equal(slangFirst.sourceMode, 'slang');
+
+  const hubasic = '10 PRINT "KEEP"\n20 END';
+  const stored = await setHuBasicProgram(hubasic);
+  assert.equal(stored.sourceMode, 'hubasic');
+  assert.equal(stored.slang, '');
+  assert.equal(stored.basic, '');
+  assert.equal(stored.asm, '');
+  assert.equal(await page.evaluate(() => localStorage.getItem('x1pen_editor_hubasic')), hubasic);
+
+  await page.reload();
+  await page.evaluate(() => window.X1PenAutomation.ready());
+  const restored = await page.evaluate(() => ({
+    program: window.X1PenAutomation.getProgram(),
+    activeTab: document.querySelector('.editor-tab.active').dataset.tab,
+  }));
+  assert.equal(restored.program.hubasic, hubasic);
+  assert.equal(restored.program.sourceMode, 'hubasic');
+  assert.equal(restored.activeTab, 'hubasic');
+});
+
+test('Share refuses Hu-BASIC programs', { timeout: 30_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "NO SHARE"');
+  const status = await page.evaluate(async () => {
+    document.getElementById('btn-share').click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return document.getElementById('x1pen-status').textContent;
+  });
+  assert.equal(status, 'Hu-BASIC programs cannot be shared yet');
+  await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    await api.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT 1', asm: '' }, current.revision, current.revisionEpoch);
+  });
 });

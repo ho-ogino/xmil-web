@@ -212,14 +212,14 @@
         }
         .editor-tab-action:hover { background: #0d2244; color: #88bbff; }
 
-        #basic-editor-container, #asm-editor-container, #slang-editor-container {
+        #basic-editor-container, #asm-editor-container, #slang-editor-container, #hubasic-editor-container {
             flex: 1;
             overflow: hidden;
             background: #0d1117;
         }
         /* display:none だと CodeMirror の DOM 初期化が壊れるため、
            エディタコンテナは visibility で非表示にする */
-        #basic-editor-container.hidden, #asm-editor-container.hidden, #slang-editor-container.hidden {
+        #basic-editor-container.hidden, #asm-editor-container.hidden, #slang-editor-container.hidden, #hubasic-editor-container.hidden {
             display: flex !important;
             visibility: hidden;
             height: 0 !important;
@@ -228,7 +228,8 @@
         }
         #basic-editor-container .cm-editor,
         #asm-editor-container .cm-editor,
-        #slang-editor-container .cm-editor {
+        #slang-editor-container .cm-editor,
+        #hubasic-editor-container .cm-editor {
             height: 100%;
         }
 
@@ -632,6 +633,7 @@
         <button class="mobile-tab" data-panel="basic">BASIC</button>
         <button class="mobile-tab" data-panel="asm">ASM</button>
         <button class="mobile-tab" data-panel="slang">SLANG</button>
+        <button class="mobile-tab" data-panel="hubasic">Hu-BASIC</button>
     </div>
     <div id="x1pen-main">
         <div id="editor-panel">
@@ -640,6 +642,7 @@
                 <button class="editor-tab active" data-tab="basic">BASIC</button>
                 <button class="editor-tab" data-tab="asm">ASM</button>
                 <button class="editor-tab" data-tab="slang">SLANG</button>
+                <button class="editor-tab" data-tab="hubasic" title="Hu-BASIC (converted to SLANG and booted from a disk image)">Hu-BASIC</button>
                 <button class="editor-tab-action hidden" id="btn-asm-import" title="Import binary as DB lines">Import</button>
                 <input type="file" id="asm-import-file" style="display:none">
                 <button class="editor-tab-action hidden" id="btn-slang-import" title="Insert binary array values at the SLANG cursor">Import</button>
@@ -650,6 +653,7 @@
             <div id="basic-editor-container"></div>
             <div id="asm-editor-container" class="hidden"></div>
             <div id="slang-editor-container" class="hidden"></div>
+            <div id="hubasic-editor-container" class="hidden"></div>
         </div>
         <div id="emu-panel">
             <div style="position:relative; display:inline-block;">
@@ -842,6 +846,7 @@
     <script src="x1pen_editor.bundle.js"></script>
     <script src="x1pen_tokenizer.js"></script>
     <script src="x1pen_z80asm.js"></script>
+    <script src="x1pen_slfs_disk.js"></script>
     <script src="x1pen-version.js"></script>
     <script src="x1pen.js"></script>
     <script src="disk_container.js"></script>
