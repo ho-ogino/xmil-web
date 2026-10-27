@@ -2,7 +2,8 @@
 // x1basic/src/x1pen-host.js and loaded by the editor page (in an iframe of x1pen.html) before
 // host.js. It sets window.X1Host synchronously; the program itself lives in X1Pen
 // (window.parent.X1PenHuBasicEditorBridge), so there is no "unsaved" state to protect.
-// "保存" exports the bytes as a file; "開く…" reads a file into the editor.
+// "エクスポート" writes the bytes to a file; "インポート…" reads a file into the editor. The editor
+// hides "新規" and "別名で保存…" when a host is injected, so their shortcuts are not mapped here.
 
 (function() {
     'use strict';
@@ -81,16 +82,16 @@
         setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
     }
 
-    // The Electron app's menu accelerators (main.cjs); in a browser they would reach the browser
+    // The Electron app's menu accelerators (main.cjs) for the commands shown in X1Pen; in a
+    // browser they would reach the browser
     function shortcut(event) {
         var mod = event.ctrlKey || event.metaKey;
         var key = event.key.toLowerCase();
         if (event.key === 'F3') return event.shiftKey ? 'find-prev' : 'find-next';
         if (!mod || event.altKey) return null;
-        if (key === 's') return event.shiftKey ? 'save-as' : 'save';
         if (key === 'p' && event.shiftKey) return 'pcg-setup';
         if (event.shiftKey) return null;
-        return { n: 'new', o: 'open', f: 'find', i: 'insert', '+': 'zoom-in', '=': 'zoom-in', ';': 'zoom-in', '-': 'zoom-out' }[key] || null;
+        return { s: 'save', o: 'open', f: 'find', i: 'insert', '+': 'zoom-in', '=': 'zoom-in', ';': 'zoom-in', '-': 'zoom-out' }[key] || null;
     }
     document.addEventListener('keydown', function(event) {
         if (event.isComposing) return;

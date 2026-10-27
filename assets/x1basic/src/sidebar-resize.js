@@ -1,6 +1,7 @@
 'use strict';
 window.X1SidebarResize = function(onResize) {
   const sidebar=document.getElementById('sidebar'), handle=document.getElementById('sidebar-resizer');
+  const toggle=document.getElementById('sidebar-toggle');
   const main=sidebar.parentElement;
   let manualWidth=null, drag=null;
   function bounds(){
@@ -8,6 +9,7 @@ window.X1SidebarResize = function(onResize) {
     return {min:Math.min(220,max),max};
   }
   function refresh(){
+    if(sidebar.hidden){onResize();return;}
     const {min,max}=bounds();
     if(manualWidth!==null){
       const applied=Math.max(min,Math.min(max,manualWidth));
@@ -25,6 +27,15 @@ window.X1SidebarResize = function(onResize) {
     document.body.classList.remove('resizing-sidebar');
     if(handle.hasPointerCapture(id))handle.releasePointerCapture(id);
   }
+  function setVisible(visible){
+    finish();
+    if(!visible && (sidebar.contains(document.activeElement) || document.activeElement===handle))toggle.focus();
+    sidebar.hidden=!visible;handle.hidden=!visible;
+    toggle.setAttribute('aria-expanded',String(visible));
+    toggle.textContent=visible?'右欄を隠す':'右欄を表示';
+    refresh();
+  }
+  toggle.addEventListener('click',()=>setVisible(sidebar.hidden));
   handle.addEventListener('pointerdown',event=>{
     if(event.button!==0 || !event.isPrimary || drag)return;
     event.preventDefault();handle.focus();
@@ -48,6 +59,6 @@ window.X1SidebarResize = function(onResize) {
   if(window.ResizeObserver){
     const observer=new ResizeObserver(refresh);observer.observe(main);observer.observe(sidebar);
   }
-  refresh();
-  return {refresh};
+  setVisible(true);
+  return {refresh,setVisible};
 };

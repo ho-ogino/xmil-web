@@ -3448,6 +3448,26 @@ test('showing a HuBASIC program neither pauses the emulator nor takes the focus'
   }
 });
 
+test('in X1Pen the HuBASIC editor imports and exports, and its side panel folds away', { timeout: 60_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "PANEL"');
+  await hubasicEditorText();
+  const editor = hubasicEditorFrame();
+  // X1Pen keeps the program itself, so the standalone app's 新規 and 別名で保存 are hidden
+  assert.equal(await editor.locator('header [data-command="new"]').isVisible(), false);
+  assert.equal(await editor.locator('header [data-command="save-as"]').isVisible(), false);
+  assert.equal((await editor.locator('header [data-command="open"]').textContent()).trim(), 'インポート…');
+  assert.equal((await editor.locator('header [data-command="save"]').textContent()).trim(), 'エクスポート');
+
+  const width = () => editor.locator('#editor').evaluate((el) => el.getBoundingClientRect().width);
+  const before = await width();
+  await editor.locator('#sidebar-toggle').click();
+  assert.equal(await editor.locator('#sidebar').isVisible(), false);
+  assert.ok(await width() > before, 'the folded panel gives its width to the source');
+  await editor.locator('#sidebar-toggle').click();
+  assert.equal(await editor.locator('#sidebar').isVisible(), true);
+  assert.equal(await hubasicEditorText(), '10 PRINT "PANEL"');
+});
+
 test('setProgram refuses HuBASIC text the X1 cannot show and changes nothing', { timeout: 30_000 }, async () => {
   await setHuBasicProgram('10 PRINT "KEEP"');
   const result = await page.evaluate(async () => {

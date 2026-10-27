@@ -1,14 +1,14 @@
 {
   "repository": "https://github.com/ho-ogino/x1-basic-editor",
-  "commit": "1539e3d02d031e93b2ec784b90e13eff24d2be20",
+  "commit": "aa1061142660d4c4d95bd7a1794cd677ea5d7c2f",
   "files": {
     "src/index.html": {
-      "sha256": "312fdde780373fc2b83043ea2044f2ee2f38df0f08cc6c16d53a70a23d5d4a83",
-      "size": 10148
+      "sha256": "989bca7191355d4b972a7639093e62f3d88fd7effa8f027b4aebebf65c6f4e92",
+      "size": 10296
     },
     "src/style.css": {
-      "sha256": "4d0f12342f87852bb931473637942d8d6b7891d9a7b48ac0596b2c05487bbf5b",
-      "size": 10895
+      "sha256": "2b9dd77b1e72608bb0760fbe0bb430c45288d5165f5169990d049dce9246381a",
+      "size": 10974
     },
     "src/codec.js": {
       "sha256": "156968440e1451ad76c6b3655099f374a6bec2c9eac70ba7b92d5adb8395a18f",
@@ -31,16 +31,16 @@
       "size": 6865
     },
     "src/host.js": {
-      "sha256": "ef614c0e67fa4202e0cbf41e71e8b573f9ce0d4f6ef63c05faba0421355ba463",
-      "size": 251
+      "sha256": "93558178eb321a330e7ac0fbd53e33922a419707e79901a5789ca9b372c2ddfe",
+      "size": 429
     },
     "src/sidebar-resize.js": {
-      "sha256": "eb04adaa424077a3d0cbbdc0729e5f30bc1990eaca80db6ac5b9b3fe678d2414",
-      "size": 2407
+      "sha256": "326943dec621ad99746312a7906e83263f41a0ae1be5a903d861f89b3855e89e",
+      "size": 2949
     },
     "src/editor.js": {
-      "sha256": "ee2fb6137f65adeab4116487552f9464d5f406d17b561eced8ee64391e6c3c58",
-      "size": 29737
+      "sha256": "c43e0acc82ce48d2e020e9539e28cefb244a8248c299fb413e17c0acdbffb7a6",
+      "size": 29733
     },
     "assets/x1-basic.ttf": {
       "sha256": "a179697dde2fdbedfae93cb7c5969ca54b2fd4021e5c3817d7aa2262d4029f1c",

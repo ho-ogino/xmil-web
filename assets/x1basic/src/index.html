@@ -11,12 +11,13 @@
   <header>
     <div class="brand"><span class="brand-mark">X1</span><span>BASIC EDITOR</span></div>
     <nav aria-label="ファイル操作">
-      <button data-command="new">新規</button><button data-command="open">開く…</button>
-      <button data-command="save" class="primary">保存</button><button data-command="save-as">別名で保存…</button>
+      <button data-command="new">新規</button><button data-command="open">インポート…</button>
+      <button data-command="save" class="primary">エクスポート</button><button data-command="save-as">別名で保存…</button>
       <span class="separator"></span><button data-command="undo" title="元に戻す">↶</button><button data-command="redo" title="やり直す">↷</button>
       <button data-command="find">検索</button><button data-command="help" title="使い方">?</button>
     </nav>
     <div class="display-controls" role="group" aria-label="ソースの表示設定">
+      <button id="sidebar-toggle" type="button" aria-controls="sidebar" aria-expanded="true">右欄を隠す</button>
       <label class="wrap-toggle"><input id="word-wrap" type="checkbox" checked>右端で折り返す</label>
       <label>倍率 <select id="scale" aria-label="文字の倍率"><option value="1">1×</option><option value="2" selected>2×</option><option value="3">3×</option><option value="4">4×</option></select></label>
     </div>
@@ -35,7 +36,7 @@
         <div id="text-area" class="wrapped">
           <pre id="mirror" aria-hidden="true"></pre>
           <textarea id="editor" spellcheck="false" wrap="soft" aria-label="X1 BASIC ソース" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
-          <div id="empty-hint">BASIC ファイルを開いて編集を始める<br><small>元のバイト列を保持して読み込み・保存します</small><button data-command="open">ファイルを開く…</button></div>
+          <div id="empty-hint">BASIC ファイルをインポートして編集を始める<br><small>元のバイト列を保持して読み込み・書き出します</small><button data-command="open">インポート…</button></div>
         </div>
       </div>
     </section>

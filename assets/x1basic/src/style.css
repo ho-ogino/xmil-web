@@ -43,3 +43,4 @@ aside.pcg-open{width:var(--sidebar-width,340px)}.pcg-options{display:flex;flex-d
 #sidebar-resizer{flex:0 0 6px;cursor:col-resize;touch-action:none;background:var(--line)}
 #sidebar-resizer:hover,#sidebar-resizer:focus-visible{background:var(--accent);outline:none}
 body.resizing-sidebar,body.resizing-sidebar *{cursor:col-resize!important;user-select:none!important}
+#sidebar[hidden],#sidebar-resizer[hidden],[data-command][hidden]{display:none}

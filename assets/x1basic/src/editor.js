@@ -356,7 +356,7 @@
     const snapshot = doc.bytes.slice();
     const result = await host.save({bytes:Array.from(snapshot),saveAs});
     if (!result) return false;
-    doc.markSaved(snapshot); render(...selection()); notify('保存しました · バイト検証済み'); return true;
+    doc.markSaved(snapshot); render(...selection()); notify('エクスポートしました'); return true;
   }
   async function canLeave() {
     if (!doc.dirty) return true;
@@ -461,7 +461,7 @@
     } catch (err) { notify(err.message,true); }
   });
   // Do not let native text dropping insert unvalidated data or trigger file navigation.
-  editor.addEventListener('drop',event => { event.preventDefault(); notify('ファイルは「開く…」から選択してください。'); });
+  editor.addEventListener('drop',event => { event.preventDefault(); notify('ファイルは「インポート…」から選択してください。'); });
   document.addEventListener('dragover',event=>event.preventDefault());
   document.addEventListener('drop',event=>event.preventDefault());
   document.querySelectorAll('[data-command]').forEach(button=>button.addEventListener('click',()=>command(button.dataset.command)));
