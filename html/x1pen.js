@@ -376,6 +376,42 @@ window.__X1PEN_MODE = true;
     var LS_EDITOR_HUBASIC = 'x1pen_editor_hubasic_x1';
     var LS_EDITOR_HUBASIC_LEGACY = 'x1pen_editor_hubasic';
     var hubasicRestoreNotice = null;   // shown instead of 'Ready' after startup
+    // hubasic2sl conversion options: one global set (X1PenHuBasicOptions), saved as
+    // { version: 1, options: <only the changed ones> }. Read in share sessions too (a preference,
+    // not program content), but changes made there last for the tab only.
+    var LS_HUBASIC_OPTIONS = 'x1pen_hubasic_options';
+    var hubasicOptions = loadHuBasicOptions();
+    var hubasicOptionsListeners = [];
+
+    function loadHuBasicOptions() {
+        var saved = null;
+        try {
+            var parsed = JSON.parse(localStorage.getItem(LS_HUBASIC_OPTIONS) || 'null');
+            if (parsed && parsed.version === 1) saved = parsed.options;
+        } catch (e) {}
+        return window.X1PenHuBasicOptions.fromStored(saved);
+    }
+
+    // Applies a patch (X1PenHuBasicOptions.apply: throws a TypeError and changes nothing for a
+    // bad one), saves and notifies; returns a copy of the full options
+    function updateHuBasicOptions(patch) {
+        hubasicOptions = window.X1PenHuBasicOptions.apply(hubasicOptions, patch);
+        if (!isEphemeralShareSession) {
+            try {
+                var changed = window.X1PenHuBasicOptions.changed(hubasicOptions);
+                if (Object.keys(changed).length === 0) localStorage.removeItem(LS_HUBASIC_OPTIONS);
+                else localStorage.setItem(LS_HUBASIC_OPTIONS, JSON.stringify({ version: 1, options: changed }));
+            } catch (e) {
+                console.warn('[x1pen] Failed to persist HuBASIC options:', e);
+            }
+        }
+        hubasicOptionsListeners.forEach(function(listener) { listener(); });
+        return getHuBasicOptions();
+    }
+
+    function getHuBasicOptions() {
+        return Object.assign({}, hubasicOptions);
+    }
 
     function persistEditorSources(basic, asm, slang, hubasic) {
         if (isEphemeralShareSession) return;
@@ -467,7 +503,9 @@ window.__X1PEN_MODE = true;
     // (or without) the iframe; getValue/setValue speak X1PenHuBasicText like the other editors' text.
     var hubasicEditor = createHuBasicEditor(document.getElementById('hubasic-editor-container'), {
         onChange: function(text) { markProgramChanged(); persistEditorSource(LS_EDITOR_HUBASIC, text); },
-        onFocus: pauseCallbacks.onFocus,
+        // The user went into the editor: also close the options panel (clicks in the iframe
+        // never reach this page's outside-click handler)
+        onFocus: function() { closeHuBasicOptionsPanel(false); pauseCallbacks.onFocus(); },
         onBlur:  pauseCallbacks.onBlur,
         onRun: function() { runFromShortcut(); }
     });
@@ -1285,7 +1323,11 @@ window.__X1PEN_MODE = true;
         }
 
         // HuBASIC: 変換 → コンパイル → アセンブル → ディスクを作って IPL から起動
-        if (sourceMode === 'hubasic') return performHuBasicRun(hubasicEditor.getBytes());
+        // The program and the conversion options as they are now: the toolchain may still have
+        // to load, and changes made meanwhile belong to the next RUN
+        if (sourceMode === 'hubasic') {
+            return performHuBasicRun(hubasicEditor.getBytes(), window.X1PenHuBasicOptions.changed(hubasicOptions));
+        }
 
         // SLANG → コンパイル → ASM に変換
         if (sourceMode === 'slang') {
@@ -1680,14 +1722,14 @@ window.__X1PEN_MODE = true;
         return snapshot;
     }
 
-    async function performHuBasicRun(source) {
+    async function performHuBasicRun(source, options) {
         clearSymbols();
         elStatus.textContent = 'HuBASIC: loading...';
         var built;
         try {
             await ensureHuBasicToolchain();
             elStatus.textContent = 'HuBASIC: converting...';
-            built = await window.X1PenHuBasic.build(source);
+            built = await window.X1PenHuBasic.build(source, options);
         } catch (e) {
             console.error('[x1pen] HuBASIC toolchain failed:', e);
             elStatus.textContent = 'HuBASIC: ' + (e && e.message || e);
@@ -2218,9 +2260,12 @@ window.__X1PEN_MODE = true;
     async function validateHuBasicProgram(program) {
         var diagnostics = [];
         var built = null;
+        // Validate what is there now (program.revision), not what changes while the toolchain loads
+        var bytes = hubasicEditor.getBytes();
+        var options = window.X1PenHuBasicOptions.changed(hubasicOptions);
         try {
             await ensureHuBasicToolchain();
-            built = await window.X1PenHuBasic.build(hubasicEditor.getBytes());
+            built = await window.X1PenHuBasic.build(bytes, options);
         } catch (e) {
             diagnostics.push(makeAutomationDiagnostic('hubasic', e.message));
         }
@@ -2241,7 +2286,7 @@ window.__X1PEN_MODE = true;
         return {
             ok: !!(built && built.ok) && !hasError,
             sourceMode: program.sourceMode,
-            revision: automationRevision,
+            revision: program.revision,
             diagnostics: diagnostics,
             output: {
                 basicBytes: 0,
@@ -3055,7 +3100,15 @@ window.__X1PEN_MODE = true;
         releasePads: releaseAllAutomationPads,
         recoverStalled: recoverStalledRun,
         setConnectionState: setAutomationConnectionState,
-        setInteractionLocked: setAutomationInteractionLocked
+        setInteractionLocked: setAutomationInteractionLocked,
+        // hubasic2sl conversion options of the HuBASIC tab (one global set, not part of the program)
+        getHuBasicOptions: getHuBasicOptions,
+        setHuBasicOptions: function(patch) {
+            if (isRunSetupPending()) return Promise.reject(createRunPendingError('HuBASIC options update'));
+            return queueAutomationOperation(function() {
+                return updateHuBasicOptions(patch);
+            });
+        }
     });
 
     function showShareDialog(url) {
@@ -4104,6 +4157,7 @@ window.__X1PEN_MODE = true;
         var asmImportAction = document.getElementById('btn-asm-import');
         var slangImportAction = document.getElementById('btn-slang-import');
         var manualBtn = document.getElementById('btn-basic-manual');
+        var hubasicOptionsBtn = document.getElementById('btn-hubasic-options');
 
         // 全エディタコンテナを非表示
         if (basicContainer) basicContainer.classList.add('hidden');
@@ -4113,6 +4167,8 @@ window.__X1PEN_MODE = true;
         if (asmImportAction) asmImportAction.classList.add('hidden');
         if (slangImportAction) slangImportAction.classList.add('hidden');
         if (manualBtn) manualBtn.classList.add('hidden');
+        if (hubasicOptionsBtn) hubasicOptionsBtn.classList.add('hidden');
+        if (target !== 'hubasic') closeHuBasicOptionsPanel(false);
 
         // 選択されたタブのコンテナを表示
         if (target === 'basic') {
@@ -4126,8 +4182,128 @@ window.__X1PEN_MODE = true;
             if (slangImportAction) slangImportAction.classList.remove('hidden');
         } else if (target === 'hubasic') {
             if (hubasicContainer) hubasicContainer.classList.remove('hidden');
+            if (hubasicOptionsBtn) hubasicOptionsBtn.classList.remove('hidden');
             hubasicEditor.mount();
         }
+    }
+
+    // ── HuBASIC の変換オプションの枠 ──
+    // Shows hubasicOptions and applies each change at once (updateHuBasicOptions). A number that
+    // is not valid is marked and not applied. The wait count is remembered per mode while the
+    // panel lives, so switching to "待たない" and back keeps it.
+    var hubasicOptionsBtnEl = document.getElementById('btn-hubasic-options');
+    var hubasicOptionsPanel = document.getElementById('hubasic-options-panel');
+    var hubasicWaitCounts = { line: 450, frame: 1 };
+    var HUBASIC_WAIT_HELP = {
+        none: '待たずに、できるだけ速く動きます。',
+        line: '各行の頭で N × 約 0.1 ms 待ちます（450〜500 で Hu-BASIC に近い速さ）。',
+        frame: "'#VSYNC n のコメントの所で n フレーム待ちます（n が無いときは N）。"
+    };
+
+    function hubasicOptionField(id) { return document.getElementById(id); }
+
+    function renderHuBasicOptions() {
+        if (!hubasicOptionsPanel) return;
+        var opts = hubasicOptions;
+        var wait = window.X1PenHuBasicOptions.parseWait(opts.wait);
+        if (wait.mode !== 'none') hubasicWaitCounts[wait.mode] = wait.count;
+        var modeEl = hubasicOptionField('hubasic-opt-wait-mode');
+        var countEl = hubasicOptionField('hubasic-opt-wait-count');
+        modeEl.value = wait.mode;
+        countEl.value = wait.mode === 'none' ? '' : String(wait.count);
+        countEl.disabled = wait.mode === 'none';
+        hubasicOptionField('hubasic-opt-wait-count-row').classList.toggle('disabled', wait.mode === 'none');
+        hubasicOptionField('hubasic-opt-wait-help').textContent = HUBASIC_WAIT_HELP[wait.mode];
+        hubasicOptionField('hubasic-opt-no-line-numbers').checked = opts.noLineNumbers;
+        hubasicOptionField('hubasic-opt-assume-defint').checked = opts.assumeDefint;
+        hubasicOptionField('hubasic-opt-string-len').value = String(opts.stringLen);
+        hubasicOptionField('hubasic-opt-data-budget').value = String(opts.dataBudget);
+        ['hubasic-opt-wait-count', 'hubasic-opt-string-len', 'hubasic-opt-data-budget'].forEach(function(id) {
+            hubasicOptionField(id).removeAttribute('aria-invalid');
+        });
+        if (hubasicOptionsBtnEl) {
+            var changed = !window.X1PenHuBasicOptions.isDefault(opts);
+            hubasicOptionsBtnEl.classList.toggle('changed', changed);
+            hubasicOptionsBtnEl.textContent = changed ? 'Options \u2022' : 'Options';
+            hubasicOptionsBtnEl.setAttribute('aria-label', changed
+                ? 'HuBASIC の変換オプション（既定から変えています）' : 'HuBASIC の変換オプション');
+        }
+    }
+
+    // Applies a patch from the panel; a bad value marks its field and changes nothing
+    function applyHuBasicOptionFromPanel(patch, fieldId) {
+        try {
+            updateHuBasicOptions(patch);
+        } catch (e) {
+            if (!(e instanceof TypeError)) throw e;
+            if (fieldId) hubasicOptionField(fieldId).setAttribute('aria-invalid', 'true');
+        }
+    }
+
+    // A number field's text -> an integer, or NaN (which the options check rejects)
+    function hubasicNumberValue(id) {
+        var text = hubasicOptionField(id).value.trim();
+        return /^\d+$/.test(text) ? Number(text) : NaN;
+    }
+
+    function openHuBasicOptionsPanel() {
+        renderHuBasicOptions();
+        hubasicOptionsPanel.classList.remove('hidden');
+        hubasicOptionsBtnEl.setAttribute('aria-expanded', 'true');
+        hubasicOptionField('hubasic-opt-wait-mode').focus();
+    }
+
+    function closeHuBasicOptionsPanel(restoreFocus) {
+        if (!hubasicOptionsPanel || hubasicOptionsPanel.classList.contains('hidden')) return;
+        var hadFocus = hubasicOptionsPanel.contains(document.activeElement);
+        hubasicOptionsPanel.classList.add('hidden');
+        hubasicOptionsBtnEl.setAttribute('aria-expanded', 'false');
+        if (restoreFocus && hadFocus) hubasicOptionsBtnEl.focus();
+    }
+
+    if (hubasicOptionsPanel && hubasicOptionsBtnEl) {
+        hubasicOptionsListeners.push(renderHuBasicOptions);
+        renderHuBasicOptions();
+        hubasicOptionsBtnEl.addEventListener('click', function() {
+            if (hubasicOptionsPanel.classList.contains('hidden')) openHuBasicOptionsPanel();
+            else closeHuBasicOptionsPanel(true);
+        });
+        hubasicOptionField('hubasic-opt-close').addEventListener('click', function() { closeHuBasicOptionsPanel(true); });
+        hubasicOptionsPanel.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { e.preventDefault(); closeHuBasicOptionsPanel(true); }
+        });
+        document.addEventListener('pointerdown', function(e) {
+            if (!hubasicOptionsPanel.contains(e.target) && !hubasicOptionsBtnEl.contains(e.target)) {
+                closeHuBasicOptionsPanel(false);
+            }
+        }, true);
+        hubasicOptionField('hubasic-opt-wait-mode').addEventListener('change', function(e) {
+            var mode = e.target.value;
+            applyHuBasicOptionFromPanel({ wait: mode === 'none' ? 'none'
+                : window.X1PenHuBasicOptions.formatWait(mode, hubasicWaitCounts[mode]) });
+        });
+        hubasicOptionField('hubasic-opt-wait-count').addEventListener('change', function() {
+            var mode = hubasicOptionField('hubasic-opt-wait-mode').value;
+            if (mode === 'none') return;
+            applyHuBasicOptionFromPanel({ wait: mode + ':' + hubasicOptionField('hubasic-opt-wait-count').value.trim() },
+                'hubasic-opt-wait-count');
+        });
+        hubasicOptionField('hubasic-opt-no-line-numbers').addEventListener('change', function(e) {
+            applyHuBasicOptionFromPanel({ noLineNumbers: e.target.checked });
+        });
+        hubasicOptionField('hubasic-opt-assume-defint').addEventListener('change', function(e) {
+            applyHuBasicOptionFromPanel({ assumeDefint: e.target.checked });
+        });
+        hubasicOptionField('hubasic-opt-string-len').addEventListener('change', function() {
+            applyHuBasicOptionFromPanel({ stringLen: hubasicNumberValue('hubasic-opt-string-len') }, 'hubasic-opt-string-len');
+        });
+        hubasicOptionField('hubasic-opt-data-budget').addEventListener('change', function() {
+            applyHuBasicOptionFromPanel({ dataBudget: hubasicNumberValue('hubasic-opt-data-budget') }, 'hubasic-opt-data-budget');
+        });
+        hubasicOptionField('hubasic-opt-reset').addEventListener('click', function() {
+            hubasicWaitCounts = { line: 450, frame: 1 };
+            applyHuBasicOptionFromPanel(window.X1PenHuBasicOptions.defaults());
+        });
     }
     if (editorTabs) {
         editorTabs.addEventListener('click', function(e) {

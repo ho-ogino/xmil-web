@@ -154,7 +154,8 @@
     // Converts, compiles, assembles and size-checks one program. Never throws for program
     // errors: the first failing stage is returned. Throws only when the toolchain is unusable.
     // source is the program in X1 bytes (a Uint8Array, as the HuBASIC tab keeps it) or UTF-8 text.
-    async function build(source) {
+    // options: extra hubasic2sl Transpile options (X1PenHuBasicOptions.changed); none = defaults.
+    async function build(source, options) {
         await load();
         if (!window.X1PenSlangCompiler || !window.X1PenZ80Asm || !window.X1PenSlfsDisk) {
             throw toolchainError('X1Pen compiler, assembler or disk builder is not loaded');
@@ -163,7 +164,8 @@
 
         var x1 = source instanceof Uint8Array;
         var bytes = x1 ? source : new TextEncoder().encode(source);
-        var transpiled = JSON.parse(state.api.Transpile(bytes, SOURCE_NAME, JSON.stringify({ inputEncoding: x1 ? 'x1' : 'utf8' })));
+        var transpileOptions = Object.assign({ inputEncoding: x1 ? 'x1' : 'utf8' }, options || {});
+        var transpiled = JSON.parse(state.api.Transpile(bytes, SOURCE_NAME, JSON.stringify(transpileOptions)));
         var diagnostics = Array.isArray(transpiled.diagnostics) ? transpiled.diagnostics : [];
         if (!transpiled.ok) {
             var firstError = diagnostics.filter(function(d) { return d.severity === 'error'; })[0];

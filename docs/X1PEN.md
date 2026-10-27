@@ -73,6 +73,34 @@ RUN すると、次の順に動きます。
   - 改行は `\n`（X1 のバイト列では CR LF）
   - `setProgram` では全角カナ・ひらがな・`♥` なども受け付けます。X1 で表せない文字（漢字など）があると、何も変えずにエラーにします。
 - 外から（自動操作などで）プログラムを入れ替えると、エディタの「元に戻す」の履歴とカーソルの位置は消えます。
+
+#### 変換のオプション
+
+HuBASIC タブの上の「Options」で、hubasic2sl の変換のオプションを設定できます。
+
+- 設定はすべての HuBASIC プログラムに共通で、1 つだけです。ブラウザ（localStorage の `x1pen_hubasic_options`）に保存し、次の RUN から使います。
+- 既定から変えているときは、ボタンが「Options •」になります。
+- 触っていなければ、これまでと同じに変換します（既定の値は変換に渡しません）。
+
+| 項目 | hubasic2sl | 意味 |
+|---|---|---|
+| 速度 | `--wait` | 待たない（既定）／行ごとに待つ（各行の頭で N × 約 0.1 ms。450〜500 で HuBASIC に近い速さ）／`'#VSYNC` コメントで待つ（`'#VSYNC n` のコメントの所で n フレーム。n が無いときは N） |
+| 行番号を記録しない | `--no-line-numbers` | 小さく速くなります。実行時エラーに行番号が出ません |
+| 型の無い変数を整数にする | `--assume-defint` | 接尾辞も DEFxxx も無い変数を整数にします（HuBASIC の既定は単精度） |
+| 文字列の長さの上限 | `--string-len` | 1〜255（既定 255） |
+| 静的データの上限 | `--data-budget` | 1〜65535 バイト（既定 24576） |
+
+- `'#VSYNC n` のコメントは、速度が「`'#VSYNC` コメントで待つ」のときだけ効きます。`VSYNC` 文は、設定によらずいつも待ちます。
+- N は 1〜65535 です。
+- Share の画面（`?id=`）では、保存済みの設定を読みますが、そこで変えた設定は保存しません。
+- 自動操作からは `X1PenAutomation.getHuBasicOptions()` / `setHuBasicOptions(patch)` で読み書きします。
+  - 値は `{ wait: 'none' | 'line:N' | 'frame:N', noLineNumbers, assumeDefint, stringLen, dataBudget }` です。
+  - `setHuBasicOptions` は渡した項目だけを変え、`null` の項目は既定に戻します。
+  - 知らない項目や範囲の外の値があると `TypeError` で、何も変えません。
+  - RUN の準備中は `RUN_PENDING` で断ります。
+  - 設定はプログラムの一部ではないので、`getProgram` には入らず、`revision` も変わりません。
+  - feature の名前は足していません（feature は X1Pen・Connector・MCP で揃える決まりのため。MCP の対応のときに足します）。`typeof X1PenAutomation.setHuBasicOptions === 'function'` で見分けられます。
+- Share と X1Pen MCP は、まだこの設定を運びません。
 - 前の版（素の編集欄）で保存した HuBASIC のプログラムは、最初に開いたときに一度だけ移します。X1 で表せない文字は `?` になり、ステータス欄でお知らせします。元の文字列は localStorage の `x1pen_editor_hubasic` に残ります。
 - スマートフォンなど狭い画面では、エディタの右の欄が場所を取ります（「右欄を隠す」で畳むか、境界をドラッグして狭められます）。
 - 複数のタブに内容があるときは、HuBASIC を優先して実行します。

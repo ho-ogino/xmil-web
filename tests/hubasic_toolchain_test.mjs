@@ -164,3 +164,68 @@ test('the converter output, the runtime and the manifest carry one BAS_ABI numbe
     page.X1PenZ80Asm.assemble(compiled.asm, constants, { allowTopLevelLocalLabels: true }).errors.length > 0;
   assert.ok(failed, 'a BAS_ABI mismatch must not build');
 });
+
+// The conversion options of the HuBASIC tab (html/x1pen_hubasic_options.js). Values from the vm
+// context are compared as JSON (their objects belong to another realm).
+const optionsContext = vm.createContext({});
+optionsContext.window = optionsContext;
+vm.runInContext(readFileSync(join(repoRoot, 'html', 'x1pen_hubasic_options.js'), 'utf8'), optionsContext);
+const HuOptions = optionsContext.X1PenHuBasicOptions;
+const json = (value) => JSON.parse(JSON.stringify(value));
+
+test('untouched HuBASIC options pass nothing to the converter', () => {
+  const defaults = HuOptions.defaults();
+  assert.deepEqual(json(defaults), { wait: 'none', noLineNumbers: false, assumeDefint: false, stringLen: 255, dataBudget: 24576 });
+  assert.deepEqual(json(HuOptions.changed(defaults)), {});
+  assert.ok(HuOptions.isDefault(defaults));
+  // Setting a value back to its default is the same as never setting it
+  assert.deepEqual(json(HuOptions.changed(HuOptions.apply(defaults, { stringLen: 255, wait: 'none' }))), {});
+});
+
+test('HuBASIC options take the converter values, normalised', () => {
+  const d = HuOptions.defaults();
+  const changed = (patch) => json(HuOptions.changed(HuOptions.apply(d, patch)));
+  assert.deepEqual(changed({ wait: 'line' }), { wait: 'line:1' });
+  assert.deepEqual(changed({ wait: 'line:450' }), { wait: 'line:450' });
+  assert.deepEqual(changed({ wait: 'frame:2' }), { wait: 'frame:2' });
+  assert.deepEqual(changed({ wait: 'frame:65535' }), { wait: 'frame:65535' });
+  assert.deepEqual(changed({ noLineNumbers: true, assumeDefint: true }), { noLineNumbers: true, assumeDefint: true });
+  assert.deepEqual(changed({ stringLen: 1, dataBudget: 65535 }), { stringLen: 1, dataBudget: 65535 });
+  assert.deepEqual(changed({ dataBudget: 1 }), { dataBudget: 1 });
+  // null resets one key and leaves the others
+  const set = HuOptions.apply(d, { wait: 'line:450', stringLen: 80 });
+  assert.deepEqual(json(HuOptions.changed(HuOptions.apply(set, { wait: null }))), { stringLen: 80 });
+  assert.deepEqual(json(HuOptions.parseWait('frame:3')), { mode: 'frame', count: 3 });
+  assert.deepEqual(json(HuOptions.parseWait('none')), { mode: 'none', count: 0 });
+});
+
+test('a bad HuBASIC option is refused as a whole', () => {
+  const current = HuOptions.apply(HuOptions.defaults(), { wait: 'line:450' });
+  const before = JSON.stringify(current);
+  const bad = [
+    [{ wait: 'line:0' }, /wait/], [{ wait: 'line:65536' }, /wait/], [{ wait: 'line:x' }, /wait/],
+    [{ wait: 'line:1:2' }, /wait/], [{ wait: 'none:1' }, /wait/], [{ wait: 5 }, /wait/], [{ wait: 'LINE:1' }, /wait/],
+    [{ stringLen: 0 }, /stringLen/], [{ stringLen: 256 }, /stringLen/], [{ stringLen: 1.5 }, /stringLen/], [{ stringLen: '10' }, /stringLen/],
+    [{ dataBudget: 0 }, /dataBudget/], [{ dataBudget: 65536 }, /dataBudget/], [{ dataBudget: NaN }, /dataBudget/],
+    [{ noLineNumbers: 'true' }, /noLineNumbers/], [{ assumeDefint: 1 }, /assumeDefint/],
+    [{ emitLineComments: true }, /unknown/], [{ inputEncoding: 'utf8' }, /unknown/],
+    // A good key next to a bad one is not applied either
+    [{ stringLen: 80, dataBudget: 0 }, /dataBudget/],
+  ];
+  for (const [patch, message] of bad) {
+    assert.throws(() => HuOptions.apply(current, patch), message, JSON.stringify(patch));
+  }
+  for (const patch of [null, 'wait', [], undefined]) {
+    assert.throws(() => HuOptions.apply(current, patch), /object/);
+  }
+  assert.equal(JSON.stringify(current), before);
+});
+
+test('saved HuBASIC options are read field by field and never throw', () => {
+  const defaults = json(HuOptions.defaults());
+  for (const saved of [null, undefined, 'x', 42, [], { wait: 'bogus', stringLen: 0, other: 1 }]) {
+    assert.deepEqual(json(HuOptions.fromStored(saved)), defaults, JSON.stringify(saved));
+  }
+  assert.deepEqual(json(HuOptions.fromStored({ wait: 'line:450', stringLen: 999, noLineNumbers: true, extra: 'x' })),
+    { ...defaults, wait: 'line:450', noLineNumbers: true });
+});
