@@ -3829,3 +3829,70 @@ test('the HuBASIC tab sets the conversion options in its Options panel', { timeo
       wait: null, noLineNumbers: null, assumeDefint: null, stringLen: null, dataBudget: null }));
   }
 });
+
+test('options changed while a HuBASIC Run or validation waits for the toolchain wait for the next one', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext();
+  const slowPage = await context.newPage();
+  // Each page load holds the HuBASIC toolchain script until released
+  let gate = null;
+  const holdToolchain = () => {
+    let release;
+    let requested;
+    gate = { released: new Promise((resolve) => { release = resolve; }), requested: new Promise((resolve) => { requested = resolve; }) };
+    gate.release = release;
+    gate.markRequested = requested;
+    return gate;
+  };
+  await context.route('**/x1pen_hubasic.js*', async (route) => {
+    const current = gate;
+    current.markRequested();
+    await current.released;
+    await route.continue();
+  });
+  const load = async () => {
+    await slowPage.goto(`${baseUrl}/x1pen.html`);
+    await slowPage.evaluate(() => window.X1PenAutomation.ready());
+    await slowPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 A$="SNAPSHOT"\n20 PRINT A$\n' }, current.revision, current.revisionEpoch);
+    });
+    await slowPage.locator('.editor-tab[data-tab="hubasic"]').click();
+  };
+  const setBudgetInPanel = async (value) => {
+    await slowPage.locator('#btn-hubasic-options').click();
+    await slowPage.locator('#hubasic-opt-data-budget').fill(value);
+    await slowPage.locator('#hubasic-opt-data-budget').press('Tab');
+    await slowPage.locator('#hubasic-opt-close').click();
+    assert.equal(await slowPage.evaluate(() => window.X1PenAutomation.getHuBasicOptions().dataBudget), Number(value));
+  };
+  try {
+    // A data budget of 1 byte fails this program: if it reached the waiting RUN, the RUN would fail
+    let held = holdToolchain();
+    await load();
+    const run = slowPage.evaluate(() => window.X1PenAutomation.run());
+    await held.requested;
+    await setBudgetInPanel('1');
+    held.release();
+    const result = await run;
+    assert.equal(result.ok, true, JSON.stringify(result));
+    // ... and the next one uses it
+    const next = await slowPage.evaluate(() => window.X1PenAutomation.validate());
+    assert.equal(next.ok, false);
+    assert.ok(next.diagnostics.some((d) => /HB0309/.test(d.message)), JSON.stringify(next.diagnostics));
+
+    // The same for a validation, the other way round
+    held = holdToolchain();
+    await load();
+    const validation = slowPage.evaluate(() => window.X1PenAutomation.validate());
+    await held.requested;
+    await setBudgetInPanel('24576');
+    held.release();
+    const validated = await validation;
+    assert.equal(validated.ok, false, 'validated with the 1-byte budget it started with');
+    assert.equal((await slowPage.evaluate(() => window.X1PenAutomation.validate())).ok, true);
+  } finally {
+    if (gate) gate.release();
+    await context.close();
+  }
+});

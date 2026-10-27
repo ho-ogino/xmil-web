@@ -1323,7 +1323,11 @@ window.__X1PEN_MODE = true;
         }
 
         // HuBASIC: 変換 → コンパイル → アセンブル → ディスクを作って IPL から起動
-        if (sourceMode === 'hubasic') return performHuBasicRun(hubasicEditor.getBytes());
+        // The program and the conversion options as they are now: the toolchain may still have
+        // to load, and changes made meanwhile belong to the next RUN
+        if (sourceMode === 'hubasic') {
+            return performHuBasicRun(hubasicEditor.getBytes(), window.X1PenHuBasicOptions.changed(hubasicOptions));
+        }
 
         // SLANG → コンパイル → ASM に変換
         if (sourceMode === 'slang') {
@@ -1718,14 +1722,14 @@ window.__X1PEN_MODE = true;
         return snapshot;
     }
 
-    async function performHuBasicRun(source) {
+    async function performHuBasicRun(source, options) {
         clearSymbols();
         elStatus.textContent = 'HuBASIC: loading...';
         var built;
         try {
             await ensureHuBasicToolchain();
             elStatus.textContent = 'HuBASIC: converting...';
-            built = await window.X1PenHuBasic.build(source, window.X1PenHuBasicOptions.changed(hubasicOptions));
+            built = await window.X1PenHuBasic.build(source, options);
         } catch (e) {
             console.error('[x1pen] HuBASIC toolchain failed:', e);
             elStatus.textContent = 'HuBASIC: ' + (e && e.message || e);
@@ -2256,9 +2260,12 @@ window.__X1PEN_MODE = true;
     async function validateHuBasicProgram(program) {
         var diagnostics = [];
         var built = null;
+        // Validate what is there now, not what changes while the toolchain loads
+        var bytes = hubasicEditor.getBytes();
+        var options = window.X1PenHuBasicOptions.changed(hubasicOptions);
         try {
             await ensureHuBasicToolchain();
-            built = await window.X1PenHuBasic.build(hubasicEditor.getBytes(), window.X1PenHuBasicOptions.changed(hubasicOptions));
+            built = await window.X1PenHuBasic.build(bytes, options);
         } catch (e) {
             diagnostics.push(makeAutomationDiagnostic('hubasic', e.message));
         }
