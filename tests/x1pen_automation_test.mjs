@@ -3329,7 +3329,7 @@ test('Ctrl+Enter in the HuBASIC editor runs the program', { timeout: 120_000 }, 
 });
 
 // Opens a file in the editor whose read waits until release() is called inside the iframe
-async function openDelayedFile(name, content) {
+async function openDelayedFile(name, content, button = 'header [data-command="open"]') {
   const frame = page.frame({ url: /x1basic\/src\// });
   await frame.evaluate(() => {
     // Keep the real arrayBuffer across calls; wrapping the wrapper would never finish
@@ -3343,7 +3343,7 @@ async function openDelayedFile(name, content) {
   });
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser'),
-    hubasicEditorFrame().locator('header [data-command="open"]').click(),
+    hubasicEditorFrame().locator(button).click(),
   ]);
   await chooser.setFiles({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(content, 'latin1') });
   await frame.waitForFunction(() => typeof window.__releaseRead === 'function');
@@ -3366,8 +3366,12 @@ test('a file read in the HuBASIC editor never overwrites a newer program', { tim
   // the editor's focus at the end of the import neither takes the focus from the emulator nor
   // pauses it
   let read;
-  for (const fail of [false, true]) {
-    read = await openDelayedFile('OLD.BAS', '10 PRINT "OLD"\r\n');
+  for (const [fail, file, button] of [
+    [false, 'OLD.BAS', undefined], [true, 'OLD.BAS', undefined],
+    // A font import ends the same way: the editor focuses itself when the command finishes
+    [false, 'FONT.X1', '[data-command="font-load"]'], [true, 'FONT.X1', '[data-command="font-load"]'],
+  ]) {
+    read = await openDelayedFile(file, file === 'FONT.X1' ? '\0'.repeat(2048) : '10 PRINT "OLD"\r\n', button);
     await setHuBasicProgram('10 PRINT "NEWER"');
     await page.evaluate(() => {
       window.__stops = 0;
@@ -3379,7 +3383,7 @@ test('a file read in the HuBASIC editor never overwrites a newer program', { tim
     try {
       await read.release(fail);
       assert.deepEqual(await page.evaluate(() => ({ stops: window.__stops, active: document.activeElement.id })),
-        { stops: 0, active: 'canvas' }, fail ? 'failed read' : 'successful read');
+        { stops: 0, active: 'canvas' }, `${file}: ${fail ? 'failed' : 'successful'} read`);
     } finally {
       await page.evaluate(() => { window.Module._js_xmil_stop = window.__realStop; });
     }
@@ -3568,14 +3572,14 @@ test('the HuBASIC editor follows the automation lock and builds PCG fonts', { ti
     } finally {
       api.setInteractionLocked(false);
     }
-    frame.contentDocument.getElementById('editor').focus();
-    const unlockedFocus = frame.contentDocument.activeElement.id;
     const ttf = await frame.contentWindow.X1Host.pcgFont({
       entries: [{ code: 0, hex: 'FF'.repeat(24) }], order: 'BRG', layout: 'planar' });
-    return { lockedFocus, unlockedFocus, ttfLength: ttf.length, ttfTag: Array.from(ttf.slice(0, 4)) };
+    return { lockedFocus, ttfLength: ttf.length, ttfTag: Array.from(ttf.slice(0, 4)) };
   });
   assert.notEqual(result.lockedFocus, 'editor', 'the locked editor panel is inert');
-  assert.equal(result.unlockedFocus, 'editor');
+  await hubasicEditorFrame().locator('#editor').click();
+  assert.equal(await page.evaluate(() =>
+    document.querySelector('#hubasic-editor-container iframe').contentDocument.activeElement.id), 'editor');
   assert.ok(result.ttfLength > 1000);
   assert.deepEqual(result.ttfTag, [0, 1, 0, 0]);
 });

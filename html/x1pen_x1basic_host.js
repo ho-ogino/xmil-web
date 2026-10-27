@@ -50,26 +50,16 @@
     }
 
     // A file read that finishes after X1Pen replaced the program, or while automation holds the
-    // interaction lock, is dropped: it must not overwrite the newer program.
-    // The editor focuses its textarea when the command ends; for a dropped read that is not the
-    // user's either, so it is handled like a load from X1Pen (see showFromX1Pen).
-    // Whatever the outcome (a file, a cancel or a failed read), an import that X1Pen overtook
-    // ends quietly.
+    // interaction lock, is dropped, whatever its outcome: it must not overwrite the newer program.
     function chooseFile() {
         var loadsAtStart = loads;
         var overtaken = function() { return loads !== loadsAtStart || bridge.isLocked(); };
         return pickFile('.bas,.BAS,.txt,.asc,*/*', MAX_BYTES, '開けるのは 2 MiB までです。').then(function(file) {
-            if (overtaken()) {
-                ignoreFocusUntilSettled();
-                return null;
-            }
+            if (overtaken()) return null;
             if (file) fileName = file.name;
             return file;
         }, function(error) {
-            if (overtaken()) {
-                ignoreFocusUntilSettled();
-                return null;
-            }
+            if (overtaken()) return null;
             throw error;
         });
     }
@@ -122,59 +112,59 @@
         command(name);
     }, true);
 
-    // The editor focuses its textarea whenever it shows a document (at start and on every load
-    // from X1Pen). Those focus changes are not the user's: they must not pause the emulator or
-    // take the keyboard away from wherever the user is in X1Pen.
-    var starting = true;
-    var loading = false;
-    var focusBeforeStart = window.parent.document.activeElement;
+    // The editor focuses its textarea on its own: whenever it shows a document (at start and on
+    // every load from X1Pen) and at the end of every command, also when that command waited for
+    // a file meanwhile. Such focus is not the user's: it must not pause the emulator or take the
+    // keyboard away from where the user is in X1Pen. Focus entering this page counts as the user's
+    // only after the user pressed or typed something here, or pressed Tab in X1Pen; any other
+    // focus goes straight back to the element X1Pen had focused.
+    var parentDoc = window.parent.document;
+    var userIntent = false;
+    var bouncing = false;
+    var lastParentFocus = parentDoc.activeElement !== window.frameElement ? parentDoc.activeElement : null;
 
-    function giveFocusBack(before) {
-        if (!document.hasFocus()) return;
-        var parentDoc = window.parent.document;
+    ['pointerdown', 'mousedown', 'touchstart', 'keydown'].forEach(function(type) {
+        document.addEventListener(type, function() { userIntent = true; }, true);
+    });
+    parentDoc.addEventListener('keydown', function(event) { if (event.key === 'Tab') userIntent = true; }, true);
+    parentDoc.addEventListener('focusin', function(event) {
+        if (event.target === window.frameElement) return;
+        lastParentFocus = event.target;
+        userIntent = false;
+    }, true);
+
+    function giveFocusBack() {
         if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-        if (before && before !== window.frameElement && before !== parentDoc.body && before.focus) {
+        var before = lastParentFocus;
+        if (before && before !== parentDoc.body && before.isConnected && before.focus) {
             before.focus();
         } else if (parentDoc.activeElement === window.frameElement) {
             window.frameElement.blur();
         }
     }
 
-    function showFromX1Pen(show) {
-        var hadFocus = document.hasFocus();
-        var before = window.parent.document.activeElement;
-        loading = true;
-        try {
-            show();
-        } finally {
-            if (!hadFocus && !starting) giveFocusBack(before);
-            loading = false;
-        }
-    }
-
-    // Until the editor's pending command has finished (its focus call runs in a later microtask)
-    function ignoreFocusUntilSettled() {
-        var hadFocus = document.hasFocus();
-        var before = window.parent.document.activeElement;
-        loading = true;
+    // Focus is handed back after the focus event: moving it from inside the event leaves Chrome
+    // treating this frame as focused while X1Pen's element shows the focus
+    window.addEventListener('focus', function() {
+        if (userIntent) { bridge.focus(); return; }
+        bouncing = true;
         setTimeout(function() {
-            if (!hadFocus) giveFocusBack(before);
-            loading = false;
+            try { if (!userIntent) giveFocusBack(); } finally { bouncing = false; }
         }, 0);
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        giveFocusBack(focusBeforeStart);
-        starting = false;
     });
-    window.addEventListener('focus', function() { if (!starting && !loading) bridge.focus(); });
-    window.addEventListener('blur', function() { if (!starting && !loading) bridge.blur(); });
+    window.addEventListener('blur', function() {
+        if (bouncing) return;
+        bridge.blur();
+        // Focus moved elsewhere in X1Pen (not a file dialog or another window): the next focus
+        // here is the user's only after new input
+        setTimeout(function() { if (parentDoc.hasFocus() && !document.hasFocus()) userIntent = false; }, 0);
+    });
 
     window.X1Host = {
         onLoaded: function(callback) {
             bridge.attach(function(data) {
                 loads++;
-                showFromX1Pen(function() { callback({ name: data.name, bytes: local(data.bytes) }); });
+                callback({ name: data.name, bytes: local(data.bytes) });
             });
         },
         onCommand: function(callback) { command = callback; },
