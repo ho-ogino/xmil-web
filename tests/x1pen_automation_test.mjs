@@ -3087,6 +3087,65 @@ test('Hu-BASIC failures after the disk is replaced report a defined state', { ti
   await textVramContains('FAIL');
 });
 
+test('Hu-BASIC Run stops before booting when the disk image cannot be written', { timeout: 120_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "WRITE OK"\n20 GOTO 20\n');
+  const outcomes = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const module = window.Module;
+    const writeFile = module.FS.writeFile;
+    const powerOn = module._js_xmil_power_on;
+    let poweredOn = 0;
+    module._js_xmil_power_on = (...args) => { poweredOn++; return powerOn.apply(module, args); };
+    const results = {};
+    try {
+      // The real mount helper's VFS write throws
+      module.FS.writeFile = function(path, data, ...rest) {
+        if (/d88$/i.test(String(path))) throw new Error('injected VFS write failure');
+        return writeFile.call(this, path, data, ...rest);
+      };
+      results.thrown = await api.run();
+      // The write silently stores a truncated image
+      module.FS.writeFile = function(path, data, ...rest) {
+        if (/d88$/i.test(String(path))) return writeFile.call(this, path, data.subarray(0, 256), ...rest);
+        return writeFile.call(this, path, data, ...rest);
+      };
+      results.truncated = await api.run();
+    } finally {
+      module.FS.writeFile = writeFile;
+      module._js_xmil_power_on = powerOn;
+    }
+    results.poweredOn = poweredOn;
+    results.retry = await api.run();
+    return results;
+  });
+  for (const failed of [outcomes.thrown, outcomes.truncated]) {
+    assert.equal(failed.ok, false);
+    assert.equal(failed.code, 'HUBASIC_MOUNT_FAILED');
+    assert.equal(failed.stage, 'mount');
+  }
+  assert.equal(outcomes.poweredOn, 0, 'a disk that was not written must not be booted');
+  assert.equal(outcomes.retry.ok, true, JSON.stringify(outcomes.retry));
+  await textVramContains('WRITE OK');
+});
+
+test('Hu-BASIC Run applies a resolution chosen just before it', { timeout: 120_000 }, async () => {
+  await setHuBasicProgram('10 PRINT "DIP OK"\n20 GOTO 20\n');
+  const runWith = (highres) => page.evaluate(async (on) => {
+    window.XmilControls.setDipHighres(on);
+    const pendingBeforeRun = window.Module._js_get_dip_sw();
+    const run = await window.X1PenAutomation.run();
+    return { run, pendingBeforeRun, active: window.Module._js_get_dip_sw() };
+  }, highres);
+  const high = await runWith(true);
+  assert.equal(high.pendingBeforeRun & 0x01, 0x01, 'the setter must not change the active DIP value by itself');
+  assert.equal(high.run.ok, true, JSON.stringify(high.run));
+  assert.equal(high.active & 0x01, 0);
+  await textVramContains('DIP OK');
+  const standard = await runWith(false);
+  assert.equal(standard.run.ok, true, JSON.stringify(standard.run));
+  assert.equal(standard.active & 0x01, 0x01);
+});
+
 test('Hu-BASIC Run leaves a library disk in FDD0 and the other drives alone', { timeout: 90_000 }, async () => {
   const context = await browser.newContext();
   const libraryPage = await context.newPage();

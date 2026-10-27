@@ -1773,7 +1773,13 @@ window.__X1PEN_MODE = true;
         var d88Data = container.toArrayBuffer();
 
         // 5. FDD0 マウント (slotState 同期)
-        if (window.XmilControls) await window.XmilControls.mountTempDisk(d88Data, 'drive0');
+        if (window.XmilControls) {
+            try { await window.XmilControls.mountTempDisk(d88Data, 'drive0'); }
+            catch(e) {
+                console.error('[x1pen] Disk mount failed:', e);
+                return false;
+            }
+        }
         return true;
     }
 

@@ -1219,7 +1219,7 @@
     // Model/DIP/FM settings, power off, power on. Used by project-disk RUN and by
     // X1Pen runs that boot a temporary FDD0 disk through the IPL.
     // makeError(kind, message, details) builds the caller's error ('unavailable' | 'mismatch').
-    // If powering on or afterPowerOn() throws, the machine is stopped before the error propagates.
+    // If powering on, the DIP check or afterPowerOn() throws, the machine is stopped before the error propagates.
     function coldPowerOn(modelValue, makeError, afterPowerOn) {
         var fail = makeError || function(kind, message, details) {
             return projectDiskFailure(kind === 'mismatch' ? 'COLD_BOOT_MACHINE_MISMATCH' : 'COLD_BOOT_MACHINE_UNAVAILABLE', message, details);
@@ -1234,14 +1234,15 @@
         if (settings.dip2hd) dip |= 0x04;
         if (module._js_set_dip_sw) module._js_set_dip_sw(dip);
         if (module._js_set_sound_sw) module._js_set_sound_sw(settings.fmEnable ? 1 : 0);
-        var activeDip = module._js_get_dip_sw ? module._js_get_dip_sw() : dip;
-        if (activeDip !== dip) {
-            throw fail('mismatch', '起動用の本体設定を適用できませんでした',
-                { mismatchKind: 'dip', requestedDip: dip, activeDip: activeDip });
-        }
         try {
             if (module._js_xmil_power_off) module._js_xmil_power_off();
             module._js_xmil_power_on();
+            // The setter changes the pending DIP value; power-on makes it the active one
+            var activeDip = module._js_get_dip_sw ? module._js_get_dip_sw() : dip;
+            if (activeDip !== dip) {
+                throw fail('mismatch', '起動用の本体設定を適用できませんでした',
+                    { mismatchKind: 'dip', requestedDip: dip, activeDip: activeDip });
+            }
             if (afterPowerOn) afterPowerOn();
         } catch (e) {
             // Leave the machine in a defined, stopped state
@@ -4168,7 +4169,13 @@
                 try { await ejectSlot(slotName); } catch(e) {}
             }
             var vfsPath = slotToVfsPath(slotName, 'd88');
-            writeFileToVFS(vfsPath, new Uint8Array(arrayBuffer));
+            // Unlike writeFileToVFS, a failed write must stop the caller before it boots the drive
+            var image = new Uint8Array(arrayBuffer);
+            if (!module || !module.FS) throw new Error('VFS is not available');
+            module.FS.writeFile(vfsPath, image);
+            if (!buffersEqual(module.FS.readFile(vfsPath), image)) {
+                throw new Error('Temporary disk image was not written intact');
+            }
             if (module) {
                 var driveIndex = slotName === 'drive0' ? 0 : 1;
                 module.ccall('js_insert_disk', null, ['string', 'number'], [vfsPath, driveIndex]);
