@@ -14,7 +14,6 @@
 
     var ENV_NAME = 'x1native_slfs';
     var SOURCE_NAME = 'PROGRAM.BAS';
-    var VOLUME_NAME = 'SLFS DEMO';      // x1native_slfs.env disk.volume
 
     var loadPromise = null;
     var state = null;    // { revision, base, manifest, env, api, vfs }
@@ -48,6 +47,10 @@
             ['defines.X1NATIVE', defines.X1NATIVE === 1],
             ['defines.SLFS', defines.SLFS === 1],
             ['loadAddress', manifest.loadAddress === 0x1000],
+            ['diskMainLoad', env.diskMainLoad === 0x1000],
+            ['diskMainExec', env.diskMainExec === 0x1000],
+            ['defaultDiskMainName', typeof env.defaultDiskMainName === 'string' && /^[\x20-\x7E]{1,13}$/.test(env.defaultDiskMainName)],
+            ['diskVolume', typeof env.diskVolume === 'string' && /^[\x20-\x7E]{0,16}$/.test(env.diskVolume)],
             ['reservedStart', typeof manifest.reservedStart === 'number' &&
                 manifest.reservedStart > 0x1000 && manifest.reservedStart <= 0xFFE0],
             ['libraries', Array.isArray(env.libraries) && env.libraries.length > 0 &&
@@ -147,8 +150,10 @@
                 { diagnostics: diagnostics });
         }
 
+        // Same constants as slangc/slangbuild: ENV_TYPE/OS_TYPE plus the env defines, for both stages
+        var constants = Object.assign({ ENV_TYPE: env.envType, OS_TYPE: env.osType }, env.defines);
         var compiled = window.X1PenSlangCompiler.compile(transpiled.sl, state.vfs, {
-            defaultOrg: env.defaultOrg, codeReadonly: false, defines: env.defines
+            defaultOrg: env.defaultOrg, codeReadonly: false, defines: constants
         });
         if (compiled.errors && compiled.errors.length > 0) {
             var compileError = compiled.errors[0];
@@ -156,8 +161,7 @@
                 { diagnostics: diagnostics, sl: transpiled.sl });
         }
 
-        var assembled = window.X1PenZ80Asm.assemble(compiled.asm, { OS_TYPE: env.osType, ENV_TYPE: env.envType },
-            { allowTopLevelLocalLabels: true });
+        var assembled = window.X1PenZ80Asm.assemble(compiled.asm, constants, { allowTopLevelLocalLabels: true });
         // One assembler error shifts every later address, so only the first error is meaningful.
         if (assembled.errors.length > 0) {
             var asmError = assembled.errors[0];
@@ -180,10 +184,10 @@
 
         var program = new Uint8Array(assembled.bytes);
         var d88 = window.X1PenSlfsDisk.buildSlfsD88(program, {
-            mainName: transpiled.diskMainName || 'SLFSMAIN',
-            loadAddr: state.manifest.loadAddress,
-            execAddr: state.manifest.loadAddress,
-            volumeName: VOLUME_NAME
+            mainName: transpiled.diskMainName || env.defaultDiskMainName,
+            loadAddr: env.diskMainLoad,
+            execAddr: env.diskMainExec,
+            volumeName: env.diskVolume
         });
         return {
             ok: true,

@@ -9,7 +9,7 @@ import vm from 'node:vm';
 // X1Pen's JS toolchain (SLANG compiler, Z80 assembler, SLFS disk builder) against the real
 // SLANG-compiler tools: tests/fixtures/hubasic holds hubasic2sl output (.SL) and slangbuild
 // results for the bundle revision in assets/hubasic/current.json
-// (regenerate with scripts/make-hubasic-fixtures.mjs).
+// (written by scripts/import-hubasic-bundle.mjs from the bundle's testdata).
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const fixtureDir = join(repoRoot, 'tests', 'fixtures', 'hubasic');
@@ -32,9 +32,12 @@ function loadScripts(locationHost) {
 const page = loadScripts('x1.example.test');
 const runtimeVfs = Object.fromEntries(env.libraries.map((lib) => [lib, readFileSync(join(bundleDir, 'runtime', lib), 'utf8')]));
 
-function buildFixture(name, predefined = { OS_TYPE: env.osType, ENV_TYPE: env.envType }) {
+// The same constants x1pen_hubasic.js passes (and slangc/slangbuild use) for both stages
+const constants = { ENV_TYPE: env.envType, OS_TYPE: env.osType, ...env.defines };
+
+function buildFixture(name, predefined = constants) {
   const compiled = page.X1PenSlangCompiler.compile(readFileSync(join(fixtureDir, `${name}.SL`), 'utf8'), runtimeVfs, {
-    defaultOrg: env.defaultOrg, codeReadonly: false, defines: env.defines,
+    defaultOrg: env.defaultOrg, codeReadonly: false, defines: constants,
   });
   assert.equal(compiled.errors.length, 0, `${name}: SLANG compile errors ${JSON.stringify(compiled.errors)}`);
   return page.X1PenZ80Asm.assemble(compiled.asm, predefined, { allowTopLevelLocalLabels: true });
@@ -53,7 +56,7 @@ function workSymbolAt(table, address) {
 test('the committed bundle and fixtures belong to one clean SLANG-compiler revision', () => {
   assert.equal(manifest.slangCompilerRevision, current.revision);
   assert.equal(expected.revision, current.revision,
-    'fixtures were generated for another revision; run scripts/make-hubasic-fixtures.mjs');
+    'fixtures belong to another revision; re-run scripts/import-hubasic-bundle.mjs');
   assert.equal(manifest.dirty, false, 'assets/hubasic must not contain a bundle built from uncommitted sources');
   assert.ok(existsSync(join(bundleDir, '_framework', 'dotnet.js')));
 });
@@ -94,10 +97,11 @@ for (const name of Object.keys(expected.programs)) {
   });
 
   test(`${name}: SLFS disk image is byte-identical to slangbuild`, () => {
-    const sl = readFileSync(join(fixtureDir, `${name}.SL`), 'utf8');
-    const mainName = (sl.match(/^\/\/ disk-main-name: (.*)$/m) || [])[1];
     const d88 = page.X1PenSlfsDisk.buildSlfsD88(readFileSync(join(fixtureDir, `${name}.bin`)), {
-      mainName, volumeName: 'SLFS DEMO',
+      mainName: expected.programs[name].diskMainName,
+      loadAddr: env.diskMainLoad,
+      execAddr: env.diskMainExec,
+      volumeName: env.diskVolume,
     });
     assert.equal(d88.byteLength, 348848);
     assert.equal(createHash('sha256').update(Buffer.from(d88)).digest('hex'), expected.programs[name].d88Sha256);
@@ -126,6 +130,8 @@ test('the manifest check accepts only the x1native_slfs values X1Pen boots', () 
   assert.throws(check((m, e) => { e.defaultOrg = 0x100; }), /defaultOrg/);
   assert.throws(check((m, e) => { delete e.defines.SLFS; }), /defines\.SLFS/);
   assert.throws(check((m) => { m.reservedStart = 0x10000; }), /reservedStart/);
+  assert.throws(check((m, e) => { e.diskMainLoad = 0x100; }), /diskMainLoad/);
+  assert.throws(check((m, e) => { e.diskVolume = 'X'.repeat(17); }), /diskVolume/);
   assert.throws(check((m, e) => { e.libraries.push('liblsx_base.asm'); }), /libraries/);
   assert.throws(check((m, e) => { e.libraries.push('../x.asm'); }), /libraries/);
   assert.throws(check((m) => { m.dirty = true; }), /uncommitted/);

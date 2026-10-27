@@ -124,11 +124,16 @@ if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
         [ -f "$f" ] && cp "$f" ./slang_runtime/
     done
 fi
-# Hu-BASIC bundle (wasm + x1native runtime, one SLANG-compiler revision per directory)
-if [ -d "${SCRIPT_DIR}/assets/hubasic" ]; then
-    rm -rf ./hubasic
-    cp -R "${SCRIPT_DIR}/assets/hubasic" ./hubasic
+# Hu-BASIC bundle (wasm + x1native runtime, one SLANG-compiler revision per directory).
+# X1Pen's Hu-BASIC tab cannot work without it, so a missing bundle stops the build.
+HUBASIC_REVISION="$(sed -n 's/.*"revision": *"\([0-9a-f]\{40\}\)".*/\1/p' "${SCRIPT_DIR}/assets/hubasic/current.json" 2>/dev/null || true)"
+if [ -z "${HUBASIC_REVISION}" ] || [ ! -f "${SCRIPT_DIR}/assets/hubasic/${HUBASIC_REVISION}/manifest.json" ]; then
+    echo "Error: Hu-BASIC bundle is missing (assets/hubasic/current.json and its revision directory)."
+    echo "Import one with: node scripts/import-hubasic-bundle.mjs <bundle-dir>"
+    exit 1
 fi
+rm -rf ./hubasic
+cp -R "${SCRIPT_DIR}/assets/hubasic" ./hubasic
 if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
     mkdir -p ./slang_include
     for f in "${SCRIPT_DIR}"/assets/slang_include/*; do
@@ -225,10 +230,8 @@ if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
         [ -f "$f" ] && cp "$f" "${DIST_DIR}/slang_runtime/"
     done
 fi
-if [ -d "${SCRIPT_DIR}/assets/hubasic" ]; then
-    rm -rf "${DIST_DIR}/hubasic"
-    cp -R "${SCRIPT_DIR}/assets/hubasic" "${DIST_DIR}/hubasic"
-fi
+rm -rf "${DIST_DIR}/hubasic"
+cp -R "${SCRIPT_DIR}/assets/hubasic" "${DIST_DIR}/hubasic"
 if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
     mkdir -p "${DIST_DIR}/slang_include"
     for f in "${SCRIPT_DIR}"/assets/slang_include/*; do
