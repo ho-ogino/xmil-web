@@ -29,7 +29,7 @@ Use `claude mcp list` or `/mcp` to check the connection.
 
 ## Local source files
 
-`x1pen_set_source_file` can replace one editable BASIC, ASM, or SLANG section directly from a local UTF-8 file without returning its path or content to the model. File access is disabled by default. Add one or more explicit roots when starting the MCP server:
+`x1pen_set_source_file` can replace one editable BASIC, ASM, SLANG, or HuBASIC section directly from a local UTF-8 file without returning its path or content to the model. File access is disabled by default. Add one or more explicit roots when starting the MCP server:
 
 ```toml
 [mcp_servers.x1pen]
@@ -39,7 +39,7 @@ startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
 
-Repeat `--allow-source-root <dir>` to allow multiple source trees. Each root must already exist and be a directory; a bad root fails server startup with its configured value visible in the local startup error. The tool resolves canonical paths, rejects paths and symlinks that escape every root, accepts regular files only, and rejects invalid UTF-8, NUL, files over 512 KiB, and files that change during the read. It strips one leading UTF-8 BOM and normalizes CRLF or lone CR to LF before writing. It applies the same revision/epoch guard as other source writes, preserves the other authoring section, and clears generated ASM when replacing SLANG. Results contain only the section, raw-file byte count and SHA-256, changed state, and program metadata; the section summary hash describes the normalized stored text. The roots limit which paths the model can request. They do not defend against another process running as the same user that swaps a directory inside an allowed root for a symlink while the read is in progress (Node.js offers no root-anchored openat equivalent); such a process can already read those files directly.
+Repeat `--allow-source-root <dir>` to allow multiple source trees. Each root must already exist and be a directory; a bad root fails server startup with its configured value visible in the local startup error. The tool resolves canonical paths, rejects paths and symlinks that escape every root, accepts regular files only, and rejects invalid UTF-8, NUL, files over 512 KiB, and files that change during the read. It strips one leading UTF-8 BOM and normalizes CRLF or lone CR to LF before writing. It applies the same revision/epoch guard as other source writes, preserves the other authoring section, and clears generated ASM when replacing SLANG. Results contain only the section, raw-file byte count and SHA-256, changed state, and program metadata; the section summary hash describes the normalized stored text. When X1Pen refuses the file's text for a reason that could quote it (for example a HuBASIC character or escape it cannot read), the tool reports `SOURCE_REJECTED` with a fixed reason instead of X1Pen's message. The roots limit which paths the model can request. They do not defend against another process running as the same user that swaps a directory inside an allowed root for a symlink while the read is in progress (Node.js offers no root-anchored openat equivalent); such a process can already read those files directly.
 
 ## Pairing
 

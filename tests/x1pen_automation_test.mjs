@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
@@ -4389,11 +4389,14 @@ test('re-sharing in a HuBASIC share tab uses the model of its last Run, also aft
 // x1pen-mcp from mcpDir connected to target as X1Pen Connector connects it: its own X1PenBridge,
 // and a WebSocket client that pairs with the given Connector descriptor and runs every command in
 // the page with the Connector's invokeX1PenInPage (as the service worker's executeScript does)
-async function connectMcp(target, { mcpDir = join(projectRoot, 'mcp'), connector = createConnectorDescriptor('1.3.0') } = {}) {
+async function connectMcp(target, {
+  mcpDir = join(projectRoot, 'mcp'), connector = createConnectorDescriptor('1.3.0'), allowedSourceRoots = [],
+} = {}) {
   const { createX1PenMcpServer } = await import(pathToFileURL(join(mcpDir, 'x1pen-server.mjs')).href);
   const pairingCode = '246810';
   const { server: mcp, bridge } = createX1PenMcpServer({
     bridgeOptions: { startPort: 0, pairingCode, logger: () => {} },
+    allowedSourceRoots,
   });
   await bridge.start();
   const socket = new WebSocket(`ws://127.0.0.1:${bridge.port}`, { origin: 'chrome-extension://x1pen-test' });
@@ -4537,6 +4540,42 @@ test('with X1Pen Connector 1.3.0, x1pen-mcp handles HuBASIC programs but asks fo
     assert.match(options.value.error.action, /Update X1Pen Connector/);
   } finally {
     await mcp.close();
+  }
+});
+
+test('x1pen-mcp replaces HuBASIC from a local file, and never returns the file text X1Pen refused', { timeout: 60_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'x1pen-hubasic-source-'));
+  writeFileSync(join(root, 'good.txt'), '10 PRINT "FROM FILE"\n20 GOTO 20\n');
+  writeFileSync(join(root, 'escape.txt'), '10 PRINT "\\{PRIVATE_MARKER}"\n');
+  writeFileSync(join(root, 'kanji.txt'), '10 REM 秘密MARK\n');
+  await setHuBasicProgram('10 PRINT "BEFORE"\n');
+  const mcp = await connectMcp(page, { allowedSourceRoots: [root] });
+  try {
+    const replace = async (name) => {
+      const program = (await mcp.call('x1pen_get_program')).value;
+      return mcp.call('x1pen_set_source_file', {
+        path: join(root, name), section: 'hubasic',
+        expectedRevision: program.revision, expectedRevisionEpoch: program.revisionEpoch,
+      });
+    };
+    const good = await replace('good.txt');
+    assert.equal(good.isError, false, JSON.stringify(good.value));
+    assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic), '10 PRINT "FROM FILE"\n20 GOTO 20\n');
+
+    for (const [name, quoted, reason] of [
+      ['escape.txt', 'PRIVATE_MARKER', /unknown \\\{name\} escape/],
+      ['kanji.txt', '秘密', /characters the X1 cannot show/],
+    ]) {
+      const refused = await replace(name);
+      assert.equal(refused.isError, true, name);
+      assert.equal(JSON.stringify(refused.value).includes(quoted), false, `${name}: ${JSON.stringify(refused.value)}`);
+      assert.equal(refused.value.error.code, 'SOURCE_REJECTED');
+      assert.match(refused.value.error.message, reason);
+    }
+    assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic), '10 PRINT "FROM FILE"\n20 GOTO 20\n');
+  } finally {
+    await mcp.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

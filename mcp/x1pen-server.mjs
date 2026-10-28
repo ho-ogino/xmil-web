@@ -216,6 +216,28 @@ function programFrom(snapshot, replacements) {
   return { ...program, ...replacements };
 }
 
+// X1Pen's reason for refusing a source can quote it (the HuBASIC text form names the characters
+// and escapes it cannot read). A local file's content is never returned, so such a reason is
+// replaced; errors with a code (conflicts, RUN_PENDING, ...) have fixed texts and pass unchanged.
+function localSourceRejection(error, section) {
+  if (typeof error?.code === 'string') return error;
+  const message = String(error?.message || '');
+  const reason = /^hubasic: X1で表現できない文字/.test(message)
+    ? 'it contains characters the X1 cannot show'
+    : (/^hubasic: 不明な記号名/.test(message) ? 'it contains an unknown \\{name} escape' : 'X1Pen refused it');
+  return new SourceSyncError(
+    'SOURCE_REJECTED',
+    `X1Pen did not accept the local ${section} source: ${reason}. The reason text is not returned because it can quote the file.`,
+    {
+      section,
+      component: 'x1pen',
+      action: section === 'hubasic'
+        ? 'Check the local file against X1Pen text form (¥ for $5C, \\{name} or \\xHH for other X1 characters), then retry.'
+        : 'Check the local file, then retry.',
+    },
+  );
+}
+
 function sourceLineCount(source) {
   return source.length === 0 ? 0 : source.split('\n').length;
 }
@@ -1003,9 +1025,12 @@ export function createX1PenMcpServer(options = {}) {
 
     const program = programFrom(snapshot, { [section]: file.source });
     const generatedAsmCleared = section === 'slang' && snapshot.asm.length > 0;
-    const updated = await sendGuardedProgram(
-      program, expectedRevision, expectedRevisionEpoch, context,
-    );
+    let updated;
+    try {
+      updated = await sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, context);
+    } catch (error) {
+      throw localSourceRejection(error, section);
+    }
     return textResult({
       ok: true,
       changed: true,

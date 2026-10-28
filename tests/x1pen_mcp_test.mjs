@@ -1695,3 +1695,31 @@ test('HuBASIC option errors keep their code and name the component to update', a
   assert.equal(oldPage.code, 'FEATURE_UNAVAILABLE');
   assert.equal(oldPage.component, 'x1pen');
 });
+
+test('set_source_file never returns a rejection reason that quotes the local file', async () => {
+  useHuBasicProgram();
+  const path = join(sourceRoot, 'private.hub.txt');
+  await writeFile(path, '10 PRINT "\\{PRIVATE_MARKER}"\n');
+  const quoted = new TypeError('hubasic: 不明な記号名：PRIVATE_MARKER');
+  compatibilityFailure = { method: 'setProgram', error: quoted };
+  const result = await client.callTool({
+    name: 'x1pen_set_source_file',
+    arguments: { path, section: 'hubasic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a' },
+  });
+  assert.equal(result.isError, true);
+  assert.equal(JSON.stringify(result).includes('PRIVATE_MARKER'), false);
+  const error = jsonContent(result).error;
+  assert.equal(error.code, 'SOURCE_REJECTED');
+  assert.equal(error.section, 'hubasic');
+  assert.match(error.message, /unknown \\\{name\} escape/);
+
+  // A coded error has a fixed text and keeps its code
+  const pending = new Error('Program update is unavailable while run setup is pending');
+  pending.code = 'RUN_PENDING';
+  compatibilityFailure = { method: 'setProgram', error: pending };
+  const refused = await client.callTool({
+    name: 'x1pen_set_source_file',
+    arguments: { path, section: 'hubasic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a' },
+  });
+  assert.equal(jsonContent(refused).error.code, 'RUN_PENDING');
+});

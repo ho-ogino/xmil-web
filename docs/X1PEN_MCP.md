@@ -299,7 +299,7 @@ X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分
 }
 ```
 
-ローカルファイル本文をAIへ展開せずに現在modeの1セクションを置換する場合は`x1pen_set_source_file`を使用します。先に`x1pen_get_program`でguardを取得し、設定済みroot内のpathと編集可能なsectionを指定します。BASIC+ASM modeではbasic/asmの他方を保持し、SLANG置換時はRunが生成したASMをclearします。
+ローカルファイル本文をAIへ展開せずに現在modeの1セクションを置換する場合は`x1pen_set_source_file`を使用します。先に`x1pen_get_program`でguardを取得し、設定済みroot内のpathと編集可能なsectionを指定します。BASIC+ASM modeではbasic/asmの他方を保持し、SLANG置換時はRunが生成したASMをclearします。HuBASIC modeでは`hubasic`を置換します。X1Penがファイルの本文を受け付けなかった理由が本文を引用し得る場合（HuBASICで表せない文字や知らない記号名など）は、X1Penのメッセージを返さず、`SOURCE_REJECTED`と決まった理由だけを返します。
 
 ```json
 {
