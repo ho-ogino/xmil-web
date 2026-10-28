@@ -92,11 +92,27 @@ MCPサーバーのnpm配布とブラウザー拡張の配布は独立してお�
 
 `x1pen_connection_info`、`x1pen_list_sessions`、`x1pen_get_status`は、MCPサーバー、Connector、X1Penのバージョンと実効capabilityを返します。バージョンは診断と更新案内に使用し、実際の利用可否は3コンポーネントが申告するfeatureの積集合で決定します。
 
-feature IDは完全一致する不変の契約です。現在は`automation.core`、`automation.run-recovery`、`screen.capture`、`input.keyboard`、`input.pad`、`debugger.cpu`、`debugger.vram`を使用します。後方互換性のない変更では既存IDの意味を変更せず、`debugger.vram-v2`のような新しいIDを追加します。
+feature IDは完全一致する不変の契約です。現在は`automation.core`、`automation.run-recovery`、`automation.source-sync`、`screen.capture`、`input.keyboard`、`input.pad`、`debugger.cpu`、`debugger.vram`、`hubasic.options`を使用します。後方互換性のない変更では既存IDの意味を変更せず、`debugger.vram-v2`のような新しいIDを追加します。
 
 公開済みのConnector 1.0.1、1.1.0、1.1.1だけは、明示featureがないためMCPサーバーが既知の機能を推定します。この表は歴史的互換性のために凍結されており、Connector 1.2.0以降は明示featureを申告します。未対応機能はConnectorへ送信する前に拒否され、`component`、`feature`、現在版、必要な場合は必要版、対処方法を含む機械可読エラーが返ります。
 
-HuBASIC タブ（X1Pen Web の次の版で追加、試験中）には、x1pen-mcp 2.7.x はまだ対応していません。X1Pen のいまのソースが HuBASIC の間は、X1Pen が `sourceMode: "hubasic"` を返すため、`x1pen_get_program` などがエラー（`invalid source mode`）で止まります。黙って別のモードとして扱うことはありません。ほかのタブのプログラムでは今までどおり使えます。
+### HuBASIC（試験中）
+
+X1Pen の HuBASIC タブのプログラムは `sourceMode: "hubasic"` の `hubasic` セクションです。ほかのセクションと同じく、`x1pen_get_program`、`x1pen_get_source`、`x1pen_search_source`、`x1pen_diff_source`、`x1pen_apply_edits`、`x1pen_set_program`、`x1pen_set_source_file` で読み書きします。
+
+- 中身は X1 のバイト列を X1Pen の文字の形にしたものです。$5C は `¥`、ほかの X1 の文字は `\{heart}` などの記号名か `\xHH` で書き、行は LF で区切ります。X1 で表せない文字は X1Pen が受け付けません。
+- hubasic モードで編集できるのは `hubasic` だけです。ほかのモードの間は `hubasic` を編集できません（`x1pen_set_program` で `sourceMode: "hubasic"` にします）。
+- 同梱のリファレンス（`x1pen_search_reference`）は HuBASIC をまだ含みません。FuzzyBASIC の文法を当てはめないでください。
+- 変換オプション（hubasic2sl の `--wait` など）は、すべての HuBASIC プログラムに共通の X1Pen の設定です。プログラムには含まれず、revision も変わりません。`x1pen_get_hubasic_options` で読み、`x1pen_set_hubasic_options` で変えます（`patch` に書いたキーだけ変わり、`null` で既定に戻ります。Run の準備中は `RUN_PENDING` で断られます）。この 2 つは feature `hubasic.options` が 3 コンポーネントそろったときだけ使えます。
+
+版の組み合わせ:
+
+| MCP | Connector | X1Pen | HuBASIC のプログラム | 変換オプション |
+|---|---|---|---|---|
+| この版以降 | `hubasic.options` を申告する版 | HuBASIC タブあり | 使える | 使える |
+| この版以降 | 1.3.0 | HuBASIC タブあり | 使える（Connector は中身をそのまま中継する） | `FEATURE_UNAVAILABLE`（component `connector`、Connector の更新を案内） |
+| この版以降 | どれでも | HuBASIC タブなし | `SOURCE_CONTENT_UNAVAILABLE` / `SOURCE_MODE_UNSUPPORTED`（X1Pen の更新を案内）。ほかのモードは今までどおり（hash も同じ） | `FEATURE_UNAVAILABLE`（component `x1pen`） |
+| 2.7.x | どれでも | HuBASIC タブあり | HuBASIC の間は `invalid source mode` で止まる（黙って別のモードとして扱うことはない）。ほかのモードは今までどおり | 使えない |
 
 ## ツール
 
@@ -116,6 +132,8 @@ HuBASIC タブ（X1Pen Web の次の版で追加、試験中）には、x1pen-mc
 | `x1pen_set_program` | full時はepoch/revision、縮退時はrevisionをguardにプログラム全体を更新（新規作成・全置換用。sourceModeで非対象のsectionは入力してもclear） |
 | `x1pen_set_source_file` | 許可root内のlocal UTF-8 fileから1つの編集可能sectionをguard付きで置換（path/contentは応答しない） |
 | `x1pen_validate` | 実行せずにコンパイル、アセンブル、トークナイズ（SLANG生成ASMは一時出力でprogramには保持しない） |
+| `x1pen_get_hubasic_options` | HuBASIC の変換オプション（全プログラム共通の X1Pen の設定）を取得 |
+| `x1pen_set_hubasic_options` | HuBASIC の変換オプションを変更（`null` で既定に戻す。プログラムと revision は変わらない） |
 | `x1pen_run` | ユーザーが開いているX1Penで実行 |
 | `x1pen_recover_stalled` | stallしたRun準備を、データ損失確認後のタブ再読込で復旧 |
 | `x1pen_send_key` | 表示中のX1Penエミュレーターへ許可済みの1キーを送信 |
@@ -138,7 +156,7 @@ AIによる更新、検証、実行、停止中はエディターとツールバ
 
 縮退時も`get_program`、`get_source`、`search_source`、`set_program`、`apply_edits`は利用できます。`diff_source`だけは3コンポーネントすべてのsource-sync対応が必要です。旧Connector × 新MCP × 新X1Penでは、X1Penがepochを返しても旧Connectorが書き込み時のepochを転送しないため、書き込み結果は必ずrevision-onlyと表示されます。`apply_edits`は最終書き込み直前にもrevision・epoch（取得可能時）・mode・hashを再確認しますが、その再確認から書き込みまでの短い区間はatomicではありません。
 
-`x1pen_set_program`は完全置換です。`sourceMode: "slang"`では`basic`と`asm`、`sourceMode: "asm"`では`basic`と`slang`、`sourceMode: "basic+asm"`では`slang`が、非空で入力されても保持されずclearされます。現在modeの一部だけを安全に変更して他のauthoring sectionを保持する場合は`x1pen_apply_edits`を使います。SLANGの`x1pen_validate`が返す`output.generatedAsmLines`と`output.asmBytes`は一時compile/assemble結果の量であり、programのASM sectionには書き戻しません。生成ASMを保持して読む必要がある場合は`x1pen_run`後にprogramを再取得します。
+`x1pen_set_program`は完全置換です。`sourceMode: "slang"`では`basic`と`asm`、`sourceMode: "asm"`では`basic`と`slang`、`sourceMode: "basic+asm"`では`slang`、`sourceMode: "hubasic"`では`basic`と`asm`と`slang`が、非空で入力されても保持されずclearされます。hubasic以外のmodeでは`hubasic`もclearされます。現在modeの一部だけを安全に変更して他のauthoring sectionを保持する場合は`x1pen_apply_edits`を使います。SLANGの`x1pen_validate`が返す`output.generatedAsmLines`と`output.asmBytes`は一時compile/assemble結果の量であり、programのASM sectionには書き戻しません。生成ASMを保持して読む必要がある場合は`x1pen_run`後にprogramを再取得します。
 
 ### 大きな生成アセット表
 
@@ -281,7 +299,7 @@ X1ハードウェアについては、Z80のCPUメモリと16bit I/O空間の分
 }
 ```
 
-ローカルファイル本文をAIへ展開せずに現在modeの1セクションを置換する場合は`x1pen_set_source_file`を使用します。先に`x1pen_get_program`でguardを取得し、設定済みroot内のpathと編集可能なsectionを指定します。BASIC+ASM modeではbasic/asmの他方を保持し、SLANG置換時はRunが生成したASMをclearします。
+ローカルファイル本文をAIへ展開せずに現在modeの1セクションを置換する場合は`x1pen_set_source_file`を使用します。先に`x1pen_get_program`でguardを取得し、設定済みroot内のpathと編集可能なsectionを指定します。BASIC+ASM modeではbasic/asmの他方を保持し、SLANG置換時はRunが生成したASMをclearします。HuBASIC modeでは`hubasic`を置換します。書き込みに失敗したときは、X1PenやConnectorのメッセージ（HuBASICで表せない文字や知らない記号名など、本文を引用し得る）を返しません。codeのあるエラーはcodeと構造化された項目を残してメッセージだけ決まった文に替え、codeの無い拒否は`SOURCE_REJECTED`と決まった理由で返します。
 
 ```json
 {

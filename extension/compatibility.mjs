@@ -8,6 +8,7 @@ export const CONNECTOR_FEATURES = Object.freeze([
   'input.pad',
   'debugger.cpu',
   'debugger.vram',
+  'hubasic.options',
 ]);
 
 export function allComponentsAdvertiseFeature(feature, ...components) {

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- x1pen-mcp が X1Pen の HuBASIC タブに対応しました（試験中）。
+  - HuBASIC のプログラムを、ほかのモードと同じ道具で読む・探す・差分を取る・編集する・置き換えることができます（`sourceMode: "hubasic"`、`hubasic` セクション）。これまでの 2.7.x は、X1Pen が HuBASIC のプログラムを持っている間、`invalid source mode` で止まっていました。
+  - 変換オプションを読む `x1pen_get_hubasic_options`、変える `x1pen_set_hubasic_options` を足しました。オプションはプログラムに含めません（revision も変わりません）。
+  - X1Pen・X1Pen Connector・x1pen-mcp に feature `hubasic.options` を足しました。Connector は 2 つの命令を中継します。HuBASIC のプログラムは、今の Connector（1.3.0）のままで通ります。
+  - HuBASIC タブの無い X1Pen では、HuBASIC の読み書きを X1Pen の更新を案内して断ります。ほかのモードの動きと hash は変わりません。
 - X1Pen に HuBASIC タブを追加しました（試験中）。RUN すると、HuBASIC を SLANG に変換し（hubasic2sl をブラウザの中の .NET wasm で実行）、OS なしの x1native 環境の機械語に組み立て、HuBASIC の IPL で起動できるディスクを作って FDD0 から起動します。変換の仕組みとランタイムは SLANG-compiler の同じリビジョンから取り込みます（`scripts/import-hubasic-bundle.mjs`）。読み込むときに、リビジョンと BAS_ABI（変換結果とランタイムの組の番号）が変換の仕組み・ランタイム・manifest で揃っていることを確かめます。
 - X1Pen の HuBASIC タブの編集欄を **X1 BASIC Editor**（https://github.com/ho-ogino/x1-basic-editor、MIT）にしました（試験中）。
   - プログラムを X1 の文字コードのバイト列のまま扱い、X1 の字形で表示します。カナ・グラフィック文字・制御コード・PCG の表示に対応します。RUN ではそのバイト列を変換に渡します。
@@ -13,7 +18,7 @@
   - 設定できるのは、速度（`--wait`）、行番号を記録しない（`--no-line-numbers`）、型の無い変数を整数にする（`--assume-defint`）、文字列の長さの上限（`--string-len`）、静的データの上限（`--data-budget`）です。
   - 設定はすべての HuBASIC プログラムに共通で、ブラウザに保存します。触っていなければ、変換はこれまでと同じです。
   - 自動操作には `getHuBasicOptions` / `setHuBasicOptions` を足しました。
-  - MCP はまだこの設定を運びません。
+  - x1pen-mcp からの読み書きは、上の x1pen-mcp の HuBASIC 対応で足しました。
 - X1Pen の Z80 アセンブラが、文字の定数 `','`、`#IF exists` で前に定義されたラベル（AILZ80ASM と同じ順の扱い）を正しく扱うようにしました。
 - X1Pen のプロジェクトディスクの RUN で、直前に解像度（高解像度・標準）やディスクの種類を切り替えると「本体設定を適用できませんでした」で止まっていた問題を修正しました。設定は電源を入れ直したときに反映されるので、起動のあとで確かめるようにしました。
 - X1Pen の RUN で、作ったディスクを書き込めなかったときは、起動せずに失敗として止まるようにしました（これまでは前のディスクのまま起動することがありました）。

@@ -28,7 +28,7 @@ Connect the active X1Pen tab to a local MCP server for AI-assisted FuzzyBASIC an
 
 X1Pen Connector links the X1Pen tab you explicitly select to an x1pen-mcp server running on the same computer. A configured MCP client such as Codex or Claude Code can then assist with FuzzyBASIC and SLANG development in the X1Pen editor you can see and edit yourself.
 
-The connection handles the selected tab's title and URL, requested source, validation results, execution, allowlisted emulator-key and joystick-pad requests, debugger and video state, requested CPU and video memory ranges, paused video-memory changes, and emulator screen captures. Supported operations include reading and editing source, validating programs, running and stopping programs, sending bounded keyboard and active-low joystick-pad input only to the visible X1Pen emulator, and controlling the Z80 debugger. Held remote pad input is released on disconnect, reload, session change, bridge shutdown, or emulator reset. Access starts only after you open the extension popup, review the data-access disclosure, enter the local bridge port and pairing code, and choose "Connect this tab." The port and pairing code are stored locally so the requested connection can be restored.
+The connection handles the selected tab's title and URL, requested source, HuBASIC conversion settings, validation results, execution, allowlisted emulator-key and joystick-pad requests, debugger and video state, requested CPU and video memory ranges, paused video-memory changes, and emulator screen captures. Supported operations include reading and editing source, reading and changing HuBASIC conversion settings, validating programs, running and stopping programs, sending bounded keyboard and active-low joystick-pad input only to the visible X1Pen emulator, and controlling the Z80 debugger. Held remote pad input is released on disconnect, reload, session change, bridge shutdown, or emulator reset. Access starts only after you open the extension popup, review the data-access disclosure, enter the local bridge port and pairing code, and choose "Connect this tab." The port and pairing code are stored locally so the requested connection can be restored.
 
 The extension communicates with the paired local bridge at 127.0.0.1. It does not contain advertising, analytics, or tracking, and it does not send data to a server operated by the extension developer. Your configured MCP client may send requested X1Pen data to its AI provider under that provider's terms and privacy policy.
 
@@ -77,7 +77,7 @@ Stores the user-entered local bridge port and pairing code in local extension st
 
 The extension handles the following user data only after prominent disclosure and affirmative consent in the popup:
 
-- Website content: X1Pen source, validation results, execution, allowlisted emulator-key and joystick-pad requests, debugger and video state, requested CPU/video memory ranges and paused video-memory changes, and requested emulator screenshots.
+- Website content: X1Pen source, HuBASIC conversion settings, validation results, execution, allowlisted emulator-key and joystick-pad requests, debugger and video state, requested CPU/video memory ranges and paused video-memory changes, and requested emulator screenshots.
 - Web browsing activity: title and URL of the explicitly connected X1Pen tab only.
 - Authentication information: the six-digit pairing code for the user-selected local bridge.
 

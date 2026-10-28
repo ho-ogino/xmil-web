@@ -7,6 +7,7 @@ export const FEATURE_IDS = Object.freeze([
   'input.pad',
   'debugger.cpu',
   'debugger.vram',
+  'hubasic.options',
 ]);
 
 export const MCP_FEATURES = Object.freeze([...FEATURE_IDS]);
@@ -40,6 +41,8 @@ const METHOD_FEATURES = Object.freeze({
   debuggerGetVideoState: 'debugger.vram',
   debuggerReadVram: 'debugger.vram',
   debuggerWriteVram: 'debugger.vram',
+  getHuBasicOptions: 'hubasic.options',
+  setHuBasicOptions: 'hubasic.options',
 });
 
 const CONNECTOR_MINIMUMS = Object.freeze({

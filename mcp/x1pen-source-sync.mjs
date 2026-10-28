@@ -9,7 +9,14 @@ const AUTHORING_SECTIONS = Object.freeze({
   'basic+asm': ['basic', 'asm'],
   asm: ['asm'],
   slang: ['slang'],
+  hubasic: ['hubasic'],
 });
+// hubasic is null when the connected X1Pen predates the HuBASIC tab
+export const SOURCE_SECTIONS = Object.freeze(['basic', 'asm', 'slang', 'hubasic']);
+
+export function presentSections(snapshot) {
+  return SOURCE_SECTIONS.filter((section) => typeof snapshot[section] === 'string');
+}
 
 export class SourceSyncError extends Error {
   constructor(code, message, details = {}) {
@@ -57,7 +64,7 @@ export function sourceRole(sourceMode, section, source) {
 
 export function sourceIdentities(snapshot) {
   const sections = {};
-  for (const section of ['basic', 'asm', 'slang']) {
+  for (const section of presentSections(snapshot)) {
     const role = sourceRole(snapshot.sourceMode, section, snapshot[section]);
     const hash = contentHash(snapshot[section]);
     sections[section] = role === 'generated'
@@ -92,7 +99,7 @@ export class SourceBaselineCache {
   rememberSnapshot(snapshot) {
     if (!snapshot.instanceId || !snapshot.revisionEpoch) return;
     const identities = sourceIdentities(snapshot);
-    for (const section of ['basic', 'asm', 'slang']) {
+    for (const section of presentSections(snapshot)) {
       const source = snapshot[section];
       const bytes = sourceByteLength(source);
       if (bytes > this.maxEntryBytes) continue;

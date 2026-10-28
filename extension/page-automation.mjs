@@ -78,6 +78,21 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
     }
     return api.setPad;
   };
+  const requireHuBasicOptions = () => {
+    const status = api.getStatus();
+    const features = status.x1pen?.features;
+    const available = Array.isArray(features) && features.includes('hubasic.options');
+    if (typeof api.getHuBasicOptions !== 'function' || typeof api.setHuBasicOptions !== 'function' || !available) {
+      const error = new Error('The connected X1Pen does not provide HuBASIC conversion options');
+      error.code = 'FEATURE_UNAVAILABLE';
+      error.component = 'x1pen';
+      error.feature = 'hubasic.options';
+      error.currentVersion = status.x1pen?.version || 'unknown';
+      error.action = 'Reload or update X1Pen and reconnect this tab.';
+      throw error;
+    }
+    return api;
+  };
   const runDebuggerControl = async (operation) => {
     const deadline = Date.now() + 10_000;
     while (true) {
@@ -109,6 +124,7 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
     debuggerStep: 'AI is stepping the debugger...',
     debuggerSetBreakpoints: 'AI is updating breakpoints...',
     debuggerWriteVram: 'AI is updating video memory...',
+    setHuBasicOptions: 'AI is updating HuBASIC options...',
   };
   const shouldLock = Object.prototype.hasOwnProperty.call(lockLabels, requestedMethod);
   if (shouldLock) api.setInteractionLocked(true, lockLabels[requestedMethod]);
@@ -159,6 +175,10 @@ export async function invokeX1PenInPage(requestedMethod, requestedParams) {
         throw error;
       }
       return api.releasePads();
+    }
+    if (requestedMethod === 'getHuBasicOptions') return requireHuBasicOptions().getHuBasicOptions();
+    if (requestedMethod === 'setHuBasicOptions') {
+      return await requireHuBasicOptions().setHuBasicOptions(requestedParams.patch);
     }
     if (requestedMethod === 'getStatus') return api.getStatus();
     if (requestedMethod === 'captureScreen') return api.captureScreen();
