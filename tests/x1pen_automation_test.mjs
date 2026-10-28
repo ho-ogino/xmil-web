@@ -248,7 +248,7 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
     name: 'x1pen',
     version: '0.10.1',
     automationApiVersion: 2,
-    features: ['automation.core', 'automation.run-recovery', 'automation.source-sync', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram'],
+    features: ['automation.core', 'automation.run-recovery', 'automation.source-sync', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram', 'hubasic.options'],
   });
   assert.equal(ready.capabilities.debugger.available, true);
   assert.equal(ready.capabilities.debugger.version, 2);
