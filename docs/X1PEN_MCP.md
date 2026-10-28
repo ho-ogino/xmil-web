@@ -101,8 +101,11 @@ feature IDは完全一致する不変の契約です。現在は`automation.core
 X1Pen の HuBASIC タブのプログラムは `sourceMode: "hubasic"` の `hubasic` セクションです。ほかのセクションと同じく、`x1pen_get_program`、`x1pen_get_source`、`x1pen_search_source`、`x1pen_diff_source`、`x1pen_apply_edits`、`x1pen_set_program`、`x1pen_set_source_file` で読み書きします。
 
 - 中身は X1 のバイト列を X1Pen の文字の形にしたものです。$5C は `¥`、ほかの X1 の文字は `\{heart}` などの記号名か `\xHH` で書き、行は LF で区切ります。X1 で表せない文字は X1Pen が受け付けません。
+- X1Pen が持つのはバイト列なので、送った文字は、読み出すと決まった一つの書き方で返ります。送った形のままとは限りません（`\xB1` は `ｱ`、名前のある記号は `\{name}`）。program の hash も返ってくる形で計ります。比べるときは、自分が送った文字やローカルのファイルの hash ではなく、X1Pen から読み直した文字と比べてください（`x1pen_set_source_file` が返すファイルの SHA-256 と、入った後の hash は、もともと別の値です）。
 - hubasic モードで編集できるのは `hubasic` だけです。ほかのモードの間は `hubasic` を編集できません（`x1pen_set_program` で `sourceMode: "hubasic"` にします）。
-- 同梱のリファレンス（`x1pen_search_reference`）は HuBASIC をまだ含みません。FuzzyBASIC の文法を当てはめないでください。
+- 同梱のリファレンスに HuBASIC があります（`x1pen_search_reference` の `language: "hubasic"`）。hubasic2sl が受け付ける命令・関数と引数の形、hubasic2sl だけの決まり（`VSYNC n`、`'#VSYNC n` は変換オプションの `wait` を frame にしたときだけ効く）、`DEFCHR$` のバイトの並び（青 8 バイト → 赤 8 → 緑 8。FuzzyBASIC の `PCGDEF` とは並びが違う）、まだ無いもの、HuBASIC との違い、error の番号などです。FuzzyBASIC の文法を当てはめないでください。
+- このリファレンスは、X1Pen に入っている hubasic2sl（SLANG-compiler の決まったリビジョン）のソースと `docs/HUBASIC.md`、X1Pen 自身のコードだけから書いたものです。HuBASIC のマニュアルは元にしていません。X1Pen の HuBASIC の束（`assets/hubasic/`）を入れ替えたら、リファレンスも新しいリビジョンに合わせて見直します（`tests/x1pen_reference_test.mjs` が、見直して profile のリビジョンを書き直すまで失敗します）。
+- `x1pen_get_language_profile` は、X1Pen が HuBASIC の変換の仕組みを一度読み込んだあとは、そのリビジョン（`runtimeRevision`）もリファレンスと比べます。違えば `compatible: false` と `revisionMismatches` を返します（リファレンスが古いかもしれない、という印）。まだ読み込んでいなければ（`null`）、profile ID だけで比べます。x1pen-mcp 2.8.0 は HuBASIC の profile を持たないので、X1Pen 0.11.0 とつなぐと、いつも `compatible: false` になります。
 - 変換オプション（hubasic2sl の `--wait` など）は、すべての HuBASIC プログラムに共通の X1Pen の設定です。プログラムには含まれず、revision も変わりません。`x1pen_get_hubasic_options` で読み、`x1pen_set_hubasic_options` で変えます（`patch` に書いたキーだけ変わり、`null` で既定に戻ります。Run の準備中は `RUN_PENDING` で断られます）。この 2 つは feature `hubasic.options` が 3 コンポーネントそろったときだけ使えます。
 
 版の組み合わせ:
@@ -122,7 +125,7 @@ X1Pen の HuBASIC タブのプログラムは `sourceMode: "hubasic"` の `hubas
 | `x1pen_list_sessions` | 接続済みX1Penタブを一覧表示 |
 | `x1pen_select_session` | 旧タブのpadを解放してから操作対象タブを選択 |
 | `x1pen_get_language_profile` | 同梱言語／X1ハードウェアprofileと接続中X1Penの言語profileを確認 |
-| `x1pen_search_reference` | FuzzyBASIC / SLANG / 内蔵Z80アセンブラ / X1ハードウェアリファレンスを要約検索 |
+| `x1pen_search_reference` | FuzzyBASIC / SLANG / HuBASIC / 内蔵Z80アセンブラ / X1ハードウェアリファレンスを要約検索 |
 | `x1pen_get_reference` | 検索結果のIDを指定して詳細を上限付きで取得 |
 | `x1pen_get_program` | メタデータと明示指定した完全ソースを取得 |
 | `x1pen_get_source` | 1セクションを行範囲・文字数上限付きで取得 |

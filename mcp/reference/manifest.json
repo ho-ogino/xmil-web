@@ -1,11 +1,12 @@
 {
   "schemaVersion": 2,
-  "referenceVersion": "2026-08-10",
+  "referenceVersion": "2026-10-28",
   "defaultProfiles": {
     "fuzzybasic": "x1pen-fuzzybasic-1.2L",
     "slang": "x1pen-slang-c9e8f53-lsx",
     "z80asm": "x1pen-z80asm-current",
-    "x1": "x1-hardware-xmillennium-web"
+    "x1": "x1-hardware-xmillennium-web",
+    "hubasic": "x1pen-hubasic-x1native-slfs"
   },
   "profiles": [
     {
@@ -56,6 +57,22 @@
         "https://github.com/ho-ogino/xmil-web/tree/main/platform",
         "https://github.com/mamedev/mame/blob/master/src/mame/sharp/x1.cpp",
         "http://x1center.org/sdx1/sdx1_0.html"
+      ]
+    },
+    {
+      "id": "x1pen-hubasic-x1native-slfs",
+      "language": "hubasic",
+      "displayName": "X1Pen HuBASIC (hubasic2sl 0.1.0-alpha / x1native_slfs)",
+      "hubasic2slVersion": "0.1.0-alpha",
+      "runtimeRevision": "5abbffaa2e412f1b9792a3abc1de149908838c6b",
+      "environment": {
+        "runtime": "x1native_slfs",
+        "defaultOrg": 4096
+      },
+      "notes": "What the hubasic2sl converter and x1native runtime bundled in X1Pen accept, written only from the SLANG-compiler sources and docs/HUBASIC.md at runtimeRevision and from X1Pen's own code; it is not taken from the HuBASIC manual. It is reviewed whenever X1Pen imports another hubasic2sl bundle.",
+      "sourceUrls": [
+        "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+        "https://github.com/h-o-soft/SLANG-compiler/tree/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic"
       ]
     }
   ]
