@@ -1295,3 +1295,130 @@ test('PCG reference matches the bundled X1 runtime contract', () => {
   assert.ok(details.includes('24-byte'));
   assert.ok(details.includes('Blue, Red, Green'));
 });
+
+const HUBASIC_PROFILE = 'x1pen-hubasic-x1native-slfs';
+
+function hubasicEntries() {
+  return validateReferenceData().entries.filter((entry) => entry.language === 'hubasic');
+}
+
+test('representative Japanese and English queries reach dedicated HuBASIC entries', () => {
+  const cases = new Map([
+    ['VSYNC', 'hubasic.timing.vsync-wait'],
+    ["'#VSYNC", 'hubasic.timing.vsync-wait'],
+    ['ウェイト', 'hubasic.timing.vsync-wait'],
+    ['DEFCHR$', 'hubasic.pcg.defchr'],
+    ['PCG 定義', 'hubasic.pcg.defchr'],
+    ['PCGDEF', 'hubasic.pcg.defchr'],
+    ['LABEL', 'hubasic.flow.jumps-labels'],
+    ['CIRCLE', 'hubasic.unsupported'],
+    ['\\xHH', 'hubasic.program.text-form'],
+    ['エスケープ', 'hubasic.program.text-form'],
+    ['ジョイスティック', 'hubasic.input.keys'],
+    ['塗りつぶし', 'hubasic.graphics.line-paint'],
+    ['conversion options', 'hubasic.x1pen.run'],
+  ]);
+
+  for (const [query, expectedId] of cases) {
+    const result = searchReference({ language: 'hubasic', query, maxResults: 3 });
+    assert.equal(result.matches[0]?.id, expectedId, query);
+  }
+});
+
+test('every HuBASIC reference entry is reachable through relatedIds', () => {
+  const entries = hubasicEntries();
+  const incoming = new Map(entries.map((entry) => [entry.id, 0]));
+  for (const entry of entries) {
+    for (const relatedId of entry.relatedIds || []) {
+      if (incoming.has(relatedId)) incoming.set(relatedId, incoming.get(relatedId) + 1);
+    }
+  }
+  assert.deepEqual(
+    [...incoming].filter(([, count]) => count === 0).map(([id]) => id),
+    [],
+  );
+});
+
+// The reference describes one hubasic2sl bundle. Importing another bundle
+// (scripts/import-hubasic-bundle.mjs) fails here until the reference is reviewed and re-stamped.
+test('the HuBASIC reference is stamped with the bundled hubasic2sl revision', () => {
+  const { manifest } = validateReferenceData();
+  const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
+  const bundle = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic', current.revision, 'manifest.json'), 'utf8'));
+  const profile = manifest.profiles.find((candidate) => candidate.id === HUBASIC_PROFILE);
+  assert.ok(profile, 'manifest must declare the HuBASIC profile X1Pen reports');
+  assert.equal(manifest.defaultProfiles.hubasic, HUBASIC_PROFILE);
+  assert.equal(profile.runtimeRevision, current.revision,
+    'assets/hubasic changed: review mcp/reference/hubasic.json against the new hubasic2sl, then update runtimeRevision and sourceUrls');
+  assert.equal(profile.runtimeRevision, bundle.slangCompilerRevision);
+  assert.equal(profile.hubasic2slVersion, bundle.hubasic2slVersion);
+  assert.match(readFileSync(join(repoRoot, 'html/x1pen.js'), 'utf8'), new RegExp(`id: '${HUBASIC_PROFILE}'`));
+
+  for (const entry of hubasicEntries()) {
+    assert.deepEqual(entry.profiles, [HUBASIC_PROFILE], entry.id);
+    const slangUrls = entry.sourceUrls.filter((url) => url.includes('/h-o-soft/SLANG-compiler/'));
+    assert.ok(slangUrls.length > 0, `${entry.id}: must name the SLANG-compiler source it was written from`);
+    for (const url of slangUrls) assert.ok(url.includes(`/${current.revision}/`), `${entry.id}: ${url}`);
+  }
+});
+
+test('every HuBASIC catalog word is a keyword string of the bundled converter', () => {
+  const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
+  const converter = readFileSync(join(repoRoot, 'assets/hubasic', current.revision, '_framework/hubasic2sl-wasm.wasm'));
+  const [catalog] = getReferenceEntries({ ids: ['hubasic.keywords.catalog'] }).entries;
+  const groups = catalog.syntax.map((line) => line.slice(line.indexOf(':') + 1).trim().split(/\s+/));
+  const grouped = groups.flat();
+  // MID$ and TIME are both a statement and a function; every other word has one group
+  assert.deepEqual(grouped.filter((word, index) => grouped.indexOf(word) !== index).sort(), ['MID$', 'TIME']);
+  assert.deepEqual([...new Set(grouped)].sort(), [...catalog.symbols].sort());
+  for (const word of catalog.symbols) {
+    // .NET keeps string literals as UTF-16; POKE@/PEEK@ are POKE/PEEK plus '@' in the lexer
+    const literal = word.replace(/@$/, '');
+    assert.ok(converter.includes(Buffer.from(literal, 'utf16le')), `${word} is not in hubasic2sl-wasm.wasm`);
+  }
+
+  const dedicated = new Set(hubasicEntries()
+    .filter((entry) => entry.kind !== 'catalog')
+    .flatMap((entry) => entry.symbols));
+  const [statements, noop, functions] = groups;
+  assert.deepEqual([...statements, ...noop, ...functions].filter((word) => !dedicated.has(word)), []);
+});
+
+test('HuBASIC DEFCHR$ reference matches the bundled runtime byte order', () => {
+  const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
+  const runtime = readFileSync(join(repoRoot, 'assets/hubasic', current.revision, 'runtime/libx1_basic.asm'), 'utf8');
+  const routine = runtime.slice(runtime.indexOf('; @name BAS_DEFCHR'), runtime.indexOf('; @name BAS_SCGPAT'));
+  assert.match(routine, /青 8・赤 8・緑 8 の面ごとの並び/);
+  assert.match(routine, /PCGDEF が受け取る「行ごとに青・赤・緑」の並びに組み替えて書く/);
+  assert.match(routine, /p\*8\+r\) を、先 r\*3\+p へ/);
+
+  const [defchr] = getReferenceEntries({ ids: ['hubasic.pcg.defchr'] }).entries;
+  assert.match(defchr.summary, /8 blue rows, then 8 red rows, then 8 green rows/);
+  assert.match(defchr.summary, /blue 16, red 16, green 16/);
+  assert.match(defchr.summary, /PCGDEF/);
+  assert.ok(defchr.relatedIds.includes('fuzzybasic.x1.pcg-definition'));
+});
+
+test('HuBASIC VSYNC reference matches the converter wait contract', () => {
+  const [entry] = getReferenceEntries({ ids: ['hubasic.timing.vsync-wait'] }).entries;
+  const text = JSON.stringify(entry);
+  assert.match(entry.summary, /VSYNC \[n\]/);
+  assert.match(entry.summary, /'#VSYNC n waits n frames only when the X1Pen HuBASIC option wait is frame mode/);
+  // The example tool calls use values x1pen_set_hubasic_options accepts
+  const options = loadBrowserGlobal('html/x1pen_hubasic_options.js', 'X1PenHuBasicOptions');
+  for (const match of text.matchAll(/\\"wait\\":\\"([^\\"]+)\\"/g)) {
+    assert.doesNotThrow(() => options.apply(options.defaults(), { wait: match[1] }), match[1]);
+  }
+  assert.match(text, /frame:1/);
+});
+
+test('HuBASIC INIT reference keeps the screen width, as the bundled runtime does', () => {
+  const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
+  const runtime = readFileSync(join(repoRoot, 'assets/hubasic', current.revision, 'runtime/libx1_basic.asm'), 'utf8');
+  const routine = runtime.slice(runtime.indexOf('; @name BAS_INIT2'), runtime.indexOf('; @name BAS_SETPAL'));
+  assert.match(routine, /INIT 文: 色・表示モード・装飾を戻す \(WIDTH は戻さない\)/);
+  assert.match(routine, /JP BAS_INITSTATE/);
+  const [screen] = getReferenceEntries({ ids: ['hubasic.text.screen'] }).entries;
+  assert.ok(screen.notes.some((note) => /INIT .*keeps the screen width/.test(note)));
+  assert.ok(!JSON.stringify(screen).includes('WIDTH 40, default palette'));
+});

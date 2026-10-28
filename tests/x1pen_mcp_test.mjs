@@ -14,6 +14,7 @@ import {
 } from '../mcp/x1pen-compatibility.mjs';
 import { createX1PenMcpServer, parseAllowedSourceRootArgs } from '../mcp/x1pen-server.mjs';
 import { sourceIdentities } from '../mcp/x1pen-source-sync.mjs';
+import { getReferenceManifest } from '../mcp/x1pen-reference.mjs';
 
 const initialProgram = {
   sourceMode: 'basic+asm',
@@ -37,6 +38,10 @@ let beforeGetProgram;
 let selectedSessionId;
 let sourceRoot;
 let hubasicOptions;
+let reportedHubasicProfile;
+// The HuBASIC runtime revision the bundled reference was written for (X1Pen reports it once loaded)
+const HUBASIC_REVISION = getReferenceManifest().profiles
+  .find((profile) => profile.id === 'x1pen-hubasic-x1native-slfs').runtimeRevision;
 
 const FULL_FEATURES = [
   'automation.core', 'automation.run-recovery', 'automation.source-sync',
@@ -204,6 +209,7 @@ const fakeBridge = {
         languageProfiles: {
           fuzzybasic: { id: 'x1pen-fuzzybasic-1.2L' },
           slang: { id: 'x1pen-slang-c9e8f53-lsx' },
+          ...(reportedHubasicProfile ? { hubasic: clone(reportedHubasicProfile) } : {}),
         },
       };
     }
@@ -298,6 +304,7 @@ beforeEach(() => {
   beforeGetProgram = null;
   selectedSessionId = 'tab-a';
   hubasicOptions = { wait: 'none', noLineNumbers: false, assumeDefint: false, stringLen: 255, dataBudget: 24576 };
+  reportedHubasicProfile = { id: 'x1pen-hubasic-x1native-slfs', runtimeRevision: HUBASIC_REVISION };
 });
 
 after(async () => {
@@ -666,14 +673,66 @@ test('language profile reports bundled data and connected X1Pen compatibility', 
   const result = await client.callTool({ name: 'x1pen_get_language_profile', arguments: {} });
   const profile = jsonContent(result);
   assert.equal(profile.schemaVersion, 2);
-  assert.equal(profile.profiles.length, 4);
+  assert.equal(profile.profiles.length, 5);
   assert.equal(profile.active.id, 'x1pen-fuzzybasic-1.2L');
   assert.equal(profile.profiles[0].environment, 'SHARP X1 / LSX-Dodgers');
   assert.equal(profile.reportedProfiles.slang.id, 'x1pen-slang-c9e8f53-lsx');
   assert.equal(profile.defaultProfiles.x1, 'x1-hardware-xmillennium-web');
   assert.equal(profile.defaultProfiles.z80asm, 'x1pen-z80asm-current');
+  assert.equal(profile.defaultProfiles.hubasic, 'x1pen-hubasic-x1native-slfs');
+  assert.equal(profile.reportedProfiles.hubasic.id, 'x1pen-hubasic-x1native-slfs');
   assert.equal(profile.compatible, true);
+  assert.equal(profile.revisionMismatches, undefined);
   assert.equal(calls.at(-1).method, 'getStatus');
+});
+
+test('language profile compares the HuBASIC runtime revision once X1Pen reports it', async () => {
+  const profileFor = async () => jsonContent(await client.callTool({ name: 'x1pen_get_language_profile', arguments: {} }));
+
+  // Not loaded yet: the ID alone decides
+  reportedHubasicProfile = { id: 'x1pen-hubasic-x1native-slfs', runtimeRevision: null };
+  assert.equal((await profileFor()).compatible, true);
+
+  // Another hubasic2sl bundle: the reference may be stale
+  reportedHubasicProfile = { id: 'x1pen-hubasic-x1native-slfs', runtimeRevision: '0123456789abcdef0123456789abcdef01234567' };
+  const mismatch = await profileFor();
+  assert.equal(mismatch.compatible, false);
+  assert.deepEqual(mismatch.revisionMismatches, [{
+    language: 'hubasic',
+    reported: '0123456789abcdef0123456789abcdef01234567',
+    bundled: HUBASIC_REVISION,
+  }]);
+
+  // An X1Pen without the HuBASIC tab reports no hubasic profile
+  reportedHubasicProfile = null;
+  assert.equal((await profileFor()).compatible, true);
+
+  // An unknown profile ID is still incompatible
+  reportedHubasicProfile = { id: 'x1pen-hubasic-future', runtimeRevision: null };
+  const unknown = await profileFor();
+  assert.equal(unknown.compatible, false);
+  assert.equal(unknown.revisionMismatches, undefined);
+});
+
+test('the HuBASIC reference is searchable and the tools describe HuBASIC read-back spelling', async () => {
+  const search = jsonContent(await client.callTool({
+    name: 'x1pen_search_reference',
+    arguments: { language: 'hubasic', query: 'VSYNC' },
+  }));
+  assert.equal(search.matches[0].id, 'hubasic.timing.vsync-wait');
+  assert.ok(search.matches.every((match) => match.language === 'hubasic'));
+
+  const instructions = client.getInstructions();
+  assert.match(instructions, /Search the bundled HuBASIC reference \(language hubasic\)/);
+  assert.match(instructions, /read back spelled differently/);
+  assert.doesNotMatch(instructions, /does not cover HuBASIC/);
+
+  const tools = new Map((await client.listTools()).tools.map((tool) => [tool.name, tool]));
+  assert.match(tools.get('x1pen_set_program').description, /HuBASIC text is stored as X1 bytes and read back in one spelling/);
+  assert.match(tools.get('x1pen_set_source_file').description, /read-back spelling/);
+  assert.match(tools.get('x1pen_search_reference').description, /HuBASIC/);
+  assert.match(tools.get('x1pen_get_language_profile').description, /HuBASIC/);
+  assert.ok(tools.get('x1pen_search_reference').inputSchema.properties.language.enum.includes('hubasic'));
 });
 
 test('get_program defaults to metadata only and excludes generated ASM', async () => {

@@ -3013,6 +3013,130 @@ test('HuBASIC Run converts, compiles and cold-boots a disk image through the IPL
   await textVramContains('HUBASIC OK 4.5');
 });
 
+const HUBASIC_REFERENCE = JSON.parse(readFileSync(join(projectRoot, 'mcp', 'reference', 'hubasic.json'), 'utf8'));
+
+async function validateHuBasic(source) {
+  await setHuBasicProgram(source);
+  return page.evaluate(() => window.X1PenAutomation.validate());
+}
+
+test('every example in the bundled HuBASIC reference converts, compiles and assembles', { timeout: 300_000 }, async () => {
+  const examples = HUBASIC_REFERENCE.flatMap((entry) => (entry.examples || []).map((example) => ({ entry, example })));
+  assert.ok(examples.length >= 20);
+  try {
+    for (const { entry, example } of examples) {
+      // The VSYNC entry describes both pacing styles, so its examples must hold with the wait options it names
+      const waits = entry.id === 'hubasic.timing.vsync-wait' ? ['none', 'frame:1'] : ['none'];
+      for (const wait of waits) {
+        await page.evaluate((value) => window.X1PenAutomation.setHuBasicOptions({ wait: value }), wait);
+        const validation = await validateHuBasic(example.source);
+        assert.equal(validation.ok, true, `${entry.id} / ${example.title} (wait ${wait}): ${JSON.stringify(validation.diagnostics)}`);
+        assert.deepEqual(validation.diagnostics.filter((d) => d.severity === 'error'), []);
+      }
+    }
+  } finally {
+    await page.evaluate(() => window.X1PenAutomation.setHuBasicOptions({ wait: null }));
+  }
+});
+
+test('the HuBASIC reference names the code hubasic2sl gives each unsupported word', { timeout: 120_000 }, async () => {
+  const [unsupported] = HUBASIC_REFERENCE.filter((entry) => entry.id === 'hubasic.unsupported');
+  const documented = [unsupported.summary, ...unsupported.syntax, ...unsupported.notes].join('\n');
+  const cases = [
+    ['CIRCLE', 'HB0301', '10 CIRCLE (10,10),5'],
+    ['PSET', 'HB0301', '10 PSET (1,1)'],
+    ['DEF FN', 'HB0301', '10 DEF FNA(X)=X'],
+    ['ERASE', 'HB0301', '10 ERASE A'],
+    ['CLEAR', 'HB0301', '10 CLEAR'],
+    ['LOADM', 'HB0301', '10 LOADM "X"'],
+    ['RUN "file"', 'HB0301', '10 RUN "X"'],
+    ['OPEN', 'HB0301', '10 OPEN "X" FOR INPUT AS #1'],
+    ['CREV', 'HB0301', '10 CREV 1'],
+    ['GOTO A$', 'HB0301', '10 GOTO A$'],
+    ['RESTORE "name"', 'HB0301', '10 RESTORE "X"'],
+    ['PAINT without a color', 'HB0301', '10 PAINT (1,1)'],
+    ['USR', 'HB0302', '10 A=USR(0)'],
+    ['TIME$', 'HB0302', '10 A$=TIME$'],
+    ['OCT$', 'HB0302', '10 A$=OCT$(8)'],
+    ['BIN$', 'HB0302', '10 A$=BIN$(8)'],
+    ['POINT', 'HB0302', '10 A=POINT(1,1)'],
+    ['ON ERROR', 'HB0302', '10 ON ERROR GOTO 100'],
+    ['DIM A(2,2)', 'HB0303', '10 DIM A(2,2)'],
+    ['LINE -(x,y)', 'HB0203', '10 LINE -(10,10),PSET'],
+  ];
+  for (const [word, code, source] of cases) {
+    assert.ok(documented.includes(word), `hubasic.unsupported must mention ${word}`);
+    assert.ok(documented.includes(code), `hubasic.unsupported must mention ${code}`);
+    const validation = await validateHuBasic(source);
+    assert.equal(validation.ok, false, source);
+    const errors = validation.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
+    assert.ok(errors.some((message) => message.includes(`error ${code} `)), `${source}: ${JSON.stringify(errors)}`);
+  }
+});
+
+test('HuBASIC INIT keeps WIDTH 80, as the reference says', { timeout: 120_000 }, async () => {
+  // Column 79 exists only in 80 columns; LOCATE outside the width is error 5
+  await setHuBasicProgram('10 WIDTH 80\n20 INIT\n30 LOCATE 79,0:PRINT "W";\n40 LOCATE 0,1:PRINT "INIT80"\n50 GOTO 50\n');
+  const run = await page.evaluate(() => window.X1PenAutomation.run());
+  assert.equal(run.ok, true, JSON.stringify(run));
+  await textVramContains('INIT80');
+  const column79 = await page.evaluate(() =>
+    window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 79, length: 1 }).bytes[0]);
+  assert.equal(column79, 'W'.charCodeAt(0));
+});
+
+test('HuBASIC DEFCHR$ takes the blue, red and green planes in turn, as the reference says', { timeout: 120_000 }, async () => {
+  // One plane full and the other two empty: a plane-major reading shows one solid color, while
+  // PCGDEF's row-by-row order would spread the bytes over all three planes (stripes)
+  await setHuBasicProgram([
+    '10 CLS',
+    '20 DEFCHR$(128)=HEXCHR$("FFFFFFFFFFFFFFFF"+"0000000000000000"+"0000000000000000")',
+    '30 DEFCHR$(129)=HEXCHR$("0000000000000000"+"FFFFFFFFFFFFFFFF"+"0000000000000000")',
+    '40 DEFCHR$(130)=HEXCHR$("0000000000000000"+"0000000000000000"+"FFFFFFFFFFFFFFFF")',
+    '50 CGEN 1',
+    '60 LOCATE 0,0:PRINT CHR$(128);CHR$(129);CHR$(130);',
+    '70 CGEN 0',
+    '80 GOTO 80',
+    '',
+  ].join('\n'));
+  const run = await page.evaluate(() => window.X1PenAutomation.run());
+  assert.equal(run.ok, true, JSON.stringify(run));
+  await page.waitForFunction(() => {
+    const debug = window.X1PenAutomation.debugger;
+    const text = debug.readVram({ region: 'text', offset: 0, length: 3 }).bytes;
+    const attr = debug.readVram({ region: 'attribute', offset: 0, length: 3 }).bytes;
+    return text.join() === '128,129,130' && attr.every((value) => (value & 0x20) !== 0);
+  }, null, { timeout: 30_000 });
+  await page.waitForTimeout(200);
+  const cells = await page.evaluate(async () => {
+    const image = new Image();
+    image.src = window.X1PenAutomation.captureScreen();
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    const cellWidth = image.width / 40;
+    const cellHeight = image.height / 25;
+    // Every pixel of each cell, as the set of distinct RGB values
+    return [0, 1, 2].map((cell) => {
+      const data = context.getImageData(cell * cellWidth, 0, cellWidth, cellHeight).data;
+      const colors = new Set();
+      for (let i = 0; i < data.length; i += 4) colors.add(`${data[i]},${data[i + 1]},${data[i + 2]}`);
+      return [...colors];
+    });
+  });
+  const solid = (colors, name) => {
+    assert.equal(colors.length, 1, `${name} cell must be one solid color: ${JSON.stringify(colors)}`);
+    return colors[0].split(',').map(Number);
+  };
+  const [blue, red, green] = [solid(cells[0], 'blue'), solid(cells[1], 'red'), solid(cells[2], 'green')];
+  assert.ok(blue[2] > 128 && blue[0] < 64 && blue[1] < 64, `blue ${blue}`);
+  assert.ok(red[0] > 128 && red[1] < 64 && red[2] < 64, `red ${red}`);
+  assert.ok(green[1] > 128 && green[0] < 64 && green[2] < 64, `green ${green}`);
+});
+
 test('HuBASIC conversion errors stop Run before the disk is touched', { timeout: 60_000 }, async () => {
   await setHuBasicProgram('10 PRINT "A"\n20 CIRCLE (10,10),5\n');
   const result = await page.evaluate(async () => {
@@ -4505,6 +4629,13 @@ test('x1pen-mcp reads, edits and runs HuBASIC programs and sets their options th
     const run = (await mcp.call('x1pen_run', { waitMs: 0 })).value;
     assert.equal(run.ok, true, JSON.stringify(run));
     await textVramContains('EDITED');
+
+    // The real X1Pen reports a HuBASIC profile; the bundled reference covers it and its runtime
+    const profile = (await mcp.call('x1pen_get_language_profile')).value;
+    const bundleRevision = JSON.parse(readFileSync(join(projectRoot, 'assets', 'hubasic', 'current.json'), 'utf8')).revision;
+    assert.equal(profile.reportedProfiles.hubasic.runtimeRevision, bundleRevision);
+    assert.ok(profile.profiles.some((bundled) => bundled.id === profile.reportedProfiles.hubasic.id));
+    assert.equal(profile.compatible, true, JSON.stringify(profile.revisionMismatches));
 
     // The options are one X1Pen setting: changing them is no program change
     const changed = await mcp.call('x1pen_set_hubasic_options', { patch: { wait: 'line:2', noLineNumbers: true } });

@@ -37,7 +37,7 @@ const MAX_SOURCE_LENGTH = 512 * 1024;
 const DEFAULT_RANGE_CHARACTERS = 32 * 1024;
 const MAX_RANGE_CHARACTERS = 128 * 1024;
 const SOURCE_MODES = ['basic+asm', 'asm', 'slang', 'hubasic'];
-const REFERENCE_LANGUAGES = ['fuzzybasic', 'slang', 'z80asm', 'x1'];
+const REFERENCE_LANGUAGES = ['fuzzybasic', 'slang', 'z80asm', 'x1', 'hubasic'];
 const REFERENCE_KINDS = [
   'syntax', 'runtime', 'x1-extension', 'catalog', 'library', 'profile', 'limits',
   'architecture', 'memory', 'video', 'io',
@@ -67,14 +67,14 @@ const X1PEN_KEY_CODES = Object.freeze([
 ]);
 const X1PEN_KEY_CODE_SET = new Set(X1PEN_KEY_CODES);
 const SERVER_INSTRUCTIONS = [
-  'X1Pen FuzzyBASIC, SLANG and the built-in Z80 assembler have implementation-specific contracts. Do not infer syntax or APIs from ordinary BASIC, C, another SLANG release or a different assembler.',
+  'X1Pen FuzzyBASIC, HuBASIC (hubasic2sl), SLANG and the built-in Z80 assembler have implementation-specific contracts. Do not infer syntax or APIs from ordinary BASIC, C, another SLANG release or a different assembler.',
   'The X1 has separate CPU-memory, I/O-port and video-memory spaces. Before direct memory, port, bank or VRAM work, search the bundled x1 hardware reference instead of inferring another machine architecture.',
   'Before writing or substantially editing a program, call x1pen_get_language_profile, search the bundled reference with x1pen_search_reference, and fetch only the needed IDs with x1pen_get_reference.',
   'After editing, call x1pen_validate. Run and inspect the visible emulator when behavior must be confirmed.',
   'x1pen_set_program is a complete replacement: sections inactive for sourceMode are cleared even when supplied. Use x1pen_apply_edits for bounded edits within the current mode.',
   'Before sending a replacement, treat it as large asset-like only when it embeds substantially all of a known asset of at least 8 KiB, or has at least 8,192 byte literals in table-like runs covering at least 50% of its non-whitespace text; source length alone never triggers this rule. Before explicit user approval, do not read, re-emit, or split that data through the model. Offer ASM: the existing Import button for DB lines; SLANG: the existing Import button inserts array values at the cursor, or use Disk Editor plus MAGLOAD/FOPEN/FREAD; BASIC: Disk Editor plus BLOAD or the applicable file workflow. Do not suggest local UTF-8 source-file sync unless available and user-configured, and then only for a complete prepared source section, not raw binary or a fragment. After approval, prefer one write and split only if the client output limit requires it.',
   'Use x1pen_set_source_file for a local UTF-8 source only when the user configured an allowed source root. The tool returns hashes and metadata, never the local path or source text.',
-  'In sourceMode hubasic the hubasic section is the HuBASIC program as X1 bytes in X1Pen text form: ¥ for $5C, \\{name} or \\xHH for other X1 characters, LF between lines. The bundled reference does not cover HuBASIC; do not assume FuzzyBASIC syntax. Its hubasic2sl conversion options are one setting for every HuBASIC program, read and changed with x1pen_get_hubasic_options and x1pen_set_hubasic_options, not part of the program or its revision.',
+  'In sourceMode hubasic the hubasic section is the HuBASIC program as X1 bytes in X1Pen text form: ¥ for $5C, \\{name} or \\xHH for other X1 characters, LF between lines. X1Pen stores bytes, so text you write may be read back spelled differently (\\xB1 as ｱ, a named byte as \\{name}); program hashes describe the read-back text, so compare with text read back from X1Pen, not with your input or a local file hash. Search the bundled HuBASIC reference (language hubasic) for what hubasic2sl accepts, such as VSYNC and DEFCHR$; do not assume FuzzyBASIC syntax. Its hubasic2sl conversion options are one setting for every HuBASIC program, read and changed with x1pen_get_hubasic_options and x1pen_set_hubasic_options, not part of the program or its revision.',
   'For SLANG, validation output.generatedAsmLines and asmBytes describe temporary compilation output only. Validation does not store generated ASM in the program; Run does.',
   'Prefer bounded source and reference tools so generated ASM and unrelated manual sections do not consume context.',
   'Retain revisionEpoch when offered, revision and authoringHash together. Inspect writeGuard on every source result: revision-epoch is reload-safe, while revision-only is a visible compatibility fallback. On a source conflict, compare before retrying; never replace only the revision and blindly resend stale source.',
@@ -887,7 +887,7 @@ export function createX1PenMcpServer(options = {}) {
   )));
 
   server.registerTool('x1pen_get_language_profile', {
-    description: 'Call before generating nontrivial code. Lists the bundled FuzzyBASIC, SLANG, built-in Z80 assembler and X1 hardware profiles and, when connected, compares language profiles with those reported by X1Pen.',
+    description: 'Call before generating nontrivial code. Lists the bundled FuzzyBASIC, SLANG, HuBASIC, built-in Z80 assembler and X1 hardware profiles and, when connected, compares language profiles with those reported by X1Pen (including the HuBASIC runtime revision once X1Pen has loaded it).',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       includeActive: z.boolean().default(true)
@@ -917,11 +917,25 @@ export function createX1PenMcpServer(options = {}) {
       .map((profile) => profile && profile.id)
       .filter(Boolean);
     result.compatible = activeIds.every((id) => bundledIds.has(id));
+    // A profile ID that does not name a revision (HuBASIC) is checked against the revision X1Pen
+    // reports once it has loaded that runtime; null means not loaded yet and is not a mismatch.
+    const revisionMismatches = [];
+    for (const [language, reported] of Object.entries(status.languageProfiles)) {
+      const bundled = reported && manifest.profiles.find((profile) => profile.id === reported.id);
+      if (bundled && bundled.runtimeRevision && typeof reported.runtimeRevision === 'string'
+          && reported.runtimeRevision !== bundled.runtimeRevision) {
+        revisionMismatches.push({ language, reported: reported.runtimeRevision, bundled: bundled.runtimeRevision });
+      }
+    }
+    if (revisionMismatches.length > 0) {
+      result.compatible = false;
+      result.revisionMismatches = revisionMismatches;
+    }
     return textResult(result);
   }));
 
   server.registerTool('x1pen_search_reference', {
-    description: 'Search the bundled X1Pen-specific FuzzyBASIC, SLANG, built-in Z80 assembler and X1 hardware reference before assuming syntax, APIs, memory maps or I/O behavior. Returns compact summaries and stable IDs; use x1pen_get_reference for selected details.',
+    description: 'Search the bundled X1Pen-specific FuzzyBASIC, SLANG, HuBASIC (hubasic2sl), built-in Z80 assembler and X1 hardware reference before assuming syntax, APIs, memory maps or I/O behavior. Returns compact summaries and stable IDs; use x1pen_get_reference for selected details.',
     inputSchema: {
       query: z.string().min(1).max(1_024),
       language: z.enum(REFERENCE_LANGUAGES).optional(),
@@ -959,7 +973,7 @@ export function createX1PenMcpServer(options = {}) {
   }));
 
   server.registerTool('x1pen_set_program', {
-    description: 'Replace the complete program when its revision guard still matches. Sources inactive for sourceMode are cleared even when supplied; use apply_edits to preserve the other active authoring section. Before embedding a large generated byte table, follow the server large-asset guidance; ordinary long code alone does not trigger it. expectedRevisionEpoch is required when all connected components support reload-safe source sync; older peers visibly degrade to numeric revision guarding.',
+    description: 'Replace the complete program when its revision guard still matches. Sources inactive for sourceMode are cleared even when supplied; use apply_edits to preserve the other active authoring section. Before embedding a large generated byte table, follow the server large-asset guidance; ordinary long code alone does not trigger it. expectedRevisionEpoch is required when all connected components support reload-safe source sync; older peers visibly degrade to numeric revision guarding. HuBASIC text is stored as X1 bytes and read back in one spelling (\\xB1 comes back as ｱ), so the returned hashes describe the read-back text.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       expectedRevision: z.number().int().min(0),
@@ -987,7 +1001,7 @@ export function createX1PenMcpServer(options = {}) {
   }));
 
   server.registerTool('x1pen_set_source_file', {
-    description: 'Replace one editable source section from a local UTF-8 file under an explicitly configured allowed source root. The file content and host path are never returned. The same revision/epoch guard as other source writes applies.',
+    description: 'Replace one editable source section from a local UTF-8 file under an explicitly configured allowed source root. The file content and host path are never returned. The same revision/epoch guard as other source writes applies. For HuBASIC the stored section hash describes X1Pen\'s read-back spelling of the bytes, so it can differ from the raw file SHA-256.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       path: z.string().min(1).max(4_096),

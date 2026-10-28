@@ -12,6 +12,12 @@
 // uncommitted sources (manifest dirty: true) is refused unless --allow-dirty is given for local
 // experiments. Never commit such a bundle. Every copied file is checked against the manifest's
 // sha256. Pre-compressed copies (*.br, *.gz) are skipped; the server compresses on the fly.
+//
+// The x1pen-mcp HuBASIC reference (mcp/reference/hubasic.json) describes one bundle revision.
+// After importing another one, review it against that revision's hubasic2sl sources and
+// docs/HUBASIC.md (never the HuBASIC manual), then update runtimeRevision and hubasic2slVersion
+// of its profile in mcp/reference/manifest.json and the revision in its sourceUrls;
+// tests/x1pen_reference_test.mjs fails until then.
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -121,3 +127,4 @@ for (const testCase of testdata.cases) {
 }
 await writeFile(join(fixtureDir, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);
 console.log(`import-hubasic-bundle: assets/hubasic/${revision} is current (hubasic2sl ${manifest.hubasic2slVersion}, BAS_ABI ${manifest.basAbi}, dirty ${manifest.dirty}); ${testdata.cases.length} fixtures`);
+console.log('import-hubasic-bundle: now review mcp/reference/hubasic.json for this revision (see the note at the top of this script)');

@@ -64,7 +64,9 @@ Source validation failures are structured: `EDIT_RANGE_INVALID`, `EDITS_OVERLAP`
 
 ### HuBASIC (experimental)
 
-X1Pen's HuBASIC tab is `sourceMode: "hubasic"` with one authoring section, `hubasic`, which every source tool reads and writes like the others. Its text is the program's X1 bytes in X1Pen text form: `¥` for $5C, `\{name}` or `\xHH` for other X1 characters, LF between lines. Only `hubasic` is editable in hubasic mode, and `hubasic` is not editable in the other modes. The bundled reference does not cover HuBASIC yet.
+X1Pen's HuBASIC tab is `sourceMode: "hubasic"` with one authoring section, `hubasic`, which every source tool reads and writes like the others. Its text is the program's X1 bytes in X1Pen text form: `¥` for $5C, `\{name}` or `\xHH` for other X1 characters, LF between lines. Only `hubasic` is editable in hubasic mode, and `hubasic` is not editable in the other modes. X1Pen stores the bytes, so text is read back in one spelling that may differ from what was written (`\xB1` comes back as `ｱ`, a named byte as `\{name}`); program hashes describe the read-back text, so compare with text read back from X1Pen rather than with your input or a local file hash.
+
+The bundled reference covers HuBASIC (`language: "hubasic"` in `x1pen_search_reference`): the statements, functions and argument forms hubasic2sl accepts, its own rules (`VSYNC n`; `'#VSYNC n` only works with the `wait` option in frame mode), the `DEFCHR$` byte order (8 blue bytes, then 8 red, then 8 green, unlike FuzzyBASIC `PCGDEF`), unsupported words, known differences from HuBASIC and the HB diagnostic codes. It is written only from the hubasic2sl sources and `docs/HUBASIC.md` at the SLANG-compiler revision X1Pen bundles, and from X1Pen's own code; it is not based on the HuBASIC manual. When X1Pen imports another HuBASIC bundle, the reference is reviewed for that revision (`tests/x1pen_reference_test.mjs` fails until its profile is re-stamped). Once X1Pen has loaded its HuBASIC toolchain, `x1pen_get_language_profile` also compares the reported `runtimeRevision` with the reference and reports `compatible: false` with `revisionMismatches` when they differ. x1pen-mcp 2.8.0 has no HuBASIC profile, so with X1Pen 0.11.0 it always reports `compatible: false`.
 
 The hubasic2sl conversion options are one X1Pen setting for every HuBASIC program, not part of the program or its revision: `x1pen_get_hubasic_options` reads them and `x1pen_set_hubasic_options` changes the keys named in `patch` (`null` resets a key to its default). They need `hubasic.options` from all three components. X1Pen Connector 1.3.0 already passes HuBASIC programs through, but not the option commands (`FEATURE_UNAVAILABLE`, component `connector`, `requiredVersion` 1.4.0). With an X1Pen that has no HuBASIC tab, HuBASIC reads report `SOURCE_CONTENT_UNAVAILABLE`, a HuBASIC `x1pen_set_program` reports `SOURCE_MODE_UNSUPPORTED` before writing, and the other modes behave and hash as before. x1pen-mcp 2.7.x does not know the mode: while X1Pen holds a HuBASIC program its source tools fail with `invalid source mode`.
 
@@ -99,7 +101,7 @@ The debugger tools expose named CPU/video state, pause/resume, bounded multi-ste
 The reference tools work before browser pairing because the data is bundled in this package:
 
 - `x1pen_get_language_profile` lists the bundled profiles and compares them with a connected X1Pen version.
-- `x1pen_search_reference` returns short summaries and stable reference IDs.
+- `x1pen_search_reference` returns short summaries and stable reference IDs for FuzzyBASIC, SLANG, HuBASIC, the built-in Z80 assembler and the X1 hardware.
 - `x1pen_get_reference` returns full details only for selected IDs, with a response-size limit.
 
 Search first and fetch only the entries needed for the current program. This avoids putting a complete language manual into the model context.

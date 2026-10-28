@@ -1,0 +1,1699 @@
+[
+  {
+    "id": "hubasic.program.text-form",
+    "language": "hubasic",
+    "kind": "syntax",
+    "title": "HuBASIC program text in X1Pen: X1 bytes, escapes and read-back spelling",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "\\xHH",
+      "\\{name}",
+      "¥",
+      "sourceMode hubasic",
+      "contentHash"
+    ],
+    "aliases": [
+      "text form",
+      "escape",
+      "escapes",
+      "X1 character code",
+      "named symbol",
+      "normalization",
+      "read back",
+      "hash mismatch",
+      "エスケープ",
+      "文字コード",
+      "記号名",
+      "正規化",
+      "読み直し",
+      "ハッシュ"
+    ],
+    "summary": "X1Pen keeps a HuBASIC program as X1 bytes. Tools exchange it as text: ASCII as is, $A1-$DF as half-width kana, named X1 characters as \\{name}, other bytes as \\xHH, $5C as ¥, LF between lines. Text is always read back in that one spelling, so what you wrote may come back spelled differently, and program hashes describe the read-back text.",
+    "syntax": [
+      "10 PRINT \"ｱｲｳ\"            half-width kana are bytes $B1 $B2 $B3",
+      "20 PRINT \"\\{heart}\"        a named X1 character",
+      "30 PRINT CHR$(28)          control codes are usually clearer as CHR$()",
+      "\\xHH                       any other byte (two hex digits)",
+      "¥                          the byte $5C (X1 shows it as ¥); write \\\\ only where an escape form is required"
+    ],
+    "notes": [
+      "Writing accepts \\xHH, \\{name}, \\\\, ¥, half-width kana, hiragana and the named symbols X1 BASIC Editor knows. Characters the X1 cannot show are refused and nothing is changed.",
+      "Reading always produces the same spelling for the same bytes: \\xB1 is read back as ｱ, and a byte that has a name is read back as \\{name}. Do not compare your own input text, or a local file hash, with X1Pen hashes; read the program back (x1pen_get_source or x1pen_get_program) and compare with that.",
+      "x1pen_set_source_file reports the raw file SHA-256 and the hash of the stored section; they differ by design when the file used another spelling or CRLF.",
+      "Lines are separated by LF in tool text and stored with CRLF in the program bytes.",
+      "The hubasic section is editable only in sourceMode hubasic; switch with x1pen_set_program."
+    ],
+    "examples": [
+      {
+        "title": "Kana and a named symbol",
+        "source": "10 CLS\n20 PRINT \"ｺﾝﾆﾁﾊ \\{heart}\"\n30 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.program.structure",
+      "hubasic.x1pen.run"
+    ],
+    "sourceUrls": [
+      "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_text.js",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md"
+    ]
+  },
+  {
+    "id": "hubasic.program.structure",
+    "language": "hubasic",
+    "kind": "syntax",
+    "title": "Program lines, statement separators, comments and reserved words",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "line number",
+      ":",
+      "'",
+      "REM",
+      "LET",
+      "?"
+    ],
+    "aliases": [
+      "program line",
+      "statement separator",
+      "comment",
+      "reserved word",
+      "keyword",
+      "case",
+      "行番号",
+      "区切り",
+      "コメント",
+      "予約語"
+    ],
+    "summary": "Every line starts with a line number from 1 to 65529. Statements are separated by colons, and a colon may be left out where the previous statement has clearly ended. Comments start with an apostrophe or REM. Keywords are matched case-insensitively by longest match, so a variable name must not start with a reserved word.",
+    "syntax": [
+      "10 A=1:B=2            colon separator",
+      "20 COLOR 4 LOCATE 0,2 PRINT \"A\"   colon left out after a finished statement",
+      "30 ' comment          or REM comment",
+      "40 LET A=1            LET is optional: A=1",
+      "50 ? A                ? is PRINT"
+    ],
+    "notes": [
+      "A line may hold at most 255 characters (HB0104). A missing line number is HB0201; an out-of-range one is HB0108.",
+      "The colon may be omitted only where the statement before it has finished (A=1 B=2). Where a statement could continue, such as PRINT \"A\" PRINT \"B\", it is a syntax error, as on HuBASIC.",
+      "Keywords and variable names are case-insensitive (lower case is read as upper case).",
+      "Reserved words are matched by longest match anywhere in a name, so names such as VSYNCX, RADIUS, PAIR or LABELX cannot be used: VSYNCX=1 is read as the VSYNC statement. Prefer short names that do not begin with a keyword.",
+      "Line numbers that are not ascending are sorted with warning HB0501; a duplicate line number is error HB0502."
+    ],
+    "examples": [
+      {
+        "title": "Statements with and without colons",
+        "source": "10 A=1:B=2\n20 COLOR 6 LOCATE 0,1 PRINT A+B\n30 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.program.text-form",
+      "hubasic.values.types",
+      "hubasic.keywords.catalog"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs"
+    ]
+  },
+  {
+    "id": "hubasic.values.types",
+    "language": "hubasic",
+    "kind": "syntax",
+    "title": "Variable types, type suffixes and DEFINT/DEFSNG/DEFDBL/DEFSTR",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "%",
+      "!",
+      "#",
+      "$",
+      "DEFINT",
+      "DEFSNG",
+      "DEFDBL",
+      "DEFSTR"
+    ],
+    "aliases": [
+      "variable",
+      "integer",
+      "float",
+      "single",
+      "double",
+      "string",
+      "type suffix",
+      "assumeDefint",
+      "変数",
+      "整数",
+      "浮動小数",
+      "文字列",
+      "型"
+    ],
+    "summary": "Variables are integers (A% or DEFINT), floating point (A, A! or DEFSNG; A# and DEFDBL use the same float) or strings (A$ or DEFSTR). A name without suffix is floating point unless a DEFxxx or the assumeDefint option says otherwise. Integers are 16-bit and floats are the 24-bit SLANG FLOAT with about 5 significant digits.",
+    "syntax": [
+      "DEFINT A-Z            all unsuffixed names become integers",
+      "DEFSTR S",
+      "A%  A!  A#  A$         explicit suffixes"
+    ],
+    "notes": [
+      "DEFxxx applies to the whole program, not from the point where it runs (HuBASIC applies it when executed); using a letter before its DEFxxx line gives warning HB0411. Conflicting DEFxxx for one letter is HB0410.",
+      "Under DEFINT A, A and A% are the same variable; A! and A# are separate from them. Double precision variables give warning HB0412 and are computed as single precision.",
+      "Integers are -32768..32767; numbers up to 65535 wrap into that range. Integer results wrap instead of raising Overflow.",
+      "Storing a float into an integer rounds it; values above 65535 raise Overflow.",
+      "Floats have about 5 significant digits and a range of about ±1.8E+19; PRINT shows 5 digits in the HuBASIC style (.5, -.25, 1E+18).",
+      "Integer arithmetic is much faster than float. Use DEFINT, % or the assumeDefint option (x1pen_set_hubasic_options) when speed matters. Float FOR loops are also slower than integer ones.",
+      "Strings hold up to 255 bytes. With the stringLen option N, a variable holds at most N bytes and longer values stop with String too long; literals and intermediate results still allow 255."
+    ],
+    "examples": [
+      {
+        "title": "Integer variables for speed",
+        "source": "10 DEFINT A-Z\n20 FOR I=1 TO 10\n30 S=S+I\n40 NEXT I\n50 PRINT S\n60 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.values.numbers-operators",
+      "hubasic.values.arrays",
+      "hubasic.x1pen.run"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+    ]
+  },
+  {
+    "id": "hubasic.values.numbers-operators",
+    "language": "hubasic",
+    "kind": "syntax",
+    "title": "Numeric literals, operators and precedence",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "&H",
+      "&O",
+      "&B",
+      "+",
+      "-",
+      "*",
+      "/",
+      "\\",
+      "MOD",
+      "^",
+      "NOT",
+      "AND",
+      "OR",
+      "XOR",
+      "=",
+      "<>",
+      "<",
+      ">",
+      "<=",
+      ">="
+    ],
+    "aliases": [
+      "number",
+      "hexadecimal",
+      "octal",
+      "binary",
+      "operator",
+      "precedence",
+      "integer division",
+      "comparison",
+      "logical",
+      "数値",
+      "16進",
+      "演算子",
+      "優先順位",
+      "整数除算",
+      "比較"
+    ],
+    "summary": "Numbers are decimal, &H hex, &O octal or &B binary, with decimals and exponents. Operators from low to high precedence: OR/XOR, AND, NOT, comparisons, + -, MOD, \\ (integer division), * /, unary minus, ^. Strings join with + and compare with the comparison operators.",
+    "syntax": [
+      "A=&HFF  B=&O17  C=&B1010  D=1.5E3",
+      "X OR Y   X XOR Y   X AND Y   NOT X",
+      "A=B  A<>B  A<B  A>B  A<=B  A>=B",
+      "A+B  A-B  A MOD B  A\\B  A*B  A/B  -A  A^B",
+      "S$=A$+B$   IF A$<B$ THEN …"
+    ],
+    "notes": [
+      "Precedence and rounding follow HuBASIC.",
+      "A decimal number of 32768 or more is a float. A % suffix on 32768-65535 gives warning HB0109 and is used as a 16-bit integer.",
+      "Comparisons give -1 for true and 0 for false, so they combine with AND/OR/NOT."
+    ],
+    "examples": [
+      {
+        "title": "Hex literal and integer division",
+        "source": "10 A=&H1F\n20 PRINT A\\4,A MOD 4\n30 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.values.types",
+      "hubasic.functions.math"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+    ]
+  },
+  {
+    "id": "hubasic.values.arrays",
+    "language": "hubasic",
+    "kind": "limits",
+    "title": "One-dimensional arrays and their limits",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "DIM",
+      "A(I)",
+      "A%(I)",
+      "A$(I)"
+    ],
+    "aliases": [
+      "array",
+      "subscript",
+      "dimension",
+      "bound",
+      "Subscript out of range",
+      "配列",
+      "添字",
+      "上限"
+    ],
+    "summary": "Arrays have one dimension only. DIM bounds must be constants: integers up to 8191, floats up to 5460, strings up to 63 (with stringLen N, up to 16384/(N+1)-1). An array used without DIM has the bound 10. Storage is reserved for the largest DIM of that array.",
+    "syntax": [
+      "DIM A%(100),B(20),S$(10)"
+    ],
+    "notes": [
+      "Two or more dimensions are error HB0303.",
+      "A string array element takes 256 bytes by default (N+1 bytes with the stringLen option N).",
+      "If several DIM statements name the same array, the largest bound is reserved. Use only the bound you need to save memory.",
+      "Using an array with a DIM bound below 10 without executing that DIM still checks the DIM bound."
+    ],
+    "examples": [
+      {
+        "title": "Fill an integer array",
+        "source": "10 DIM A%(9)\n20 FOR I=0 TO 9\n30 A%(I)=I*I\n40 NEXT I\n50 PRINT A%(9)\n60 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.values.types",
+      "hubasic.unsupported"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+    ]
+  },
+  {
+    "id": "hubasic.flow.jumps-labels",
+    "language": "hubasic",
+    "kind": "syntax",
+    "title": "GOTO, GOSUB, RETURN, ON and named LABEL targets",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "GOTO",
+      "GOSUB",
+      "RETURN",
+      "ON",
+      "LABEL",
+      "GOTO \"name\"",
+      "GOSUB \"name\""
+    ],
+    "aliases": [
+      "jump",
+      "subroutine",
+      "label",
+      "computed goto",
+      "ジャンプ",
+      "サブルーチン",
+      "ラベル"
+    ],
+    "summary": "GOTO and GOSUB take a line number or a string constant naming a LABEL. RETURN may name the line to return to. ON expression GOTO/GOSUB/RESTORE selects from a list. LABEL \"name\" marks a target that may be in the middle of a line.",
+    "syntax": [
+      "GOTO 100   GOSUB 200   RETURN   RETURN 300",
+      "LABEL \"LOOP\"   GOTO \"LOOP\"   GOSUB \"SUB\"",
+      "ON N GOTO 100,200,\"NAME\"",
+      "ON N GOSUB 100,200",
+      "ON N RESTORE 1000,2000"
+    ],
+    "notes": [
+      "A name matches only the identical string, including case and spaces. Duplicate LABEL names give warning HB0505 and the first one wins. A missing LABEL is HB0504; a missing line is HB0503.",
+      "Only string constants are accepted as names: GOTO A$ or GOTO \"A\"+\"B\" are HB0301. RESTORE \"name\", RETURN \"name\" and ON … RESTORE with names are not supported.",
+      "GOTO and GOSUB to a LABEL continue right after the LABEL statement."
+    ],
+    "examples": [
+      {
+        "title": "Named subroutine",
+        "source": "10 GOSUB \"HELLO\"\n20 END\n30 LABEL \"HELLO\"\n40 PRINT \"HI\"\n50 RETURN"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.flow.if",
+      "hubasic.flow.loops",
+      "hubasic.data.read"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+    ]
+  },
+  {
+    "id": "hubasic.flow.if",
+    "language": "hubasic",
+    "kind": "syntax",
+    "title": "IF … THEN … ELSE",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "IF",
+      "THEN",
+      "ELSE"
+    ],
+    "aliases": [
+      "condition",
+      "conditional",
+      "branch",
+      "条件",
+      "分岐"
+    ],
+    "summary": "IF condition THEN statements [ELSE statements]. A line number after THEN or ELSE jumps there, and IF condition GOTO line is also accepted. The statements run to ELSE or the end of the line.",
+    "syntax": [
+      "IF A>0 THEN PRINT \"PLUS\" ELSE PRINT \"MINUS\"",
+      "IF K$=\"Q\" THEN 900",
+      "IF A=1 GOTO 100"
+    ],
+    "notes": [
+      "THEN is required unless GOTO follows the condition (HB0208)."
+    ],
+    "examples": [
+      {
+        "title": "Branch on a key",
+        "source": "10 K$=INKEY$\n20 IF K$=\"\" THEN 10\n30 IF K$=\"Q\" THEN PRINT \"BYE\" ELSE PRINT K$\n40 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.flow.loops",
+      "hubasic.values.numbers-operators"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+    ]
+  },
+  {
+    "id": "hubasic.flow.loops",
+    "language": "hubasic",
+    "kind": "syntax",
+    "title": "FOR/NEXT, REPEAT/UNTIL and WHILE/WEND loops",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "FOR",
+      "TO",
+      "STEP",
+      "NEXT",
+      "REPEAT",
+      "UNTIL",
+      "WHILE",
+      "WEND"
+    ],
+    "aliases": [
+      "loop",
+      "for loop",
+      "repeat until",
+      "while loop",
+      "ループ",
+      "繰り返し"
+    ],
+    "summary": "FOR v=a TO b [STEP s] … NEXT [v,…] counts with an integer or float variable. REPEAT … UNTIL condition and WHILE condition … WEND are also available.",
+    "syntax": [
+      "FOR I=1 TO 10 STEP 2 … NEXT I",
+      "NEXT J,I",
+      "REPEAT … UNTIL X>10",
+      "WHILE X<10 … WEND"
+    ],
+    "notes": [
+      "A float FOR (fractional STEP such as .25) works but is slower than an integer FOR; with a fractional STEP the count can differ from HuBASIC by one.",
+      "REPEAT on its own starts a loop; REPEAT ON and REPEAT OFF are the key auto-repeat statements instead.",
+      "Crossed NEXT (FOR Y … FOR X … NEXT Y) keeps running here (HuBASIC reports FOR without NEXT). A missing NEXT/WEND/UNTIL partner is an HB06xx error."
+    ],
+    "examples": [
+      {
+        "title": "Three loop forms",
+        "source": "10 FOR I=1 TO 3\n20 PRINT I;\n30 NEXT I\n40 J=0\n50 REPEAT\n60 J=J+1\n70 UNTIL J=3\n80 WHILE J>0\n90 J=J-1\n100 WEND\n110 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.flow.if",
+      "hubasic.flow.end-errors",
+      "hubasic.values.types"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+    ]
+  },
+  {
+    "id": "hubasic.flow.end-errors",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "END, the end of a program and runtime errors",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "END",
+      "Ok",
+      "in"
+    ],
+    "aliases": [
+      "end program",
+      "stop",
+      "runtime error",
+      "error message",
+      "noLineNumbers",
+      "プログラムの終わり",
+      "実行時エラー"
+    ],
+    "summary": "END stops the program and leaves the screen as it is; so does running off the last line. A runtime error prints \"<message> in <line>\" and \"Ok\" and stops. No commands can be typed afterwards; the program is a machine-code program, not the HuBASIC interpreter.",
+    "syntax": [
+      "END"
+    ],
+    "notes": [
+      "Unlike HuBASIC, no Ok prompt appears at the normal end of the program.",
+      "With the noLineNumbers option the error shows only the message and Ok (no \" in <line>\"); the program is a little smaller and faster.",
+      "Right after a loop jumps back to the top of a line, the reported line number may still be the previous line (display only).",
+      "To keep a result visible, end with END or a loop such as 100 GOTO 100."
+    ],
+    "examples": [
+      {
+        "title": "Stop and keep the screen",
+        "source": "10 PRINT \"DONE\"\n20 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.flow.loops",
+      "hubasic.diagnostics",
+      "hubasic.x1pen.run"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.data.read",
+    "language": "hubasic",
+    "kind": "syntax",
+    "title": "DATA, READ and RESTORE",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "DATA",
+      "READ",
+      "RESTORE"
+    ],
+    "aliases": [
+      "data statement",
+      "read data",
+      "restore",
+      "dataBudget",
+      "データ"
+    ],
+    "summary": "READ takes values from DATA statements in program order. RESTORE [line] moves the read position; ON n RESTORE l1,l2 picks a line. Numbers are read the HuBASIC way: as far as they parse (12X is 12, unreadable is 0, spaces inside are skipped).",
+    "syntax": [
+      "DATA 1,2,\"TEXT\",&HFF",
+      "READ A,B,S$,C",
+      "RESTORE   RESTORE 1000   ON N RESTORE 1000,2000"
+    ],
+    "notes": [
+      "All static data (variables, arrays, string literals and DATA) must fit the dataBudget option (default 24576 bytes); more is error HB0309. A single DATA item that is too large is an HB01xx error.",
+      "RESTORE \"name\" is not supported."
+    ],
+    "examples": [
+      {
+        "title": "Read a table",
+        "source": "10 FOR I=1 TO 3\n20 READ N$,V\n30 PRINT N$;V\n40 NEXT I\n50 END\n60 DATA \"A\",1,\"B\",2,\"C\",3"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.flow.jumps-labels",
+      "hubasic.x1pen.run"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+    ]
+  },
+  {
+    "id": "hubasic.text.print",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "PRINT, PRINT USING and cursor control codes",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "PRINT",
+      ";",
+      ",",
+      "SPC",
+      "TAB",
+      "USING",
+      "PRINT USING",
+      "PRINT#0"
+    ],
+    "aliases": [
+      "print",
+      "output",
+      "format",
+      "cursor control",
+      "表示",
+      "書式",
+      "カーソル"
+    ],
+    "summary": "PRINT items separated by ; (no gap) or , (next zone), with SPC(n) and TAB(n). PRINT USING \"format\"; values formats numbers. PRINT#0 is the only channel and uses the CSIZE enlargement. Cursor control codes CHR$(28)-CHR$(31) inside printed strings move the cursor.",
+    "syntax": [
+      "PRINT A;B$;",
+      "PRINT \"X\",X",
+      "PRINT SPC(3);\"A\";TAB(20);\"B\"",
+      "PRINT USING \"###.##\";A",
+      "PRINT#0,\"BIG\""
+    ],
+    "notes": [
+      "PRINT USING formats numbers only: # . + - ** and the , separator. More than 5 fraction digits show FLOAT noise; integers above 131072 are not exact.",
+      "PRINT# accepts only #0 (others are HB0308).",
+      "Output wraps at the right edge and scrolls like HuBASIC."
+    ],
+    "examples": [
+      {
+        "title": "Columns and a format",
+        "source": "10 PRINT \"A\";TAB(10);\"B\"\n20 PRINT USING \"##.#\";3.14\n30 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.text.screen",
+      "hubasic.functions.string"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.text.screen",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "Text screen: LOCATE, CLS, COLOR, WIDTH, character attributes, PALET and text LINE",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "LOCATE",
+      "CLS",
+      "COLOR",
+      "WIDTH",
+      "CFLASH",
+      "CSIZE",
+      "CGEN",
+      "PALET",
+      "PRW",
+      "INIT",
+      "LINE"
+    ],
+    "aliases": [
+      "cursor position",
+      "clear screen",
+      "color",
+      "colour",
+      "screen width",
+      "40 columns",
+      "80 columns",
+      "blink",
+      "enlarge",
+      "palette",
+      "priority",
+      "text box",
+      "画面",
+      "色",
+      "カーソル位置",
+      "画面消去",
+      "パレット"
+    ],
+    "summary": "LOCATE x,y moves the cursor. CLS clears text (CLS n clears graphics too). COLOR [fg][,bg] sets colors 0-7. WIDTH 40 or 80 sets the text width. CFLASH, CSIZE and CGEN set character attributes for later output. LINE (x1,y1)-(x2,y2),\"c\"[,B|BF] draws with a character on the text screen.",
+    "syntax": [
+      "LOCATE X,Y",
+      "CLS         text only",
+      "CLS 0       all graphics planes   CLS 1-3 one graphics plane   CLS 4 everything",
+      "COLOR 7,1   COLOR 4   COLOR ,0",
+      "WIDTH 40    WIDTH 80",
+      "CFLASH 1|0  CSIZE 0-3  CGEN 1|0",
+      "PALET       PALET c,p",
+      "PRW n",
+      "LINE (0,0)-(39,24),\"*\",B",
+      "INIT"
+    ],
+    "notes": [
+      "LOCATE out of range is error 5 (Illegal function call).",
+      "COLOR changes only the given values; the background color replaces palette color 0.",
+      "WIDTH 40 or less gives 40 columns, larger gives 80, and clears like CLS 4.",
+      "CFLASH 1 blinks, CSIZE 1 doubles height, 2 doubles width, 3 both (effective for PRINT#0), CGEN 1 shows PCG patterns instead of ROM characters, CGEN 0 returns to ROM.",
+      "PALET with no arguments restores the default palette; PALET c,p maps color code c (0-7) to palette color p (0-7).",
+      "PRW writes the priority (0-255) to port $1300.",
+      "INIT resets color 7, character attributes, the default palette and priority 0. It keeps the screen width: after WIDTH 80, INIT leaves 80 columns, so write WIDTH 40 to go back.",
+      "Text LINE draws a line, box (B) or filled box (BF) of the character with the current attribute; cells off screen are skipped and the cursor does not move."
+    ],
+    "examples": [
+      {
+        "title": "Colored text at a position",
+        "source": "10 CLS\n20 COLOR 6\n30 LOCATE 10,5\n40 PRINT \"YELLOW\"\n50 LINE (0,0)-(39,24),\"+\",B\n60 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.text.print",
+      "hubasic.graphics.line-paint",
+      "hubasic.pcg.defchr"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.input.keys",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "Keyboard, joystick and INPUT",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "INPUT",
+      "INKEY$",
+      "INKEY$(0)",
+      "INPUT$",
+      "STICK",
+      "STRIG",
+      "CLICK",
+      "REPEAT ON",
+      "REPEAT OFF",
+      "KBUF",
+      "KEY",
+      "SCREEN"
+    ],
+    "aliases": [
+      "keyboard",
+      "key input",
+      "joystick",
+      "trigger",
+      "auto repeat",
+      "キー入力",
+      "ジョイスティック",
+      "トリガー"
+    ],
+    "summary": "INKEY$ returns the key just pressed (with auto-repeat), INKEY$(0) the key held now, INPUT$(n) waits for n keys without echo, INPUT reads a line. STICK(n) returns the numeric-keypad direction (0 none, 8 up, 2 down, 4 left, 6 right, diagonals 7 9 1 3) and STRIG(n) returns -1 while a trigger is pressed.",
+    "syntax": [
+      "K$=INKEY$          \"\" when no new key",
+      "K$=INKEY$(0)       held key, \"\" when none",
+      "S$=INPUT$(1)",
+      "INPUT \"NAME\";N$    INPUT \"X\",X  (comma: no \"? \")   INPUT A,B",
+      "S=STICK(0)         0 = keyboard digits, 1 and 2 = joysticks",
+      "T=STRIG(0)         0 = space key, 1 and 2 = joystick triggers",
+      "CLICK ON|OFF   REPEAT ON|OFF"
+    ],
+    "notes": [
+      "INPUT reads one line (BS deletes, RETURN ends). A number that cannot be read becomes 0 without asking again.",
+      "INKEY$ repeats a held key after about 30 frames, then about every 4 frames; REPEAT OFF reports only the first press.",
+      "KBUF ON/OFF, KEY n,s and SCREEN … are accepted but do nothing (warnings HB0701/HB0702/HB0704). INKEY$ still returns function-key codes.",
+      "CLICK only records the state; no click sound is produced."
+    ],
+    "examples": [
+      {
+        "title": "Move with the keypad",
+        "source": "10 X=20\n20 S=STICK(0)\n30 IF S=4 AND X>0 THEN X=X-1\n40 IF S=6 AND X<38 THEN X=X+1\n50 LOCATE X,10:PRINT \" * \";\n60 VSYNC 1\n70 GOTO 20"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.timing.vsync-wait",
+      "hubasic.text.screen"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.graphics.line-paint",
+    "language": "hubasic",
+    "kind": "x1-extension",
+    "title": "Graphics LINE (lines, boxes, filled boxes) and PAINT",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "LINE",
+      "PSET",
+      "PRESET",
+      "B",
+      "BF",
+      "PAINT"
+    ],
+    "aliases": [
+      "graphics",
+      "draw line",
+      "rectangle",
+      "box",
+      "fill",
+      "flood fill",
+      "グラフィック",
+      "線",
+      "箱",
+      "塗りつぶし"
+    ],
+    "summary": "LINE (x1,y1)-(x2,y2),PSET|PRESET[,color][,B|BF] draws a line, box or filled box on the graphics screen. PAINT (x,y),color[,border,…] flood-fills up to the border colors. Coordinates are 0-319 (WIDTH 40) or 0-639 (WIDTH 80) by 0-199; colors are 0-7.",
+    "syntax": [
+      "LINE (0,0)-(319,199),PSET,7",
+      "LINE (10,10)-(100,50),PSET,2,B",
+      "LINE (10,10)-(100,50),PSET,4,BF",
+      "LINE (0,0)-(319,199),PRESET",
+      "LINE (10,10)-(100,50),PSET,,B   current color",
+      "PAINT (50,50),3,7"
+    ],
+    "notes": [
+      "PRESET clears the given color bits (boxes and BF); an on-screen PRESET line is drawn in color 0.",
+      "Lines that leave the screen draw only their on-screen points, as on HuBASIC, but slowly for huge coordinates.",
+      "A name starting with B right after PSET/PRESET is read as the box mark: write a color variable as (B).",
+      "PAINT needs the color (omitting it is HB0301) and accepts up to 7 border colors; with no border the paint color is the border. A start point off screen does nothing. Tile patterns (strings) are not supported.",
+      "Graphics LINE adds about 2 KB and PAINT about 1.3 KB code plus 1 KB work area to the program.",
+      "Not supported: the CIRCLE and PSET statements (HB0301), the POINT function (HB0302), and LINE -(x,y) or STEP coordinates (syntax error)."
+    ],
+    "examples": [
+      {
+        "title": "Box, fill and paint",
+        "source": "10 CLS 4\n20 LINE (20,20)-(200,150),PSET,7,B\n30 LINE (40,40)-(80,80),PSET,2,BF\n40 PAINT (100,100),4,7\n50 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.text.screen",
+      "hubasic.unsupported"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.pcg.defchr",
+    "language": "hubasic",
+    "kind": "x1-extension",
+    "title": "Defining PCG characters with DEFCHR$ (plane-major byte order) and CGPAT$",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "DEFCHR$",
+      "HEXCHR$",
+      "CGPAT$",
+      "CGEN"
+    ],
+    "aliases": [
+      "PCG",
+      "programmable character",
+      "user defined character",
+      "character pattern",
+      "byte order",
+      "plane order",
+      "stripes",
+      "PCG 定義",
+      "PCG定義",
+      "キャラクタ定義",
+      "外字",
+      "並び",
+      "縞"
+    ],
+    "summary": "DEFCHR$(code)=string defines the PCG pattern of character code 0-255. The 24-byte string is plane-major: 8 blue rows, then 8 red rows, then 8 green rows. With HEXCHR$ that is 48 hex digits: blue 16, red 16, green 16. This differs from FuzzyBASIC and SLANG PCGDEF, which take blue, red, green for each row in turn; using that order here gives stripes.",
+    "syntax": [
+      "DEFCHR$(n)=HEXCHR$(\"<blue 16 hex><red 16 hex><green 16 hex>\")",
+      "DEFCHR$(n)=B$+R$+G$     each 8 bytes, top row first, bit 7 = left dot",
+      "CGEN 1 : PRINT CHR$(n) : CGEN 0",
+      "P$=CGPAT$(n)            32 bytes: ROM pattern 8, blue 8, red 8, green 8"
+    ],
+    "notes": [
+      "Byte k of the string is row k MOD 8 of plane k\\8 (0 blue, 1 red, 2 green). A shorter string leaves the remaining rows 0; bytes after the 24th are ignored. A code outside 0-255 is error 5.",
+      "HEXCHR$ turns two hex digits into one byte; an odd length or a non-hex character is error 5.",
+      "A dot shows color = blue bit + 2 * red bit + 4 * green bit of that dot, so set the same bits in several planes for mixed colors (all three planes for white).",
+      "Defined PCG characters appear only where the PCG attribute is on: CGEN 1 before printing, CGEN 0 to go back to ROM characters.",
+      "Contrast: FuzzyBASIC/SLANG PCGDEF expects 24 bytes ordered row by row (B,R,G for row 0, then row 1 …). Convert such data by taking every third byte for each plane."
+    ],
+    "examples": [
+      {
+        "title": "A blue square, a red cross and a white bar",
+        "source": "10 CLS\n20 DEFCHR$(128)=HEXCHR$(\"FF818181818181FF\"+\"0000000000000000\"+\"0000000000000000\")\n30 DEFCHR$(129)=HEXCHR$(\"0000000000000000\"+\"8142241818244281\"+\"0000000000000000\")\n40 DEFCHR$(130)=HEXCHR$(\"00FFFF0000FFFF00\"+\"00FFFF0000FFFF00\"+\"00FFFF0000FFFF00\")\n50 CGEN 1\n60 PRINT CHR$(128);CHR$(129);CHR$(130)\n70 CGEN 0\n80 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.text.screen",
+      "fuzzybasic.x1.pcg-definition",
+      "slang.x1.pcg-definition",
+      "x1.video.pcg-palette"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.sound.play",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "PLAY, TEMPO, BEEP, SOUND and PAUSE",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "PLAY",
+      "TEMPO",
+      "BEEP",
+      "SOUND",
+      "PAUSE"
+    ],
+    "aliases": [
+      "music",
+      "MML",
+      "sound",
+      "beep",
+      "PSG",
+      "wait",
+      "音楽",
+      "音",
+      "ブザー"
+    ],
+    "summary": "PLAY \"MML\" plays up to three channels separated by colons and returns when they finish; PLAY n sets the tempo like TEMPO n (30-7500). BEEP beeps once, BEEP 1 starts and BEEP 0 stops a tone. SOUND r,v writes PSG register r (0-13). PAUSE n waits n tenths of a second.",
+    "syntax": [
+      "PLAY \"CDEFGAB\"",
+      "PLAY \"C:E:G\"   three channels",
+      "PLAY 120   TEMPO 120",
+      "BEEP   BEEP 1   BEEP 0",
+      "SOUND 7,&H38",
+      "PAUSE 10"
+    ],
+    "notes": [
+      "PLAY blocks until the music ends. Octave, length and volume of each channel persist between PLAY statements.",
+      "SOUND does not change the PLAY state. Out-of-range values are error 5.",
+      "After an MML string with no notes, the next PLAY starts without the short gap HuBASIC has."
+    ],
+    "examples": [
+      {
+        "title": "A short tune",
+        "source": "10 TEMPO 150\n20 PLAY \"CDEC:EFGE\"\n30 BEEP\n40 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.timing.vsync-wait"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.timing.vsync-wait",
+    "language": "hubasic",
+    "kind": "x1-extension",
+    "title": "Speed control: VSYNC n, the '#VSYNC n comment and the wait option",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "VSYNC",
+      "'#VSYNC",
+      "#VSYNC",
+      "wait",
+      "frame",
+      "line"
+    ],
+    "aliases": [
+      "vsync",
+      "vertical blank",
+      "frame wait",
+      "speed",
+      "game speed",
+      "too fast",
+      "wait option",
+      "frame:1",
+      "line:480",
+      "垂直帰線",
+      "ウェイト",
+      "速さ",
+      "速度",
+      "フレーム"
+    ],
+    "summary": "Converted programs run much faster than HuBASIC. VSYNC [n] (a hubasic2sl-only statement) waits for n vertical blanks (about 60 per second, default 1) whatever the wait option. The comment '#VSYNC n waits n frames only when the X1Pen HuBASIC option wait is frame mode. wait line:N slows every line instead.",
+    "syntax": [
+      "VSYNC          wait 1 frame",
+      "VSYNC 2        wait 2 frames (0 or less: no wait)",
+      "'#VSYNC 2      comment directive; effective only with wait frame:1",
+      "x1pen_set_hubasic_options {\"patch\":{\"wait\":\"frame:1\"}}",
+      "x1pen_set_hubasic_options {\"patch\":{\"wait\":\"line:480\"}}",
+      "x1pen_set_hubasic_options {\"patch\":{\"wait\":null}}     back to none"
+    ],
+    "notes": [
+      "Recommended for games: keep wait none and put VSYNC 1 (or VSYNC 2) in the main loop. A loop body shorter than a frame then takes n frames per turn.",
+      "VSYNC is not a HuBASIC statement: a program using it does not run on a real HuBASIC. To keep the program valid there, write the comment '#VSYNC n instead and set wait to frame mode.",
+      "'#VSYNC n is an ordinary comment unless wait is frame mode. X1Pen accepts \"frame\" and stores it as \"frame:1\"; the N of frame:N is not used, the directive waits its own n (1 when n is missing or not a positive number). It may also be written REM #VSYNC n.",
+      "wait line:N waits about 0.1 ms x N at the start of every line; N=450-500 is roughly HuBASIC speed. It does not slow a loop that runs inside one line.",
+      "The wait option is one X1Pen setting for every HuBASIC program (x1pen_get_hubasic_options / x1pen_set_hubasic_options), not part of the program, and Validate/Run use it.",
+      "Because VSYNC is reserved, names starting with VSYNC cannot be variables."
+    ],
+    "examples": [
+      {
+        "title": "Frame-paced animation with VSYNC",
+        "source": "10 CLS\n20 X=0\n30 LOCATE X,10:PRINT \" *\";\n40 X=X+1:IF X>37 THEN X=0\n50 VSYNC 2\n60 GOTO 30"
+      },
+      {
+        "title": "Portable pacing with '#VSYNC (set wait frame:1)",
+        "source": "10 CLS\n20 FOR I=0 TO 38\n30 LOCATE I,5:PRINT \"*\";\n40 '#VSYNC 3\n50 NEXT I\n60 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.x1pen.run",
+      "hubasic.input.keys",
+      "hubasic.sound.play"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Lowering/HuLowerer.cs",
+      "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_options.js"
+    ]
+  },
+  {
+    "id": "hubasic.machine.memory-io",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "POKE, PEEK, I/O ports, CALL and the memory layout",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "POKE",
+      "PEEK",
+      "POKE@",
+      "PEEK@",
+      "OUT",
+      "INP",
+      "CALL",
+      "__WORKEND__"
+    ],
+    "aliases": [
+      "memory",
+      "I/O port",
+      "machine code",
+      "VRAM",
+      "address",
+      "memory map",
+      "メモリ",
+      "ポート",
+      "マシン語",
+      "番地"
+    ],
+    "summary": "POKE a,v[,v…] and PEEK(a) access memory; POKE@ p,v[,v…], PEEK@(p), OUT p,v and INP(p) access I/O space (text VRAM &H3000-, attributes &H2000-, …). CALL a calls machine code that returns with RET. The program is loaded at &H1000 with its work area after it, and must end at or below &HFFDF.",
+    "syntax": [
+      "POKE &HC000,1,2,3",
+      "A=PEEK(&HC000)",
+      "POKE@ &H3000,65",
+      "A=PEEK@(&H3000)",
+      "OUT &H1300,0",
+      "A=INP(&H1A01)",
+      "CALL &HC000"
+    ],
+    "notes": [
+      "Values are 0-255 (others are error 5); like HuBASIC the value wraps to 16 bits first, so -65535 writes 1.",
+      "CALL takes only an address (no arguments). IX and IY are preserved; the interrupt state is not changed. Put machine code with POKE.",
+      "There is no CLEAR address: keep machine code and POKE areas clear of the program and its work area. X1Pen refuses a program whose work area ends above &HFFDF (__WORKEND__ check).",
+      "If POKE stops with an error part way, the values before it are already written."
+    ],
+    "examples": [
+      {
+        "title": "Write to text VRAM directly",
+        "source": "10 CLS\n20 FOR I=0 TO 9\n30 POKE@ &H3000+I,48+I\n40 NEXT I\n50 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.x1pen.run",
+      "x1.architecture.address-spaces"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.functions.math",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "Numeric functions",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "ABS",
+      "SGN",
+      "SQR",
+      "SIN",
+      "COS",
+      "TAN",
+      "ATN",
+      "LOG",
+      "EXP",
+      "INT",
+      "FIX",
+      "CINT",
+      "FRAC",
+      "CSNG",
+      "CDBL",
+      "PAI",
+      "RAD",
+      "RND"
+    ],
+    "aliases": [
+      "math",
+      "trigonometry",
+      "square root",
+      "random",
+      "pi",
+      "radian",
+      "rounding",
+      "数学",
+      "三角関数",
+      "乱数",
+      "円周率"
+    ],
+    "summary": "ABS SGN SQR SIN COS TAN ATN LOG EXP INT FIX CINT FRAC CSNG CDBL work in FLOAT precision (usually 4-5 digits like HuBASIC). PAI(x) is x*π and RAD(x) is x*π/180 (both need an argument). RND returns a random number.",
+    "syntax": [
+      "Y=SQR(X)",
+      "S=SIN(RAD(30))",
+      "C=PAI(2)",
+      "I=INT(X)  F=FIX(X)  R=CINT(X)  F=FRAC(X)",
+      "R=RND   R=RND(1)"
+    ],
+    "notes": [
+      "Precision is lower for large SIN/COS arguments, SIN near 0 and LOG near 1.",
+      "EXP(88) overflows, EXP(-100) is 0, and INT(65535.9) is 65536 because of FLOAT precision.",
+      "PAI and RAD are reserved, so names such as PAIR or RADIUS cannot be used."
+    ],
+    "examples": [
+      {
+        "title": "Trigonometry",
+        "source": "10 FOR D=0 TO 90 STEP 30\n20 PRINT D;SIN(RAD(D))\n30 NEXT D\n40 PRINT PAI(1)\n50 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.values.numbers-operators",
+      "hubasic.misc.time-random",
+      "hubasic.differences"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs"
+    ]
+  },
+  {
+    "id": "hubasic.functions.string",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "String functions, MID$ assignment and SWAP",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "ASC",
+      "CHR$",
+      "MID$",
+      "LEFT$",
+      "RIGHT$",
+      "STRING$",
+      "VAL",
+      "STR$",
+      "HEX$",
+      "SPACE$",
+      "LEN",
+      "INSTR",
+      "HEXCHR$",
+      "CHARACTER$",
+      "SCRN$",
+      "SWAP"
+    ],
+    "aliases": [
+      "string",
+      "substring",
+      "character code",
+      "hex",
+      "screen character",
+      "swap",
+      "文字列",
+      "部分文字列",
+      "文字コード"
+    ],
+    "summary": "ASC, CHR$(a[,b,…]), MID$(s,n[,m]), LEFT$, RIGHT$, STRING$(n,s or code), VAL, STR$, HEX$, SPACE$, LEN, INSTR([n,]a$,b$), HEXCHR$ (hex digits to bytes), CHARACTER$(x,y) and SCRN$(x,y,n) (read the text screen). MID$(v,n[,m])=s replaces part of a string variable; SWAP a,b exchanges two variables.",
+    "syntax": [
+      "C$=CHR$(65,66,67)",
+      "S$=MID$(A$,2,3)",
+      "S$=STRING$(5,\"*\")   S$=STRING$(5,42)",
+      "P=INSTR(A$,\"X\")   P=INSTR(3,A$,\"X\")",
+      "MID$(A$,1,1)=\"Z\"",
+      "C$=CHARACTER$(0,0)",
+      "S$=SCRN$(0,0,40)",
+      "SWAP A,B"
+    ],
+    "notes": [
+      "CHR$ with several arguments joins the characters.",
+      "CHARACTER$ and SCRN$ read text VRAM; out-of-range positions are error 5. SCRN$ continues on the next line at the right edge and returns spaces after the last cell.",
+      "MID$ assignment works on simple string variables only (not array elements). SWAP of different types is HB0404.",
+      "OCT$, BIN$ and other unlisted functions are HB0302."
+    ],
+    "examples": [
+      {
+        "title": "String handling",
+        "source": "10 A$=\"HELLO\"\n20 PRINT LEFT$(A$,2);MID$(A$,3,2);RIGHT$(A$,1)\n30 MID$(A$,1,1)=\"J\"\n40 PRINT A$;LEN(A$);INSTR(A$,\"L\")\n50 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.text.print",
+      "hubasic.pcg.defchr",
+      "hubasic.unsupported"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.misc.time-random",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "TIME, TIME= and RANDOMIZE",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "TIME",
+      "TIME=",
+      "RANDOMIZE"
+    ],
+    "aliases": [
+      "clock",
+      "seconds",
+      "timer",
+      "random seed",
+      "時計",
+      "秒",
+      "乱数の種"
+    ],
+    "summary": "TIME reads the seconds counted by the sub-CPU clock and keeps counting during CALL; TIME=n sets it. RANDOMIZE [n] changes the random sequence.",
+    "syntax": [
+      "T=TIME",
+      "TIME=0",
+      "RANDOMIZE",
+      "RANDOMIZE 5"
+    ],
+    "notes": [
+      "TIME= accepts 0-65535; larger values overflow and negative values wrap (HuBASIC accepts up to 86399).",
+      "The random sequence after RANDOMIZE differs from HuBASIC.",
+      "TIME$ is not supported."
+    ],
+    "examples": [
+      {
+        "title": "Measure seconds",
+        "source": "10 TIME=0\n20 PAUSE 20\n30 PRINT TIME\n40 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.functions.math",
+      "hubasic.unsupported"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.unsupported",
+    "language": "hubasic",
+    "kind": "limits",
+    "title": "Statements and functions hubasic2sl does not support",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "CIRCLE",
+      "PSET",
+      "DEF FN",
+      "ON ERROR",
+      "USR",
+      "ERASE",
+      "CLEAR",
+      "LOADM",
+      "RUN",
+      "OPEN",
+      "CREV",
+      "TIME$",
+      "OCT$",
+      "BIN$",
+      "POINT",
+      "HB0301",
+      "HB0302",
+      "HB0303"
+    ],
+    "aliases": [
+      "unsupported",
+      "not supported",
+      "missing statement",
+      "conversion error",
+      "未対応",
+      "使えない命令"
+    ],
+    "summary": "These stop the conversion. Unsupported statements are HB0301 (CIRCLE, PSET, DEF FN, ERASE, CLEAR, LOADM, RUN \"file\", OPEN and the other file, disk and tape statements, CREV …). Reserved words used as functions or inside a statement are HB0302 (USR, TIME$, OCT$, BIN$, POINT, ERROR in ON ERROR …). Arrays with two or more dimensions are HB0303.",
+    "syntax": [
+      "error HB0301  unsupported statement            10 CIRCLE (10,10),5",
+      "error HB0302  unsupported function or word     10 A=USR(0)   10 ON ERROR GOTO 100",
+      "error HB0303  two or more dimensions           10 DIM A(2,2)"
+    ],
+    "notes": [
+      "Also HB0301: PAINT without a color, jump targets given by expressions (GOTO A$), RESTORE \"name\", RETURN \"name\", ON … RESTORE with names, and tile patterns after BF.",
+      "LINE -(x,y), STEP coordinates and MID$ assignment to an array element are not accepted and fail as syntax errors (HB0203).",
+      "A word that is not reserved (for example POLY) is read as a variable name, so a statement using it fails as a syntax error rather than HB0301.",
+      "Unsupported reserved words are still reserved and cannot be used as variable names. hubasic.keywords.catalog lists every reserved word and whether it is supported."
+    ],
+    "relatedIds": [
+      "hubasic.keywords.catalog",
+      "hubasic.differences",
+      "hubasic.diagnostics"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+    ]
+  },
+  {
+    "id": "hubasic.differences",
+    "language": "hubasic",
+    "kind": "limits",
+    "title": "Known differences from HuBASIC",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "Overflow",
+      "FLOAT",
+      "DEFINT",
+      "NEXT",
+      "Ok"
+    ],
+    "aliases": [
+      "difference",
+      "incompatibility",
+      "behaviour",
+      "behavior",
+      "precision",
+      "違い",
+      "互換性"
+    ],
+    "summary": "Converted programs follow HuBASIC closely but not exactly: floats have about 5 digits, integer results wrap instead of Overflow, DEFxxx applies to the whole program, there is no Ok prompt at the end, and speed depends on the wait setting.",
+    "notes": [
+      "Numbers: integer results and intermediate values wrap at 16 bits; floats have about 5 digits and ±1.8E+19 range and overflow when stored, printed or compared; a fractional STEP may run one more or less time; PRINT USING shows FLOAT noise beyond 5 fraction digits; the RANDOMIZE sequence differs.",
+      "Flow: DEFxxx is program-wide; crossed NEXT keeps running; SWAP of different types is a conversion error; no commands after the end or an error.",
+      "Screen: on-screen PRESET lines use color 0; very long off-screen lines are slow; string arrays default to a bound of 63.",
+      "Input and sound: INKEY$ repeats less in loops longer than a frame; KEY does nothing; PLAY after an empty MML string has no gap.",
+      "Speed: with wait none programs are much faster than HuBASIC; string handling and PAINT are always faster. Use VSYNC or the wait option.",
+      "Matched with HuBASIC: runtime error display, PLAY pitch/length/tempo, BEEP, character attributes and colors, wrapping and scrolling, PRINT USING, text and graphics LINE dot placement, PAINT."
+    ],
+    "relatedIds": [
+      "hubasic.unsupported",
+      "hubasic.values.types",
+      "hubasic.timing.vsync-wait"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md"
+    ]
+  },
+  {
+    "id": "hubasic.diagnostics",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "Conversion diagnostics (HB codes) in X1Pen",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "HB01",
+      "HB02",
+      "HB03",
+      "HB04",
+      "HB05",
+      "HB06",
+      "HB0312",
+      "HUBASIC_TRANSPILE_FAILED"
+    ],
+    "aliases": [
+      "error code",
+      "warning",
+      "diagnostic",
+      "syntax error",
+      "validate",
+      "エラー番号",
+      "警告",
+      "診断"
+    ],
+    "summary": "hubasic2sl reports errors and warnings with HB codes. x1pen_validate returns them as diagnostics with the program line; a failed Run reports HUBASIC_TRANSPILE_FAILED at stage transpile and leaves FDD0 unchanged.",
+    "syntax": [
+      "HB01xx  characters and numbers (unknown character, number too large, line over 255 characters, too much DATA)",
+      "HB02xx  syntax (not a statement, missing : or ), missing line number)",
+      "HB03xx  unsupported (statement HB0301, function HB0302, 2-D array HB0303); HB0309 static data over dataBudget; HB0312 does not fit in memory",
+      "HB04xx  types (integer/string mix-up HB0404, conflicting DEFxxx HB0410)",
+      "HB05xx  line numbers and names (missing target HB0503, duplicate line HB0502, missing LABEL HB0504)",
+      "HB06xx  loop pairing (FOR without NEXT, WEND without WHILE …)"
+    ],
+    "notes": [
+      "Warnings do not stop conversion: HB0109 (% on 32768-65535), HB0411 (letter used before its DEFxxx), HB0412 (double precision), HB0501 (lines not ascending), HB0505 (duplicate LABEL), HB0701/HB0702/HB0704 (KBUF/SCREEN/KEY do nothing).",
+      "A syntax error stops before type checking, so fixing one error can reveal the next.",
+      "After conversion X1Pen compiles and assembles the SLANG; a program too large for &H1000-&HFFDF fails the size check."
+    ],
+    "relatedIds": [
+      "hubasic.unsupported",
+      "hubasic.x1pen.run",
+      "hubasic.flow.end-errors"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic.js"
+    ]
+  },
+  {
+    "id": "hubasic.x1pen.run",
+    "language": "hubasic",
+    "kind": "profile",
+    "title": "How X1Pen runs HuBASIC and the conversion options",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "x1pen_run",
+      "x1pen_validate",
+      "x1pen_get_hubasic_options",
+      "x1pen_set_hubasic_options",
+      "wait",
+      "noLineNumbers",
+      "assumeDefint",
+      "stringLen",
+      "dataBudget"
+    ],
+    "aliases": [
+      "run",
+      "validate",
+      "options",
+      "conversion options",
+      "x1native",
+      "boot",
+      "disk",
+      "実行",
+      "変換オプション",
+      "起動"
+    ],
+    "summary": "Run converts the program with hubasic2sl, compiles the SLANG and assembles it for x1native_slfs, checks that it fits &H1000-&HFFDF, writes an SLFS boot disk to FDD0 and cold-boots it. Validate does the same without booting. The conversion options are one X1Pen setting for every HuBASIC program.",
+    "syntax": [
+      "wait          \"none\" (default) | \"line:N\" | \"frame:N\"   (N 1-65535)",
+      "noLineNumbers false (default) | true   no line numbers in runtime errors, slightly smaller and faster",
+      "assumeDefint  false (default) | true   unsuffixed variables without DEFxxx become integers",
+      "stringLen     255 (default) | 1-255    maximum length a string variable holds",
+      "dataBudget    24576 (default) | 1-65535 bytes of static data (variables, arrays, literals, DATA)",
+      "x1pen_set_hubasic_options {\"patch\":{\"assumeDefint\":true,\"wait\":\"frame:1\"}}   null resets a key"
+    ],
+    "notes": [
+      "Options are not part of the program or its revision; the next Validate or Run uses them. They are refused while a Run is being set up (RUN_PENDING).",
+      "The program is a machine-code program without an OS. It does not run the HuBASIC interpreter: there is no command mode, LIST or SAVE.",
+      "Programs written for real HuBASIC run as long as they use supported statements; VSYNC is the only extra statement."
+    ],
+    "relatedIds": [
+      "hubasic.timing.vsync-wait",
+      "hubasic.diagnostics",
+      "hubasic.program.text-form",
+      "hubasic.machine.memory-io"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_options.js",
+      "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic.js"
+    ]
+  },
+  {
+    "id": "hubasic.keywords.catalog",
+    "language": "hubasic",
+    "kind": "catalog",
+    "title": "Accepted hubasic2sl vocabulary and reserved words",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "ABS",
+      "AND",
+      "ASC",
+      "ATN",
+      "ATTR$",
+      "AUTO",
+      "BASE",
+      "BEEP",
+      "BIN$",
+      "BLOAD",
+      "BSAVE",
+      "CALL",
+      "CDBL",
+      "CFLASH",
+      "CGEN",
+      "CGPAT$",
+      "CHAIN",
+      "CHARACTER$",
+      "CHR$",
+      "CINT",
+      "CIRCLE",
+      "CLEAR",
+      "CLICK",
+      "CLOSE",
+      "CLR",
+      "CLS",
+      "COLOR",
+      "CONSOLE",
+      "CONT",
+      "COS",
+      "CREV",
+      "CSIZE",
+      "CSNG",
+      "CSRLIN",
+      "CVD",
+      "CVI",
+      "CVS",
+      "DATA",
+      "DATE$",
+      "DEF",
+      "DEFCHR$",
+      "DEFDBL",
+      "DEFINT",
+      "DEFSNG",
+      "DEFSTR",
+      "DELETE",
+      "DEVF",
+      "DIM",
+      "DSKF",
+      "EDIT",
+      "ELSE",
+      "END",
+      "EOF",
+      "EQV",
+      "ERASE",
+      "ERL",
+      "ERR",
+      "ERROR",
+      "EXP",
+      "FIELD",
+      "FILES",
+      "FIX",
+      "FN",
+      "FOR",
+      "FPOS",
+      "FRAC",
+      "FRE",
+      "GET",
+      "GOSUB",
+      "GOTO",
+      "HEX$",
+      "HEXCHR$",
+      "IF",
+      "IMP",
+      "INIT",
+      "INKEY$",
+      "INP",
+      "INPUT",
+      "INPUT$",
+      "INSTR",
+      "INT",
+      "KBUF",
+      "KEY",
+      "KILL",
+      "LABEL",
+      "LEFT$",
+      "LEN",
+      "LET",
+      "LINE",
+      "LIST",
+      "LLIST",
+      "LOAD",
+      "LOC",
+      "LOCATE",
+      "LOF",
+      "LOG",
+      "LPOS",
+      "LPRINT",
+      "LSET",
+      "MERGE",
+      "MID$",
+      "MKD$",
+      "MKI$",
+      "MKS$",
+      "MOD",
+      "MON",
+      "MUSIC",
+      "NAME",
+      "NEW",
+      "NEXT",
+      "NOT",
+      "OCT$",
+      "OFF",
+      "ON",
+      "OPEN",
+      "OPTION",
+      "OR",
+      "OUT",
+      "PAI",
+      "PAINT",
+      "PALET",
+      "PAUSE",
+      "PEEK",
+      "PEEK@",
+      "PLAY",
+      "POINT",
+      "POKE",
+      "POKE@",
+      "POP",
+      "POS",
+      "PRESET",
+      "PRINT",
+      "PRW",
+      "PSET",
+      "PUSH",
+      "PUT",
+      "RAD",
+      "RANDOMIZE",
+      "READ",
+      "REM",
+      "RENUM",
+      "REPEAT",
+      "RESTORE",
+      "RESUME",
+      "RETURN",
+      "RIGHT$",
+      "RND",
+      "RSET",
+      "RUN",
+      "SAVE",
+      "SCREEN",
+      "SCRN$",
+      "SET",
+      "SGN",
+      "SIN",
+      "SOUND",
+      "SPACE$",
+      "SPC",
+      "SQR",
+      "STEP",
+      "STICK",
+      "STOP",
+      "STR$",
+      "STRIG",
+      "STRING$",
+      "SUB",
+      "SWAP",
+      "TAB",
+      "TAN",
+      "TEMPO",
+      "THEN",
+      "TIME",
+      "TIME$",
+      "TO",
+      "TRACE",
+      "UNTIL",
+      "USING",
+      "USR",
+      "VAL",
+      "VARPTR",
+      "VDIM",
+      "VSYNC",
+      "WAIT",
+      "WEND",
+      "WHILE",
+      "WIDTH",
+      "WINDOW",
+      "XOR"
+    ],
+    "aliases": [
+      "keyword list",
+      "reserved words",
+      "supported statements",
+      "supported functions",
+      "vocabulary",
+      "予約語",
+      "命令の一覧",
+      "関数の一覧"
+    ],
+    "summary": "Every reserved word of hubasic2sl, grouped by what the converter does with it. Words in the reserved group are recognized but rejected (HB0301/HB0302) and cannot be used as variable names.",
+    "syntax": [
+      "statements: REM LET GOTO GOSUB RETURN LABEL ON IF FOR NEXT REPEAT UNTIL WHILE WEND END INIT DIM DEFINT DEFSNG DEFDBL DEFSTR DATA READ RESTORE POKE CALL TIME OUT PRINT LOCATE COLOR CLS CFLASH CSIZE CGEN PRW VSYNC WIDTH TEMPO PAUSE PLAY PALET SWAP RANDOMIZE BEEP SOUND INPUT CLICK LINE PAINT MID$ DEFCHR$ POKE@",
+      "no-op statements (warning): KBUF KEY SCREEN",
+      "functions: INP MID$ RIGHT$ CHR$ ASC VAL HEXCHR$ CGPAT$ STICK STRIG RND INT LEFT$ STRING$ CHARACTER$ INPUT$ STR$ ABS SGN SQR SIN COS TAN ATN LOG EXP FIX CINT FRAC CSNG CDBL PAI RAD LEN INSTR HEX$ SPACE$ SCRN$ PEEK INKEY$ TIME PEEK@",
+      "operators and parts of statements: THEN TO STEP ELSE AND OR XOR NOT MOD USING SPC TAB OFF PSET PRESET",
+      "reserved, not supported: ATTR$ AUTO BASE BIN$ BLOAD BSAVE CHAIN CIRCLE CLEAR CLOSE CLR CONSOLE CONT CREV CSRLIN CVD CVI CVS DATE$ DEF DELETE DEVF DSKF EDIT EOF EQV ERASE ERL ERR ERROR FIELD FILES FN FPOS FRE GET IMP KILL LIST LLIST LOAD LOC LOF LPOS LPRINT LSET MERGE MKD$ MKI$ MKS$ MON MUSIC NAME NEW OCT$ OPEN OPTION POINT POP POS PUSH PUT RENUM RESUME RSET RUN SAVE SET STOP SUB TIME$ TRACE USR VARPTR VDIM WAIT WINDOW"
+    ],
+    "notes": [
+      "TIME is both a statement (TIME=n) and a function; MID$ is both a function and an assignment statement; LINE is both a text and a graphics statement; REPEAT is a loop and, with ON/OFF, the key-repeat statement.",
+      "VSYNC is a hubasic2sl addition and not a HuBASIC word."
+    ],
+    "relatedIds": [
+      "hubasic.unsupported",
+      "hubasic.program.structure"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+    ]
+  }
+]

@@ -1,5 +1,16 @@
 # Changelog
 
+## x1pen-mcp 2.9.0
+
+x1pen-mcp だけの新しい版です。X1Pen Web 0.11.0 と X1Pen Connector 1.4.0 はそのまま使えます（Web と Connector は変えていません）。
+
+- 同梱のリファレンスに HuBASIC を足しました（`x1pen_search_reference` の `language: "hubasic"`、26 項目）。hubasic2sl が受け付ける命令・関数と引数の形、hubasic2sl だけの決まり（`VSYNC n`、`'#VSYNC n` は変換オプションの `wait` を frame にしたときだけ効く）、`DEFCHR$` のバイトの並び（青 8 バイト → 赤 8 → 緑 8。FuzzyBASIC の `PCGDEF` とは並びが違う）、まだ無いもの、HuBASIC との違い、error の番号、X1Pen での変換オプションなどです。
+  - X1Pen に入っている hubasic2sl（SLANG-compiler 5abbffa）のソースと `docs/HUBASIC.md`、X1Pen 自身のコードだけから書きました。HuBASIC のマニュアルは元にしていません。各項目に元にしたリビジョンを残しています。
+  - X1Pen の HuBASIC の束を入れ替えたら、リファレンスも見直します。見直して profile のリビジョンを書き直すまで `tests/x1pen_reference_test.mjs` が失敗します（`scripts/import-hubasic-bundle.mjs` も最後に知らせます）。
+  - 例のプログラムは、試験で本物の変換・組み立てを通しています。まだ無い命令が、書いてある error の番号になることも、`DEFCHR$` の並びも、試験で確かめています。
+- `x1pen_get_language_profile` が、X1Pen 0.11.0 とつなぐといつも `compatible: false` を返していたのを直しました。X1Pen が報告する HuBASIC の profile がリファレンスに無かったためです。あわせて、X1Pen が HuBASIC の変換の仕組みを読み込んだあとは、そのリビジョンもリファレンスと比べ、違えば `compatible: false` と `revisionMismatches` を返します。
+- 道具の説明とサーバーの説明に、HuBASIC の文字は読み出すと決まった書き方で返る（`\xB1` は `ｱ` など）こと、hash は返ってくる形で計ること、比べるなら読み直した文字と比べることを足しました。動きは変えていません。
+
 ## X1Pen Web 0.11.0 / x1pen-mcp 2.8.0 / Connector 1.4.0
 
 3 つとも新しい版です。公開の順番は x1pen-mcp → X1Pen Web → X1Pen Connector です。どの段階で止めても、黙って壊れる組み合わせはありません（下の「版の組み合わせ」）。
