@@ -26,9 +26,10 @@
     clearTimeout(noticeTimer); $('notice').textContent = text; $('notice').classList.toggle('error',error); $('notice').hidden = false;
     noticeTimer = setTimeout(() => { $('notice').hidden = true; }, error ? 9000 : 3500);
   };
-  async function prepareFont(info) {
+  async function prepareFont(info,withBitmap=true) {
     if (!info.data) return null;
     const face = new FontFace('X1Custom' + (++fontSequence),Uint8Array.from(info.data));
+    if(withBitmap)face.x1Bitmap=window.X1FontBuilder?.readFontBitmap?.(Uint8Array.from(info.data))??null;
     await face.load();
     return face;
   }
@@ -57,7 +58,7 @@
     try{
       const data=await host.pcgFont({entries:[...pcgEntries].map(([code,hex])=>({code,hex})),order:$('pcg-order').value,layout:$('pcg-layout').value});
       if(revision!==pcgRevision)return;
-      const face=await prepareFont({data});if(revision!==pcgRevision)return;
+      const face=await prepareFont({data},false);if(revision!==pcgRevision)return;
       document.fonts.add(face);if(pcgFontFace)document.fonts.delete(pcgFontFace);pcgFontFace=face;displayFont();return true;
     }catch(err){
       if(revision!==pcgRevision)return;
@@ -521,7 +522,7 @@
     editor,panel:$('pcg-string-preview'),canvas:$('pcg-string-image'),summary:$('pcg-string-size'),warning:$('pcg-string-warning'),
     getLines:()=>renderedLines,getBytes:()=>doc.bytes,
     isEnabled:()=>!busy&&!composing,
-    getState:()=>({entries:$('pcg-enabled').checked?pcgEntries:[],order:$('pcg-order').value,layout:$('pcg-layout').value,font:activeFontFace?.family||'X1'})
+    getState:()=>({entries:$('pcg-enabled').checked?pcgEntries:[],order:$('pcg-order').value,layout:$('pcg-layout').value,bitmap:activeFontFace?activeFontFace.x1Bitmap:window.X1FontBitmap??null})
   });
   host?.onCommand(command); host?.onLoaded(load);
   setScale(); setWrap(); palette(); preview(hoverCode); renderPcgGrid(); render(0); displayFont();restoreFont();

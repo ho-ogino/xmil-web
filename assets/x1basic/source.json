@@ -1,10 +1,10 @@
 {
   "repository": "https://github.com/ho-ogino/x1-basic-editor",
-  "commit": "292901a7379212c009ea1d7c73a19ad33b4eed5c",
+  "commit": "31f309b0c36d3ae82758c053e4c3c5aa25a9a719",
   "files": {
     "src/index.html": {
-      "sha256": "9684282aa44973bb9657670abcbdf048935e05474097fe4e0d51b36a9140e65b",
-      "size": 10548
+      "sha256": "a4333d7ba4aaf1a51878235be1e11fa0ed9cc39adac5cb1075ce323dacd6c450",
+      "size": 10586
     },
     "src/style.css": {
       "sha256": "4bc22e77afa734dd1251034708d310e981d4f3b4b1b800e706acca50cd18973b",
@@ -27,12 +27,16 @@
       "size": 4811
     },
     "src/pcg-preview.js": {
-      "sha256": "c1dc9e01e2c8fcfb8a3ccaf49c134535d8c4dba12b39cf98efc510031c57489d",
-      "size": 7247
+      "sha256": "678c46de01bc07306ab9967113e4ded8181b74f0531da8f8d02ea92ef983af9a",
+      "size": 7240
     },
     "src/font-builder.js": {
-      "sha256": "7adc0905d6b9a5769a141b68ff9c6816c1b0c576c1894d7bc74c7682949d38e3",
-      "size": 6865
+      "sha256": "1a37f317f2741eecacdb5c482d11e641e8bc1dd8a37b1985f79449475891f34c",
+      "size": 10151
+    },
+    "src/font-bitmap.js": {
+      "sha256": "178554000ebf3759cd7648944d1b5dae3777f95c2e3c5ec386f389f9efa523d1",
+      "size": 6518
     },
     "src/host.js": {
       "sha256": "93558178eb321a330e7ac0fbd53e33922a419707e79901a5789ca9b372c2ddfe",
@@ -43,8 +47,8 @@
       "size": 2949
     },
     "src/editor.js": {
-      "sha256": "3c21113c476849d06f7c79cd16d09b95edcdf2f136db1470565851a1b2941350",
-      "size": 31008
+      "sha256": "dbbc8e74571072f917516905826bf1dfe966c0adbe031081e835481f1aab2bba",
+      "size": 31174
     },
     "assets/x1-basic.ttf": {
       "sha256": "a179697dde2fdbedfae93cb7c5969ca54b2fd4021e5c3817d7aa2262d4029f1c",

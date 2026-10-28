@@ -60,7 +60,7 @@
       generation++;if(timer!==null)win.clearTimeout(timer);timer=null;visibleTarget=null;panel.hidden=true;describe(false);
     }
     const locate=point=>hitTest(options.getLines(),editor.getBoundingClientRect(),point);
-    async function show(point,revision){
+    function show(point,revision){
       if(revision!==generation || !options.isEnabled())return;
       const target=locate(point);if(!target)return;
       const bytes=options.getBytes().subarray(target.byteStart,target.byteEnd),image=compose(bytes),state=options.getState();
@@ -68,19 +68,21 @@
       if(!image.cells.length)return;
       try{
         const ctx=canvas.getContext('2d');if(!ctx)return;
-        const family=state.font||'X1';
-        if(document.fonts?.load)await document.fonts.load('8px '+family);else await document.fonts?.ready;
         if(revision!==generation || !options.isEnabled() || locate(point)!==target)return;
         canvas.width=image.width;canvas.height=image.height;
         ctx.imageSmoothingEnabled=false;ctx.fillStyle='#000000';ctx.fillRect(0,0,image.width,image.height);
-        ctx.font='8px '+family;ctx.textBaseline='alphabetic';
         const tiles=new Map();
         for(const cell of image.cells){
           const x=cell.x*8,y=cell.y*8;
           if(entries.has(cell.code)){
             if(!tiles.has(cell.code))tiles.set(cell.code,pcg.pixels(entries.get(cell.code),state.order,state.layout));
             tiles.get(cell.code).forEach((row,dy)=>row.forEach((color,dx)=>{if(color){ctx.fillStyle=pcg.PALETTE[color];ctx.fillRect(x+dx,y+dy,1,1);}}));
-          }else{ctx.fillStyle='#FFFFFF';ctx.fillText(X1.glyph(cell.code),x,y+8);}
+          }else{
+            const rows=state.bitmap?.[cell.code];if(!rows)throw Error('Base bitmap unavailable');
+            ctx.fillStyle='#FFFFFF';rows.forEach((bits,dy)=>{
+              for(let dx=0;dx<8;dx++)if(bits&(128>>dx))ctx.fillRect(x+dx,y+dy,1,1);
+            });
+          }
         }
         summary.textContent=image.width+'×'+image.height+' ドット（'+image.columns+'×'+image.rows+'文字）';
         const notes=[];

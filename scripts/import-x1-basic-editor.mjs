@@ -20,7 +20,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPOSITORY = 'https://github.com/ho-ogino/x1-basic-editor';
 const FILES = [
   'src/index.html', 'src/style.css', 'src/codec.js', 'src/keywords.js', 'src/syntax.js', 'src/pcg.js',
-  'src/pcg-preview.js', 'src/font-builder.js', 'src/host.js', 'src/sidebar-resize.js', 'src/editor.js',
+  'src/pcg-preview.js', 'src/font-builder.js', 'src/font-bitmap.js', 'src/host.js', 'src/sidebar-resize.js', 'src/editor.js',
   'assets/x1-basic.ttf', 'assets/x1-font.json', 'assets/x1-font-provenance.json', 'assets/licenses/misaki.txt',
   'LICENSE', 'THIRD-PARTY-NOTICES.md',
 ];

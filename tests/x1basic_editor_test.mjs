@@ -52,8 +52,9 @@ test('assets/x1basic is one commit of X1 BASIC Editor, unchanged except the host
   // The scripts X1Pen relies on, in the order the editor page loads them
   const html = readFileSync(join(editorDir, 'src', 'index.html'), 'utf8');
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
-  assert.deepEqual(scripts.slice(scripts.indexOf('font-builder.js'), scripts.indexOf('host.js') + 1),
-    ['font-builder.js', 'x1pen-host.js', 'host.js']);
+  // The host adapter builds fonts with X1FontBuilder and comes right before host.js
+  assert.ok(scripts.indexOf('font-builder.js') >= 0 && scripts.indexOf('font-builder.js') < scripts.indexOf('x1pen-host.js'));
+  assert.equal(scripts.indexOf('x1pen-host.js') + 1, scripts.indexOf('host.js'));
   // Every file the page loads is in the copy; the host adapter is X1Pen's own file, which build.sh
   // puts next to it
   const adapter = join('src', /src="([^"]+)"/.exec(source.injected.line)[1]);

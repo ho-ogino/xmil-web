@@ -1,4 +1,4 @@
-# X1Pen: import X1 BASIC Editor 292901a (hover preview of strings as a composed PCG image)
+# X1Pen: import X1 BASIC Editor 31f309b (hover preview of strings as a composed PCG image)
 
 ## Purpose
 
@@ -62,6 +62,17 @@ Non-goals: no change to the editor itself (owned by the x1editor Province; reque
 ## Open decisions
 
 - None blocking. Readability of a big image in a very narrow frame (scaled below 1×) is upstream behaviour; report it to x1editor via Secretary as an observation, not a request.
+
+## Amendment: 31f309b (same PR #139)
+
+After PR #139 was opened (head `025ea9c`, reviewed at 292901a), the owner found that normal characters in the overlay were blurred. x1editor fixed it in PR #5, merged as `31f309b0c36d3ae82758c053e4c3c5aa25a9a719`. Secretary asked to swap the SHA in the same PR (no new PR).
+
+- Upstream `292901a..31f309b` (browser files): `src/pcg-preview.js` draws normal characters dot by dot from an 8×8 bitmap instead of `fillText` (no font smoothing); `src/font-builder.js` gains `readFontBitmap(ttfBytes)`, which recovers the exact bitmap from TTFs built by this builder; `src/editor.js` attaches that bitmap to each loaded font face and passes `bitmap` (or the built-in `window.X1FontBitmap`) to the preview; **new `src/font-bitmap.js`** (built-in font bitmap) loaded by `src/index.html` after `font-builder.js`. Host API unchanged.
+- X1Pen supplies fonts through the host adapter using the editor's own `X1FontBuilder.buildFont` / `buildFontFromRom` (`html/x1pen_x1basic_host.js` `currentFont`, `chooseFont`), so `readFontBitmap` recovers them; the built-in font uses `font-bitmap.js`.
+- The importer guard from this PR stopped the import with the old `FILES`: `src/index.html loads src/font-bitmap.js, which is not copied (add it to FILES)`, leaving `assets/x1basic` unchanged. `FILES` gains `src/font-bitmap.js` (18 files). `assets/x1-font-source.txt` (font generation source, not loaded by the page) stays out, as at aa10611/292901a.
+- Tests: the hover E2E test checks every pixel of the normal characters against the font bitmap (built-in font, and a font ROM chosen in the editor), white on black with no other values. Mutation: the 292901a `pcg-preview.js` (fillText) gives 212 wrong pixels.
+- Manual: a string mixing PCG and normal characters at device pixel ratio 1 and 2: 0 wrong pixels, no non-pure pixels, PCG cells coloured.
+- Review: the APPROVED result at `025ea9c` does not carry over; a fresh implementation review round 1 on the new head.
 
 ## Cross-review反映
 
