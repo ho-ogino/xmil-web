@@ -37,7 +37,7 @@ function createAutomationApi() {
     version: 2,
     ready: async () => ({ ready: true }),
     getStatus: () => ({
-      x1pen: { version: '0.9.0', features: ['automation.core', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram'] },
+      x1pen: { version: '0.9.0', features: ['automation.core', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram', 'hubasic.options'] },
       capabilities: {
         debugger: { available: true, runPending: pendingReads-- > 0, vram: { available: true } },
       },
@@ -62,6 +62,11 @@ function createAutomationApi() {
     setPad: async (port, bits) => {
       calls.push({ setPad: { port, bits } });
       return { ok: true, port, bits };
+    },
+    getHuBasicOptions: () => ({ wait: 'none', stringLen: 255 }),
+    setHuBasicOptions: async (patch) => {
+      calls.push({ setHuBasicOptions: patch });
+      return { wait: patch.wait ?? 'none', stringLen: 255 };
     },
     releasePads: () => {
       calls.push('releasePads');
@@ -237,6 +242,33 @@ test('page bridge allowlists pad input and exposes cleanup without arbitrary rou
     invokeX1PenInPage('setPad', { port: 1, bits: 0xFE }),
     (error) => error.code === 'FEATURE_UNAVAILABLE' && error.feature === 'input.pad',
   );
+});
+
+test('page bridge forwards HuBASIC options only when X1Pen advertises them', async () => {
+  const { api, calls, locks } = createAutomationApi();
+  globalThis.window = { X1PenAutomation: api };
+  assert.deepEqual(await invokeX1PenInPage('getHuBasicOptions', {}), { wait: 'none', stringLen: 255 });
+  assert.deepEqual(await invokeX1PenInPage('setHuBasicOptions', { patch: { wait: 'line:450', stringLen: null } }),
+    { wait: 'line:450', stringLen: 255 });
+  assert.deepEqual(calls.at(-1), { setHuBasicOptions: { wait: 'line:450', stringLen: null } });
+  assert.deepEqual(locks.slice(-2), [
+    { locked: true, label: 'AI is updating HuBASIC options...' },
+    { locked: false, label: undefined },
+  ]);
+
+  // An X1Pen from before the options: the feature is not advertised, or the methods are missing
+  api.getStatus = () => ({ x1pen: { version: '0.10.1', features: ['automation.core'] } });
+  for (const method of ['getHuBasicOptions', 'setHuBasicOptions']) {
+    await assert.rejects(
+      invokeX1PenInPage(method, { patch: { wait: null } }),
+      (error) => error.code === 'FEATURE_UNAVAILABLE' && error.component === 'x1pen' &&
+        error.feature === 'hubasic.options' && error.currentVersion === '0.10.1',
+    );
+  }
+  api.getStatus = () => ({ x1pen: { version: '0.11.0', features: ['automation.core', 'hubasic.options'] } });
+  delete api.setHuBasicOptions;
+  await assert.rejects(invokeX1PenInPage('getHuBasicOptions', {}), (error) => error.feature === 'hubasic.options');
+  assert.equal(locks.at(-1).locked, false, 'the lock is released after a refused update');
 });
 
 test('page bridge rejects debugger calls when capability is unavailable', async () => {

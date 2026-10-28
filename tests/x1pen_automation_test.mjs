@@ -1,11 +1,24 @@
 import assert from 'node:assert/strict';
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { after, before, test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { chromium } from 'playwright';
+import { WebSocket } from 'ws';
+import {
+  CONNECTOR_FEATURES,
+  allComponentsAdvertiseFeature,
+  createConnectorDescriptor,
+  normalizeMcpServerDescriptor,
+  normalizeX1PenDescriptor as connectorX1PenDescriptor,
+} from '../extension/compatibility.mjs';
+import { invokeX1PenInPage } from '../extension/page-automation.mjs';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const distDir = join(projectRoot, 'dist');
@@ -4368,5 +4381,215 @@ test('re-sharing in a HuBASIC share tab uses the model of its last Run, also aft
     assert.equal(posts[0].meta.model, second.model);
   } finally {
     await context.close();
+  }
+});
+
+// ── x1pen-mcp through X1Pen Connector's page code, against this page ──
+
+// x1pen-mcp from mcpDir connected to target as X1Pen Connector connects it: its own X1PenBridge,
+// and a WebSocket client that pairs with the given Connector descriptor and runs every command in
+// the page with the Connector's invokeX1PenInPage (as the service worker's executeScript does)
+async function connectMcp(target, { mcpDir = join(projectRoot, 'mcp'), connector = createConnectorDescriptor('1.3.0') } = {}) {
+  const { createX1PenMcpServer } = await import(pathToFileURL(join(mcpDir, 'x1pen-server.mjs')).href);
+  const pairingCode = '246810';
+  const { server: mcp, bridge } = createX1PenMcpServer({
+    bridgeOptions: { startPort: 0, pairingCode, logger: () => {} },
+  });
+  await bridge.start();
+  const socket = new WebSocket(`ws://127.0.0.1:${bridge.port}`, { origin: 'chrome-extension://x1pen-test' });
+  await new Promise((resolve, reject) => {
+    socket.once('open', resolve);
+    socket.once('error', reject);
+  });
+  const status = await target.evaluate(() => window.X1PenAutomation.getStatus());
+  const x1pen = connectorX1PenDescriptor(status);
+  let mcpDescriptor = null;
+  socket.on('message', async (data) => {
+    const message = JSON.parse(data.toString());
+    if (message.type === 'paired') {
+      mcpDescriptor = normalizeMcpServerDescriptor(message);
+      socket.send(JSON.stringify({ type: 'sessions', sessions: [{
+        sessionId: status.instanceId, title: 'X1Pen', url: target.url(), active: true,
+        revision: status.revision, revisionEpoch: status.revisionEpoch, x1pen,
+      }] }));
+      return;
+    }
+    if (message.type !== 'command') return;
+    const params = message.method === 'setProgram'
+      ? { ...message.params, transport: {
+          requireRevisionEpoch: allComponentsAdvertiseFeature('automation.source-sync', mcpDescriptor, connector, x1pen),
+        } }
+      : message.params;
+    const outcome = await target.evaluate(async ([source, method, args]) => {
+      try {
+        return { ok: true, result: await (0, eval)(`(${source})`)(method, args) };
+      } catch (error) {
+        const fields = { message: String(error && error.message || error) };
+        for (const key of ['code', 'component', 'feature', 'currentVersion', 'requiredVersion', 'action']) {
+          if (typeof error?.[key] === 'string') fields[key] = error[key];
+        }
+        return { ok: false, error: fields };
+      }
+    }, [invokeX1PenInPage.toString(), message.method, params]);
+    socket.send(JSON.stringify({ type: 'result', id: message.id, ...outcome }));
+  });
+  socket.send(JSON.stringify({ type: 'pair', code: pairingCode, extensionVersion: connector.version, connector }));
+  const deadline = Date.now() + 10_000;
+  while (bridge.listSessions().length === 0) {
+    if (Date.now() > deadline) throw new Error('the test Connector did not register the page');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  const client = new Client({ name: 'x1pen-e2e', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await mcp.connect(serverTransport);
+  await client.connect(clientTransport);
+  const call = async (name, args = {}) => {
+    const result = await client.callTool({ name, arguments: args });
+    const text = result.content.find((entry) => entry.type === 'text').text;
+    let value;
+    try { value = JSON.parse(text); } catch { value = text; }
+    return { isError: result.isError === true, value };
+  };
+  const close = async () => {
+    await client.close();
+    socket.close();
+    await bridge.close();
+  };
+  return { call, close };
+}
+
+test('x1pen-mcp reads, edits and runs HuBASIC programs and sets their options through the Connector', { timeout: 120_000 }, async () => {
+  const mcp = await connectMcp(page);
+  try {
+    const status = (await mcp.call('x1pen_get_status')).value;
+    assert.equal(status.compatibility.capabilities['hubasic.options'].state, 'available', JSON.stringify(status.compatibility));
+    let program = (await mcp.call('x1pen_get_program')).value;
+    const written = await mcp.call('x1pen_set_program', {
+      expectedRevision: program.revision, expectedRevisionEpoch: program.revisionEpoch,
+      sourceMode: 'hubasic', hubasic: '10 CLS\n20 PRINT "\\{heart}MCP"\n30 GOTO 30\n',
+    });
+    assert.equal(written.isError, false, JSON.stringify(written.value));
+    assert.equal(written.value.sourceMode, 'hubasic');
+    assert.equal(written.value.writeGuard, 'revision-epoch');
+    assert.equal(await page.evaluate(() => document.querySelector('.editor-tab.active').dataset.tab), 'hubasic');
+    await page.waitForFunction(() => {
+      const frame = document.querySelector('#hubasic-editor-container iframe');
+      const editor = frame && frame.contentDocument && frame.contentDocument.getElementById('editor');
+      return editor && editor.value.includes('GOTO 30');
+    }, null, { timeout: 30_000 });
+    assert.equal(await hubasicEditorText(), '10 CLS\n20 PRINT "\uE0E3MCP"\n30 GOTO 30\n');
+
+    const line = (await mcp.call('x1pen_get_source', { section: 'hubasic', startLine: 2, lineCount: 1 })).value;
+    assert.equal(line.text, '20 PRINT "\\{heart}MCP"');
+    const edited = await mcp.call('x1pen_apply_edits', {
+      section: 'hubasic', expectedRevision: written.value.revision, expectedRevisionEpoch: written.value.revisionEpoch,
+      edits: [{ startLine: 2, deleteLineCount: 1, text: '20 PRINT "EDITED"' }],
+    });
+    assert.equal(edited.isError, false, JSON.stringify(edited.value));
+    assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic), '10 CLS\n20 PRINT "EDITED"\n30 GOTO 30\n');
+    const validated = (await mcp.call('x1pen_validate')).value;
+    assert.equal(validated.ok, true, JSON.stringify(validated));
+    const run = (await mcp.call('x1pen_run', { waitMs: 0 })).value;
+    assert.equal(run.ok, true, JSON.stringify(run));
+    await textVramContains('EDITED');
+
+    // The options are one X1Pen setting: changing them is no program change
+    const changed = await mcp.call('x1pen_set_hubasic_options', { patch: { wait: 'line:2', noLineNumbers: true } });
+    assert.equal(changed.isError, false, JSON.stringify(changed.value));
+    assert.equal(changed.value.options.wait, 'line:2');
+    assert.deepEqual(await page.evaluate(() => window.X1PenAutomation.getHuBasicOptions()), changed.value.options);
+    assert.deepEqual((await mcp.call('x1pen_get_hubasic_options')).value, { options: changed.value.options });
+    assert.equal((await mcp.call('x1pen_get_program')).value.revision, edited.value.revision);
+    assert.equal((await mcp.call('x1pen_validate')).value.ok, true);
+    const reset = (await mcp.call('x1pen_set_hubasic_options', { patch: { wait: null, noLineNumbers: null } })).value;
+    assert.deepEqual(reset.options, await page.evaluate(() => window.X1PenHuBasicOptions.defaults()));
+    const refused = await mcp.call('x1pen_set_hubasic_options', { patch: { stringLen: 256 } });
+    assert.equal(refused.isError, true);
+
+    program = (await mcp.call('x1pen_get_program')).value;
+    const back = await mcp.call('x1pen_set_program', {
+      expectedRevision: program.revision, expectedRevisionEpoch: program.revisionEpoch,
+      sourceMode: 'basic+asm', basic: '10 PRINT "BACK"',
+    });
+    assert.equal(back.value.sourceMode, 'basic+asm');
+    assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic), '');
+  } finally {
+    await page.evaluate(() => window.X1PenAutomation.setHuBasicOptions({
+      wait: null, noLineNumbers: null, assumeDefint: null, stringLen: null, dataBudget: null,
+    }));
+    await mcp.close();
+  }
+});
+
+test('with X1Pen Connector 1.3.0, x1pen-mcp handles HuBASIC programs but asks for a Connector update for the options', { timeout: 60_000 }, async () => {
+  const connector = { ...createConnectorDescriptor('1.3.0'),
+    features: CONNECTOR_FEATURES.filter((feature) => feature !== 'hubasic.options') };
+  await setHuBasicProgram('10 PRINT "OLD CONNECTOR"\n');
+  const mcp = await connectMcp(page, { connector });
+  try {
+    const program = await mcp.call('x1pen_get_program', { fields: ['hubasic'] });
+    assert.equal(program.isError, false, JSON.stringify(program.value));
+    assert.equal(program.value.hubasic, '10 PRINT "OLD CONNECTOR"\n');
+    const options = await mcp.call('x1pen_get_hubasic_options');
+    assert.equal(options.isError, true);
+    assert.equal(options.value.error.code, 'FEATURE_UNAVAILABLE');
+    assert.equal(options.value.error.component, 'connector');
+    assert.match(options.value.error.action, /Update X1Pen Connector/);
+  } finally {
+    await mcp.close();
+  }
+});
+
+// The x1pen-mcp files of a release tag, runnable here (node_modules from this checkout), or null
+function extractMcpRelease(ref) {
+  try {
+    execFileSync('git', ['-C', projectRoot, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { stdio: 'pipe' });
+  } catch {
+    return null;
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'x1pen-mcp-release-'));
+  execFileSync('git', ['-C', projectRoot, 'archive', '--format=tar', '-o', join(dir, 'mcp.tar'), ref, 'mcp']);
+  execFileSync('tar', ['-xf', join(dir, 'mcp.tar'), '-C', dir]);
+  symlinkSync(join(projectRoot, 'node_modules'), join(dir, 'node_modules'), 'dir');
+  return dir;
+}
+
+test('the published x1pen-mcp 2.7.0 still works with this page, and stops visibly on a HuBASIC program', { timeout: 60_000 }, async (t) => {
+  // v0.9.2 is the release that shipped x1pen-mcp 2.7.0 and X1Pen Connector 1.3.0
+  const dir = extractMcpRelease('v0.9.2');
+  if (!dir) {
+    t.skip('tag v0.9.2 is not in this checkout');
+    return;
+  }
+  const connector = { ...createConnectorDescriptor('1.3.0'),
+    features: CONNECTOR_FEATURES.filter((feature) => feature !== 'hubasic.options') };
+  try {
+    assert.equal(JSON.parse(readFileSync(join(dir, 'mcp', 'package.json'), 'utf8')).version, '2.7.0');
+    await setHuBasicProgram('10 PRINT "HUBASIC"\n');
+    const mcp = await connectMcp(page, { mcpDir: join(dir, 'mcp'), connector });
+    try {
+      const stopped = await mcp.call('x1pen_get_program');
+      assert.equal(stopped.isError, true);
+      assert.match(JSON.stringify(stopped.value), /invalid source mode: hubasic/);
+
+      await page.evaluate(async () => {
+        const api = window.X1PenAutomation;
+        const current = api.getProgram();
+        await api.setProgram({ sourceMode: 'basic+asm', basic: '10 PRINT "OLD MCP"' }, current.revision, current.revisionEpoch);
+      });
+      const program = (await mcp.call('x1pen_get_program', { fields: ['basic'] })).value;
+      assert.equal(program.sourceMode, 'basic+asm');
+      assert.equal(program.basic, '10 PRINT "OLD MCP"');
+      const written = await mcp.call('x1pen_set_program', {
+        expectedRevision: program.revision, expectedRevisionEpoch: program.revisionEpoch,
+        sourceMode: 'basic+asm', basic: '10 PRINT "WRITTEN"',
+      });
+      assert.equal(written.isError, false, JSON.stringify(written.value));
+      assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().basic), '10 PRINT "WRITTEN"');
+    } finally {
+      await mcp.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

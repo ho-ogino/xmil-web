@@ -11,10 +11,12 @@ import { assertFeatureCompatible, createMcpDescriptor } from './x1pen-compatibil
 import {
   HASH_PATTERN,
   MAX_BASELINE_BYTES,
+  SOURCE_SECTIONS,
   SourceBaselineCache,
   SourceSyncError,
   contentHash,
   createBoundedLineDiff,
+  presentSections,
   sourceByteLength,
   sourceIdentities,
   sourceRole,
@@ -34,7 +36,7 @@ const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.ur
 const MAX_SOURCE_LENGTH = 512 * 1024;
 const DEFAULT_RANGE_CHARACTERS = 32 * 1024;
 const MAX_RANGE_CHARACTERS = 128 * 1024;
-const SOURCE_SECTIONS = ['basic', 'asm', 'slang'];
+const SOURCE_MODES = ['basic+asm', 'asm', 'slang', 'hubasic'];
 const REFERENCE_LANGUAGES = ['fuzzybasic', 'slang', 'z80asm', 'x1'];
 const REFERENCE_KINDS = [
   'syntax', 'runtime', 'x1-extension', 'catalog', 'library', 'profile', 'limits',
@@ -72,6 +74,7 @@ const SERVER_INSTRUCTIONS = [
   'x1pen_set_program is a complete replacement: sections inactive for sourceMode are cleared even when supplied. Use x1pen_apply_edits for bounded edits within the current mode.',
   'Before sending a replacement, treat it as large asset-like only when it embeds substantially all of a known asset of at least 8 KiB, or has at least 8,192 byte literals in table-like runs covering at least 50% of its non-whitespace text; source length alone never triggers this rule. Before explicit user approval, do not read, re-emit, or split that data through the model. Offer ASM: the existing Import button for DB lines; SLANG: the existing Import button inserts array values at the cursor, or use Disk Editor plus MAGLOAD/FOPEN/FREAD; BASIC: Disk Editor plus BLOAD or the applicable file workflow. Do not suggest local UTF-8 source-file sync unless available and user-configured, and then only for a complete prepared source section, not raw binary or a fragment. After approval, prefer one write and split only if the client output limit requires it.',
   'Use x1pen_set_source_file for a local UTF-8 source only when the user configured an allowed source root. The tool returns hashes and metadata, never the local path or source text.',
+  'In sourceMode hubasic the hubasic section is the HuBASIC program as X1 bytes in X1Pen text form: ¥ for $5C, \\{name} or \\xHH for other X1 characters, LF between lines. The bundled reference does not cover HuBASIC; do not assume FuzzyBASIC syntax. Its hubasic2sl conversion options are one setting for every HuBASIC program, read and changed with x1pen_get_hubasic_options and x1pen_set_hubasic_options, not part of the program or its revision.',
   'For SLANG, validation output.generatedAsmLines and asmBytes describe temporary compilation output only. Validation does not store generated ASM in the program; Run does.',
   'Prefer bounded source and reference tools so generated ASM and unrelated manual sections do not consume context.',
   'Retain revisionEpoch when offered, revision and authoringHash together. Inspect writeGuard on every source result: revision-epoch is reload-safe, while revision-only is a visible compatibility fallback. On a source conflict, compare before retrying; never replace only the revision and blindly resend stale source.',
@@ -160,7 +163,7 @@ function handleTool(handler) {
 function normalizeProgramSnapshot(value) {
   if (!value || typeof value !== 'object') throw new Error('X1Pen returned an invalid program snapshot');
   const sourceMode = value.sourceMode;
-  if (!['basic+asm', 'asm', 'slang'].includes(sourceMode)) {
+  if (!SOURCE_MODES.includes(sourceMode)) {
     throw new Error(`X1Pen returned an invalid source mode: ${sourceMode}`);
   }
   if (!Number.isInteger(value.revision) || value.revision < 0) {
@@ -176,19 +179,41 @@ function normalizeProgramSnapshot(value) {
     pageGuardedWritesReloadSafe: value.guardedWritesReloadSafe === true,
   };
   for (const section of SOURCE_SECTIONS) {
+    // An X1Pen without the HuBASIC tab has no hubasic field; it cannot be in hubasic mode
+    if (section === 'hubasic' && value.hubasic === undefined && sourceMode !== 'hubasic') {
+      snapshot.hubasic = null;
+      continue;
+    }
     if (typeof value[section] !== 'string') {
-      const error = new Error(`X1Pen did not expose ${section} source content`);
-      Object.assign(error, {
-        code: 'SOURCE_CONTENT_UNAVAILABLE',
-        component: 'x1pen',
-        section,
-        action: 'Update or reload X1Pen, then read the program again. An absent source field is not treated as empty source.',
-      });
-      throw error;
+      throw sourceUnavailableError(section);
     }
     snapshot[section] = value[section];
   }
   return snapshot;
+}
+
+function sourceUnavailableError(section) {
+  const error = new Error(`X1Pen did not expose ${section} source content`);
+  Object.assign(error, {
+    code: 'SOURCE_CONTENT_UNAVAILABLE',
+    component: 'x1pen',
+    section,
+    action: 'Update or reload X1Pen, then read the program again. An absent source field is not treated as empty source.',
+  });
+  return error;
+}
+
+// The source of one section; throws when the connected X1Pen does not have that section
+function sectionSource(snapshot, section) {
+  if (typeof snapshot[section] !== 'string') throw sourceUnavailableError(section);
+  return snapshot[section];
+}
+
+// The program to send for a snapshot with some sections replaced
+function programFrom(snapshot, replacements) {
+  const program = { sourceMode: snapshot.sourceMode };
+  for (const section of presentSections(snapshot)) program[section] = snapshot[section];
+  return { ...program, ...replacements };
 }
 
 function sourceLineCount(source) {
@@ -206,7 +231,7 @@ function writeGuardFields(snapshot) {
 function summarizeProgram(snapshot) {
   const identities = sourceIdentities(snapshot);
   const sections = {};
-  for (const section of SOURCE_SECTIONS) {
+  for (const section of presentSections(snapshot)) {
     const identity = identities.sections[section];
     sections[section] = {
       lineCount: sourceLineCount(snapshot[section]),
@@ -243,7 +268,7 @@ function selectProgramFields(snapshot, fields, includeGeneratedAsm, maxCharacter
       result.omittedFields.push({ field: section, reason: 'generated ASM is excluded by default' });
       continue;
     }
-    selectedCharacters += snapshot[section].length;
+    selectedCharacters += sectionSource(snapshot, section).length;
     if (selectedCharacters > maxCharacters) {
       throw new SourceSyncError(
         'SOURCE_LIMIT_EXCEEDED',
@@ -269,7 +294,7 @@ function getReadableSection(snapshot, section, includeGeneratedAsm) {
       { section, action: 'Set includeGeneratedAsm to true only when generated output is required.' },
     );
   }
-  return snapshot[section];
+  return sectionSource(snapshot, section);
 }
 
 function getSourceRange(snapshot, section, options) {
@@ -464,6 +489,21 @@ function applyLineEdits(source, edits) {
 }
 
 function assertEditableSection(snapshot, section) {
+  sectionSource(snapshot, section);
+  if (snapshot.sourceMode === 'hubasic' && section !== 'hubasic') {
+    throw new SourceSyncError(
+      'SOURCE_SECTION_NOT_EDITABLE',
+      'HuBASIC mode only allows edits to the HuBASIC source',
+      { section, action: 'Edit the hubasic section or replace the complete program with a different sourceMode.' },
+    );
+  }
+  if (snapshot.sourceMode !== 'hubasic' && section === 'hubasic') {
+    throw new SourceSyncError(
+      'SOURCE_SECTION_NOT_EDITABLE',
+      `${snapshot.sourceMode} mode does not allow edits to the HuBASIC source`,
+      { section, action: 'Replace the complete program with sourceMode hubasic.' },
+    );
+  }
   if (snapshot.sourceMode === 'slang' && section !== 'slang') {
     throw new SourceSyncError(
       'SOURCE_SECTION_NOT_EDITABLE',
@@ -877,7 +917,7 @@ export function createX1PenMcpServer(options = {}) {
     description: 'Get a compact program summary and explicitly selected complete sources. Defaults to metadata only; prefer get_source/search_source for large sources.',
     inputSchema: {
       sessionId: sessionInput.sessionId,
-      fields: z.array(z.enum(SOURCE_SECTIONS)).max(3).optional()
+      fields: z.array(z.enum(SOURCE_SECTIONS)).max(SOURCE_SECTIONS.length).optional()
         .describe('Complete sources to include; omit or pass [] for metadata only'),
       includeGeneratedAsm: z.boolean().default(false)
         .describe('Allow generated ASM to be returned when the program is in SLANG mode'),
@@ -896,15 +936,24 @@ export function createX1PenMcpServer(options = {}) {
       sessionId: sessionInput.sessionId,
       expectedRevision: z.number().int().min(0),
       expectedRevisionEpoch: z.string().min(1).max(128).optional(),
-      sourceMode: z.enum(['basic+asm', 'asm', 'slang']),
+      sourceMode: z.enum(SOURCE_MODES),
       basic: z.string().max(MAX_SOURCE_LENGTH).optional(),
       asm: z.string().max(MAX_SOURCE_LENGTH).optional(),
       slang: z.string().max(MAX_SOURCE_LENGTH).optional(),
+      hubasic: z.string().max(MAX_SOURCE_LENGTH).optional()
+        .describe('HuBASIC program in X1Pen text form, for sourceMode hubasic'),
     },
     annotations: { destructiveHint: true, openWorldHint: false },
   }, handleTool(async ({ sessionId, expectedRevision, expectedRevisionEpoch, ...program }) => {
     const context = sourceSyncContext(sessionId);
-    await assertWriteBaseline(context, expectedRevision, expectedRevisionEpoch);
+    const current = await assertWriteBaseline(context, expectedRevision, expectedRevisionEpoch);
+    if (program.sourceMode === 'hubasic' && current.hubasic === null) {
+      throw new SourceSyncError(
+        'SOURCE_MODE_UNSUPPORTED',
+        'The connected X1Pen has no HuBASIC tab',
+        { component: 'x1pen', action: 'Reload or update X1Pen and reconnect this tab.' },
+      );
+    }
     const snapshot = await sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, context);
     return textResult({ ok: true, ...summarizeProgram(snapshot) });
   }));
@@ -952,13 +1001,7 @@ export function createX1PenMcpServer(options = {}) {
       });
     }
 
-    const program = {
-      sourceMode: snapshot.sourceMode,
-      basic: snapshot.basic,
-      asm: snapshot.asm,
-      slang: snapshot.slang,
-      [section]: file.source,
-    };
+    const program = programFrom(snapshot, { [section]: file.source });
     const generatedAsmCleared = section === 'slang' && snapshot.asm.length > 0;
     const updated = await sendGuardedProgram(
       program, expectedRevision, expectedRevisionEpoch, context,
@@ -1013,7 +1056,7 @@ export function createX1PenMcpServer(options = {}) {
       sessionId: sessionInput.sessionId,
       section: z.enum(SOURCE_SECTIONS),
       baseHash: z.string().regex(HASH_PATTERN),
-      baseSourceMode: z.enum(['basic+asm', 'asm', 'slang']),
+      baseSourceMode: z.enum(SOURCE_MODES),
       baseRevisionEpoch: z.string().min(1).max(128),
       baseGenerated: z.boolean().default(false),
       baseSource: z.string().max(MAX_SOURCE_LENGTH).optional()
@@ -1052,7 +1095,7 @@ export function createX1PenMcpServer(options = {}) {
     }
 
     const requestedRole = baseGenerated ? 'generated' : 'authoring';
-    const currentRole = sourceRole(current.sourceMode, section, current[section]);
+    const currentRole = sourceRole(current.sourceMode, section, sectionSource(current, section));
     if (currentRole !== requestedRole) {
       throw new SourceSyncError(
         'BASE_ROLE_MISMATCH',
@@ -1187,13 +1230,7 @@ export function createX1PenMcpServer(options = {}) {
       });
     }
 
-    const program = {
-      sourceMode: snapshot.sourceMode,
-      basic: snapshot.basic,
-      asm: snapshot.asm,
-      slang: snapshot.slang,
-      [section]: applied.source,
-    };
+    const program = programFrom(snapshot, { [section]: applied.source });
     const generatedAsmCleared = section === 'slang' && snapshot.asm.length > 0;
     await assertApplySnapshotUnchanged(context, snapshot, expectedRevisionEpoch);
     const updated = await sendGuardedProgram(program, expectedRevision, expectedRevisionEpoch, context);
@@ -1212,6 +1249,37 @@ export function createX1PenMcpServer(options = {}) {
     inputSchema: sessionInput,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, handleTool(async ({ sessionId }) => textResult(await bridge.sendCommand('validate', {}, sessionId))));
+
+  server.registerTool('x1pen_get_hubasic_options', {
+    description: 'Get the hubasic2sl conversion options X1Pen uses for every HuBASIC program. They are one X1Pen setting, not part of the program or its revision.',
+    inputSchema: sessionInput,
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, handleTool(async ({ sessionId }) => textResult({
+    options: await bridge.sendCommand('getHuBasicOptions', {}, sessionId),
+  })));
+
+  server.registerTool('x1pen_set_hubasic_options', {
+    description: 'Change hubasic2sl conversion options for every HuBASIC program in X1Pen; the next Validate or Run uses them. Keys left out keep their value; null resets a key to the hubasic2sl default (wait none, noLineNumbers false, assumeDefint false, stringLen 255, dataBudget 24576). Not part of the program: no revision guard. Refused while a Run is being set up.',
+    inputSchema: {
+      sessionId: sessionInput.sessionId,
+      patch: z.object({
+        wait: z.string().regex(/^(?:none|(?:line|frame)(?::[1-9][0-9]{0,4})?)$/).nullable().optional()
+          .describe("Speed: none (no wait), line[:N] (about N x 0.1 ms at the start of each BASIC line; 450-500 is close to HuBASIC) or frame[:N] (wait n frames at each '#VSYNC n comment, N when n is omitted); N 1..65535, default 1"),
+        noLineNumbers: z.boolean().nullable().optional()
+          .describe('Do not record line numbers: smaller and faster, but run-time errors show no line number'),
+        assumeDefint: z.boolean().nullable().optional()
+          .describe('Variables with neither a type suffix nor DEFxxx are integers (HuBASIC default: single precision)'),
+        stringLen: z.number().int().min(1).max(255).nullable().optional()
+          .describe('Maximum string length'),
+        dataBudget: z.number().int().min(1).max(65535).nullable().optional()
+          .describe('Upper limit for static data in bytes'),
+      }).strict().refine((patch) => Object.keys(patch).length > 0, 'patch must name at least one option'),
+    },
+    annotations: { openWorldHint: false },
+  }, handleTool(async ({ sessionId, patch }) => textResult({
+    ok: true,
+    options: await bridge.sendCommand('setHuBasicOptions', { patch }, sessionId),
+  })));
 
   server.registerTool('x1pen_debug_get_state', {
     description: 'Get the Z80 debugger run state, stop reason, registers, cycles and current memory mapping.',

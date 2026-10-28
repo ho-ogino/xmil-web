@@ -2921,6 +2921,7 @@ window.__X1PEN_MODE = true;
         if (isAutomationPadAvailable()) features.push('input.pad');
         if (isDebuggerModuleAvailable()) features.push('debugger.cpu');
         if (isDebuggerVramModuleAvailable()) features.push('debugger.vram');
+        features.push('hubasic.options');
         return features;
     }
 

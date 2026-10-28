@@ -13,6 +13,7 @@ import {
   normalizeX1PenDescriptor,
 } from '../mcp/x1pen-compatibility.mjs';
 import { createX1PenMcpServer, parseAllowedSourceRootArgs } from '../mcp/x1pen-server.mjs';
+import { sourceIdentities } from '../mcp/x1pen-source-sync.mjs';
 
 const initialProgram = {
   sourceMode: 'basic+asm',
@@ -35,13 +36,16 @@ let getProgramCount;
 let beforeGetProgram;
 let selectedSessionId;
 let sourceRoot;
+let hubasicOptions;
 
 const FULL_FEATURES = [
   'automation.core', 'automation.run-recovery', 'automation.source-sync',
-  'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram',
+  'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram', 'hubasic.options',
 ];
 
-function configureCompatibility({ connectorSourceSync = true, x1penSourceSync = true } = {}) {
+function configureCompatibility({
+  connectorSourceSync = true, x1penSourceSync = true, connectorHuBasic = true, x1penHuBasic = true,
+} = {}) {
   compatibilityComponents = {
     mcp: createMcpDescriptor('2.7.0'),
     connector: normalizeConnectorPair({
@@ -49,12 +53,14 @@ function configureCompatibility({ connectorSourceSync = true, x1penSourceSync = 
       connector: {
         name: 'x1pen-connector', version: connectorSourceSync ? '1.3.0' : '1.2.0',
         protocolVersion: 2,
-        features: FULL_FEATURES.filter((feature) => connectorSourceSync || feature !== 'automation.source-sync'),
+        features: FULL_FEATURES.filter((feature) => (connectorSourceSync || feature !== 'automation.source-sync') &&
+          (connectorHuBasic || feature !== 'hubasic.options')),
       },
     }),
     x1pen: normalizeX1PenDescriptor({
       version: x1penSourceSync ? '0.9.0' : '0.8.0', automationApiVersion: 2,
-      features: FULL_FEATURES.filter((feature) => x1penSourceSync || feature !== 'automation.source-sync'),
+      features: FULL_FEATURES.filter((feature) => (x1penSourceSync || feature !== 'automation.source-sync') &&
+        (x1penHuBasic || feature !== 'hubasic.options')),
     }),
   };
   stripRevisionEpoch = !connectorSourceSync;
@@ -79,13 +85,26 @@ function clone(value) {
   return structuredClone(value);
 }
 
-function normalizeProgram(program) {
+// Like X1Pen's setProgram; withHuBasic: an X1Pen with the HuBASIC tab (its snapshots have hubasic)
+function normalizeProgram(program, withHuBasic) {
   const normalized = {
     sourceMode: program.sourceMode,
     basic: program.basic || '',
     asm: program.asm || '',
     slang: program.slang || '',
   };
+  if (withHuBasic) {
+    normalized.hubasic = program.hubasic || '';
+    if (normalized.sourceMode === 'hubasic') {
+      normalized.basic = '';
+      normalized.asm = '';
+      normalized.slang = '';
+      return normalized;
+    }
+    normalized.hubasic = '';
+  } else if (normalized.sourceMode === 'hubasic') {
+    throw new TypeError('sourceMode must be basic+asm, asm or slang');
+  }
   if (normalized.sourceMode === 'slang') {
     normalized.basic = '';
     normalized.asm = '';
@@ -161,7 +180,7 @@ const fakeBridge = {
         throw error;
       }
       currentProgram = {
-        ...normalizeProgram(params.program),
+        ...normalizeProgram(params.program, typeof currentProgram.hubasic === 'string'),
         revision: currentProgram.revision + 1,
         revisionEpoch: currentProgram.revisionEpoch,
         instanceId: currentProgram.instanceId,
@@ -170,6 +189,12 @@ const fakeBridge = {
       return clone(currentProgram);
     }
     if (method === 'validate') return { ok: true, diagnostics: [] };
+    if (method === 'getHuBasicOptions') return clone(hubasicOptions);
+    if (method === 'setHuBasicOptions') {
+      const defaults = { wait: 'none', noLineNumbers: false, assumeDefint: false, stringLen: 255, dataBudget: 24576 };
+      for (const [key, value] of Object.entries(params.patch)) hubasicOptions[key] = value === null ? defaults[key] : value;
+      return clone(hubasicOptions);
+    }
     if (method === 'run') return clone(runResponse);
     if (method === 'recoverStalled') return clone(recoveryResponse);
     if (method === 'getStatus') {
@@ -272,6 +297,7 @@ beforeEach(() => {
   getProgramCount = 0;
   beforeGetProgram = null;
   selectedSessionId = 'tab-a';
+  hubasicOptions = { wait: 'none', noLineNumbers: false, assumeDefint: false, stringLen: 255, dataBudget: 24576 };
 });
 
 after(async () => {
@@ -309,6 +335,7 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_debug_wait_for_pause',
     'x1pen_debug_write_vram',
     'x1pen_diff_source',
+    'x1pen_get_hubasic_options',
     'x1pen_get_language_profile',
     'x1pen_get_program',
     'x1pen_get_reference',
@@ -321,6 +348,7 @@ test('server exposes context-efficient source tools', async () => {
     'x1pen_search_source',
     'x1pen_select_session',
     'x1pen_send_key',
+    'x1pen_set_hubasic_options',
     'x1pen_set_pad',
     'x1pen_set_program',
     'x1pen_set_source_file',
@@ -334,6 +362,9 @@ test('server exposes context-efficient source tools', async () => {
   assert.match(descriptions.x1pen_set_source_file, /local UTF-8 file/);
   assert.match(descriptions.x1pen_validate, /temporary compilation output/);
   assert.match(descriptions.x1pen_validate, /does not store generated ASM/);
+  assert.match(descriptions.x1pen_get_hubasic_options, /not part of the program/);
+  assert.match(instructions, /sourceMode hubasic/);
+  assert.match(instructions, /do not assume FuzzyBASIC syntax/);
 });
 
 test('allowed source roots accept repeatable CLI forms and reject missing values', () => {
@@ -1436,4 +1467,231 @@ test('debugger VRAM tools validate regions and return compact responses', async 
   });
   assert.equal(oversizedText.isError, true);
   assert.match(oversizedText.content[0].text, /2048 bytes/);
+});
+
+// An X1Pen with the HuBASIC tab and a HuBASIC program in it
+function useHuBasicProgram(hubasic = '10 CLS\n20 PRINT "\\{heart}¥"\n30 GOTO 30') {
+  currentProgram = {
+    sourceMode: 'hubasic', basic: '', asm: '', slang: '', hubasic,
+    revision: 3, revisionEpoch: 'epoch-a', instanceId: 'tab-a',
+  };
+}
+
+test('a HuBASIC program is the authoring hubasic section', async () => {
+  useHuBasicProgram();
+  const summary = jsonContent(await client.callTool({ name: 'x1pen_get_program', arguments: {} }));
+  assert.equal(summary.sourceMode, 'hubasic');
+  assert.deepEqual(Object.fromEntries(Object.entries(summary.sections).map(([name, section]) => [name, section.role])),
+    { basic: 'inactive', asm: 'inactive', slang: 'inactive', hubasic: 'authoring' });
+  assert.equal(summary.sections.hubasic.lineCount, 3);
+  assert.equal(summary.authoringHash, sourceIdentities(currentProgram).authoringHash);
+  assert.equal(summary.hubasic, undefined);
+
+  const full = jsonContent(await client.callTool({ name: 'x1pen_get_program', arguments: { fields: ['hubasic'] } }));
+  assert.equal(full.hubasic, currentProgram.hubasic);
+  const range = jsonContent(await client.callTool({
+    name: 'x1pen_get_source', arguments: { section: 'hubasic', startLine: 2, lineCount: 1 },
+  }));
+  assert.equal(range.text, '20 PRINT "\\{heart}¥"');
+  const found = jsonContent(await client.callTool({
+    name: 'x1pen_search_source', arguments: { section: 'hubasic', query: 'goto' },
+  }));
+  assert.equal(found.totalMatches, 1);
+  assert.equal(found.matches[0].line, 3);
+});
+
+test('HuBASIC source is edited and replaced like the other sections, only in hubasic mode', async () => {
+  useHuBasicProgram();
+  const edited = jsonContent(await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'hubasic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 2, deleteLineCount: 1, text: '20 PRINT "EDITED"' }],
+    },
+  }));
+  assert.equal(edited.changed, true);
+  assert.equal(currentProgram.hubasic, '10 CLS\n20 PRINT "EDITED"\n30 GOTO 30');
+  assert.deepEqual(calls.at(-1).params.program,
+    { sourceMode: 'hubasic', basic: '', asm: '', slang: '', hubasic: '10 CLS\n20 PRINT "EDITED"\n30 GOTO 30' });
+
+  const notEditable = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic', expectedRevision: 4, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 1, deleteLineCount: 0, text: '10 END' }],
+    },
+  });
+  assert.equal(notEditable.isError, true);
+  assert.equal(jsonContent(notEditable).error.code, 'SOURCE_SECTION_NOT_EDITABLE');
+
+  // Leaving hubasic mode clears the HuBASIC program, as in X1Pen
+  const basic = jsonContent(await client.callTool({
+    name: 'x1pen_set_program',
+    arguments: { expectedRevision: 4, expectedRevisionEpoch: 'epoch-a', sourceMode: 'basic+asm', basic: '10 END', hubasic: '10 X' },
+  }));
+  assert.equal(basic.sourceMode, 'basic+asm');
+  assert.equal(basic.sections.hubasic.role, 'inactive');
+  assert.equal(currentProgram.hubasic, '');
+
+  const hubasicInBasic = await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'hubasic', expectedRevision: 5, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 1, deleteLineCount: 0, text: '10 END' }],
+    },
+  });
+  assert.equal(hubasicInBasic.isError, true);
+  assert.equal(jsonContent(hubasicInBasic).error.code, 'SOURCE_SECTION_NOT_EDITABLE');
+
+  const back = jsonContent(await client.callTool({
+    name: 'x1pen_set_program',
+    arguments: { expectedRevision: 5, expectedRevisionEpoch: 'epoch-a', sourceMode: 'hubasic', hubasic: '10 PRINT 1' },
+  }));
+  assert.equal(back.sourceMode, 'hubasic');
+  assert.equal(currentProgram.hubasic, '10 PRINT 1');
+  assert.equal(currentProgram.basic, '');
+});
+
+test('set_source_file and diff_source handle the hubasic section', async () => {
+  useHuBasicProgram('10 PRINT "A"\n20 END');
+  const baseline = jsonContent(await client.callTool({ name: 'x1pen_get_program', arguments: {} }));
+  const path = join(sourceRoot, 'program.hub.txt');
+  await writeFile(path, '10 PRINT "A"\n15 PRINT "B"\n20 END');
+  const written = jsonContent(await client.callTool({
+    name: 'x1pen_set_source_file',
+    arguments: { path, section: 'hubasic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a' },
+  }));
+  assert.equal(written.changed, true);
+  assert.equal(currentProgram.hubasic, '10 PRINT "A"\n15 PRINT "B"\n20 END');
+
+  const diff = jsonContent(await client.callTool({
+    name: 'x1pen_diff_source',
+    arguments: {
+      section: 'hubasic', baseHash: baseline.sections.hubasic.contentHash,
+      baseSourceMode: 'hubasic', baseRevisionEpoch: 'epoch-a',
+    },
+  }));
+  assert.equal(diff.baseSourceOrigin, 'cache');
+  assert.equal(diff.addedLines, 1);
+  assert.match(diff.diff, /\+15 PRINT "B"/);
+});
+
+test('the source identities of the other modes are unchanged by the hubasic section', () => {
+  // Values computed before the hubasic section existed
+  const golden = [
+    [{ sourceMode: 'basic+asm', basic: '10 PRINT "MCP"\n20 END', asm: '  RET\n', slang: '' },
+      'sha256-authoring-v1:30285699ad7bc3abce1dbb7168ae7c91298d5ca8d34737d290cefb102c5d99c6'],
+    [{ sourceMode: 'asm', basic: '', asm: '  ORG $100\n  RET', slang: '' },
+      'sha256-authoring-v1:2d881b3747d31131df3f6bfb206f77884f57b070d46ac6cde3046b0abd515b47'],
+    [{ sourceMode: 'slang', basic: '', asm: '; generated\n', slang: 'main() { }\n' },
+      'sha256-authoring-v1:49896825b86fe45f8cc9fa89ccbdf2ef95fb604201d73ab2348b055742de69a3'],
+  ];
+  for (const [snapshot, authoringHash] of golden) {
+    const withoutHuBasic = sourceIdentities(snapshot);
+    const withHuBasic = sourceIdentities({ ...snapshot, hubasic: '' });
+    assert.equal(withoutHuBasic.authoringHash, authoringHash, snapshot.sourceMode);
+    assert.equal(withHuBasic.authoringHash, authoringHash, snapshot.sourceMode);
+    assert.deepEqual(Object.keys(withoutHuBasic.sections), ['basic', 'asm', 'slang']);
+    const { hubasic, ...others } = withHuBasic.sections;
+    assert.deepEqual(others, withoutHuBasic.sections);
+    assert.equal(hubasic.role, 'inactive');
+  }
+  assert.equal(sourceIdentities(golden[2][0]).sections.asm.generatedContentHash,
+    'sha256-utf8-v1:dd6221c4dcc7d9823d51df4abc615993ab893c1619871db92c74a67975fc13ba');
+});
+
+test('an X1Pen without the HuBASIC tab keeps working and refuses HuBASIC visibly', async () => {
+  // initialProgram has no hubasic field, as an X1Pen before the HuBASIC tab
+  const summary = jsonContent(await client.callTool({ name: 'x1pen_get_program', arguments: {} }));
+  assert.equal(summary.sections.hubasic, undefined);
+  assert.deepEqual(Object.keys(summary.sections), ['basic', 'asm', 'slang']);
+
+  const read = await client.callTool({ name: 'x1pen_get_source', arguments: { section: 'hubasic' } });
+  assert.equal(read.isError, true);
+  assert.equal(jsonContent(read).error.code, 'SOURCE_CONTENT_UNAVAILABLE');
+  const fields = await client.callTool({ name: 'x1pen_get_program', arguments: { fields: ['hubasic'] } });
+  assert.equal(jsonContent(fields).error.code, 'SOURCE_CONTENT_UNAVAILABLE');
+
+  const write = await client.callTool({
+    name: 'x1pen_set_program',
+    arguments: { expectedRevision: 3, expectedRevisionEpoch: 'epoch-a', sourceMode: 'hubasic', hubasic: '10 END' },
+  });
+  assert.equal(write.isError, true);
+  assert.equal(jsonContent(write).error.code, 'SOURCE_MODE_UNSUPPORTED');
+  assert.equal(jsonContent(write).error.component, 'x1pen');
+  assert.equal(calls.some((call) => call.method === 'setProgram'), false);
+
+  // Edits of the other sections send no hubasic field
+  const edited = jsonContent(await client.callTool({
+    name: 'x1pen_apply_edits',
+    arguments: {
+      section: 'basic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a',
+      edits: [{ startLine: 2, deleteLineCount: 1, text: '20 STOP' }],
+    },
+  }));
+  assert.equal(edited.changed, true);
+  assert.equal('hubasic' in calls.at(-1).params.program, false);
+
+  // hubasic mode without the source is not read as an empty program
+  currentProgram = { ...clone(initialProgram), sourceMode: 'hubasic' };
+  const broken = await client.callTool({ name: 'x1pen_get_program', arguments: {} });
+  assert.equal(jsonContent(broken).error.code, 'SOURCE_CONTENT_UNAVAILABLE');
+});
+
+test('HuBASIC options are read and changed through their own tools', async () => {
+  assert.deepEqual(jsonContent(await client.callTool({ name: 'x1pen_get_hubasic_options', arguments: {} })), {
+    options: { wait: 'none', noLineNumbers: false, assumeDefint: false, stringLen: 255, dataBudget: 24576 },
+  });
+  const changed = jsonContent(await client.callTool({
+    name: 'x1pen_set_hubasic_options', arguments: { patch: { wait: 'line:450', noLineNumbers: true } },
+  }));
+  assert.deepEqual(changed, {
+    ok: true, options: { wait: 'line:450', noLineNumbers: true, assumeDefint: false, stringLen: 255, dataBudget: 24576 },
+  });
+  assert.deepEqual(calls.at(-1), { method: 'setHuBasicOptions', params: { patch: { wait: 'line:450', noLineNumbers: true } }, sessionId: undefined });
+  const reset = jsonContent(await client.callTool({
+    name: 'x1pen_set_hubasic_options', arguments: { patch: { wait: null } },
+  }));
+  assert.equal(reset.options.wait, 'none');
+  assert.deepEqual(calls.at(-1).params.patch, { wait: null });
+
+  // The program and its revision are not touched
+  assert.equal(calls.some((call) => call.method === 'setProgram'), false);
+  assert.equal(currentProgram.revision, 3);
+
+  for (const patch of [
+    {}, { bogus: 1 }, { stringLen: 0 }, { stringLen: 256 }, { dataBudget: 65536 }, { dataBudget: 1.5 },
+    { wait: 'line:0' }, { wait: 'none:2' }, { wait: 'fast' }, { noLineNumbers: 'yes' },
+  ]) {
+    calls.length = 0;
+    const result = await client.callTool({ name: 'x1pen_set_hubasic_options', arguments: { patch } });
+    assert.equal(result.isError, true, JSON.stringify(patch));
+    assert.equal(calls.length, 0, JSON.stringify(patch));
+  }
+});
+
+test('HuBASIC option errors keep their code and name the component to update', async () => {
+  const pending = new Error('HuBASIC options update is unavailable while run setup is pending');
+  pending.code = 'RUN_PENDING';
+  compatibilityFailure = { method: 'setHuBasicOptions', error: pending };
+  const refused = await client.callTool({ name: 'x1pen_set_hubasic_options', arguments: { patch: { stringLen: 80 } } });
+  assert.equal(jsonContent(refused).error.code, 'RUN_PENDING');
+  compatibilityFailure = null;
+
+  // Connector 1.3.0 passes HuBASIC programs through but not the option methods
+  configureCompatibility({ connectorHuBasic: false });
+  const oldConnector = await client.callTool({ name: 'x1pen_get_hubasic_options', arguments: {} });
+  const connectorError = jsonContent(oldConnector).error;
+  assert.equal(connectorError.code, 'FEATURE_UNAVAILABLE');
+  assert.equal(connectorError.component, 'connector');
+  assert.equal(connectorError.feature, 'hubasic.options');
+  assert.equal(connectorError.requiredVersion, undefined);
+  assert.match(connectorError.action, /Update X1Pen Connector/);
+  useHuBasicProgram();
+  assert.equal(jsonContent(await client.callTool({ name: 'x1pen_get_program', arguments: {} })).sourceMode, 'hubasic');
+
+  configureCompatibility({ x1penHuBasic: false });
+  const oldPage = jsonContent(await client.callTool({ name: 'x1pen_set_hubasic_options', arguments: { patch: { stringLen: 80 } } })).error;
+  assert.equal(oldPage.code, 'FEATURE_UNAVAILABLE');
+  assert.equal(oldPage.component, 'x1pen');
 });

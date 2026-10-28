@@ -96,7 +96,9 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.doesNotMatch(client.getInstructions(), /Issue #112|#112/);
 
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 31);
+    assert.equal(tools.tools.length, 33);
+    assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_get_hubasic_options'));
+    assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_set_hubasic_options'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_apply_edits'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_diff_source'));
     assert.ok(tools.tools.some((tool) => tool.name === 'x1pen_debug_get_state'));
@@ -112,7 +114,7 @@ test('packed x1pen-mcp installs and serves tools without the repository', { time
     assert.match(info.pairingCode, /^\d{6}$/);
     assert.equal(info.components.mcp.version, '2.7.0');
     assert.deepEqual(info.components.mcp.features,
-      ['automation.core', 'automation.run-recovery', 'automation.source-sync', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram']);
+      ['automation.core', 'automation.run-recovery', 'automation.source-sync', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram', 'hubasic.options']);
     assert.equal(info.components.connector, null);
 
     const reference = await client.callTool({
