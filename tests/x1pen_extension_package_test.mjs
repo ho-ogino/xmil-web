@@ -50,7 +50,7 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
 
     const manifest = JSON.parse(run('unzip', ['-p', zipPath, 'manifest.json']));
     assert.equal(manifest.manifest_version, 3);
-    assert.equal(manifest.version, '1.3.0');
+    assert.equal(manifest.version, '1.4.0');
     assert.equal(manifest.default_locale, 'ja');
     assert.equal(manifest.name, '__MSG_extensionName__');
     assert.equal(manifest.description, '__MSG_extensionDescription__');
@@ -110,7 +110,7 @@ test('X1Pen Connector store package is complete and minimally scoped', async () 
 
 test('X1Pen product version is declared once and copied into browser builds', async () => {
   const versionSource = await readFile(join(repoRoot, 'html/x1pen-version.js'), 'utf8');
-  assert.match(versionSource, /version:\s*'0\.10\.1'/);
+  assert.match(versionSource, /version:\s*'0\.11\.0'/);
   assert.match(versionSource, /name:\s*'x1pen'/);
 
   const x1penHtml = await readFile(join(repoRoot, 'html/x1pen.html'), 'utf8');

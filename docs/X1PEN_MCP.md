@@ -109,10 +109,10 @@ X1Pen の HuBASIC タブのプログラムは `sourceMode: "hubasic"` の `hubas
 
 | MCP | Connector | X1Pen | HuBASIC のプログラム | 変換オプション |
 |---|---|---|---|---|
-| この版以降 | `hubasic.options` を申告する版 | HuBASIC タブあり | 使える | 使える |
-| この版以降 | 1.3.0 | HuBASIC タブあり | 使える（Connector は中身をそのまま中継する） | `FEATURE_UNAVAILABLE`（component `connector`、Connector の更新を案内） |
-| この版以降 | どれでも | HuBASIC タブなし | `SOURCE_CONTENT_UNAVAILABLE` / `SOURCE_MODE_UNSUPPORTED`（X1Pen の更新を案内）。ほかのモードは今までどおり（hash も同じ） | `FEATURE_UNAVAILABLE`（component `x1pen`） |
-| 2.7.x | どれでも | HuBASIC タブあり | HuBASIC の間は `invalid source mode` で止まる（黙って別のモードとして扱うことはない）。ほかのモードは今までどおり | 使えない |
+| 2.8.0 以降 | 1.4.0 以降 | 0.11.0 以降 | 使える | 使える |
+| 2.8.0 以降 | 1.3.0 | 0.11.0 以降 | 使える（Connector は中身をそのまま中継する） | `FEATURE_UNAVAILABLE`（component `connector`、Connector 1.4.0 以上を案内） |
+| 2.8.0 以降 | どれでも | 0.10.1 以前（HuBASIC タブなし） | `SOURCE_CONTENT_UNAVAILABLE` / `SOURCE_MODE_UNSUPPORTED`（X1Pen の更新を案内）。ほかのモードは今までどおり（hash も同じ） | `FEATURE_UNAVAILABLE`（component `x1pen`） |
+| 2.7.x | どれでも | 0.11.0 以降 | HuBASIC の間は `invalid source mode` で止まる（黙って別のモードとして扱うことはない）。ほかのモードは今までどおり | 使えない |
 
 ## ツール
 

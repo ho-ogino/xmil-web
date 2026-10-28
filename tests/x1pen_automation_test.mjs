@@ -246,7 +246,7 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   assert.equal(await page.evaluate(() => window.X1PenAutomation.version), 2);
   assert.deepEqual(ready.x1pen, {
     name: 'x1pen',
-    version: '0.10.1',
+    version: '0.11.0',
     automationApiVersion: 2,
     features: ['automation.core', 'automation.run-recovery', 'automation.source-sync', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram', 'hubasic.options'],
   });
@@ -4386,11 +4386,13 @@ test('re-sharing in a HuBASIC share tab uses the model of its last Run, also aft
 
 // ── x1pen-mcp through X1Pen Connector's page code, against this page ──
 
+const CONNECTOR_VERSION = JSON.parse(readFileSync(join(projectRoot, 'extension', 'manifest.json'), 'utf8')).version;
+
 // x1pen-mcp from mcpDir connected to target as X1Pen Connector connects it: its own X1PenBridge,
 // and a WebSocket client that pairs with the given Connector descriptor and runs every command in
 // the page with the Connector's invokeX1PenInPage (as the service worker's executeScript does)
 async function connectMcp(target, {
-  mcpDir = join(projectRoot, 'mcp'), connector = createConnectorDescriptor('1.3.0'), allowedSourceRoots = [],
+  mcpDir = join(projectRoot, 'mcp'), connector = createConnectorDescriptor(CONNECTOR_VERSION), allowedSourceRoots = [],
 } = {}) {
   const { createX1PenMcpServer } = await import(pathToFileURL(join(mcpDir, 'x1pen-server.mjs')).href);
   const pairingCode = '246810';
@@ -4545,7 +4547,8 @@ test('with X1Pen Connector 1.3.0, x1pen-mcp handles HuBASIC programs but asks fo
     assert.equal(options.isError, true);
     assert.equal(options.value.error.code, 'FEATURE_UNAVAILABLE');
     assert.equal(options.value.error.component, 'connector');
-    assert.match(options.value.error.action, /Update X1Pen Connector/);
+    assert.equal(options.value.error.requiredVersion, '1.4.0');
+    assert.match(options.value.error.action, /X1Pen Connector 1\.4\.0 or later/);
   } finally {
     await mcp.close();
   }
