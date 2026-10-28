@@ -4434,6 +4434,14 @@ async function connectMcp(target, {
         return { ok: false, error: fields };
       }
     }, [invokeX1PenInPage.toString(), message.method, params]);
+    // Classified as extension/service-worker.js handleCommand does
+    if (!outcome.ok && !outcome.error.code &&
+        /execution context|frame was removed|tab (?:was )?closed|No tab with id/i.test(outcome.error.message)) {
+      Object.assign(outcome.error, {
+        code: 'TAB_RELOADED', component: 'connector',
+        action: 'Wait for X1Pen to reload, then call x1pen_get_status.',
+      });
+    }
     socket.send(JSON.stringify({ type: 'result', id: message.id, ...outcome }));
   });
   socket.send(JSON.stringify({ type: 'pair', code: pairingCode, extensionVersion: connector.version, connector }));
@@ -4548,6 +4556,8 @@ test('x1pen-mcp replaces HuBASIC from a local file, and never returns the file t
   writeFileSync(join(root, 'good.txt'), '10 PRINT "FROM FILE"\n20 GOTO 20\n');
   writeFileSync(join(root, 'escape.txt'), '10 PRINT "\\{PRIVATE_MARKER}"\n');
   writeFileSync(join(root, 'kanji.txt'), '10 REM 秘密MARK\n');
+  // The Connector gives this codec message a code (TAB_RELOADED) from its words
+  writeFileSync(join(root, 'context.txt'), '10 PRINT "\\{PRIVATE_CONTEXT execution context}"\n');
   await setHuBasicProgram('10 PRINT "BEFORE"\n');
   const mcp = await connectMcp(page, { allowedSourceRoots: [root] });
   try {
@@ -4565,11 +4575,12 @@ test('x1pen-mcp replaces HuBASIC from a local file, and never returns the file t
     for (const [name, quoted, reason] of [
       ['escape.txt', 'PRIVATE_MARKER', /unknown \\\{name\} escape/],
       ['kanji.txt', '秘密', /characters the X1 cannot show/],
+      ['context.txt', 'PRIVATE_CONTEXT', /is not returned because it can quote the file/],
     ]) {
       const refused = await replace(name);
       assert.equal(refused.isError, true, name);
       assert.equal(JSON.stringify(refused.value).includes(quoted), false, `${name}: ${JSON.stringify(refused.value)}`);
-      assert.equal(refused.value.error.code, 'SOURCE_REJECTED');
+      if (name !== 'context.txt') assert.equal(refused.value.error.code, 'SOURCE_REJECTED');
       assert.match(refused.value.error.message, reason);
     }
     assert.equal(await page.evaluate(() => window.X1PenAutomation.getProgram().hubasic), '10 PRINT "FROM FILE"\n20 GOTO 20\n');

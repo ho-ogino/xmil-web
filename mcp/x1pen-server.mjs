@@ -217,11 +217,17 @@ function programFrom(snapshot, replacements) {
 }
 
 // X1Pen's reason for refusing a source can quote it (the HuBASIC text form names the characters
-// and escapes it cannot read). A local file's content is never returned, so such a reason is
-// replaced; errors with a code (conflicts, RUN_PENDING, ...) have fixed texts and pass unchanged.
+// and escapes it cannot read), and the Connector may give such a message a code (TAB_RELOADED
+// from words in it). A local file's content is never returned, so a failed local-file write never
+// returns the message text: a coded error keeps its code and structured fields, an uncoded one
+// becomes SOURCE_REJECTED with a fixed reason.
 function localSourceRejection(error, section) {
-  if (typeof error?.code === 'string') return error;
   const message = String(error?.message || '');
+  if (typeof error?.code === 'string') {
+    error.message = `X1Pen did not accept the local ${section} source (${error.code}). ` +
+      'The message is not returned because it can quote the file.';
+    return error;
+  }
   const reason = /^hubasic: X1で表現できない文字/.test(message)
     ? 'it contains characters the X1 cannot show'
     : (/^hubasic: 不明な記号名/.test(message) ? 'it contains an unknown \\{name} escape' : 'X1Pen refused it');

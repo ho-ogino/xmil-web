@@ -1713,7 +1713,19 @@ test('set_source_file never returns a rejection reason that quotes the local fil
   assert.equal(error.section, 'hubasic');
   assert.match(error.message, /unknown \\\{name\} escape/);
 
-  // A coded error has a fixed text and keeps its code
+  // A coded error keeps its code and structured fields but not its text, which can still quote
+  // the file (the Connector codes messages from their words)
+  const coded = new Error('hubasic: 不明な記号名：PRIVATE_MARKER execution context');
+  Object.assign(coded, { code: 'TAB_RELOADED', component: 'connector', action: 'Wait for X1Pen to reload, then call x1pen_get_status.' });
+  compatibilityFailure = { method: 'setProgram', error: coded };
+  const reloaded = await client.callTool({
+    name: 'x1pen_set_source_file',
+    arguments: { path, section: 'hubasic', expectedRevision: 3, expectedRevisionEpoch: 'epoch-a' },
+  });
+  assert.equal(JSON.stringify(reloaded).includes('PRIVATE_MARKER'), false);
+  assert.equal(jsonContent(reloaded).error.code, 'TAB_RELOADED');
+  assert.equal(jsonContent(reloaded).error.component, 'connector');
+
   const pending = new Error('Program update is unavailable while run setup is pending');
   pending.code = 'RUN_PENDING';
   compatibilityFailure = { method: 'setProgram', error: pending };
