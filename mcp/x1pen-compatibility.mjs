@@ -50,6 +50,7 @@ const CONNECTOR_MINIMUMS = Object.freeze({
   'automation.source-sync': '1.3.0',
   'debugger.cpu': '1.1.0',
   'debugger.vram': '1.2.0',
+  'hubasic.options': '1.4.0',
   'input.keyboard': '1.3.0',
   'input.pad': '1.3.0',
 });

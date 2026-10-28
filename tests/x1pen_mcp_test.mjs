@@ -1685,8 +1685,8 @@ test('HuBASIC option errors keep their code and name the component to update', a
   assert.equal(connectorError.code, 'FEATURE_UNAVAILABLE');
   assert.equal(connectorError.component, 'connector');
   assert.equal(connectorError.feature, 'hubasic.options');
-  assert.equal(connectorError.requiredVersion, undefined);
-  assert.match(connectorError.action, /Update X1Pen Connector/);
+  assert.equal(connectorError.requiredVersion, '1.4.0');
+  assert.match(connectorError.action, /X1Pen Connector 1\.4\.0 or later/);
   useHuBasicProgram();
   assert.equal(jsonContent(await client.callTool({ name: 'x1pen_get_program', arguments: {} })).sourceMode, 'hubasic');
 
