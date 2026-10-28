@@ -3493,6 +3493,46 @@ test('in X1Pen the HuBASIC editor imports and exports, and its side panel folds 
   assert.equal(await hubasicEditorText(), '10 PRINT "PANEL"');
 });
 
+test('resting the mouse on a string in the HuBASIC editor shows it as one image, inside the editor', { timeout: 60_000 }, async () => {
+  // ABC, down, left ×3, DEF: two rows of three characters
+  await setHuBasicProgram('10 CLS\n20 PRINT "ABC\\x1F\\x1D\\x1D\\x1DDEF"\n30 GOTO 30\n');
+  await page.waitForFunction(() => {
+    const frame = document.querySelector('#hubasic-editor-container iframe');
+    const doc = frame && frame.contentDocument;
+    return doc && doc.readyState === 'complete' && doc.querySelector('.pcg-literal') && doc.getElementById('editor').value.includes('GOTO 30');
+  }, null, { timeout: 30_000 });
+  await page.evaluate(() => document.getElementById('canvas').focus());
+  const revision = await page.evaluate(() => window.X1PenAutomation.getProgram().revision);
+  const frame = page.frame({ url: /x1basic\/src\// });
+  const box = await page.locator('#hubasic-editor-container iframe').boundingBox();
+  const at = await frame.evaluate(() => {
+    const rect = document.querySelector('.pcg-literal').getClientRects()[0];
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  await page.mouse.move(box.x + at.x, box.y + at.y);
+  await page.mouse.move(box.x + at.x + 1, box.y + at.y);
+  await frame.waitForFunction(() => !document.getElementById('pcg-string-preview').hidden, null, { timeout: 10_000 });
+  const shown = await frame.evaluate(() => {
+    const panel = document.getElementById('pcg-string-preview');
+    const rect = panel.getBoundingClientRect();
+    const canvas = document.getElementById('pcg-string-image');
+    return {
+      size: document.getElementById('pcg-string-size').textContent,
+      image: [canvas.width, canvas.height],
+      inside: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
+      clipped: panel.scrollHeight > panel.clientHeight || panel.scrollWidth > panel.clientWidth,
+    };
+  });
+  assert.deepEqual(shown, { size: '24×16 ドット（3×2文字）', image: [24, 16], inside: true, clipped: false });
+  // Hovering takes neither the keyboard from the emulator nor changes the program
+  assert.deepEqual(await page.evaluate(() => ({
+    active: document.activeElement.id, revision: window.X1PenAutomation.getProgram().revision,
+  })), { active: 'canvas', revision });
+
+  await page.mouse.move(box.x + box.width + 40, box.y + 10);
+  await frame.waitForFunction(() => document.getElementById('pcg-string-preview').hidden, null, { timeout: 10_000 });
+});
+
 test('setProgram refuses HuBASIC text the X1 cannot show and changes nothing', { timeout: 30_000 }, async () => {
   await setHuBasicProgram('10 PRINT "KEEP"');
   const result = await page.evaluate(async () => {

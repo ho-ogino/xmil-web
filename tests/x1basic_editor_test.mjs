@@ -7,7 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import vm from 'node:vm';
-import { HOST_ANCHOR, HOST_LINE, importEditor, injectHost, parseArgs } from '../scripts/import-x1-basic-editor.mjs';
+import { HOST_ANCHOR, HOST_LINE, importEditor, injectHost, localReferences, parseArgs } from '../scripts/import-x1-basic-editor.mjs';
 
 // X1 BASIC Editor (HuBASIC tab): the committed copy in assets/x1basic, X1Pen's text form of the
 // program (html/x1pen_hubasic_text.js) and the header rule that lets x1pen.html frame it.
@@ -54,6 +54,27 @@ test('assets/x1basic is one commit of X1 BASIC Editor, unchanged except the host
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
   assert.deepEqual(scripts.slice(scripts.indexOf('font-builder.js'), scripts.indexOf('host.js') + 1),
     ['font-builder.js', 'x1pen-host.js', 'host.js']);
+  // Every file the page loads is in the copy; the host adapter is X1Pen's own file, which build.sh
+  // puts next to it
+  const adapter = join('src', /src="([^"]+)"/.exec(source.injected.line)[1]);
+  const refs = localReferences(html);
+  assert.ok(refs.includes(adapter));
+  for (const ref of refs.filter((ref) => ref !== adapter)) {
+    assert.ok(Object.hasOwn(source.files, ref), `src/index.html loads ${ref}, which is not in the copy`);
+  }
+  const build = readFileSync(join(repoRoot, 'build.sh'), 'utf8');
+  statSync(join(repoRoot, 'html', 'x1pen_x1basic_host.js'));
+  assert.ok(build.includes('cp "${SCRIPT_DIR}/html/x1pen_x1basic_host.js" ./x1basic/src/x1pen-host.js'));
+  assert.ok(build.includes('cp "${SCRIPT_DIR}/html/x1pen_x1basic_host.js" "${DIST_DIR}/x1basic/src/x1pen-host.js"'));
+});
+
+test('the import script finds the local files that src/index.html loads', () => {
+  assert.deepEqual(localReferences([
+    '<link rel="stylesheet" href="style.css"><script src="codec.js"></script>',
+    "<script src='../assets/a.js?v=1'></script><script defer src=\"b.js#x\"></script>",
+    '<script src="https://example.test/x.js"></script><script src="//example.test/y.js"></script>',
+    '<script src="data:text/javascript,1"></script><link rel="icon" href="/favicon.svg"><img src="z.png">',
+  ].join('\n')), ['src/style.css', 'src/codec.js', 'assets/a.js', 'src/b.js']);
 });
 
 test('the text form reads back every X1 byte', () => {
@@ -158,8 +179,13 @@ test('the import script copies one clean commit and refuses anything else', asyn
     writeFileSync(join(repo, 'src', 'index.html'), '<p>no host\n');
     git('-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-q', '-am', 'y');
     await assert.rejects(importEditor(repo, { target }), /exactly once/);
+    // A page that loads a file the script does not copy would not start in X1Pen
+    writeFileSync(join(repo, 'src', 'index.html'), `<script src="extra.js"></script>${HOST_ANCHOR}\n`);
+    git('-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-q', '-am', 'z');
+    await assert.rejects(importEditor(repo, { target }), /loads src\/extra\.js, which is not copied/);
     // A failed import leaves the previous copy as it was
     assert.equal(JSON.parse(readFileSync(join(target, 'source.json'), 'utf8')).commit, commit);
+    assert.equal(readFileSync(join(target, 'src', 'index.html'), 'utf8'), `<p>${HOST_LINE}${HOST_ANCHOR}\n`);
     assert.throws(() => injectHost(`${HOST_ANCHOR}${HOST_ANCHOR}`), /exactly once/);
   } finally {
     rmSync(work, { recursive: true, force: true });

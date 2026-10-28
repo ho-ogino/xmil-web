@@ -13,14 +13,14 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPOSITORY = 'https://github.com/ho-ogino/x1-basic-editor';
 const FILES = [
   'src/index.html', 'src/style.css', 'src/codec.js', 'src/keywords.js', 'src/syntax.js', 'src/pcg.js',
-  'src/font-builder.js', 'src/host.js', 'src/sidebar-resize.js', 'src/editor.js',
+  'src/pcg-preview.js', 'src/font-builder.js', 'src/host.js', 'src/sidebar-resize.js', 'src/editor.js',
   'assets/x1-basic.ttf', 'assets/x1-font.json', 'assets/x1-font-provenance.json', 'assets/licenses/misaki.txt',
   'LICENSE', 'THIRD-PARTY-NOTICES.md',
 ];
@@ -42,6 +42,15 @@ export function injectHost(html) {
   return html.slice(0, at) + HOST_LINE + html.slice(at);
 }
 
+// Local files that src/index.html loads (<script src>, <link href>), as repository paths. URLs with
+// a scheme or starting with // or / are not files of the editor and are left out.
+export function localReferences(html) {
+  return [...html.matchAll(/<(?:script|link)\b[^>]*?\b(?:src|href)\s*=\s*(["'])([^"']*)\1/gi)]
+    .map((m) => m[2])
+    .filter((ref) => ref && !/^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(ref))
+    .map((ref) => posix.normalize(posix.join('src', ref.split(/[?#]/)[0])));
+}
+
 export async function importEditor(checkout, { expect, target = join(repoRoot, 'assets', 'x1basic') } = {}) {
   if (!existsSync(join(checkout, '.git'))) fail(`${checkout} is not a git checkout`);
   if (git(checkout, ['status', '--porcelain']).length) fail(`${checkout} has uncommitted changes`);
@@ -56,7 +65,14 @@ export async function importEditor(checkout, { expect, target = join(repoRoot, '
     for (const path of FILES) {
       let bytes = git(checkout, ['show', `${commit}:${path}`]);
       files[path] = { sha256: sha256(bytes), size: bytes.length };
-      if (path === 'src/index.html') bytes = Buffer.from(injectHost(bytes.toString('utf8')), 'utf8');
+      if (path === 'src/index.html') {
+        const html = bytes.toString('utf8');
+        // A file the page loads but this script does not copy would be missing in X1Pen
+        for (const ref of localReferences(html)) {
+          if (!FILES.includes(ref)) fail(`src/index.html loads ${ref}, which is not copied (add it to FILES)`);
+        }
+        bytes = Buffer.from(injectHost(html), 'utf8');
+      }
       await mkdir(dirname(join(tmp, path)), { recursive: true });
       await writeFile(join(tmp, path), bytes);
     }
