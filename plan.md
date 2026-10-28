@@ -1,82 +1,97 @@
-# X1Pen: import X1 BASIC Editor 31f309b (hover preview of strings as a composed PCG image)
+# x1pen-mcp: HuBASIC programs and HuBASIC conversion options
 
 ## Purpose
 
-The X1 BASIC Editor (HuBASIC tab of X1Pen, an iframe) is copied from `ho-ogino/x1-basic-editor` at one commit into `assets/x1basic/`. Its PR #4 is merged at `292901a7379212c009ea1d7c73a19ad33b4eed5c` (previous copy: `aa1061142660d4c4d95bd7a1794cd677ea5d7c2f`). Re-import it so that, in X1Pen, resting the mouse on a closed string (`"…"`) for 600 ms shows the string drawn with its cursor-move control codes ($1C–$1F) as one image, normal characters and PCG alike.
+X1Pen's HuBASIC tab (X1 BASIC Editor, `sourceMode: 'hubasic'`) and its global hubasic2sl conversion options (PR #137) are not reachable from MCP. x1pen-mcp 2.7.x does not know the mode at all: while X1Pen's current source is HuBASIC, every source tool fails with `X1Pen returned an invalid source mode: hubasic`, and it cannot even switch the tab back to another mode (every write pre-reads the program).
 
-Also make the importer refuse a commit whose `src/index.html` loads a local file the importer does not copy. This import is the first one that adds a new upstream file (`src/pcg-preview.js`); without the fix the copy would load a missing script and the editor would not start.
+Goals:
+1. x1pen-mcp reads, searches, diffs, edits and replaces HuBASIC programs like the other modes (`hubasic` becomes a fourth source section). This fixes the 2.7.x stop (it is the same change).
+2. Two MCP tools read and change the conversion options (`getHuBasicOptions` / `setHuBasicOptions` of the page), behind a new feature `hubasic.options` advertised by X1Pen, X1Pen Connector and x1pen-mcp (the three feature lists must stay equal: `tests/x1pen_extension_bridge_test.mjs`).
+3. Mixed versions stay safe and are tested, including the published MCP 2.7.0 against the new page.
 
-Non-goals: no change to the editor itself (owned by the x1editor Province; requests go through Secretary), to X1Pen's host adapter API, to Share/automation/MCP, or to production (deploy and version bump are the owner's).
+Non-goals: version bumps and publishing (npm, Chrome Web Store, Pages deploy are the owner's; the PR only states what each release carries); a bundled HuBASIC language reference for `x1pen_search_reference` (separate follow-up: it needs curated entries from SLANG-compiler docs/HUBASIC.md); options inside `getProgram` (see Decisions); keeping caret/undo on external replacement (needs an X1 BASIC Editor API, later).
 
 ## Observed evidence
 
-- `assets/x1basic/source.json`: `commit` = `aa10611…`, `files` = sha256/size of 16 upstream files, `injected` = the one line `<script src="x1pen-host.js"></script>` before `<script src="host.js"></script>` in `src/index.html`.
-- `scripts/import-x1-basic-editor.mjs`: `FILES` is a fixed list of 16 paths (`src/index.html`, `src/style.css`, `src/codec.js`, `src/keywords.js`, `src/syntax.js`, `src/pcg.js`, `src/font-builder.js`, `src/host.js`, `src/sidebar-resize.js`, `src/editor.js`, 4 assets, `LICENSE`, `THIRD-PARTY-NOTICES.md`). `importEditor(checkout, {expect, target})` reads each path from git objects of the checkout HEAD (refuses a dirty worktree or a different `--expect`), injects the host line, writes to a temp dir and renames it over `assets/x1basic`. Files not in `FILES` are silently not copied.
-- Upstream `aa10611..292901a` (`git diff --stat`): `src/editor.js` (+53/−15), `src/index.html` (+2/−1), **new `src/pcg-preview.js` (116 lines)**, `src/style.css` (+5), plus README and upstream tests (not copied).
-  - `src/index.html` now loads `pcg-preview.js` between `pcg.js` and `font-builder.js`, and adds `<div id="pcg-string-preview" role="tooltip" hidden>` with a canvas. The `host.js` anchor is unchanged, so the injection still applies.
-  - `src/editor.js` calls `X1PcgPreview.attach({...})` at start-up unconditionally: if `pcg-preview.js` is missing, start-up throws and the editor never calls `host.onLoaded` — X1Pen's HuBASIC tab would show an empty, dead editor.
-  - `src/pcg-preview.js`: the panel is `position:fixed` inside the editor document, sized and placed from `window.innerWidth/innerHeight` of the iframe (scale ≤ 4, may go below 1 to fit), `pointer-events:none`, hidden on mouseleave/mousedown/scroll/input/blur/document pointerdown+keydown/resize/visibilitychange. It changes no source, selection, undo or saved state. No new host API, command or dependency (as x1editor reported).
-  - Local references of the new `src/index.html`: `style.css`, `codec.js`, `keywords.js`, `syntax.js`, `pcg.js`, `pcg-preview.js`, `font-builder.js`, `host.js`, `sidebar-resize.js`, `editor.js` — all in `FILES` once `src/pcg-preview.js` is added.
-- `html/x1pen_x1basic_host.js` (X1Pen's adapter, served as `x1basic/src/x1pen-host.js`): keyboard shortcuts on document keydown (capture), and focus handling that sends focus back to X1Pen unless the user pressed/typed in the frame. Mouse moves are not handled, so hovering neither focuses the frame nor pauses the emulator.
-- `html/_headers` `/x1basic/*`: only frame-ancestors; no script CSP, so a new same-origin script needs no header change. `build.sh` copies the whole `assets/x1basic` directory, so no build change.
-- `tests/x1basic_editor_test.mjs`: checks the committed copy against `source.json` (file set, sizes, sha256, host line placement, script order around `host.js`) and importer behaviour on a fake repo. It does not check that every local script of `index.html` is copied.
-- Pre-plan experiment (scratchpad Playwright, X1Pen from the preview server with `x1basic/src/*` routed to the 292901a checkout + injected host line; repo unchanged):
-  - 1500×900 (iframe 831×832): hovering `"ABC↓←←←DEF"` shows the panel, `24×16 ドット（3×2文字）`, ABC over DEF, inside the frame; no page errors.
-  - 900×600 (iframe 231×532, wrapped lines): panel shows within the frame (x 23–223).
-  - A 5,000-byte string (64 columns × 40 rows, truncated at 4096 bytes / 64×32 chars): panel width clamps to the frame (8–223 at 231 wide; 197–677 at 831 wide), canvas scaled down to fit, `scrollHeight == clientHeight` (nothing cut), truncation warning shown.
-  - So the overlay cannot leave the iframe, but it is kept inside it and not clipped. In a very narrow frame a big image is scaled below 1× and becomes hard to read (upstream behaviour; reported, not changed here).
+- X1Pen page (`html/x1pen.js`):
+  - `getAutomationProgram()` returns `{basic, asm, slang, hubasic, sourceMode, revision, revisionEpoch, instanceId}`; `hubasic` is the editor's text form (`X1PenHuBasicText`: `\n` lines, $5C as `¥`, `\{name}` / `\xHH` escapes). `inferSourceMode` returns `'hubasic'` whenever the HuBASIC text is non-empty, so in the other modes `hubasic` is `''`.
+  - `normalizeAutomationProgram` already accepts `sourceMode: 'hubasic'` (requires non-empty hubasic, checks `fromText`, clears the other sections; other modes clear hubasic). Unknown keys are ignored.
+  - `getHuBasicOptions()` returns the full options `{wait, noLineNumbers, assumeDefint, stringLen, dataBudget}`; `setHuBasicOptions(patch)` (queued, rejects `RUN_PENDING` during run setup; null resets a key; TypeError on unknown key/bad value) returns the full options. Validation in `html/x1pen_hubasic_options.js` (`wait` none|line[:N]|frame[:N], N 1..65535; `stringLen` 1..255; `dataBudget` 1..65535).
+  - `getAutomationFeatures()` = `automation.core, automation.run-recovery, automation.source-sync, screen.capture` + conditional `input.keyboard, input.pad, debugger.cpu, debugger.vram`.
+  - validate/run already handle hubasic (`validateHuBasicProgram`, HuBASIC Run).
+- Connector (`extension/page-automation.mjs` `invokeX1PenInPage`): forwards `getProgram` / `setProgram` payloads unchanged (setProgram gets `transport.requireRevisionEpoch` from `service-worker.js`); any other method name not listed throws `Unsupported X1Pen method`. `extension/compatibility.mjs` `CONNECTOR_FEATURES` = the 8 features; manifest version 1.3.0.
+- MCP (`mcp/`):
+  - `x1pen-server.mjs`: `SOURCE_SECTIONS = ['basic','asm','slang']`; `normalizeProgramSnapshot` rejects any other sourceMode and throws `SOURCE_CONTENT_UNAVAILABLE` when a section field is absent ("an absent source field is not treated as empty source"); `assertEditableSection` per mode; `x1pen_set_program` / `x1pen_diff_source` use `z.enum(['basic+asm','asm','slang'])`; `x1pen_get_program` `fields` max 3; writes pre-read via `assertWriteBaseline` and `assertApplySnapshotUnchanged`; `apply_edits` / `set_source_file` send `{sourceMode, basic, asm, slang, [section]: new}`.
+  - `x1pen-source-sync.mjs`: `AUTHORING_SECTIONS` per mode; `authoringHash` hashes mode + authoring sections only (so adding a section does not change the existing modes' hashes); `sourceIdentities` / `SourceBaselineCache.rememberSnapshot` iterate the three sections.
+  - `x1pen-compatibility.mjs`: `FEATURE_IDS` (8), `METHOD_FEATURES` (every bridge method must be mapped, else `METHOD_FEATURE_UNMAPPED`), `CONNECTOR_MINIMUMS` (only used for `requiredVersion` in messages), `evaluateCompatibility` (a feature is available only if all three advertise it; a component that advertises a list without it → `FEATURE_UNAVAILABLE` with action "Update X1Pen Connector and reconnect this tab." / "Reload or update X1Pen and reconnect this tab.").
+  - `x1pen-bridge.mjs` `sendCommand` runs `assertMethodCompatible` before sending.
+- Versions: `mcp/package.json` 2.7.0, Connector 1.3.0; `mcp/` and `extension/` are unchanged since tag v0.10.1. MCP code at tag v0.9.2 is the published 2.7.0 line (the later set_source_file work is unpublished, #111). Past feature PRs bumped versions in the same commit; here bumps are the owner's at release (`docs/RELEASE_CHECKLIST.md`).
+- Tests: `tests/x1pen_mcp_test.mjs` (fake bridge; tool list snapshot; source-sync; compatibility), `tests/x1pen_extension_bridge_test.mjs` (fake `window.X1PenAutomation`; feature lists equal), `tests/x1pen_bridge_test.mjs` (real `X1PenBridge`, fake Connector over WebSocket), `tests/x1pen_automation_test.mjs` (real page). No test runs MCP + Connector code + the real page together.
+- Docs: `docs/X1PEN_MCP.md` (says 2.7.x does not support HuBASIC), `mcp/README.md`.
+
+## Decisions (answers to Secretary)
+
+- **Options stay out of `getProgram`/`setProgram`.** They are one global setting, not part of a program: the revision, revisionEpoch, authoringHash and baseline cache describe sources; putting options there would make an option change look like a program edit, and `set_program` (complete replacement) would have to decide whether it also resets options. Separate tools keep both contracts simple.
+- **The 2.7.x stop is fixed in this PR**: recognising `hubasic` is the core of the change, not a separate fix. Published 2.7.x stays as it is; users get the fix with the next npm release (owner).
+- **HuBASIC programs need no Connector update** (payloads pass through, verified with Connector 1.3.0 code). **The options do** (new methods in `invokeX1PenInPage`): until the owner releases a new Connector, the option tools answer `FEATURE_UNAVAILABLE` (component connector, "Update X1Pen Connector and reconnect this tab."). No `CONNECTOR_MINIMUMS` entry: the version number is chosen at release, and the message works without it.
+- HuBASIC source support is detected from the page's `getProgram` (`hubasic` field present), not a feature ID: a feature would require the Connector to advertise it although it plays no part.
 
 ## Change scope
 
-- `scripts/import-x1-basic-editor.mjs`
-  - Add `'src/pcg-preview.js'` to `FILES`.
-  - New check (exported helper `localReferences(html)`): every `<script src>` / `<link href>` in upstream `src/index.html` (before the host line is injected) that is a relative path must resolve to a path in `FILES` (relative to `src/`); otherwise fail `src/index.html loads <path>, which is not copied (add it to FILES)`, before anything is written. Absolute URLs (`http:`, `https:`, `//`, `data:`) are ignored.
-- `assets/x1basic/**`: regenerated by the importer from `292901a` (`--expect`): `source.json`, `src/index.html`, `src/editor.js`, `src/style.css`, new `src/pcg-preview.js`. No hand edits.
-- `tests/x1basic_editor_test.mjs`: the committed copy's `index.html` local references are all present upstream files (the injected `x1pen-host.js` is checked separately: its source exists and `build.sh` copies it); importer refuses a commit whose `index.html` loads an uncopied script and leaves the previous copy; `localReferences` unit cases.
-- `tests/x1pen_automation_test.mjs`: one E2E test of the hover preview in X1Pen (below).
-- `docs/X1PEN.md` (HuBASIC tab bullets) and `CHANGELOG.md` (Unreleased, under the X1 BASIC Editor entry): one bullet each.
+- `mcp/x1pen-source-sync.mjs`: `AUTHORING_SECTIONS.hubasic = ['hubasic']`; section loops cover `hubasic` and skip a section whose content is `null` (page without HuBASIC).
+- `mcp/x1pen-server.mjs`:
+  - `SOURCE_SECTIONS` + `'hubasic'`; `SOURCE_MODES = ['basic+asm','asm','slang','hubasic']` used by `set_program` / `diff_source`; `get_program` `fields` max 4; `set_program` gains `hubasic` (string, max `MAX_SOURCE_LENGTH`).
+  - `normalizeProgramSnapshot`: accept `'hubasic'`; `hubasic` absent → `null` when the mode is not hubasic (page predates HuBASIC), error otherwise; other sections unchanged.
+  - `summarizeProgram` / `toolError` sections: omit `hubasic` when `null`. Reading/searching/diffing/editing `hubasic` on such a page → `SOURCE_CONTENT_UNAVAILABLE` (existing code, X1Pen component, action update/reload X1Pen). `set_program` with `sourceMode: 'hubasic'` on such a page → `SOURCE_MODE_UNSUPPORTED` after the pre-read, before any write.
+  - `assertEditableSection`: hubasic mode allows only `hubasic`; other modes reject `hubasic` ("replace the complete program with sourceMode hubasic").
+  - `apply_edits` / `set_source_file`: send `hubasic` too when the snapshot has it.
+  - New tools `x1pen_get_hubasic_options` (read-only) and `x1pen_set_hubasic_options` (`patch`: strict object, optional nullable `wait` (regex none|line[:N]|frame[:N]), `noLineNumbers`, `assumeDefint` (boolean), `stringLen` (int 1..255), `dataBudget` (int 1..65535); at least one key). Both return `{ options }` (full options from the page). Descriptions: global for all HuBASIC programs, not part of the program or its revision, null resets to the hubasic2sl default, the page rejects during Run setup.
+  - `SERVER_INSTRUCTIONS`: one sentence on HuBASIC mode (text form of X1 bytes, options are a separate global setting, the bundled reference does not cover HuBASIC: do not assume FuzzyBASIC syntax).
+- `mcp/x1pen-compatibility.mjs`: `FEATURE_IDS` + `'hubasic.options'`; `METHOD_FEATURES` `getHuBasicOptions` / `setHuBasicOptions` → `'hubasic.options'`.
+- `extension/compatibility.mjs`: `CONNECTOR_FEATURES` + `'hubasic.options'`.
+- `extension/page-automation.mjs`: `getHuBasicOptions` / `setHuBasicOptions(params.patch)`, with a check like `requireKeyboardInput` (feature advertised by X1Pen and function present, else `FEATURE_UNAVAILABLE` x1pen); lock label for set ("AI is updating HuBASIC options...").
+- `html/x1pen.js`: `getAutomationFeatures` + `'hubasic.options'`.
+- Tests (below); docs `docs/X1PEN_MCP.md`, `mcp/README.md`, `CHANGELOG.md`. No version fields change.
 
 ## Implementation steps
 
-1. Branch `feat/x1basic-292901a` from main `3fe646c`.
-2. Importer: add `src/pcg-preview.js` to `FILES`; add `localReferences` and run the check on the upstream `src/index.html` bytes right after reading them (before the temp dir is written).
-3. Run `node scripts/import-x1-basic-editor.mjs <scratch clone at 292901a> --expect 292901a7379212c009ea1d7c73a19ad33b4eed5c` (clone in the scratchpad; the x1editor Province's checkout is not touched). Confirm `git diff --stat assets/x1basic` matches the upstream diff of the copied files and `source.json` has 17 files.
-4. Tests (unit + E2E), docs, CHANGELOG.
-5. `./build.sh`, full `npm test`, refresh the preview server's `dist/`, manual hover check in the preview at a wide and a narrow window.
-6. Implementation review, then one PR.
+1. Branch `feat/mcp-hubasic` from main `69ca76a` (done; previous plan archived).
+2. Compatibility lists (MCP, Connector, X1Pen) and `METHOD_FEATURES`.
+3. Source sync + server source changes; unit tests in `tests/x1pen_mcp_test.mjs`.
+4. Option tools (MCP) + Connector methods; unit tests (`x1pen_mcp_test`, `x1pen_extension_bridge_test`).
+5. End-to-end chain test in `tests/x1pen_automation_test.mjs` (real page + real `X1PenBridge` + test Connector running `invokeX1PenInPage` in the page + MCP client over InMemoryTransport), new and old MCP.
+6. Docs, CHANGELOG. `./build.sh`, full `npm test`, refresh preview `dist/`.
+7. Implementation review, one PR (body lists what each release carries and the mixed-version matrix).
 
 ## Edge cases and test plan
 
-- Unit (`npm run test:x1basic`):
-  - committed copy: hashes/sizes/file set as today (now 17 files), and every local reference of `src/index.html` exists under `assets/x1basic/src` and is in `source.json`, **except the injected host adapter** (`x1pen-host.js`, the `source.injected.line`), which is not an upstream file; its placement checks stay as they are, and the test checks that its source `html/x1pen_x1basic_host.js` exists and that `build.sh` copies it to `x1basic/src/x1pen-host.js` for both the build and `dist/` (the E2E tests load it from that URL);
-  - importer on a fake repo whose `index.html` has `<script src="extra.js">` not in `FILES` → rejects `/not copied/`, previous copy intact; absolute and `data:` URLs ignored; `localReferences` parses both quote styles of `src`/`href` it needs (upstream uses double quotes; single quotes covered for safety).
-- E2E (`tests/x1pen_automation_test.mjs`, new test "hovering a string in the HuBASIC editor shows it as one image"):
-  - program `10 CLS\n20 PRINT "ABC\x1F\x1D\x1D\x1DDEF"\n30 GOTO 30\n`; focus the emulator canvas; move the mouse onto the first client rect of `.pcg-literal` inside the iframe; wait for `#pcg-string-preview` to be visible;
-  - assert size text `24×16 ドット（3×2文字）`, the panel rect lies inside the iframe viewport (`0 ≤ left`, `right ≤ innerWidth`, `0 ≤ top`, `bottom ≤ innerHeight`) and `scrollHeight ≤ clientHeight`;
-  - hovering did not change focus (`document.activeElement` still the canvas) or the program revision;
-  - moving the mouse out of the editor hides it.
-  - Mutation check: drop `src/pcg-preview.js` from the dist copy → the E2E test (and the existing editor tests) fail.
-- Rollback: re-run the importer at `aa10611` (the `FILES` addition is harmless for that commit only if the file exists — it does not at `aa10611`, so rollback = revert the PR commit, which restores both the list and the copy). Note this in the PR.
-- Regression: full `npm test` (all existing HuBASIC editor E2E tests: Run uses bytes, Ctrl+Enter, focus not taken, import/export/side panel).
+- Unit, MCP (`tests/x1pen_mcp_test.mjs`; fake bridge's `normalizeProgram` learns hubasic):
+  - tool list snapshot gains the two tools; `set_program` / `diff_source` accept `hubasic`.
+  - hubasic mode: `get_program` metadata (hubasic authoring, others inactive, authoringHash over hubasic), `fields: ['hubasic']`, `get_source` / `search_source`, `apply_edits` on hubasic (sends sourceMode hubasic), editing `basic` in hubasic mode → `SOURCE_SECTION_NOT_EDITABLE`, editing `hubasic` in basic+asm mode → same, `set_program` hubasic, `set_source_file` hubasic, `diff_source` with a hubasic baseline, switching modes (hubasic → basic+asm via set_program).
+  - authoringHash / section hashes for basic+asm, asm and slang snapshots are identical to the pre-change values (golden values from main), with and without a `hubasic: ''` field.
+  - page without `hubasic` field: non-HuBASIC tools work and summaries have no hubasic section; `get_source hubasic` → `SOURCE_CONTENT_UNAVAILABLE`; `set_program` hubasic → `SOURCE_MODE_UNSUPPORTED` and no `setProgram` sent; a snapshot with `sourceMode: 'hubasic'` but no field → `SOURCE_CONTENT_UNAVAILABLE`.
+  - options: get returns page options; set forwards the patch; schema rejects unknown keys, empty patch, `stringLen: 0/256`, `dataBudget: 65536`, `wait: 'line:0'`, non-boolean flags; null passes through; a page error (`RUN_PENDING`) keeps its code; Connector without the feature → `FEATURE_UNAVAILABLE` component connector (no requiredVersion); X1Pen without it → component x1pen.
+- Unit, Connector (`tests/x1pen_extension_bridge_test.mjs`): the three feature lists still equal; `getHuBasicOptions` / `setHuBasicOptions` call the page API with the patch and lock/unlock around set; page without the methods/feature → `FEATURE_UNAVAILABLE` x1pen.
+- E2E (`tests/x1pen_automation_test.mjs`, real page):
+  - X1Pen advertises `hubasic.options`.
+  - New chain (Connector code at this commit): `x1pen_set_program` hubasic → page shows it in the HuBASIC tab → `x1pen_get_program` / `get_source` return it → `x1pen_apply_edits` → `x1pen_validate` ok → `x1pen_set_hubasic_options {wait:'line:2'}` → page `getHuBasicOptions()` matches and validate still ok → reset with null; `set_program` back to basic+asm.
+  - Old Connector descriptor (1.3.0 features) with new MCP: HuBASIC source tools work; option tools → `FEATURE_UNAVAILABLE` connector.
+  - Old MCP (mcp/ from tag v0.9.2, extracted with `git archive` to a temp dir that links the repo `node_modules`; skipped with a message if the tag is missing): basic programs work against the new page; with a HuBASIC program, `x1pen_get_program` fails with `invalid source mode: hubasic` (documents the known 2.7.x limit; no silent misbehaviour).
+- Mutation checks: drop `hubasic` from `SOURCE_SECTIONS`; drop the Connector method; drop the X1Pen feature → the corresponding tests fail.
+- Rollback: revert the PR. Nothing is stored by the new code (options are already stored by the page). If only the Connector or MCP release is held back, the matrix below still holds.
+- Mixed versions (documented in docs and PR):
+  - new MCP + Connector 1.3.0 + new page: HuBASIC sources yes, options "update Connector".
+  - new MCP + any Connector + page without HuBASIC (production 0.10.1): non-HuBASIC unchanged (same hashes); HuBASIC tools refuse with update/reload X1Pen; options "update X1Pen".
+  - MCP 2.7.x + new page: unchanged known limit (HuBASIC mode stops source tools; other modes fine). The page's extra field and feature are ignored by old MCPs.
+- Regression: full `npm test`.
 
 ## Open decisions
 
-- None blocking. Readability of a big image in a very narrow frame (scaled below 1×) is upstream behaviour; report it to x1editor via Secretary as an observation, not a request.
-
-## Amendment: 31f309b (same PR #139)
-
-After PR #139 was opened (head `025ea9c`, reviewed at 292901a), the owner found that normal characters in the overlay were blurred. x1editor fixed it in PR #5, merged as `31f309b0c36d3ae82758c053e4c3c5aa25a9a719`. Secretary asked to swap the SHA in the same PR (no new PR).
-
-- Upstream `292901a..31f309b` (browser files): `src/pcg-preview.js` draws normal characters dot by dot from an 8×8 bitmap instead of `fillText` (no font smoothing); `src/font-builder.js` gains `readFontBitmap(ttfBytes)`, which recovers the exact bitmap from TTFs built by this builder; `src/editor.js` attaches that bitmap to each loaded font face and passes `bitmap` (or the built-in `window.X1FontBitmap`) to the preview; **new `src/font-bitmap.js`** (built-in font bitmap) loaded by `src/index.html` after `font-builder.js`. Host API unchanged.
-- X1Pen supplies fonts through the host adapter using the editor's own `X1FontBuilder.buildFont` / `buildFontFromRom` (`html/x1pen_x1basic_host.js` `currentFont`, `chooseFont`), so `readFontBitmap` recovers them; the built-in font uses `font-bitmap.js`.
-- The importer guard from this PR stopped the import with the old `FILES`: `src/index.html loads src/font-bitmap.js, which is not copied (add it to FILES)`, leaving `assets/x1basic` unchanged. `FILES` gains `src/font-bitmap.js` (18 files). `assets/x1-font-source.txt` (font generation source, not loaded by the page) stays out, as at aa10611/292901a.
-- Tests: the hover E2E test checks every pixel of the normal characters against the font bitmap (built-in font, and a font ROM chosen in the editor), white on black with no other values. Mutation: the 292901a `pcg-preview.js` (fillText) gives 212 wrong pixels.
-- Manual: a string mixing PCG and normal characters at device pixel ratio 1 and 2: 0 wrong pixels, no non-pure pixels, PCG cells coloured.
-- Review: the APPROVED result at `025ea9c` does not carry over; a fresh implementation review round 1 on the new head.
+- None blocking. Follow-ups to report: a bundled HuBASIC reference for MCP; the owner's release of x1pen-mcp (npm) and X1Pen Connector (Web Store) — HuBASIC sources need only the MCP release, options need both plus the Web deploy.
 
 ## Cross-review反映
 
 ### Round 1 — codex / gpt-6-astra/high
-- Verdict: NEEDS_WORK (model=NEEDS_WORK; policy=strict; host_override=no)
-- Implementation: READY AFTER FIXES (R1-F1) (next_action=fix_then_implement; reviewer=READY_AFTER_FIXES)
-- [adopted][medium] R1-F1 the committed `index.html` also loads the injected `x1pen-host.js`, which is not in the upstream manifest, so a plain "every reference is in source.json" assertion would reject a valid copy → Edge cases and test plan (unit: injected adapter excluded from the manifest check, its source file and its copy in `build.sh` checked instead), Change scope (tests, importer check runs on the upstream HTML before injection)
+- Verdict: APPROVED (model=APPROVED; policy=strict; host_override=no)
+- Implementation: READY (next_action=implement; reviewer=READY)
+- No findings.
