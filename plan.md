@@ -1,206 +1,82 @@
-# X1Pen HuBASIC Share: share HuBASIC programs (X1 bytes) with their conversion options
+# X1Pen: import X1 BASIC Editor 31f309b (hover preview of strings as a composed PCG image)
 
 ## Purpose
 
-Today Share refuses HuBASIC programs ("HuBASIC programs cannot be shared yet"). Make them shareable, together with the conversion options (PR #137's one global set). Without the options, a program converted with `wait: line:450` would run at a different speed for the person who opens the link.
+The X1 BASIC Editor (HuBASIC tab of X1Pen, an iframe) is copied from `ho-ogino/x1-basic-editor` at one commit into `assets/x1basic/`. Its PR #4 is merged at `292901a7379212c009ea1d7c73a19ad33b4eed5c` (previous copy: `aa1061142660d4c4d95bd7a1794cd677ea5d7c2f`). Re-import it so that, in X1Pen, resting the mouse on a closed string (`"…"`) for 600 ms shows the string drawn with its cursor-move control codes ($1C–$1F) as one image, normal characters and PCG alike.
 
-Rules from the owner (via Secretary):
-- Opening a share never changes the viewer's own saved settings (options, model) or saved program: it uses the shared ones for that tab only.
-- New payload fields are optional, read as "absent = default", so existing share URLs keep working unchanged.
-- The server (`functions/api/share*`) should stay as it is if possible. If it must change, report why.
-- The X1 bytes are the program (unchanged rule since PR #136): the share must give back exactly the bytes the sender had.
-- Share is an outward-facing path: nobody's program may get mixed with another, lost, or become unreadable.
+Also make the importer refuse a commit whose `src/index.html` loads a local file the importer does not copy. This import is the first one that adds a new upstream file (`src/pcg-preview.js`); without the fix the copy would load a missing script and the editor would not start.
 
-Non-goals: MCP and the `hubasic.options` feature name (next project); OG tags / screenshot handling (unchanged); sharing the resolution or other machine settings (no share carries them today); any production deploy.
+Non-goals: no change to the editor itself (owned by the x1editor Province; requests go through Secretary), to X1Pen's host adapter API, to Share/automation/MCP, or to production (deploy and version bump are the owner's).
 
 ## Observed evidence
 
-### Server (Cloudflare Pages Functions, deployed together with the static files)
-- `functions/api/share.js` `onRequestPost`:
-  1. Takes a gzip blob (multipart `data`, or a legacy octet-stream body), at most 1 MiB compressed and 512 KiB decompressed.
-  2. Parses it as JSON, then requires one non-empty string among `basic`, `asm`, `slang`; otherwise **400 "No code"**.
-  3. Stores the compressed blob unchanged in D1 (`shares.data`) and returns `{ id }`.
-- `functions/api/share/[id].js` returns the stored blob with `X-X1pen-Codec: gzip`.
-- `functions/x1pen.js` only reads `screenshot_key` for OG tags.
-- **Consequence**: a HuBASIC-only payload (no basic/asm/slang) is rejected with 400. The server must also accept the HuBASIC field. This is a one-line condition change; nothing else on the server reads the payload.
-- There are no tests for `functions/api/share.js` today.
-
-### Client (`html/x1pen.js`)
-- `onShareClick()`:
-  - Returns early with "HuBASIC programs cannot be shared yet" when the HuBASIC editor has text.
-  - Otherwise builds `{ basic, asm, slang, meta: { model, coldState, bootDisk, runMode, sourceMode, relocAddrs? } }`.
-  - It hashes that payload string (`computePayloadHash`) and reuses `lastShareId` when the hash equals `lastShareHash`.
-  - It gzips the payload, adds a screenshot, POSTs to `/api/share`, then shows `location.origin + '/x1pen?id=' + id`.
-  - Media check: `inspectShareMediaState()` refuses when any slot holds saved media. X1Pen's temporary disk `__x1pen_temp__` (what a HuBASIC Run puts into FDD0) is allowed.
-- Share load (`__x1pen_onModuleReady`, `?id=`):
-  - Fetches `/api/share/<id>` and gunzips it when the header says gzip (else reads JSON).
-  - Sets the basic/asm/slang editors (`shared.x || ''`) and calls `markProgramChanged()`.
-  - From `meta` it builds `pendingShareRuntime = { model, coldState, bootDisk, relocAddrs, sourceMode }` and normalises it for the run mode.
-  - Builds a "replay" payload the same way as `onShareClick` and stores its hash as `lastShareHash` / `lastShareId` (so re-sharing an unchanged program reuses the URL).
-  - Then calls `onRunClick('share')`. Errors show "Shared code load failed"; 404 "Shared code not found"; 400 "Invalid share ID".
-- Share sessions:
-  - `?id=` makes `isEphemeralShareSession` true for the whole page life.
-  - Saved sources are neither restored nor written (`persistEditorSources` / `persistEditorSource` return early).
-  - Since PR #137, HuBASIC options are read from storage but not written.
-- `performRun(token)` decides `sourceMode` from `pendingShareRuntime.sourceMode` if set, else `inferSourceMode(...)` (HuBASIC first).
-  - The HuBASIC branch returns `performHuBasicRun(bytes, options)` **before** the code that clears `pendingShareRuntime`. Today that cannot happen in a share session (no HuBASIC share exists).
-  - The other branches use `baseRuntime = pendingShareRuntime || getUserDefaultRuntime(); pendingShareRuntime = null;` and record `lastUsedRuntime`, `lastRunWasShared = isSharedRun` (= `isEphemeralShareSession`).
-- `performHuBasicRun(source, options)` uses `model = getUserDefaultRuntime().model` (the user's MODEL setting).
-  - It cold-boots with `XmilControls.coldPowerOn(model, …)`, which sets the ROM type in the emulator only (it does not save settings, `html/pre.js` ~line 1223).
-  - It then sets `lastUsedRuntime = { model: machine.model, …, runMode: 'x1native' }`, `lastRunWasShared = false`.
-- `onShareClick` picks the runtime for meta in this order: `pendingShareRuntime`, then `lastUsedRuntime` if `lastRunWasShared`, else `getUserDefaultRuntime()`.
-- HuBASIC program state (`createHuBasicEditor`): X1 bytes held in the parent page; `getBytes()` / `setBytes(bytes, { silent })`; text form `X1PenHuBasicText.toText/fromText`.
-  - The text form round-trips every byte except that lone CR / lone LF / CRLF all become `\n` and come back as CRLF. So text is **not** an exact carrier of the bytes.
-- HuBASIC options (`html/x1pen.js`, PR #137):
-  - `hubasicOptions`, changed through `updateHuBasicOptions(patch)`, which validates, saves except in share sessions, and re-renders the panel.
-  - `X1PenHuBasicOptions.changed(options)` gives only the non-default keys.
-  - `X1PenHuBasicOptions.fromStored(value)` reads any value field by field and never throws.
-
-### Tests
-- `tests/x1pen_automation_test.mjs`:
-  - `installShareRoute(context, id, payload)` serves a share as plain JSON.
-  - Existing tests capture the POST to `**/api/share`, e.g. "Share refuses persistent media…", "Share runs isolate…".
-  - `assertEphemeralShareDocument` checks the share-mode markers.
-  - "Share refuses HuBASIC programs" asserts today's refusal; it gets replaced.
-  - `snapshotX1PenPersistence(page)` snapshots localStorage/IndexedDB state for "saved state unchanged" checks.
-
-## Design
-
-### Payload (format version unchanged; new fields optional)
-A HuBASIC share is:
-```json
-{ "basic": null, "asm": null, "slang": null,
-  "hubasicX1": "<base64 of the exact X1 bytes>",
-  "meta": { "model": 1, "runMode": "x1native", "sourceMode": "hubasic",
-            "hubasicOptions": { "wait": "line:450" } } }
-```
-- **`hubasicX1`**: standard base64 (RFC 4648, with padding) of the editor's X1 bytes, exactly as `hubasicEditor.getBytes()` returns them. Base64 rather than the text form, because the text form normalises lone CR/LF; the share must give back the sender's bytes byte for byte.
-- **`meta.hubasicOptions`**: `X1PenHuBasicOptions.changed(options)`, i.e. only non-default values. Omitted when all are defaults. Absent means all defaults.
-- **`meta.model`**: the model the program is run on (rule below). No `coldState` / `bootDisk` / `relocAddrs` (a HuBASIC Run does not use them).
-- Non-HuBASIC shares are built exactly as today (byte-identical payloads, so their hashes and URL reuse do not change).
-
-### Server: `functions/api/share.js`
-- Accept a payload whose only code is `hubasicX1`: `hasHubasic = typeof parsed.hubasicX1 === 'string' && parsed.hubasicX1.length > 0`, added to the "No code" condition.
-- Also reject a payload that is not a JSON object (`null`, array, number) with 400 "No code" instead of throwing.
-  - Today `parsed.basic` on `null` throws → 500. This is a one-line hardening of the condition being edited.
-- Nothing else changes: the blob is stored and served as before. Deploy note for the owner: the server and the page must ship together, which Cloudflare Pages does in one deployment.
-
-### Client: sharing (`onShareClick`)
-- If the HuBASIC editor has text (trimmed, as `inferSourceMode` decides), build a HuBASIC share. The order of checks stays the same: `Nothing to share`, then the media check.
-  - Bytes: `hubasicEditor.getBytes()` → base64.
-  - Options: `changed(hubasicOptions)` (the options the next Run would use).
-  - Model: `pendingShareRuntime.model` if a shared program has not been run yet in this tab; else `lastUsedRuntime.model` if `lastRunWasShared` and the last run was a HuBASIC run (`runMode === 'x1native'`); else `getUserDefaultRuntime().model`. This mirrors the existing runtime choice.
-  - Same hash → same URL reuse, same gzip/POST/screenshot path as today. The payload builder is one function (`buildHuBasicSharePayload(bytes, options, model)`) used for sharing and for the replay hash on load.
-- Other modes: unchanged.
-
-### Client: opening a share (`?id=`)
-- Decide the mode: `meta.sourceMode === 'hubasic'`, or no `meta.sourceMode` but a `hubasicX1` field present.
-- For a HuBASIC share, **decode and validate everything first; change nothing until all checks pass**:
-  - `hubasicX1` must be a non-empty string matching `^[A-Za-z0-9+/]*={0,2}$` with length % 4 == 0, decoding to ≥ 1 byte.
-  - Options: `X1PenHuBasicOptions.fromStored(meta.hubasicOptions)`. Absent → defaults; unknown or invalid fields fall back to their defaults (a newer sender's extra option must not break the link).
-  - Model: `validateModel(meta.model, 1)` (the existing validator).
-  - On a decode failure: status "Shared HuBASIC program could not be read", no Run, editors left empty (the share tab started empty).
-- Then:
-  - Set the basic/asm/slang editors to `''`.
-  - `hubasicEditor.setBytes(bytes, { silent: true })`, `markProgramChanged()`.
-  - Apply the options for this tab: `updateHuBasicOptions(fullOptions)` — in a share session it is not saved, which already holds since #137.
-  - `pendingShareRuntime = { model, coldState: null, bootDisk: null, relocAddrs: null, sourceMode: 'hubasic', runMode: 'x1native' }`.
-  - Replay hash: `buildHuBasicSharePayload(bytes, options, model)`.
-  - Show the HuBASIC tab, then `onRunClick('share')` as today.
-- For a share that is not HuBASIC: unchanged. The tab's HuBASIC options stay as since #137 (the saved ones; they are not used unless the viewer writes a HuBASIC program).
-
-### Client: running a shared HuBASIC program
-- In `performRun`'s HuBASIC branch:
-  - take `model = pendingShareRuntime ? pendingShareRuntime.model : getUserDefaultRuntime().model`;
-  - clear `pendingShareRuntime`, like the other branches do. That also fixes the "sourceMode stays forced" case;
-  - pass the model to `performHuBasicRun(bytes, options, model)`.
-- `performHuBasicRun` uses the given model and records `lastRunWasShared = isEphemeralShareSession`, like the other branches (it is `false` today).
-- Later Runs in the share tab use the viewer's MODEL setting, as for the other modes. The options stay the shared ones for the tab's life, because they replaced the tab's options.
-
-### Docs
-- `docs/X1PEN.md`:
-  - Share section: HuBASIC shares carry the program bytes, the options and the model.
-  - The HuBASIC notes: remove "cannot be shared"; the options paragraph says Share carries them.
-  - 注意事項.
-- `CHANGELOG.md`.
+- `assets/x1basic/source.json`: `commit` = `aa10611…`, `files` = sha256/size of 16 upstream files, `injected` = the one line `<script src="x1pen-host.js"></script>` before `<script src="host.js"></script>` in `src/index.html`.
+- `scripts/import-x1-basic-editor.mjs`: `FILES` is a fixed list of 16 paths (`src/index.html`, `src/style.css`, `src/codec.js`, `src/keywords.js`, `src/syntax.js`, `src/pcg.js`, `src/font-builder.js`, `src/host.js`, `src/sidebar-resize.js`, `src/editor.js`, 4 assets, `LICENSE`, `THIRD-PARTY-NOTICES.md`). `importEditor(checkout, {expect, target})` reads each path from git objects of the checkout HEAD (refuses a dirty worktree or a different `--expect`), injects the host line, writes to a temp dir and renames it over `assets/x1basic`. Files not in `FILES` are silently not copied.
+- Upstream `aa10611..292901a` (`git diff --stat`): `src/editor.js` (+53/−15), `src/index.html` (+2/−1), **new `src/pcg-preview.js` (116 lines)**, `src/style.css` (+5), plus README and upstream tests (not copied).
+  - `src/index.html` now loads `pcg-preview.js` between `pcg.js` and `font-builder.js`, and adds `<div id="pcg-string-preview" role="tooltip" hidden>` with a canvas. The `host.js` anchor is unchanged, so the injection still applies.
+  - `src/editor.js` calls `X1PcgPreview.attach({...})` at start-up unconditionally: if `pcg-preview.js` is missing, start-up throws and the editor never calls `host.onLoaded` — X1Pen's HuBASIC tab would show an empty, dead editor.
+  - `src/pcg-preview.js`: the panel is `position:fixed` inside the editor document, sized and placed from `window.innerWidth/innerHeight` of the iframe (scale ≤ 4, may go below 1 to fit), `pointer-events:none`, hidden on mouseleave/mousedown/scroll/input/blur/document pointerdown+keydown/resize/visibilitychange. It changes no source, selection, undo or saved state. No new host API, command or dependency (as x1editor reported).
+  - Local references of the new `src/index.html`: `style.css`, `codec.js`, `keywords.js`, `syntax.js`, `pcg.js`, `pcg-preview.js`, `font-builder.js`, `host.js`, `sidebar-resize.js`, `editor.js` — all in `FILES` once `src/pcg-preview.js` is added.
+- `html/x1pen_x1basic_host.js` (X1Pen's adapter, served as `x1basic/src/x1pen-host.js`): keyboard shortcuts on document keydown (capture), and focus handling that sends focus back to X1Pen unless the user pressed/typed in the frame. Mouse moves are not handled, so hovering neither focuses the frame nor pauses the emulator.
+- `html/_headers` `/x1basic/*`: only frame-ancestors; no script CSP, so a new same-origin script needs no header change. `build.sh` copies the whole `assets/x1basic` directory, so no build change.
+- `tests/x1basic_editor_test.mjs`: checks the committed copy against `source.json` (file set, sizes, sha256, host line placement, script order around `host.js`) and importer behaviour on a fake repo. It does not check that every local script of `index.html` is copied.
+- Pre-plan experiment (scratchpad Playwright, X1Pen from the preview server with `x1basic/src/*` routed to the 292901a checkout + injected host line; repo unchanged):
+  - 1500×900 (iframe 831×832): hovering `"ABC↓←←←DEF"` shows the panel, `24×16 ドット（3×2文字）`, ABC over DEF, inside the frame; no page errors.
+  - 900×600 (iframe 231×532, wrapped lines): panel shows within the frame (x 23–223).
+  - A 5,000-byte string (64 columns × 40 rows, truncated at 4096 bytes / 64×32 chars): panel width clamps to the frame (8–223 at 231 wide; 197–677 at 831 wide), canvas scaled down to fit, `scrollHeight == clientHeight` (nothing cut), truncation warning shown.
+  - So the overlay cannot leave the iframe, but it is kept inside it and not clipped. In a very narrow frame a big image is scaled below 1× and becomes hard to read (upstream behaviour; reported, not changed here).
 
 ## Change scope
-- `functions/api/share.js`: the "No code" condition (accept `hubasicX1`; non-object JSON → 400).
-- `html/x1pen.js`:
-  - base64 helpers;
-  - `buildHuBasicSharePayload`;
-  - `onShareClick` HuBASIC branch;
-  - share-load HuBASIC branch;
-  - `performRun` HuBASIC branch;
-  - `performHuBasicRun(source, options, model)`.
-- `tests/share_api_test.mjs` (new, Node: calls `onRequestPost` with an in-memory D1 stub, no R2) and a `test:share` script in `package.json`, added to `npm test`.
-- `tests/x1pen_automation_test.mjs`: replace "Share refuses HuBASIC programs"; add the round-trip, isolation and frozen-link tests below.
-- `docs/X1PEN.md`, `CHANGELOG.md`.
+
+- `scripts/import-x1-basic-editor.mjs`
+  - Add `'src/pcg-preview.js'` to `FILES`.
+  - New check (exported helper `localReferences(html)`): every `<script src>` / `<link href>` in upstream `src/index.html` (before the host line is injected) that is a relative path must resolve to a path in `FILES` (relative to `src/`); otherwise fail `src/index.html loads <path>, which is not copied (add it to FILES)`, before anything is written. Absolute URLs (`http:`, `https:`, `//`, `data:`) are ignored.
+- `assets/x1basic/**`: regenerated by the importer from `292901a` (`--expect`): `source.json`, `src/index.html`, `src/editor.js`, `src/style.css`, new `src/pcg-preview.js`. No hand edits.
+- `tests/x1basic_editor_test.mjs`: the committed copy's `index.html` local references are all present upstream files (the injected `x1pen-host.js` is checked separately: its source exists and `build.sh` copies it); importer refuses a commit whose `index.html` loads an uncopied script and leaves the previous copy; `localReferences` unit cases.
+- `tests/x1pen_automation_test.mjs`: one E2E test of the hover preview in X1Pen (below).
+- `docs/X1PEN.md` (HuBASIC tab bullets) and `CHANGELOG.md` (Unreleased, under the X1 BASIC Editor entry): one bullet each.
 
 ## Implementation steps
-1. Archive the options plan (done: `plans/20261027-hubasic-options.md`), write this plan, design review.
-2. Server condition + `tests/share_api_test.mjs`.
-3. Client: payload builder and base64; Share click; Share load; Run model; docs.
-4. E2E tests, full `npm test`, rebuild `dist` for the preview server.
-5. Optional end-to-end smoke against `wrangler pages dev` with a local D1, if it runs without new tools (it is in node_modules; local only, `--compatibility-date=2026-08-01`, `WRANGLER_SEND_METRICS=false`).
-6. Implementation review, one PR.
+
+1. Branch `feat/x1basic-292901a` from main `3fe646c`.
+2. Importer: add `src/pcg-preview.js` to `FILES`; add `localReferences` and run the check on the upstream `src/index.html` bytes right after reading them (before the temp dir is written).
+3. Run `node scripts/import-x1-basic-editor.mjs <scratch clone at 292901a> --expect 292901a7379212c009ea1d7c73a19ad33b4eed5c` (clone in the scratchpad; the x1editor Province's checkout is not touched). Confirm `git diff --stat assets/x1basic` matches the upstream diff of the copied files and `source.json` has 17 files.
+4. Tests (unit + E2E), docs, CHANGELOG.
+5. `./build.sh`, full `npm test`, refresh the preview server's `dist/`, manual hover check in the preview at a wide and a narrow window.
+6. Implementation review, then one PR.
 
 ## Edge cases and test plan
 
-Server (`tests/share_api_test.mjs`):
-- A HuBASIC-only payload → 200 and the stored blob equals the posted bytes.
-- `basic` / `asm` / `slang` payloads are still accepted.
-- No code (all empty, `hubasicX1: ''`, `hubasicX1: 5`) → 400 "No code".
-- JSON `null` / `[]` / `42` → 400, not 500.
-- Bad gzip → 400.
-
-Client E2E (Chrome; POST captured with `context.route('**/api/share')`, served back with `installShareRoute`):
-1. **Exact bytes round trip**:
-   - The program contains $5C, kana, graphic symbols, `$00`, `$FF`, a lone CR and a lone LF inside a line, and CRLF.
-   - Share captures the payload: `hubasicX1` decodes to exactly `getBytes()`; `sourceMode: 'hubasic'`; no basic/asm/slang code.
-   - Opening it in a new page gives byte-identical `getBytes()` in the share tab, and the Run boots (`run.sourceMode === 'hubasic'`, text VRAM shows the output).
-2. **Options travel, the viewer's do not change**:
-   - The sender sets `wait: 'line:450', noLineNumbers: true`; the payload has exactly those in `meta.hubasicOptions`.
-   - The viewer has its own saved options (e.g. `stringLen: 80`). In the share tab:
-     - `getHuBasicOptions()` equals the shared set (`stringLen` back at 255, not 80);
-     - the recorded build options are the shared ones;
-     - the viewer's localStorage value is unchanged afterwards, even after changing options in the share tab.
-3. **Absent = default**:
-   - A HuBASIC share without `meta.hubasicOptions` runs with all defaults, even though the viewer's saved options are not defaults.
-   - Unknown or invalid option fields fall back to defaults.
-4. **Old shares unchanged**:
-   - Existing share tests keep passing; a BASIC share payload built by the new code is byte-identical to the old one (same keys and order).
-   - Opening a legacy BASIC/SLANG share leaves the HuBASIC editor empty and the options as saved.
-5. **Model**:
-   - The share's `meta.model` is the sender's MODEL setting; the share tab's first Run boots that model.
-   - The viewer's saved settings (`xmil_settings`) are unchanged.
-6. **Bad data**: `hubasicX1` not base64 / empty → status "Shared HuBASIC program could not be read", no Run, empty HuBASIC editor, nothing saved.
-7. **Re-share without changes** in the share tab reuses the same ID (no POST); after an edit it POSTs a new one.
-8. **Saved state isolation**: with the owner's saved program and options in the same browser profile, opening a HuBASIC share, editing and running there leaves `snapshotX1PenPersistence` unchanged.
-9. **Refusals stay**: "Nothing to share" for an empty program; a saved disk in a slot still refuses Share; X1Pen's temporary FDD0 disk (after a HuBASIC Run) does not.
-10. `pendingShareRuntime` is cleared by a HuBASIC Run: after the share Run, clearing the HuBASIC program and writing BASIC runs BASIC (no forced `hubasic` source mode).
-
-11. **Frozen link** (rollback compatibility): a HuBASIC share payload written out literally in the test file, standing for a link created before any later change.
-    - It is served with `installShareRoute` and must open with exact bytes, options and model, and run.
-    - It does not go through the share-creation code, so it keeps passing when creating HuBASIC shares is switched off. The test file says it must not be updated to follow a format change.
-
-Rollback (links that exist must stay readable):
-- Never revert the reader.
-- To stop new HuBASIC shares, restore only the refusal at the top of `onShareClick` ("HuBASIC programs cannot be shared yet"). Keep:
-  - the share-load HuBASIC branch, the base64 decoding and the options and model handling;
-  - the `performRun` / `performHuBasicRun` changes;
-  - the server condition.
-- The reader and the creator are separate code blocks, so this is a one-block change. Test 11 checks that existing links still open after it.
-- Other shares are unaffected either way.
+- Unit (`npm run test:x1basic`):
+  - committed copy: hashes/sizes/file set as today (now 17 files), and every local reference of `src/index.html` exists under `assets/x1basic/src` and is in `source.json`, **except the injected host adapter** (`x1pen-host.js`, the `source.injected.line`), which is not an upstream file; its placement checks stay as they are, and the test checks that its source `html/x1pen_x1basic_host.js` exists and that `build.sh` copies it to `x1basic/src/x1pen-host.js` for both the build and `dist/` (the E2E tests load it from that URL);
+  - importer on a fake repo whose `index.html` has `<script src="extra.js">` not in `FILES` → rejects `/not copied/`, previous copy intact; absolute and `data:` URLs ignored; `localReferences` parses both quote styles of `src`/`href` it needs (upstream uses double quotes; single quotes covered for safety).
+- E2E (`tests/x1pen_automation_test.mjs`, new test "hovering a string in the HuBASIC editor shows it as one image"):
+  - program `10 CLS\n20 PRINT "ABC\x1F\x1D\x1D\x1DDEF"\n30 GOTO 30\n`; focus the emulator canvas; move the mouse onto the first client rect of `.pcg-literal` inside the iframe; wait for `#pcg-string-preview` to be visible;
+  - assert size text `24×16 ドット（3×2文字）`, the panel rect lies inside the iframe viewport (`0 ≤ left`, `right ≤ innerWidth`, `0 ≤ top`, `bottom ≤ innerHeight`) and `scrollHeight ≤ clientHeight`;
+  - hovering did not change focus (`document.activeElement` still the canvas) or the program revision;
+  - moving the mouse out of the editor hides it.
+  - Mutation check: drop `src/pcg-preview.js` from the dist copy → the E2E test (and the existing editor tests) fail.
+- Rollback: re-run the importer at `aa10611` (the `FILES` addition is harmless for that commit only if the file exists — it does not at `aa10611`, so rollback = revert the PR commit, which restores both the list and the copy). Note this in the PR.
+- Regression: full `npm test` (all existing HuBASIC editor E2E tests: Run uses bytes, Ctrl+Enter, focus not taken, import/export/side panel).
 
 ## Open decisions
-- The field is `hubasicX1` (base64 of the bytes) rather than the readable text form, for exactness (proposed).
-- Later Runs in a share tab use the viewer's MODEL setting (same as the other modes); the shared options stay for the tab (proposed).
-- Hardening the server's "No code" check for non-object JSON (proposed; it is in the line being edited).
+
+- None blocking. Readability of a big image in a very narrow frame (scaled below 1×) is upstream behaviour; report it to x1editor via Secretary as an observation, not a request.
+
+## Amendment: 31f309b (same PR #139)
+
+After PR #139 was opened (head `025ea9c`, reviewed at 292901a), the owner found that normal characters in the overlay were blurred. x1editor fixed it in PR #5, merged as `31f309b0c36d3ae82758c053e4c3c5aa25a9a719`. Secretary asked to swap the SHA in the same PR (no new PR).
+
+- Upstream `292901a..31f309b` (browser files): `src/pcg-preview.js` draws normal characters dot by dot from an 8×8 bitmap instead of `fillText` (no font smoothing); `src/font-builder.js` gains `readFontBitmap(ttfBytes)`, which recovers the exact bitmap from TTFs built by this builder; `src/editor.js` attaches that bitmap to each loaded font face and passes `bitmap` (or the built-in `window.X1FontBitmap`) to the preview; **new `src/font-bitmap.js`** (built-in font bitmap) loaded by `src/index.html` after `font-builder.js`. Host API unchanged.
+- X1Pen supplies fonts through the host adapter using the editor's own `X1FontBuilder.buildFont` / `buildFontFromRom` (`html/x1pen_x1basic_host.js` `currentFont`, `chooseFont`), so `readFontBitmap` recovers them; the built-in font uses `font-bitmap.js`.
+- The importer guard from this PR stopped the import with the old `FILES`: `src/index.html loads src/font-bitmap.js, which is not copied (add it to FILES)`, leaving `assets/x1basic` unchanged. `FILES` gains `src/font-bitmap.js` (18 files). `assets/x1-font-source.txt` (font generation source, not loaded by the page) stays out, as at aa10611/292901a.
+- Tests: the hover E2E test checks every pixel of the normal characters against the font bitmap (built-in font, and a font ROM chosen in the editor), white on black with no other values. Mutation: the 292901a `pcg-preview.js` (fillText) gives 212 wrong pixels.
+- Manual: a string mixing PCG and normal characters at device pixel ratio 1 and 2: 0 wrong pixels, no non-pure pixels, PCG cells coloured.
+- Review: the APPROVED result at `025ea9c` does not carry over; a fresh implementation review round 1 on the new head.
 
 ## Cross-review反映
 
 ### Round 1 — codex / gpt-6-astra/high
 - Verdict: NEEDS_WORK (model=NEEDS_WORK; policy=strict; host_override=no)
 - Implementation: READY AFTER FIXES (R1-F1) (next_action=fix_then_implement; reviewer=READY_AFTER_FIXES)
-- [adopted][high] Rollback that reverts the reader would make existing HuBASIC links unreadable → "Edge cases and test plan": the rollback now restores only the creation refusal and keeps reading, running, options, model and the server condition; added test 11, a frozen hand-written HuBASIC payload that must keep opening.
+- [adopted][medium] R1-F1 the committed `index.html` also loads the injected `x1pen-host.js`, which is not in the upstream manifest, so a plain "every reference is in source.json" assertion would reject a valid copy → Edge cases and test plan (unit: injected adapter excluded from the manifest check, its source file and its copy in `build.sh` checked instead), Change scope (tests, importer check runs on the upstream HTML before injection)

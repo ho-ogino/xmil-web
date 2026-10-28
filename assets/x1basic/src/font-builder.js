@@ -13,6 +13,62 @@ function parseFontRom(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length !== 2048) throw Error('8x8 ANKフォントは2048バイト（8バイト×256文字）のファイルを指定してください。');
   return Array.from({length:256}, (_,code) => Array.from(bytes.subarray(code*8,code*8+8)));
 }
+// Recover our bitmap rectangles exactly; never rasterize an arbitrary font.
+// Unsupported sfnt/cmap/outline formats deliberately have no bitmap fallback.
+function readFontBitmap(bytes) {
+  try {
+    if(!(bytes instanceof Uint8Array))return null;
+    const data=view(bytes),check=ok=>{if(!ok)throw Error('Unsupported bitmap font');};
+    check(data.getUint32(0)===0x00010000);
+    const count=data.getUint16(4),tables=new Map();
+    check(count>0&&count<=64&&12+count*16<=bytes.length);
+    for(let i=0;i<count;i++){
+      const at=12+i*16,tag=String.fromCharCode(...bytes.subarray(at,at+4)),offset=data.getUint32(at+8),length=data.getUint32(at+12);
+      check(!tables.has(tag)&&offset>=12+count*16&&offset+length<=bytes.length);
+      tables.set(tag,new DataView(bytes.buffer,bytes.byteOffset+offset,length));
+    }
+    const head=tables.get('head'),maxp=tables.get('maxp'),loca=tables.get('loca'),glyf=tables.get('glyf'),cmap=tables.get('cmap');
+    check(head.getUint16(18)===1024&&head.getInt16(50)===1);
+    const glyphCount=maxp.getUint16(4);
+    check(glyphCount>=257&&loca.byteLength>=(glyphCount+1)*4);
+    check(cmap.getUint16(0)===0&&cmap.getUint16(2)===1&&cmap.getUint16(4)===3&&cmap.getUint16(6)===1);
+    const sub=cmap.getUint32(8);check(sub>=12&&sub+8<=cmap.byteLength);
+    const length=cmap.getUint16(sub+2);check(sub+length<=cmap.byteLength);
+    const map=new DataView(cmap.buffer,cmap.byteOffset+sub,length),segments=map.getUint16(6)/2;
+    check(map.getUint16(0)===4&&Number.isInteger(segments)&&segments>0&&segments<=256&&16+segments*8<=length);
+    function glyph(code){
+      for(let i=0;i<segments;i++){
+        const end=map.getUint16(14+i*2),start=map.getUint16(16+segments*2+i*2);
+        if(code>=start&&code<=end){check(map.getUint16(16+segments*6+i*2)===0);return (code+map.getInt16(16+segments*4+i*2))&65535;}
+      }
+      return 0;
+    }
+    const bitmap=[];
+    for(let code=0;code<256;code++){
+      check(glyph(0xe000+code)===code+1);
+      if(code>=32&&code<=126)check(glyph(code)===code+1);
+      const start=loca.getUint32((code+1)*4),end=loca.getUint32((code+2)*4),rows=Array(8).fill(0);
+      check(start<=end&&end<=glyf.byteLength);bitmap.push(rows);if(start===end)continue;
+      const g=new DataView(glyf.buffer,glyf.byteOffset+start,end-start),contours=g.getInt16(0),points=contours*4;
+      check(contours>0&&contours<=64);
+      const flags=12+contours*2,xs=flags+points,ys=xs+points*2;
+      check(g.byteLength===Math.ceil((ys+points*2)/4)*4&&g.getUint16(10+contours*2)===0);
+      for(let i=0;i<contours;i++)check(g.getUint16(10+i*2)===i*4+3);
+      let x=0,y=0;const coords=[];
+      for(let i=0;i<points;i++){
+        check(g.getUint8(flags+i)===1);x+=g.getInt16(xs+i*2);y+=g.getInt16(ys+i*2);coords.push([x,y]);
+      }
+      for(let i=0;i<points;i+=4){
+        const [left,bottom]=coords[i];
+        check(left>=0&&left<=896&&bottom>=0&&bottom<=896&&left%128===0&&bottom%128===0);
+        const expected=[[left,bottom],[left,bottom+128],[left+128,bottom+128],[left+128,bottom]];
+        check(expected.every(([px,py],j)=>coords[i+j][0]===px&&coords[i+j][1]===py));
+        const row=7-bottom/128,bit=128>>(left/128);check(!(rows[row]&bit));rows[row]|=bit;
+      }
+    }
+    return bitmap;
+  }catch{return null;}
+}
 function buildFont(bitmap,pcgEntries=[],order='BRG',layout='planar') {
 if (!Array.isArray(bitmap) || bitmap.length !== 256 || bitmap.some(g => !Array.isArray(g) || g.length !== 8 || g.some(n => !Number.isInteger(n) || n < 0 || n > 255))) throw Error('Invalid 256 x 8 font');
 const u16 = n => { const b = alloc(2); write16(b,0,n & 65535); return b; };
@@ -100,5 +156,5 @@ write32(font,headOffset + 8,(0xb1b0afba - checksum(font)) >>> 0);
 return font;
 }
 function buildFontFromRom(bytes) { return buildFont(parseFontRom(bytes)); }
-return {parseFontRom,buildFont,buildFontFromRom};
+return {parseFontRom,readFontBitmap,buildFont,buildFontFromRom};
 });

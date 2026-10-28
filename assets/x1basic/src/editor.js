@@ -6,6 +6,7 @@
   let selectionBefore = [0,0], pendingInputType = '', busy = false, composing = false, group = 'symbols';
   let noticeTimer, hoverCode = 0x87;
   let renderedLines = [];
+  let hoverPreview = null;
   let lastContent = null;
   function contentChanged(){
     if(lastContent!==null && X1.equal(lastContent,doc.bytes))return;
@@ -25,9 +26,10 @@
     clearTimeout(noticeTimer); $('notice').textContent = text; $('notice').classList.toggle('error',error); $('notice').hidden = false;
     noticeTimer = setTimeout(() => { $('notice').hidden = true; }, error ? 9000 : 3500);
   };
-  async function prepareFont(info) {
+  async function prepareFont(info,withBitmap=true) {
     if (!info.data) return null;
     const face = new FontFace('X1Custom' + (++fontSequence),Uint8Array.from(info.data));
+    if(withBitmap)face.x1Bitmap=window.X1FontBuilder?.readFontBitmap?.(Uint8Array.from(info.data))??null;
     await face.load();
     return face;
   }
@@ -56,7 +58,7 @@
     try{
       const data=await host.pcgFont({entries:[...pcgEntries].map(([code,hex])=>({code,hex})),order:$('pcg-order').value,layout:$('pcg-layout').value});
       if(revision!==pcgRevision)return;
-      const face=await prepareFont({data});if(revision!==pcgRevision)return;
+      const face=await prepareFont({data},false);if(revision!==pcgRevision)return;
       document.fonts.add(face);if(pcgFontFace)document.fonts.delete(pcgFontFace);pcgFontFace=face;displayFont();return true;
     }catch(err){
       if(revision!==pcgRevision)return;
@@ -78,6 +80,7 @@
     $('pcg-grid').querySelectorAll('button').forEach(button=>button.classList.toggle('selected',Number(button.dataset.pcgCode)===code));
   }
   function renderPcgGrid(){
+    hoverPreview?.hide();
     const fragment=document.createDocumentFragment();
     for(let code=0;code<256;code++){
       const button=document.createElement('button'),hex=pcgEntries.get(code);button.type='button';button.dataset.pcgCode=String(code);
@@ -176,6 +179,7 @@
     return { cell, lineHeight, columns: Math.max(1, Math.floor((editor.clientWidth - padding) / cell)) };
   }
   function updateLayout() {
+    hoverPreview?.hide();
     const wrapped = $('word-wrap').checked;
     // Match the textarea's actual content area, excluding its vertical scrollbar.
     mirror.style.width = wrapped ? editor.clientWidth + 'px' : '';
@@ -224,6 +228,7 @@
     updateLayout();
   }
   function render(caret, end) {
+    hoverPreview?.hide();
     const x = editor.scrollLeft, y = editor.scrollTop;
     editor.value = doc.view.text;
     const fragment = document.createDocumentFragment();
@@ -231,27 +236,41 @@
     let start = 0;
     renderedLines = doc.view.text.split('\n').map(lineText => {
       const element = document.createElement('span'); element.className = 'source-line';
+      const literals=[];let tokenStart=0;
       for (const token of X1Syntax.highlightLine(lineText)) {
         const syntaxSpan = document.createElement('span');
         if (token.kind) syntaxSpan.className = 'syntax-' + token.kind;
-        let text = '', kind = '', quoted = false;
-        function flush() {
-          if (!text) return;
-          const span = document.createElement('span'); span.className = kind; span.textContent = text; syntaxSpan.append(span); text = '';
+        let quoted=false;
+        function append(part,parent){
+          let text='',kind='';
+          function flush(){
+            if(!text)return;
+            const span=document.createElement('span');span.className=kind;span.textContent=text;parent.append(span);text='';
+          }
+          for(const c of part){
+            const b=c.charCodeAt(0)-X1.BASE;
+            const glyphKind=b>=0&&b<32?'control':b>=128&&b<=159||b>=224?'special':'';
+            const inString=token.kind==='string'&&quoted&&c!=='"';
+            const next=[glyphKind,inString?'pcg-string':''].filter(Boolean).join(' ');
+            if(token.kind==='string'&&c==='"')quoted=!quoted;
+            if(next!==kind){flush();kind=next;}text+=c;
+          }
+          flush();
         }
-        for (const c of token.text) {
-          const b = c.charCodeAt(0) - X1.BASE;
-          const glyphKind = b >= 0 && b < 32 ? 'control' : b >= 128 && b <= 159 || b >= 224 ? 'special' : '';
-          const inString=token.kind==='string'&&quoted&&c!=='"';
-          const next=[glyphKind,inString?'pcg-string':''].filter(Boolean).join(' ');
-          if(token.kind==='string'&&c==='"')quoted=!quoted;
-          if (next !== kind) { flush(); kind = next; }
-          text += c;
+        let at=0;
+        const ranges=token.kind==='string'?X1PcgPreview.quoteRanges(token.text):[];
+        for(const range of ranges){
+          append(token.text.slice(at,range.start),syntaxSpan);
+          const literal=document.createElement('span');literal.className='pcg-literal';
+          append(token.text.slice(range.start,range.end),literal);syntaxSpan.append(literal);
+          literals.push({element:literal,byteStart:doc.view.offsets[start+tokenStart+range.start+1],
+            byteEnd:doc.view.offsets[start+tokenStart+range.end-1]});
+          at=range.end;
         }
-        flush(); element.append(syntaxSpan);
+        append(token.text.slice(at),syntaxSpan);element.append(syntaxSpan);tokenStart+=token.text.length;
       }
       fragment.append(element);
-      const line = {element,text:lineText,start}; start += lineText.length + 1; return line;
+      const line = {element,text:lineText,start,literals}; start += lineText.length + 1; return line;
     });
     mirror.replaceChildren(fragment); updateLayout();
     $('empty-hint').hidden = doc.bytes.length > 0;
@@ -367,6 +386,7 @@
   }
   function load(data) { cancelPcgImport();doc.load(data.bytes); editor.scrollTop = 0; editor.scrollLeft = 0; render(0); }
   async function command(name) {
+    hoverPreview?.hide();
     if (busy) return;
     if(name==='pcg-setup'){await setupPcg();return;}
     if (name === 'undo' || name === 'redo') {
@@ -498,6 +518,12 @@
   else window.addEventListener('resize',updateLayout);
   document.fonts?.ready.then(updateLayout);
   const sidebarResize=window.X1SidebarResize(updateLayout);
+  hoverPreview=X1PcgPreview.attach({
+    editor,panel:$('pcg-string-preview'),canvas:$('pcg-string-image'),summary:$('pcg-string-size'),warning:$('pcg-string-warning'),
+    getLines:()=>renderedLines,getBytes:()=>doc.bytes,
+    isEnabled:()=>!busy&&!composing,
+    getState:()=>({entries:$('pcg-enabled').checked?pcgEntries:[],order:$('pcg-order').value,layout:$('pcg-layout').value,bitmap:activeFontFace?activeFontFace.x1Bitmap:window.X1FontBitmap??null})
+  });
   host?.onCommand(command); host?.onLoaded(load);
   setScale(); setWrap(); palette(); preview(hoverCode); renderPcgGrid(); render(0); displayFont();restoreFont();
 })();

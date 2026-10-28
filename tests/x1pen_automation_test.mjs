@@ -3493,6 +3493,93 @@ test('in X1Pen the HuBASIC editor imports and exports, and its side panel folds 
   assert.equal(await hubasicEditorText(), '10 PRINT "PANEL"');
 });
 
+// Pixels of the hover image that differ from the 8x8 glyphs of `cells` ([code, column, row]) drawn
+// white on black from `font` (256 x 8 rows), or from window.X1FontBitmap (the built-in font)
+async function hoverImageMismatches(frame, cells, font = null) {
+  return frame.evaluate(({ cells, font }) => {
+    const glyphs = font || window.X1FontBitmap;
+    const canvas = document.getElementById('pcg-string-image');
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let wrong = 0;
+    for (const [code, column, row] of cells) {
+      for (let dy = 0; dy < 8; dy++) {
+        for (let dx = 0; dx < 8; dx++) {
+          const at = ((row * 8 + dy) * canvas.width + column * 8 + dx) * 4;
+          const want = glyphs[code][dy] & (0x80 >> dx) ? 255 : 0;
+          if (data[at] !== want || data[at + 1] !== want || data[at + 2] !== want || data[at + 3] !== 255) wrong++;
+        }
+      }
+    }
+    return wrong;
+  }, { cells, font });
+}
+
+test('resting the mouse on a string in the HuBASIC editor shows it as one image, inside the editor', { timeout: 60_000 }, async () => {
+  // ABC, down, left ×3, DEF: two rows of three characters
+  await setHuBasicProgram('10 CLS\n20 PRINT "ABC\\x1F\\x1D\\x1D\\x1DDEF"\n30 GOTO 30\n');
+  await page.waitForFunction(() => {
+    const frame = document.querySelector('#hubasic-editor-container iframe');
+    const doc = frame && frame.contentDocument;
+    return doc && doc.readyState === 'complete' && doc.querySelector('.pcg-literal') && doc.getElementById('editor').value.includes('GOTO 30');
+  }, null, { timeout: 30_000 });
+  await page.evaluate(() => document.getElementById('canvas').focus());
+  const revision = await page.evaluate(() => window.X1PenAutomation.getProgram().revision);
+  const frame = page.frame({ url: /x1basic\/src\// });
+  const box = await page.locator('#hubasic-editor-container iframe').boundingBox();
+  const at = await frame.evaluate(() => {
+    const rect = document.querySelector('.pcg-literal').getClientRects()[0];
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  const hover = async () => {
+    await page.mouse.move(box.x + box.width + 40, box.y + 10);
+    await frame.waitForFunction(() => document.getElementById('pcg-string-preview').hidden, null, { timeout: 10_000 });
+    await page.mouse.move(box.x + at.x, box.y + at.y);
+    await page.mouse.move(box.x + at.x + 1, box.y + at.y);
+    await frame.waitForFunction(() => !document.getElementById('pcg-string-preview').hidden, null, { timeout: 10_000 });
+  };
+  const cells = [[0x41, 0, 0], [0x42, 1, 0], [0x43, 2, 0], [0x44, 0, 1], [0x45, 1, 1], [0x46, 2, 1]];
+  await hover();
+  const shown = await frame.evaluate(() => {
+    const panel = document.getElementById('pcg-string-preview');
+    const rect = panel.getBoundingClientRect();
+    const canvas = document.getElementById('pcg-string-image');
+    return {
+      size: document.getElementById('pcg-string-size').textContent,
+      image: [canvas.width, canvas.height],
+      inside: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
+      clipped: panel.scrollHeight > panel.clientHeight || panel.scrollWidth > panel.clientWidth,
+    };
+  });
+  assert.deepEqual(shown, { size: '24×16 ドット（3×2文字）', image: [24, 16], inside: true, clipped: false });
+  // Normal characters are the font's own dots, not text drawn (and smoothed) by the browser
+  assert.equal(await hoverImageMismatches(frame, cells), 0);
+  // Hovering takes neither the keyboard from the emulator nor changes the program
+  assert.deepEqual(await page.evaluate(() => ({
+    active: document.activeElement.id, revision: window.X1PenAutomation.getProgram().revision,
+  })), { active: 'canvas', revision });
+
+  // A font ROM chosen in the editor is drawn from its own dots too
+  const rom = Buffer.alloc(2048);
+  for (let i = 0; i < rom.length; i++) rom[i] = (i * 37 + 11) & 0xFF;
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    hubasicEditorFrame().locator('[data-command="font-load"]').click(),
+  ]);
+  await chooser.setFiles({ name: 'HOVER.X1', mimeType: 'application/octet-stream', buffer: rom });
+  await frame.waitForFunction(() => document.getElementById('font-name').textContent === 'HOVER.X1');
+  try {
+    await hover();
+    const font = Array.from({ length: 256 }, (_, code) => [...rom.subarray(code * 8, code * 8 + 8)]);
+    assert.equal(await hoverImageMismatches(frame, cells, font), 0);
+  } finally {
+    await hubasicEditorFrame().locator('[data-command="font-reset"]').click();
+    await frame.waitForFunction(() => document.getElementById('font-name').textContent === '内蔵フォント');
+  }
+
+  await page.mouse.move(box.x + box.width + 40, box.y + 10);
+  await frame.waitForFunction(() => document.getElementById('pcg-string-preview').hidden, null, { timeout: 10_000 });
+});
+
 test('setProgram refuses HuBASIC text the X1 cannot show and changes nothing', { timeout: 30_000 }, async () => {
   await setHuBasicProgram('10 PRINT "KEEP"');
   const result = await page.evaluate(async () => {
