@@ -3074,6 +3074,17 @@ test('the HuBASIC reference names the code hubasic2sl gives each unsupported wor
   }
 });
 
+test('HuBASIC INIT keeps WIDTH 80, as the reference says', { timeout: 120_000 }, async () => {
+  // Column 79 exists only in 80 columns; LOCATE outside the width is error 5
+  await setHuBasicProgram('10 WIDTH 80\n20 INIT\n30 LOCATE 79,0:PRINT "W";\n40 LOCATE 0,1:PRINT "INIT80"\n50 GOTO 50\n');
+  const run = await page.evaluate(() => window.X1PenAutomation.run());
+  assert.equal(run.ok, true, JSON.stringify(run));
+  await textVramContains('INIT80');
+  const column79 = await page.evaluate(() =>
+    window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 79, length: 1 }).bytes[0]);
+  assert.equal(column79, 'W'.charCodeAt(0));
+});
+
 test('HuBASIC DEFCHR$ takes the blue, red and green planes in turn, as the reference says', { timeout: 120_000 }, async () => {
   // One plane full and the other two empty: a plane-major reading shows one solid color, while
   // PCGDEF's row-by-row order would spread the bytes over all three planes (stripes)

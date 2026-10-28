@@ -670,7 +670,7 @@
       "CFLASH 1 blinks, CSIZE 1 doubles height, 2 doubles width, 3 both (effective for PRINT#0), CGEN 1 shows PCG patterns instead of ROM characters, CGEN 0 returns to ROM.",
       "PALET with no arguments restores the default palette; PALET c,p maps color code c (0-7) to palette color p (0-7).",
       "PRW writes the priority (0-255) to port $1300.",
-      "INIT restores the start-up state of HuBASIC (WIDTH 40, default palette, priority 0).",
+      "INIT resets color 7, character attributes, the default palette and priority 0. It keeps the screen width: after WIDTH 80, INIT leaves 80 columns, so write WIDTH 40 to go back.",
       "Text LINE draws a line, box (B) or filled box (BF) of the character with the current attribute; cells off screen are skipped and the cursor does not move."
     ],
     "examples": [

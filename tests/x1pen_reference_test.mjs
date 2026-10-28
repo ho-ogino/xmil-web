@@ -1411,3 +1411,14 @@ test('HuBASIC VSYNC reference matches the converter wait contract', () => {
   }
   assert.match(text, /frame:1/);
 });
+
+test('HuBASIC INIT reference keeps the screen width, as the bundled runtime does', () => {
+  const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
+  const runtime = readFileSync(join(repoRoot, 'assets/hubasic', current.revision, 'runtime/libx1_basic.asm'), 'utf8');
+  const routine = runtime.slice(runtime.indexOf('; @name BAS_INIT2'), runtime.indexOf('; @name BAS_SETPAL'));
+  assert.match(routine, /INIT 文: 色・表示モード・装飾を戻す \(WIDTH は戻さない\)/);
+  assert.match(routine, /JP BAS_INITSTATE/);
+  const [screen] = getReferenceEntries({ ids: ['hubasic.text.screen'] }).entries;
+  assert.ok(screen.notes.some((note) => /INIT .*keeps the screen width/.test(note)));
+  assert.ok(!JSON.stringify(screen).includes('WIDTH 40, default palette'));
+});
