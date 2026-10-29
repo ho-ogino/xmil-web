@@ -12,6 +12,15 @@
   - `MIRROR$`（引数の変数も書き換わることを、題と最初の文に書きました）と `HEXCHR$` の項目を足し、`MUSIC` を `PLAY` の項目に足しました。古くなっていた `HEXCHR$` の説明（奇数の桁は error）を直しました。
   - SLANG-compiler 55e7271 のソースと `docs/HUBASIC.md`、X1Pen 自身のコードだけから書きました。HuBASIC のマニュアルは元にしていません。
   - 公開中の x1pen-mcp 2.9.0 は 5abbffa を前提にしているので、この束の X1Pen とつなぐと `x1pen_get_language_profile` が `compatible: false`（`revisionMismatches`）を返します（ほかの道具はそのまま使えます）。Web と x1pen-mcp は一緒に出すのがよいです。
+- X1Pen の HuBASIC の変換の仕組みを SLANG-compiler 10cf481 にしました（上の 55e7271 の続き）。
+  - `CONSOLE [ys,yl[,xs,xl]]`（テキストの窓）を使えるようにしました。表示・折り返し・改行・スクロール・`CLS`・`INPUT` は窓の中だけで行われます。**`LOCATE`・`TAB`・`PRINT ,` の区切り・`CHARACTER$`・`SCRN$` の座標は窓の中の相対ではなく、画面の絶対の座標のまま**で、窓の外への `LOCATE` は Illegal function call です（HuBASIC と同じ）。`WIDTH` と `INIT` で窓は全画面に戻ります。
+  - `PRINT` の文字列の中の `CHR$(14)`（窓の上の行からカーソルの行までを 1 行上にずらす）と `CHR$(15)`（カーソルの行から窓の下の行までを 1 行下にずらす）が効くようになりました。窓がなくても効きます（前は捨てていました）。
+  - **`CONSOLE` を使わないプログラムでも見え方が変わる所**: `PRINT ,` の次の区切りが行の右端を越えるとき、右端まで空白を書いてから次の行へ折り返すようになりました（前は空白を書かずに改行していたので、行の残りの文字が残っていました）。
+  - 変換した bin は、`CONSOLE` を使わなくても 140〜196 バイトほど大きくなります（作業領域は 4 バイト増え）。BAS_ABI は 1、hubasic2sl は 0.1.0-alpha のままです。
+- x1pen-mcp の HuBASIC のリファレンスを 10cf481 に合わせて見直しました（版はまだ上げていません）。
+  - `CONSOLE` の項目を足しました。座標が窓の相対ではなく画面の絶対であること、窓の外への `LOCATE` は error 5 であることを、題と最初の文に書きました。
+  - `PRINT` の項目に `CHR$(11)`・`CHR$(12)`・`CHR$(14)`・`CHR$(15)` と `,` の区切り（画面の 10 桁ごと、右端を越えると空白を書いて折り返す）を足し、`LOCATE`・`CLS`・`WIDTH`・`INIT`・`INPUT`・`CHARACTER$`・`SCRN$` の窓での動きを書き足しました。HuBASIC との違い（折り返した行を論理行としてつながない、`INPUT` は画面を読み直さない、縦 2 倍の `PRINT#0` の折り返し）も足しました。
+  - SLANG-compiler 10cf481 のソースと `docs/HUBASIC.md`、X1Pen 自身のコードだけから書きました。HuBASIC のマニュアルは元にしていません。
 
 ## x1pen-mcp 2.9.0
 

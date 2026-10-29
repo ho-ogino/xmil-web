@@ -1458,3 +1458,38 @@ test('HuBASIC MIRROR$ and HEXCHR$ reference matches the bundled converter and ru
     assert.equal(searchReference({ query, language: 'hubasic' }).matches[0].id, id, query);
   }
 });
+
+test('HuBASIC CONSOLE reference matches the bundled converter and runtime', () => {
+  const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
+  const bundle = join(repoRoot, 'assets/hubasic', current.revision);
+  const runtime = readFileSync(join(bundle, 'runtime/libx1_basic.asm'), 'utf8');
+  const converter = readFileSync(join(bundle, '_framework/hubasic2sl-wasm.wasm'));
+  const routine = (name) => runtime.slice(runtime.indexOf(`; @name ${name}\n`), runtime.indexOf('; @name ', runtime.indexOf(`; @name ${name}\n`) + 1));
+
+  // The window limits output, but LOCATE and the PRINT , stops keep absolute screen coordinates
+  assert.match(routine('BAS_CONSOLE'), /ys 0〜24、yl 1〜25-ys、xs 0〜桁数-1、xl 1〜桁数-xs を外れたらエラー 5/);
+  assert.match(routine('BAS_LOCATE'), /画面の絶対の座標。テキストの窓 \(CONSOLE。ふだんは全画面\) の外はエラー 5/);
+  assert.match(routine('BAS_PZONE'), /次の 10 桁区切り \(画面の絶対の桁\)/);
+  assert.match(routine('BAS_PZONE'), /窓の右端まで空白を出して折り返し/);
+  assert.match(routine('BAS_PCHR'), /\$0E 上へ詰める、\$0F 下へ空ける/);
+  assert.match(routine('BAS_PCHR'), /CP \$0E\nJP Z, \.bp_rup\nCP \$0F\nJP Z, \.bp_rdn/);
+  for (const name of ['BAS_CONSOLE0', 'BAS_CONSOLEY', 'BAS_CONSOLE']) {
+    assert.ok(converter.includes(Buffer.from(name, 'utf16le')), `${name} is not in hubasic2sl-wasm.wasm`);
+  }
+
+  const [consoleEntry] = getReferenceEntries({ ids: ['hubasic.text.console'] }).entries;
+  assert.match(consoleEntry.title, /LOCATE, TAB and PRINT , use absolute screen coordinates/);
+  assert.match(consoleEntry.summary, /coordinates are NOT relative to the window/);
+  assert.match(consoleEntry.summary, /LOCATE to a cell outside the window is error 5/);
+  assert.ok(consoleEntry.syntax.some((line) => /top-left cell is LOCATE 10,5, not LOCATE 0,0/.test(line)));
+  assert.ok(consoleEntry.notes.some((note) => /ys 0-24, yl 1 to 25-ys, xs 0 to width-1, xl 1 to width-xs/.test(note)));
+  const [print] = getReferenceEntries({ ids: ['hubasic.text.print'] }).entries;
+  assert.match(print.summary, /CHR\$\(14\) and CHR\$\(15\) shift rows/);
+  assert.ok(print.notes.some((note) => /absolute screen columns 0, 10, 20, 30/.test(note) && /overwritten/.test(note)));
+  const [screen] = getReferenceEntries({ ids: ['hubasic.text.screen'] }).entries;
+  assert.ok(screen.notes.some((note) => /outside the CONSOLE window, is error 5/.test(note)));
+
+  for (const [query, id] of [['CONSOLE', 'hubasic.text.console'], ['CHR$(14)', 'hubasic.text.print'], ['text window', 'hubasic.text.console']]) {
+    assert.equal(searchReference({ query, language: 'hubasic' }).matches[0].id, id, query);
+  }
+});
