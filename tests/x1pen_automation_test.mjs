@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { chromium } from 'playwright';
+import { chromium, firefox } from 'playwright';
 import { WebSocket } from 'ws';
 import {
   CONNECTOR_FEATURES,
@@ -3847,6 +3847,68 @@ test('in X1Pen the HuBASIC editor imports and exports, and its side panel folds 
   await editor.locator('#sidebar-toggle').click();
   assert.equal(await editor.locator('#sidebar').isVisible(), true);
   assert.equal(await hubasicEditorText(), '10 PRINT "PANEL"');
+
+  // エクスポート downloads the program bytes; X1Pen's page makes the file (see the Firefox test)
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 10_000 }),
+    editor.locator('header [data-command="save"]').click(),
+  ]);
+  // The name is the last imported file's (an earlier test imports NEW.BAS), else PROGRAM.BAS
+  assert.match(download.suggestedFilename(), /^(PROGRAM|NEW)\.BAS$/);
+  assert.match(readFileSync(await download.path(), 'latin1'), /^10 PRINT "PANEL"/);
+  await editor.locator('#notice').filter({ hasText: 'エクスポートしました' }).waitFor();
+
+  // A file X1Pen cannot make is an error in the editor, not "エクスポートしました"
+  await page.evaluate(() => {
+    window.__createObjectURL = URL.createObjectURL;
+    URL.createObjectURL = () => { throw new Error('export probe: no file'); };
+  });
+  try {
+    await editor.locator('header [data-command="save"]').click();
+    const notice = editor.locator('#notice');
+    await notice.filter({ hasText: 'export probe: no file' }).waitFor();
+    assert.match(await notice.getAttribute('class'), /\berror\b/);
+    assert.doesNotMatch(await notice.textContent(), /エクスポートしました/);
+  } finally {
+    await page.evaluate(() => { URL.createObjectURL = window.__createObjectURL; delete window.__createObjectURL; });
+  }
+});
+
+test('in Firefox the HuBASIC editor\'s エクスポート downloads the program', { timeout: 120_000 }, async (t) => {
+  // Firefox drops a download link clicked inside the editor's iframe (this page's CSP frame-src
+  // does not allow blob:), so X1Pen's page must make the file
+  if (!existsSync(firefox.executablePath())) {
+    t.skip('Playwright Firefox is not installed (npx playwright install firefox)');
+    return;
+  }
+  const foxBrowser = await firefox.launch({ headless: true });
+  try {
+    const foxPage = await (await foxBrowser.newContext({ acceptDownloads: true })).newPage();
+    const policyErrors = [];
+    foxPage.on('console', (message) => {
+      if (/Content-Security-Policy/.test(message.text())) policyErrors.push(message.text());
+    });
+    await foxPage.goto(`${baseUrl}/x1pen.html`);
+    await foxPage.evaluate(() => window.X1PenAutomation.ready());
+    await foxPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT "FIREFOX"' }, current.revision, current.revisionEpoch);
+    });
+    assert.equal(await hubasicEditorText(foxPage), '10 PRINT "FIREFOX"');
+    const editor = hubasicEditorFrame(foxPage);
+    const button = editor.locator('header [data-command="save"]');
+    await editor.locator('header [data-command="save"]', { hasText: 'エクスポート' }).waitFor();
+    const [download] = await Promise.all([
+      foxPage.waitForEvent('download', { timeout: 10_000 }),
+      button.click(),
+    ]);
+    assert.equal(download.suggestedFilename(), 'PROGRAM.BAS');
+    assert.match(readFileSync(await download.path(), 'latin1'), /^10 PRINT "FIREFOX"/);
+    assert.deepEqual(policyErrors, []);
+  } finally {
+    await foxBrowser.close();
+  }
 });
 
 // Pixels of the hover image that differ from the 8x8 glyphs of `cells` ([code, column, row]) drawn

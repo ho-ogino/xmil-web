@@ -562,6 +562,19 @@ window.__X1PEN_MODE = true;
                 return builtinBitmap;
             },
             isLocked: function() { return locked; },
+            // "エクスポート": the file is made by this page, like X1Pen's other downloads. Firefox checks
+            // a download link clicked inside the iframe against this page's CSP frame-src, which does
+            // not allow blob:, and drops the download. Throws if the file cannot be made.
+            download: function(data, name) {
+                var url = URL.createObjectURL(new Blob([Uint8Array.from(data)], { type: 'application/octet-stream' }));
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = typeof name === 'string' && name ? name : 'PROGRAM.BAS';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
+            },
             run: function() { if (opts.onRun) opts.onRun(); },
             focus: function() { if (opts.onFocus) opts.onFocus(); },
             blur: function() { if (opts.onBlur) opts.onBlur(); }
