@@ -78,38 +78,101 @@ test('the import script finds the local files that src/index.html loads', () => 
   ].join('\n')), ['src/style.css', 'src/codec.js', 'assets/a.js', 'src/b.js']);
 });
 
-test('browser builds version every HuBASIC iframe script, not just the iframe URL', () => {
-  const build = readFileSync(join(repoRoot, 'build.sh'), 'utf8');
-  const cacheBuster = build.match(/^for _html in [^\n]*; do\n[\s\S]*?^done$/m)?.[0];
-  assert.ok(cacheBuster, 'the build script must contain the HTML cache-busting loop');
-  const original = readFileSync(join(editorDir, 'src', 'index.html'), 'utf8');
-  const scriptPaths = [...original.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
-  assert.ok(scriptPaths.includes('x1pen-host.js'));
-  const work = mkdtempSync(join(tmpdir(), 'x1basic-cache-busting-'));
+// The cache-busting loops of build.sh, run on copies in a temporary dist/. Production lets the
+// browser reuse js, css and fonts for hours without asking, so every one a page or a stylesheet
+// loads must carry the build's commit.
+const buildScript = readFileSync(join(repoRoot, 'build.sh'), 'utf8');
+const htmlCacheBuster = buildScript.match(/^for _html in [^\n]*; do\n[\s\S]*?^done$/m)?.[0];
+const cssCacheBuster = buildScript.match(/^for _css in [^\n]*; do\n[\s\S]*?^done$/m)?.[0];
+// dist path → the source it is built from
+const bustedPages = {
+  'x1pen.html': join(repoRoot, 'html', 'x1pen.html'),
+  'xmillennium.html': join(repoRoot, 'html', 'shell.html'),
+  'url-builder.html': join(repoRoot, 'html', 'url-builder.html'),
+  'x1pen_charmap.html': join(repoRoot, 'html', 'x1pen_charmap.html'),
+  'x1basic/src/index.html': join(editorDir, 'src', 'index.html'),
+};
+const bustedStyles = {
+  'library.css': join(repoRoot, 'html', 'library.css'),
+  'x1basic/src/style.css': join(editorDir, 'src', 'style.css'),
+};
+
+function runCacheBusters(files, hash) {
+  const work = mkdtempSync(join(tmpdir(), 'x1pen-cache-busting-'));
   try {
     mkdirSync(join(work, 'x1basic', 'src'), { recursive: true });
-    for (const hash of ['abc1234', 'def5678']) {
-      for (const file of ['x1pen.html', 'xmillennium.html', 'url-builder.html']) {
-        writeFileSync(join(work, file), '<script src="parent.js"></script><script src=unquoted.js></script>');
-      }
-      const iframe = join(work, 'x1basic', 'src', 'index.html');
-      writeFileSync(iframe, original);
-      execFileSync('bash', ['-c', cacheBuster], {
-        env: { ...process.env, DIST_DIR: work, XMIL_BUILD_HASH: hash },
-      });
-      const html = readFileSync(iframe, 'utf8');
-      const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
-      assert.deepEqual(scripts, scriptPaths.map((path) => `${path}?v=${hash}`));
-      for (const file of ['x1pen.html', 'xmillennium.html', 'url-builder.html']) {
-        assert.equal(readFileSync(join(work, file), 'utf8'),
-          `<script src="parent.js?v=${hash}"></script><script src="unquoted.js?v=${hash}"></script>`);
-      }
-    }
-    assert.equal(readFileSync(join(editorDir, 'src', 'index.html'), 'utf8'), original,
-      'the imported upstream editor must not be modified');
+    for (const [path, text] of Object.entries(files)) writeFileSync(join(work, path), text);
+    execFileSync('bash', ['-e', '-c', `${htmlCacheBuster}\n${cssCacheBuster}`], {
+      env: { ...process.env, DIST_DIR: work, XMIL_BUILD_HASH: hash },
+    });
+    return Object.fromEntries(Object.keys(files).map((path) => [path, readFileSync(join(work, path), 'utf8')]));
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+const isLocal = (url) => !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(url);
+const unquote = (value) => value.replace(/^"([^"]*)"$/, '$1');
+
+// The local scripts and stylesheets a page loads, as written
+function pageLoads(html) {
+  const loads = [...html.matchAll(/<script\b[^>]*\bsrc=("[^"]*"|[^\s>]+)/g)].map((m) => unquote(m[1]));
+  for (const [tag] of html.matchAll(/<link\b[^>]*>/g)) {
+    if (/\brel=(?:"stylesheet"|stylesheet[\s>])/.test(tag)) loads.push(unquote(/\bhref=("[^"]*"|[^\s>]+)/.exec(tag)[1]));
+  }
+  return loads.filter(isLocal);
+}
+
+// The local files a stylesheet loads (fonts, images)
+const styleLoads = (css) => [...css.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)].map((m) => m[2]).filter(isLocal);
+
+test('browser builds version every script, stylesheet and stylesheet font of the pages and the HuBASIC iframe', () => {
+  assert.ok(htmlCacheBuster, 'the build script must contain the HTML cache-busting loop');
+  assert.ok(cssCacheBuster, 'the build script must contain the CSS cache-busting loop');
+  const sources = Object.fromEntries([...Object.entries(bustedPages), ...Object.entries(bustedStyles)]
+    .map(([path, file]) => [path, readFileSync(file, 'utf8')]));
+  // The loads this fix is about; a page that stops loading them makes the test stale, not wrong
+  assert.ok(pageLoads(sources['x1basic/src/index.html']).includes('x1pen-host.js'));
+  assert.ok(pageLoads(sources['x1basic/src/index.html']).includes('style.css'));
+  assert.ok(pageLoads(sources['x1pen.html']).includes('library.css'));
+  assert.ok(pageLoads(sources['xmillennium.html']).includes('library.css'));
+  assert.ok(pageLoads(sources['x1pen_charmap.html']).includes('x1pen_tokenizer.js'));
+  assert.ok(styleLoads(sources['x1basic/src/style.css']).includes('../assets/x1-basic.ttf'));
+  for (const hash of ['abc1234', 'def5678']) {
+    const built = runCacheBusters(sources, hash);
+    for (const [path, html] of Object.entries(built)) {
+      const loads = path.endsWith('.css') ? styleLoads(html) : pageLoads(html);
+      const before = path.endsWith('.css') ? styleLoads(sources[path]) : pageLoads(sources[path]);
+      assert.deepEqual(loads, before.map((url) => `${url}?v=${hash}`), `${path}: every local load is versioned`);
+      // Nothing else changes: icons, manifest, links and inline code stay as they are
+      assert.equal(html.replaceAll(`?v=${hash}`, ''), sources[path], `${path}: only the versions are added`);
+    }
+  }
+  for (const [path, file] of [...Object.entries(bustedPages), ...Object.entries(bustedStyles)]) {
+    assert.equal(readFileSync(file, 'utf8'), sources[path], `${file} must not be modified`);
+  }
+});
+
+test('the cache-busting loops handle minified pages and leave icons, external and versioned URLs alone', () => {
+  const page = '<link rel=stylesheet href=library.css><link rel="stylesheet" href="https://example.test/a.css">'
+    + '<link rel=icon href=favicon.svg><link rel="manifest" href="manifest.json"><link rel="stylesheet" href="b.css?x=1">'
+    + '<script src="parent.js"></script><script src=unquoted.js></script>';
+  const css = '@font-face{src:url("a.woff2")}a{background:url(b.png)}b{background:url(data:image/png;base64,AA)}'
+    + "c{src:url(https://example.test/f.ttf)}d{src:url('c.ttf?x=1')}e{src:url('../assets/x1-basic.ttf')}";
+  const files = Object.fromEntries([...Object.keys(bustedPages).map((path) => [path, page]),
+    ...Object.keys(bustedStyles).map((path) => [path, css])]);
+  const once = runCacheBusters(files, 'abc1234');
+  for (const path of Object.keys(bustedPages)) {
+    assert.equal(once[path], '<link rel=stylesheet href="library.css?v=abc1234"><link rel="stylesheet" href="https://example.test/a.css">'
+      + '<link rel=icon href=favicon.svg><link rel="manifest" href="manifest.json"><link rel="stylesheet" href="b.css?x=1">'
+      + '<script src="parent.js?v=abc1234"></script><script src="unquoted.js?v=abc1234"></script>', path);
+  }
+  for (const path of Object.keys(bustedStyles)) {
+    assert.equal(once[path], '@font-face{src:url("a.woff2?v=abc1234")}a{background:url(b.png?v=abc1234)}b{background:url(data:image/png;base64,AA)}'
+      + "c{src:url(https://example.test/f.ttf)}d{src:url('c.ttf?x=1')}e{src:url('../assets/x1-basic.ttf?v=abc1234')}", path);
+  }
+  // Running the loops again adds nothing
+  assert.deepEqual(runCacheBusters(once, 'abc1234'), once);
 });
 
 test('the text form reads back every X1 byte', () => {

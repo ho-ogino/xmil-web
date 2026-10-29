@@ -3826,6 +3826,52 @@ test('showing a HuBASIC program neither pauses the emulator nor takes the focus'
   }
 });
 
+test('every script, stylesheet and font X1Pen and its HuBASIC editor load carries the build commit', { timeout: 90_000 }, async () => {
+  // Production lets the browser reuse js, css and fonts for hours without asking; a file loaded
+  // without ?v=<commit> can stay at the previous release (0.13.0 kept the old x1pen-host.js)
+  const hash = /var XMIL_BUILD_HASH = '([^']*)'/.exec(readFileSync(join(distDir, 'x1pen.js'), 'utf8'))?.[1];
+  assert.ok(hash && !hash.includes('@@'), 'dist/x1pen.js has no build commit; run ./build.sh');
+  const context = await browser.newContext();
+  const freshPage = await context.newPage();
+  try {
+    await freshPage.goto(`${baseUrl}/x1pen.html`);
+    await freshPage.evaluate(() => window.X1PenAutomation.ready());
+    await freshPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT "V"' }, current.revision, current.revisionEpoch);
+    });
+    await freshPage.waitForFunction(() => {
+      const frame = document.querySelector('#hubasic-editor-container iframe');
+      const doc = frame && frame.contentDocument;
+      return doc && doc.readyState === 'complete' && doc.getElementById('editor')?.value === '10 PRINT "V"';
+    }, null, { timeout: 30_000 });
+    // The editor's font (style.css → x1-basic.ttf) and X1Pen's built-in PCG font (x1-font.json)
+    await freshPage.evaluate(async () => {
+      await document.querySelector('#hubasic-editor-container iframe').contentDocument.fonts.ready;
+      await window.X1PenHuBasicEditorBridge.builtinFontBitmap();
+    });
+    const urls = [];
+    for (const frame of freshPage.frames()) {
+      urls.push(...await frame.evaluate(() => [
+        ...performance.getEntriesByType('resource').map((entry) => entry.name),
+        ...[...document.querySelectorAll('script[src], link[rel~="stylesheet"]')].map((el) => el.src || el.href),
+      ]));
+    }
+    const versioned = urls.map((url) => new URL(url)).filter((url) => url.origin === baseUrl
+      && (/\.(?:js|css|ttf|otf|woff2?)$/.test(url.pathname) || url.pathname.endsWith('/x1-font.json')));
+    const paths = new Set(versioned.map((url) => url.pathname));
+    for (const path of ['/library.css', '/x1pen.js', '/x1basic/src/style.css', '/x1basic/src/x1pen-host.js',
+      '/x1basic/assets/x1-basic.ttf', '/x1basic/assets/x1-font.json']) {
+      assert.ok(paths.has(path), `${path} was loaded`);
+    }
+    assert.deepEqual(versioned.filter((url) => url.searchParams.get('v') !== hash).map((url) => url.pathname + url.search), [],
+      `every one carries ?v=${hash}`);
+  } finally {
+    await context.close();
+  }
+});
+
 test('in X1Pen the HuBASIC editor imports and exports, and its side panel folds away', { timeout: 60_000 }, async () => {
   await setHuBasicProgram('10 PRINT "PANEL"');
   await hubasicEditorText();

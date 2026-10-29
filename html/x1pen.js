@@ -554,7 +554,8 @@ window.__X1PEN_MODE = true;
             },
             builtinFontBitmap: function() {
                 if (!builtinBitmap) {
-                    builtinBitmap = fetch('x1basic/assets/x1-font.json').then(function(r) {
+                    builtinBitmap = fetch('x1basic/assets/x1-font.json' +
+                        ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '')).then(function(r) {
                         if (!r.ok) throw new Error('x1-font.json: HTTP ' + r.status);
                         return r.json();
                     }).catch(function(e) { builtinBitmap = null; throw e; });

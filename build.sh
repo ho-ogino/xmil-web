@@ -288,14 +288,25 @@ sed -i.bak "s/@@XMIL_BUILD_HASH@@/${XMIL_BUILD_HASH}/g" "${DIST_DIR}/x1pen.js"
 rm -f "${DIST_DIR}/x1pen.js.bak"
 
 # iframe の HTML の ?v= は中の script URL には引き継がれないため、エディタ内も対象にする
-# script タグにキャッシュバスター付与 (親ページと HuBASIC エディタ)
+# script タグと CSS にキャッシュバスター付与 (親ページ・Charmap・HuBASIC エディタ)
+# 本番は js・css・ttf などをブラウザが 4 時間問い合わせずに使う (json・wasm は毎回確かめる)
 # minifier でクォートが外れるケース (src=foo.js) と付いたまま (src="foo.js") の両方に対応
-for _html in "${DIST_DIR}/x1pen.html" "${DIST_DIR}/xmillennium.html" "${DIST_DIR}/url-builder.html" "${DIST_DIR}/x1basic/src/index.html"; do
+# アイコンと manifest (.svg/.png/.json の href) は対象外
+for _html in "${DIST_DIR}/x1pen.html" "${DIST_DIR}/xmillennium.html" "${DIST_DIR}/url-builder.html" "${DIST_DIR}/x1pen_charmap.html" "${DIST_DIR}/x1basic/src/index.html"; do
     # クォート付き: src="foo.js" → src="foo.js?v=HASH"
     sed -i.bak "s|src=\"\([^\"?]*\.js\)\"|src=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${_html}"
     # クォートなし: src=foo.js → src="foo.js?v=HASH"
     sed -i.bak "s|src=\([A-Za-z_][A-Za-z0-9_./-]*\.js\)|src=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${_html}"
+    # CSS: href="foo.css" / href=foo.css → href="foo.css?v=HASH" (外部の URL は対象外)
+    sed -i.bak "s|href=\"\([^\"?:]*\.css\)\"|href=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${_html}"
+    sed -i.bak "s|href=\([A-Za-z_][A-Za-z0-9_./-]*\.css\)\([[:space:]>]\)|href=\"\1?v=${XMIL_BUILD_HASH}\"\2|g" "${_html}"
     rm -f "${_html}.bak"
+done
+
+# CSS の ?v= は中の url() には引き継がれないため、フォントや画像の相対 URL にも付ける
+for _css in "${DIST_DIR}/library.css" "${DIST_DIR}/x1basic/src/style.css"; do
+    sed -E -i.bak "s#url\\((['\"]?)([^'\"():?]+\\.(ttf|otf|woff2?|png|svg|gif|jpe?g|webp))(['\"]?)\\)#url(\\1\\2?v=${XMIL_BUILD_HASH}\\4)#g" "${_css}"
+    rm -f "${_css}.bak"
 done
 
 # config.js: html/config.js があればそれを使用、なければ空の example を使用
