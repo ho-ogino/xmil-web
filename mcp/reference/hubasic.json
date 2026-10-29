@@ -57,7 +57,7 @@
     ],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_text.js",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md"
     ]
   },
   {
@@ -115,9 +115,9 @@
       "hubasic.keywords.catalog"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs"
     ]
   },
   {
@@ -180,8 +180,8 @@
       "hubasic.x1pen.run"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -255,8 +255,8 @@
       "hubasic.functions.math"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -304,8 +304,8 @@
       "hubasic.unsupported"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -359,8 +359,8 @@
       "hubasic.data.read"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -403,8 +403,8 @@
       "hubasic.values.numbers-operators"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -457,8 +457,8 @@
       "hubasic.values.types"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -505,8 +505,8 @@
       "hubasic.x1pen.run"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -550,8 +550,8 @@
       "hubasic.x1pen.run"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -605,9 +605,9 @@
       "hubasic.functions.string"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -685,9 +685,9 @@
       "hubasic.pcg.defchr"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -749,9 +749,9 @@
       "hubasic.text.screen"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -810,9 +810,9 @@
       "hubasic.unsupported"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -846,14 +846,15 @@
     ],
     "summary": "DEFCHR$(code)=string defines the PCG pattern of character code 0-255. The 24-byte string is plane-major: 8 blue rows, then 8 red rows, then 8 green rows. With HEXCHR$ that is 48 hex digits: blue 16, red 16, green 16. This differs from FuzzyBASIC and SLANG PCGDEF, which take blue, red, green for each row in turn; using that order here gives stripes.",
     "syntax": [
-      "DEFCHR$(n)=HEXCHR$(\"<blue 16 hex><red 16 hex><green 16 hex>\")",
+      "DEFCHR$(n)=HEXCHR$(\"<blue 16 hex> <red 16 hex> <green 16 hex>\")   the spaces between the groups are optional",
       "DEFCHR$(n)=B$+R$+G$     each 8 bytes, top row first, bit 7 = left dot",
       "CGEN 1 : PRINT CHR$(n) : CGEN 0",
       "P$=CGPAT$(n)            32 bytes: ROM pattern 8, blue 8, red 8, green 8"
     ],
     "notes": [
       "Byte k of the string is row k MOD 8 of plane k\\8 (0 blue, 1 red, 2 green). A shorter string leaves the remaining rows 0; bytes after the 24th are ignored. A code outside 0-255 is error 5.",
-      "HEXCHR$ turns two hex digits into one byte; an odd length or a non-hex character is error 5.",
+      "HEXCHR$ turns two hex digits into one byte and skips spaces, so the 48 digits can be written as three groups of 16 (hubasic.functions.hexchr).",
+      "MIRROR$ flips a pattern left to right, but it also rewrites a variable or array element passed to it (hubasic.functions.mirror).",
       "A dot shows color = blue bit + 2 * red bit + 4 * green bit of that dot, so set the same bits in several planes for mixed colors (all three planes for white).",
       "Defined PCG characters appear only where the PCG attribute is on: CGEN 1 before printing, CGEN 0 to go back to ROM characters.",
       "Contrast: FuzzyBASIC/SLANG PCGDEF expects 24 bytes ordered row by row (B,R,G for row 0, then row 1 …). Convert such data by taking every third byte for each plane."
@@ -865,27 +866,30 @@
       }
     ],
     "relatedIds": [
+      "hubasic.functions.hexchr",
+      "hubasic.functions.mirror",
       "hubasic.text.screen",
       "fuzzybasic.x1.pcg-definition",
       "slang.x1.pcg-definition",
       "x1.video.pcg-palette"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm"
     ]
   },
   {
     "id": "hubasic.sound.play",
     "language": "hubasic",
     "kind": "runtime",
-    "title": "PLAY, TEMPO, BEEP, SOUND and PAUSE",
+    "title": "PLAY (and MUSIC), TEMPO, BEEP, SOUND and PAUSE",
     "profiles": [
       "x1pen-hubasic-x1native-slfs"
     ],
     "symbols": [
       "PLAY",
+      "MUSIC",
       "TEMPO",
       "BEEP",
       "SOUND",
@@ -902,11 +906,12 @@
       "音",
       "ブザー"
     ],
-    "summary": "PLAY \"MML\" plays up to three channels separated by colons and returns when they finish; PLAY n sets the tempo like TEMPO n (30-7500). BEEP beeps once, BEEP 1 starts and BEEP 0 stops a tone. SOUND r,v writes PSG register r (0-13). PAUSE n waits n tenths of a second.",
+    "summary": "PLAY \"MML\" plays up to three channels separated by colons and returns when they finish; PLAY n sets the tempo like TEMPO n (30-7500). MUSIC is the same statement as PLAY. BEEP beeps once, BEEP 1 starts and BEEP 0 stops a tone. SOUND r,v writes PSG register r (0-13). PAUSE n waits n tenths of a second.",
     "syntax": [
       "PLAY \"CDEFGAB\"",
       "PLAY \"C:E:G\"   three channels",
       "PLAY 120   TEMPO 120",
+      "MUSIC \"CDE\"   MUSIC 120   same as PLAY",
       "BEEP   BEEP 1   BEEP 0",
       "SOUND 7,&H38",
       "PAUSE 10"
@@ -926,9 +931,9 @@
       "hubasic.timing.vsync-wait"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -996,9 +1001,9 @@
       "hubasic.sound.play"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Lowering/HuLowerer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Lowering/HuLowerer.cs",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_options.js"
     ]
   },
@@ -1059,9 +1064,9 @@
       "x1.architecture.address-spaces"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1130,9 +1135,9 @@
       "hubasic.differences"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs"
     ]
   },
   {
@@ -1156,7 +1161,6 @@
       "SPACE$",
       "LEN",
       "INSTR",
-      "HEXCHR$",
       "CHARACTER$",
       "SCRN$",
       "SWAP"
@@ -1172,7 +1176,7 @@
       "部分文字列",
       "文字コード"
     ],
-    "summary": "ASC, CHR$(a[,b,…]), MID$(s,n[,m]), LEFT$, RIGHT$, STRING$(n,s or code), VAL, STR$, HEX$, SPACE$, LEN, INSTR([n,]a$,b$), HEXCHR$ (hex digits to bytes), CHARACTER$(x,y) and SCRN$(x,y,n) (read the text screen). MID$(v,n[,m])=s replaces part of a string variable; SWAP a,b exchanges two variables.",
+    "summary": "ASC, CHR$(a[,b,…]), MID$(s,n[,m]), LEFT$, RIGHT$, STRING$(n,s or code), VAL, STR$, HEX$, SPACE$, LEN, INSTR([n,]a$,b$), HEXCHR$ (hex digits to bytes, hubasic.functions.hexchr), MIRROR$ (bits of each byte reversed; it also rewrites a variable argument, hubasic.functions.mirror), CHARACTER$(x,y) and SCRN$(x,y,n) (read the text screen). MID$(v,n[,m])=s replaces part of a string variable; SWAP a,b exchanges two variables.",
     "syntax": [
       "C$=CHR$(65,66,67)",
       "S$=MID$(A$,2,3)",
@@ -1197,14 +1201,143 @@
     ],
     "relatedIds": [
       "hubasic.text.print",
+      "hubasic.functions.hexchr",
+      "hubasic.functions.mirror",
       "hubasic.pcg.defchr",
       "hubasic.unsupported"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.functions.mirror",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "MIRROR$ reverses the bits of each byte, and rewrites a variable argument in place",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "MIRROR$"
+    ],
+    "aliases": [
+      "mirror",
+      "flip",
+      "horizontal flip",
+      "reverse bits",
+      "bit reverse",
+      "in place",
+      "side effect",
+      "argument changed",
+      "PCG flip",
+      "左右反転",
+      "ビット反転",
+      "反転",
+      "副作用",
+      "引数が変わる"
+    ],
+    "summary": "MIRROR$(s) returns s with the 8 bits of every byte reversed left to right (&H83 becomes &HC1), for example to flip a PCG pattern. Careful: when the argument is a string variable or an array element, MIRROR$ also rewrites that variable in place, as HuBASIC does. After B$=MIRROR$(A$), A$ holds the reversed bytes too. A constant or an expression such as A$+\"\" leaves the original unchanged.",
+    "syntax": [
+      "B$=MIRROR$(A$)        B$ is reversed, and A$ is reversed in place as well",
+      "B$=MIRROR$(A$+\"\")     B$ is reversed, A$ is unchanged (an expression is copied first)",
+      "B$=MIRROR$(P$(I))     the array element P$(I) is reversed in place as well",
+      "B$=MIRROR$(\"...\")     constants never change"
+    ],
+    "notes": [
+      "To keep the original, pass an expression (A$+\"\") or a copy: C$=A$:B$=MIRROR$(C$) reverses C$ and B$, not A$.",
+      "Only a variable or array element written directly as the argument is rewritten. HuBASIC also rewrites A$ for MIRROR$(MID$(A$,1)); hubasic2sl does not.",
+      "Each byte is reversed on its own; the length and the order of the bytes stay the same. An empty string stays empty.",
+      "When a statement stores into an array element, or writes to an OUT port, whose index or port uses the variable MIRROR$ rewrites, the index or port is read first, as in HuBASIC: N%(ASC(S$))=ASC(MIRROR$(S$)) stores into the element chosen by the original S$.",
+      "A DEFCHR$ pattern is 24 row bytes, so MIRROR$ of a pattern is the character flipped left to right."
+    ],
+    "examples": [
+      {
+        "title": "MIRROR$ rewrites its variable",
+        "source": "10 A$=CHR$(&H83)\n20 B$=MIRROR$(A$)\n30 PRINT HEX$(ASC(A$));\" \";HEX$(ASC(B$))\n40 END"
+      },
+      {
+        "title": "Keep the original with an expression",
+        "source": "10 A$=CHR$(&H83)\n20 B$=MIRROR$(A$+\"\")\n30 PRINT HEX$(ASC(A$));\" \";HEX$(ASC(B$))\n40 END"
+      },
+      {
+        "title": "A PCG character and its mirror image",
+        "source": "10 CLS\n20 P$=HEXCHR$(\"C0E0703018181818 0000000000000000 0000000000000000\")\n30 DEFCHR$(128)=P$\n40 DEFCHR$(129)=MIRROR$(P$+\"\")\n50 CGEN 1\n60 PRINT CHR$(128);CHR$(129)\n70 CGEN 0\n80 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.pcg.defchr",
+      "hubasic.functions.hexchr",
+      "hubasic.functions.string",
+      "hubasic.differences"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Emit/Slang/SlangBackend.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm"
+    ]
+  },
+  {
+    "id": "hubasic.functions.hexchr",
+    "language": "hubasic",
+    "kind": "runtime",
+    "title": "HEXCHR$: hex digits to bytes, with spaces as separators",
+    "profiles": [
+      "x1pen-hubasic-x1native-slfs"
+    ],
+    "symbols": [
+      "HEXCHR$"
+    ],
+    "aliases": [
+      "hex string",
+      "hex to bytes",
+      "hex digits",
+      "byte string",
+      "PCG data",
+      "spaces",
+      "odd digits",
+      "Illegal function call",
+      "16進",
+      "16進数",
+      "バイト列",
+      "スペース"
+    ],
+    "summary": "HEXCHR$(s) turns hex digits into bytes, two digits per byte. Spaces are separators and are skipped; a single digit before a space or at the end becomes one byte. An empty string, or a character that is neither a hex digit nor a space (a comma, or a tab made at run time with CHR$(9)), is error 5 (Illegal function call).",
+    "syntax": [
+      "HEXCHR$(\"41424344\")      4 bytes, \"ABCD\"",
+      "HEXCHR$(\"0102 0304\")     4 bytes: &H01 &H02 &H03 &H04",
+      "HEXCHR$(\"123 4\")         3 bytes: &H12 &H03 &H04",
+      "DEFCHR$(n)=HEXCHR$(\"<blue 16> <red 16> <green 16>\")   48 digits in three groups"
+    ],
+    "notes": [
+      "Digits pair up from the left inside each group between spaces; a group with an odd number of digits ends with a one-digit byte.",
+      "hubasic2sl reads a tab in the program text as a space, also inside string literals, so a tab typed between the groups of a HEXCHR$ literal works as a separator. At run time only the space separates: HEXCHR$(\"01\"+CHR$(9)+\"02\") is error 5.",
+      "X1 BASIC Editor (選択からPCG設定) reads 48 digits split by spaces or tabs on one line as one PCG character, which matches what HEXCHR$ accepts in the program text.",
+      "HEXCHR$(\"\") is error 5, not an empty string."
+    ],
+    "examples": [
+      {
+        "title": "Bytes from grouped hex",
+        "source": "10 H$=HEXCHR$(\"0102 0304\")\n20 PRINT LEN(H$)\n30 H$=HEXCHR$(\"123 4\")\n40 PRINT HEX$(ASC(H$));\" \";HEX$(ASC(MID$(H$,2,1)));\" \";HEX$(ASC(MID$(H$,3,1)))\n50 END"
+      },
+      {
+        "title": "A PCG character from three spaced planes",
+        "source": "10 CLS\n20 DEFCHR$(128)=HEXCHR$(\"FF818181818181FF 0000000000000000 0000000000000000\")\n30 CGEN 1\n40 PRINT CHR$(128)\n50 CGEN 0\n60 END"
+      }
+    ],
+    "relatedIds": [
+      "hubasic.pcg.defchr",
+      "hubasic.functions.mirror",
+      "hubasic.functions.string"
+    ],
+    "sourceUrls": [
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Text/HuSource.cs",
+      "https://github.com/ho-ogino/xmil-web/blob/main/assets/x1basic/src/pcg.js"
     ]
   },
   {
@@ -1252,9 +1385,9 @@
       "hubasic.unsupported"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1311,8 +1444,8 @@
       "hubasic.diagnostics"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -1344,6 +1477,7 @@
       "Numbers: integer results and intermediate values wrap at 16 bits; floats have about 5 digits and ±1.8E+19 range and overflow when stored, printed or compared; a fractional STEP may run one more or less time; PRINT USING shows FLOAT noise beyond 5 fraction digits; the RANDOMIZE sequence differs.",
       "Flow: DEFxxx is program-wide; crossed NEXT keeps running; SWAP of different types is a conversion error; no commands after the end or an error.",
       "Screen: on-screen PRESET lines use color 0; very long off-screen lines are slow; string arrays default to a bound of 63.",
+      "Strings: MIRROR$(MID$(A$,1)) leaves A$ unchanged (HuBASIC rewrites A$); MIRROR$ of a variable or array element rewrites it in both (hubasic.functions.mirror).",
       "Input and sound: INKEY$ repeats less in loops longer than a frame; KEY does nothing; PLAY after an empty MML string has no gap.",
       "Speed: with wait none programs are much faster than HuBASIC; string handling and PAINT are always faster. Use VSYNC or the wait option.",
       "Matched with HuBASIC: runtime error display, PLAY pitch/length/tempo, BEEP, character attributes and colors, wrapping and scrolling, PRINT USING, text and graphics LINE dot placement, PAINT."
@@ -1351,10 +1485,11 @@
     "relatedIds": [
       "hubasic.unsupported",
       "hubasic.values.types",
-      "hubasic.timing.vsync-wait"
+      "hubasic.timing.vsync-wait",
+      "hubasic.functions.mirror"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md"
     ]
   },
   {
@@ -1405,8 +1540,8 @@
       "hubasic.flow.end-errors"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic.js"
     ]
   },
@@ -1462,7 +1597,7 @@
       "hubasic.machine.memory-io"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/docs/HUBASIC.md",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_options.js",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic.js"
     ]
@@ -1577,6 +1712,7 @@
       "LSET",
       "MERGE",
       "MID$",
+      "MIRROR$",
       "MKD$",
       "MKI$",
       "MKS$",
@@ -1677,11 +1813,11 @@
     ],
     "summary": "Every reserved word of hubasic2sl, grouped by what the converter does with it. Words in the reserved group are recognized but rejected (HB0301/HB0302) and cannot be used as variable names.",
     "syntax": [
-      "statements: REM LET GOTO GOSUB RETURN LABEL ON IF FOR NEXT REPEAT UNTIL WHILE WEND END INIT DIM DEFINT DEFSNG DEFDBL DEFSTR DATA READ RESTORE POKE CALL TIME OUT PRINT LOCATE COLOR CLS CFLASH CSIZE CGEN PRW VSYNC WIDTH TEMPO PAUSE PLAY PALET SWAP RANDOMIZE BEEP SOUND INPUT CLICK LINE PAINT MID$ DEFCHR$ POKE@",
+      "statements: REM LET GOTO GOSUB RETURN LABEL ON IF FOR NEXT REPEAT UNTIL WHILE WEND END INIT DIM DEFINT DEFSNG DEFDBL DEFSTR DATA READ RESTORE POKE CALL TIME OUT PRINT LOCATE COLOR CLS CFLASH CSIZE CGEN PRW VSYNC WIDTH TEMPO PAUSE PLAY MUSIC PALET SWAP RANDOMIZE BEEP SOUND INPUT CLICK LINE PAINT MID$ DEFCHR$ POKE@",
       "no-op statements (warning): KBUF KEY SCREEN",
-      "functions: INP MID$ RIGHT$ CHR$ ASC VAL HEXCHR$ CGPAT$ STICK STRIG RND INT LEFT$ STRING$ CHARACTER$ INPUT$ STR$ ABS SGN SQR SIN COS TAN ATN LOG EXP FIX CINT FRAC CSNG CDBL PAI RAD LEN INSTR HEX$ SPACE$ SCRN$ PEEK INKEY$ TIME PEEK@",
+      "functions: INP MID$ RIGHT$ CHR$ ASC VAL HEXCHR$ MIRROR$ CGPAT$ STICK STRIG RND INT LEFT$ STRING$ CHARACTER$ INPUT$ STR$ ABS SGN SQR SIN COS TAN ATN LOG EXP FIX CINT FRAC CSNG CDBL PAI RAD LEN INSTR HEX$ SPACE$ SCRN$ PEEK INKEY$ TIME PEEK@",
       "operators and parts of statements: THEN TO STEP ELSE AND OR XOR NOT MOD USING SPC TAB OFF PSET PRESET",
-      "reserved, not supported: ATTR$ AUTO BASE BIN$ BLOAD BSAVE CHAIN CIRCLE CLEAR CLOSE CLR CONSOLE CONT CREV CSRLIN CVD CVI CVS DATE$ DEF DELETE DEVF DSKF EDIT EOF EQV ERASE ERL ERR ERROR FIELD FILES FN FPOS FRE GET IMP KILL LIST LLIST LOAD LOC LOF LPOS LPRINT LSET MERGE MKD$ MKI$ MKS$ MON MUSIC NAME NEW OCT$ OPEN OPTION POINT POP POS PUSH PUT RENUM RESUME RSET RUN SAVE SET STOP SUB TIME$ TRACE USR VARPTR VDIM WAIT WINDOW"
+      "reserved, not supported: ATTR$ AUTO BASE BIN$ BLOAD BSAVE CHAIN CIRCLE CLEAR CLOSE CLR CONSOLE CONT CREV CSRLIN CVD CVI CVS DATE$ DEF DELETE DEVF DSKF EDIT EOF EQV ERASE ERL ERR ERROR FIELD FILES FN FPOS FRE GET IMP KILL LIST LLIST LOAD LOC LOF LPOS LPRINT LSET MERGE MKD$ MKI$ MKS$ MON NAME NEW OCT$ OPEN OPTION POINT POP POS PUSH PUT RENUM RESUME RSET RUN SAVE SET STOP SUB TIME$ TRACE USR VARPTR VDIM WAIT WINDOW"
     ],
     "notes": [
       "TIME is both a statement (TIME=n) and a function; MID$ is both a function and an assignment statement; LINE is both a text and a graphics statement; REPEAT is a loop and, with ON/OFF, the key-repeat statement.",
@@ -1692,8 +1828,8 @@
       "hubasic.program.structure"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/5abbffaa2e412f1b9792a3abc1de149908838c6b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/55e7271336d4e92206b718edce6bad37a5b4c7f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   }
 ]

@@ -1,7 +1,7 @@
 {
   "mainAssemblyName": "hubasic2sl-wasm",
   "resources": {
-    "hash": "sha256-jqg6+puEzqOTWkJTN8vWgsgQc2aGZnXgcd00iYsT370=",
+    "hash": "sha256-SLRKbLrKn5qVpdZVrzzfOsarGQIDOHpeNuKXCMuZDmU=",
     "jsModuleNative": {
       "dotnet.native.js": "sha256-9NoXeVUo4WNrEqrjAp/y3Yc8NmDcymQkzMGOIbIpGio="
     },
@@ -13,7 +13,7 @@
     },
     "coreAssembly": {},
     "assembly": {
-      "hubasic2sl-wasm.wasm": "sha256-aFTsGv1IHKx6RCLT8UownUkKIiOh1vOUZ+vQ/I/BsrQ=",
+      "hubasic2sl-wasm.wasm": "sha256-ZBCcl3iFa4mclmON98720xPlkCh31u0i0VPdG81+cvE=",
       "System.Collections.Concurrent.wasm": "sha256-joHcmMWuVsCX9aAR8WJGMMRuF2gqpkGG58Q+qQgRJfE=",
       "System.Collections.wasm": "sha256-mgfe+f4e3CnvGY1z5GrFaPg/EPALiaU0W16PZVP8FZQ=",
       "System.Linq.wasm": "sha256-7517KYmn0Ag+SBKLGaWHG4Gz1n7wtUWixUffhnn4DwQ=",

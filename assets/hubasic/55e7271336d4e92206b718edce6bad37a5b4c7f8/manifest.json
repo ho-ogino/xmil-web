@@ -1,5 +1,5 @@
 {
-  "slangCompilerRevision": "5abbffaa2e412f1b9792a3abc1de149908838c6b",
+  "slangCompilerRevision": "55e7271336d4e92206b718edce6bad37a5b4c7f8",
   "dirty": false,
   "hubasic2slVersion": "0.1.0-alpha",
   "basAbi": 1,
@@ -285,17 +285,17 @@
     },
     {
       "path": "_framework/blazor.boot.json",
-      "sha256": "c603246e34edd2632a6a7d1433573cd1342270a605d95b6d50bc62dc2e58eaff",
+      "sha256": "54f6cdfc7695f38d43b975577b880e235a8ae913094ed8da41f2402adfac5c48",
       "size": 1735
     },
     {
       "path": "_framework/blazor.boot.json.br",
-      "sha256": "4a2620c9a19222b4ec3a9822b827909e812ada0988a445a3f97d0c2b15efc136",
+      "sha256": "80463dabc8e3a0e7f1f49238bb5831ff649354228412ecf3652ea949e216641c",
       "size": 863
     },
     {
       "path": "_framework/blazor.boot.json.gz",
-      "sha256": "c482f3d9f816ed673e20961b1a25c4ff51cedd55a8ea9ee221ceeea08c93b581",
+      "sha256": "9a1788a2d47965c3b8832d46c318d65dd3a1fc2c176d30ec80be57fe42fd8ce4",
       "size": 961
     },
     {
@@ -360,18 +360,18 @@
     },
     {
       "path": "_framework/hubasic2sl-wasm.wasm",
-      "sha256": "6854ec1afd481cac7a4422d3f14a309d490a2223a1d6f39467ebd0fc8fc1b2b4",
-      "size": 188693
+      "sha256": "64109c9778856b899c96638df7cef6d313e5902877d6ed22d153dd1bcd7e72f1",
+      "size": 189717
     },
     {
       "path": "_framework/hubasic2sl-wasm.wasm.br",
-      "sha256": "680d3407f71601158102f2b98fcda7fc07ed96c551b47c3b0c7298e88d341d4a",
-      "size": 62770
+      "sha256": "f75b1593bd02d8aa3a1b2636e97f2e8a9082135ccee5b1cd07aea8265c6e9451",
+      "size": 62971
     },
     {
       "path": "_framework/hubasic2sl-wasm.wasm.gz",
-      "sha256": "7ef70694cb3e18abb07b75ff44d57b2d5a0f9cb0788c441cec226c3ab4c96c46",
-      "size": 76922
+      "sha256": "15873509acb89176d117531ba4bfd98c545f72a080efb6ca5c60968755520ee9",
+      "size": 77220
     },
     {
       "path": "env/x1native.env",
@@ -415,8 +415,8 @@
     },
     {
       "path": "runtime/libx1_basic.asm",
-      "sha256": "293812eeeb9a9df4b807dd73d118a4b038cbf01c9b463e4ba769784417186d05",
-      "size": 139895
+      "sha256": "ab8a8b5438ffab991ae14e73dfa1c628a3257ef0ee8af57fb96e51eb70b0b3fd",
+      "size": 141676
     },
     {
       "path": "runtime/libx1_grp.asm",
@@ -480,8 +480,8 @@
     },
     {
       "path": "testdata/FLOAT.LST",
-      "sha256": "f71b7090722acbaa6ae94307361576fc8abd4295c60e202d80e50c9c711e5870",
-      "size": 220590
+      "sha256": "56e44007056a6bbedd572a9012644f1d9ee267800dc3e4d6ad6f927b380cc719",
+      "size": 220747
     },
     {
       "path": "testdata/FLOAT.SL",
@@ -505,8 +505,8 @@
     },
     {
       "path": "testdata/GRAPH.LST",
-      "sha256": "848c56e45b8d620e3b23477179720079f821f142317e7f913fbf14ae2920f496",
-      "size": 289541
+      "sha256": "7d5b4943c710415f04c6af176f857d30b476daa2d7bfe12091617503dedd2c51",
+      "size": 289698
     },
     {
       "path": "testdata/GRAPH.SL",
@@ -530,8 +530,8 @@
     },
     {
       "path": "testdata/HELLO.LST",
-      "sha256": "0c27417c5d1e2f161da8c84d5e7f70f1d6d102731022a2ce32f18d556d7018e4",
-      "size": 196894
+      "sha256": "d78aee14c0536faaf15c816d23e32bf6f8ee64cca21a36b56b6a760b74d0a9ef",
+      "size": 197049
     },
     {
       "path": "testdata/HELLO.SL",
@@ -555,8 +555,8 @@
     },
     {
       "path": "testdata/MUSIC.LST",
-      "sha256": "3fc043ad08f0f2bcd4d6c5ebc7844ecb445be1542d4abf489591e59c4772bd82",
-      "size": 94929
+      "sha256": "18756018bc24340982522e333235d5d417296100da3f07fbbda960487900a465",
+      "size": 95081
     },
     {
       "path": "testdata/MUSIC.SL",
