@@ -57,7 +57,7 @@
     ],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_text.js",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md"
     ]
   },
   {
@@ -115,9 +115,9 @@
       "hubasic.keywords.catalog"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs"
     ]
   },
   {
@@ -180,8 +180,8 @@
       "hubasic.x1pen.run"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -255,8 +255,8 @@
       "hubasic.functions.math"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -304,8 +304,8 @@
       "hubasic.unsupported"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -359,8 +359,8 @@
       "hubasic.data.read"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -403,8 +403,8 @@
       "hubasic.values.numbers-operators"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -457,8 +457,8 @@
       "hubasic.values.types"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -505,8 +505,8 @@
       "hubasic.x1pen.run"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -550,8 +550,8 @@
       "hubasic.x1pen.run"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -630,9 +630,9 @@
       "hubasic.functions.string"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -664,6 +664,8 @@
       "screen width",
       "40 columns",
       "80 columns",
+      "rows",
+      "25 lines",
       "blink",
       "enlarge",
       "palette",
@@ -675,13 +677,15 @@
       "画面消去",
       "パレット"
     ],
-    "summary": "LOCATE x,y moves the cursor (absolute screen coordinates, also under CONSOLE). CLS clears text (CLS n clears graphics too). COLOR [fg][,bg] sets colors 0-7. WIDTH 40 or 80 sets the text width. CFLASH, CSIZE and CGEN set character attributes for later output. LINE (x1,y1)-(x2,y2),\"c\"[,B|BF] draws with a character on the text screen.",
+    "summary": "LOCATE x,y moves the cursor (absolute screen coordinates, also under CONSOLE). CLS clears text (CLS n clears graphics too). COLOR [fg][,bg] sets colors 0-7. WIDTH 40 or 80 sets the text width; a second argument (rows) and a third and fourth (X1turbo forms) are accepted but ignored, and the screen stays 25 rows. CFLASH, CSIZE and CGEN set character attributes for later output. LINE (x1,y1)-(x2,y2),\"c\"[,B|BF] draws with a character on the text screen.",
     "syntax": [
       "LOCATE X,Y",
       "CLS         text only",
       "CLS 0       all graphics planes   CLS 1-3 one graphics plane   CLS 4 everything",
       "COLOR 7,1   COLOR 4   COLOR ,0",
       "WIDTH 40    WIDTH 80",
+      "WIDTH 40,25        rows 25: accepted silently",
+      "WIDTH 40,20   WIDTH 80,25,0,1   warning HB0705, the extra arguments are ignored",
       "CFLASH 1|0  CSIZE 0-3  CGEN 1|0",
       "PALET       PALET c,p",
       "PRW n",
@@ -693,6 +697,7 @@
       "With a CONSOLE window, CLS (and the text part of CLS 4) clears only the window and puts the cursor at its top-left.",
       "COLOR changes only the given values; the background color replaces palette color 0.",
       "WIDTH 40 or less gives 40 columns, larger gives 80, clears like CLS 4 and restores the full-screen text window.",
+      "WIDTH columns[,rows[,a,b]]: the screen is always 25 rows. Rows 25 alone gives no warning; other rows, or a third or fourth argument, give warning HB0705 and are ignored. The second to fourth arguments must be numeric constants (HB0703); a fifth is HB0202.",
       "CFLASH 1 blinks, CSIZE 1 doubles height, 2 doubles width, 3 both (effective for PRINT#0), CGEN 1 shows PCG patterns instead of ROM characters, CGEN 0 returns to ROM.",
       "PALET with no arguments restores the default palette; PALET c,p maps color code c (0-7) to palette color p (0-7).",
       "PRW writes the priority (0-255) to port $1300.",
@@ -712,9 +717,10 @@
       "hubasic.pcg.defchr"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -780,10 +786,10 @@
       "hubasic.differences"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Lowering/HuLowerer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Lowering/HuLowerer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -806,7 +812,10 @@
       "REPEAT OFF",
       "KBUF",
       "KEY",
-      "SCREEN"
+      "SCREEN",
+      "KEYLIST",
+      "KLIST",
+      "KMODE"
     ],
     "aliases": [
       "keyboard",
@@ -814,9 +823,14 @@
       "joystick",
       "trigger",
       "auto repeat",
+      "function key display",
+      "kanji mode",
+      "X1turbo",
       "キー入力",
       "ジョイスティック",
-      "トリガー"
+      "トリガー",
+      "ファンクションキー",
+      "漢字モード"
     ],
     "summary": "INKEY$ returns the key just pressed (with auto-repeat), INKEY$(0) the key held now, INPUT$(n) waits for n keys without echo, INPUT reads a line. STICK(n) returns the numeric-keypad direction (0 none, 8 up, 2 down, 4 left, 6 right, diagonals 7 9 1 3) and STRIG(n) returns -1 while a trigger is pressed.",
     "syntax": [
@@ -826,12 +840,14 @@
       "INPUT \"NAME\";N$    INPUT \"X\",X  (comma: no \"? \")   INPUT A,B",
       "S=STICK(0)         0 = keyboard digits, 1 and 2 = joysticks",
       "T=STRIG(0)         0 = space key, 1 and 2 = joystick triggers",
-      "CLICK ON|OFF   REPEAT ON|OFF"
+      "CLICK ON|OFF   REPEAT ON|OFF",
+      "KEYLIST 0   KLIST 0   KMODE 0   accepted, do nothing (X1turbo forms)"
     ],
     "notes": [
       "INPUT reads one line (BS deletes, RETURN ends). A number that cannot be read becomes 0 without asking again. The value is only what was typed. Under CONSOLE the echo, wrapping and BS stay inside the window.",
       "INKEY$ repeats a held key after about 30 frames, then about every 4 frames; REPEAT OFF reports only the first press.",
       "KBUF ON/OFF, KEY n,s and SCREEN … are accepted but do nothing (warnings HB0701/HB0702/HB0704). INKEY$ still returns function-key codes.",
+      "KEYLIST n and KLIST n (function-key display) and KMODE n (kanji mode) are X1turbo forms. They are supported statements that do nothing, so programs using them convert and run. With 0 there is no warning; another value gives warning HB0706. The argument must be a numeric constant (HB0703). KEYLIST or KLIST with no number (listing the keys) is unsupported (HB0301); KMODE with no number is HB0203.",
       "CLICK only records the state; no click sound is produced."
     ],
     "examples": [
@@ -846,9 +862,10 @@
       "hubasic.text.console"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -907,9 +924,9 @@
       "hubasic.unsupported"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -971,9 +988,9 @@
       "x1.video.pcg-palette"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -999,11 +1016,17 @@
       "beep",
       "PSG",
       "wait",
+      "volume",
+      "envelope",
+      "V16",
+      "V15",
       "音楽",
       "音",
-      "ブザー"
+      "ブザー",
+      "音量",
+      "エンベロープ"
     ],
-    "summary": "PLAY \"MML\" plays up to three channels separated by colons and returns when they finish; PLAY n sets the tempo like TEMPO n (30-7500). MUSIC is the same statement as PLAY. BEEP beeps once, BEEP 1 starts and BEEP 0 stops a tone. SOUND r,v writes PSG register r (0-13). PAUSE n waits n tenths of a second.",
+    "summary": "PLAY \"MML\" plays up to three channels separated by colons and returns when they finish; PLAY n sets the tempo like TEMPO n (30-7500). MUSIC is the same statement as PLAY. MML volume V is 0-16, not 0-15: V0-V15 are fixed levels and V16 uses the PSG hardware envelope. BEEP beeps once, BEEP 1 starts and BEEP 0 stops a tone. SOUND r,v writes PSG register r (0-13). PAUSE n waits n tenths of a second.",
     "syntax": [
       "PLAY \"CDEFGAB\"",
       "PLAY \"C:E:G\"   three channels",
@@ -1011,26 +1034,35 @@
       "MUSIC \"CDE\"   MUSIC 120   same as PLAY",
       "BEEP   BEEP 1   BEEP 0",
       "SOUND 7,&H38",
-      "PAUSE 10"
+      "PAUSE 10",
+      "PLAY \"V16O4C\"   envelope; SOUND 13,n sets its shape, SOUND 11,n and SOUND 12,n its period",
+      "V17 = V1   V107 = V10   V255 = V2   (first two digits if 16 or less, else the first digit)"
     ],
     "notes": [
       "PLAY blocks until the music ends. Octave, length and volume of each channel persist between PLAY statements.",
       "SOUND does not change the PLAY state. Out-of-range values are error 5.",
-      "After an MML string with no notes, the next PLAY starts without the short gap HuBASIC has."
+      "After an MML string with no notes, the next PLAY starts without the short gap HuBASIC has.",
+      "V reads two digits when they make 16 or less, otherwise only the first digit, and drops any further digits: V17 is volume 1, V107 is 10, V255 is 2. No V value is an error. V writes the channel volume register at once.",
+      "V16 sets the channel to the PSG envelope. The envelope shape is the current PSG register 13 (set it with SOUND 13,n; if never set it is 0, one decay to silence). PLAY writes register 13 again at every note, so the envelope restarts on each note. PLAY does not write the envelope period (registers 11 and 12); set it with SOUND 11,n and SOUND 12,n."
     ],
     "examples": [
       {
         "title": "A short tune",
         "source": "10 TEMPO 150\n20 PLAY \"CDEC:EFGE\"\n30 BEEP\n40 END"
+      },
+      {
+        "title": "Notes with the hardware envelope (V16)",
+        "source": "10 SOUND 11,0:SOUND 12,8\n20 SOUND 13,0\n30 PLAY \"V16O4CDEFG\"\n40 PLAY \"V12C\"\n50 END"
       }
     ],
     "relatedIds": [
-      "hubasic.timing.vsync-wait"
+      "hubasic.timing.vsync-wait",
+      "hubasic.machine.memory-io"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1098,9 +1130,9 @@
       "hubasic.sound.play"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Lowering/HuLowerer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Lowering/HuLowerer.cs",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_options.js"
     ]
   },
@@ -1161,9 +1193,9 @@
       "x1.architecture.address-spaces"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1232,9 +1264,9 @@
       "hubasic.differences"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs"
     ]
   },
   {
@@ -1304,10 +1336,10 @@
       "hubasic.unsupported"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1372,9 +1404,9 @@
       "hubasic.differences"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Emit/Slang/SlangBackend.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Emit/Slang/SlangBackend.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1431,9 +1463,9 @@
       "hubasic.functions.string"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Text/HuSource.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Text/HuSource.cs",
       "https://github.com/ho-ogino/xmil-web/blob/main/assets/x1basic/src/pcg.js"
     ]
   },
@@ -1482,9 +1514,9 @@
       "hubasic.unsupported"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1541,8 +1573,8 @@
       "hubasic.diagnostics"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -1579,6 +1611,7 @@
       "CSIZE 1 and 3 (double height) PRINT#0 may advance rows differently when it wraps at the bottom of the screen or inside a CONSOLE window.",
       "Strings: MIRROR$(MID$(A$,1)) leaves A$ unchanged (HuBASIC rewrites A$); MIRROR$ of a variable or array element rewrites it in both (hubasic.functions.mirror).",
       "Input and sound: INKEY$ repeats less in loops longer than a frame; KEY does nothing; PLAY after an empty MML string has no gap.",
+      "X1turbo forms (WIDTH rows and extra arguments, KEYLIST, KLIST, KMODE) are accepted and behave as HuBASIC CZ-8FB01: the screen stays 25 rows and nothing else happens. X1turbo BASIC behaviour, including turbo MML, is not verified.",
       "Speed: with wait none programs are much faster than HuBASIC; string handling and PAINT are always faster. Use VSYNC or the wait option.",
       "Matched with HuBASIC: runtime error display, PLAY pitch/length/tempo, BEEP, character attributes and colors, wrapping and scrolling, CONSOLE windows (absolute LOCATE, TAB and , stops), CHR$(14)/CHR$(15), the , wrap at the right edge, PRINT USING, text and graphics LINE dot placement, PAINT."
     ],
@@ -1590,7 +1623,7 @@
       "hubasic.text.console"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md"
     ]
   },
   {
@@ -1608,7 +1641,11 @@
       "HB04",
       "HB05",
       "HB06",
+      "HB07",
       "HB0312",
+      "HB0703",
+      "HB0705",
+      "HB0706",
       "HUBASIC_TRANSPILE_FAILED"
     ],
     "aliases": [
@@ -1628,10 +1665,11 @@
       "HB03xx  unsupported (statement HB0301, function HB0302, 2-D array HB0303); HB0309 static data over dataBudget; HB0312 does not fit in memory",
       "HB04xx  types (integer/string mix-up HB0404, conflicting DEFxxx HB0410)",
       "HB05xx  line numbers and names (missing target HB0503, duplicate line HB0502, missing LABEL HB0504)",
-      "HB06xx  loop pairing (FOR without NEXT, WEND without WHILE …)"
+      "HB06xx  loop pairing (FOR without NEXT, WEND without WHILE …)",
+      "HB07xx  statements that do nothing (KBUF, SCREEN, KEY, KEYLIST, KLIST, KMODE, WIDTH rows): HB0703 argument must be a numeric constant"
     ],
     "notes": [
-      "Warnings do not stop conversion: HB0109 (% on 32768-65535), HB0411 (letter used before its DEFxxx), HB0412 (double precision), HB0501 (lines not ascending), HB0505 (duplicate LABEL), HB0701/HB0702/HB0704 (KBUF/SCREEN/KEY do nothing).",
+      "Warnings do not stop conversion: HB0109 (% on 32768-65535), HB0411 (letter used before its DEFxxx), HB0412 (double precision), HB0501 (lines not ascending), HB0505 (duplicate LABEL), HB0701/HB0702/HB0704 (KBUF/SCREEN/KEY do nothing), HB0705 (WIDTH rows other than 25, or a third or fourth argument, ignored), HB0706 (KEYLIST/KLIST/KMODE with a value other than 0 do nothing).",
       "A syntax error stops before type checking, so fixing one error can reveal the next.",
       "After conversion X1Pen compiles and assembles the SLANG; a program too large for &H1000-&HFFDF fails the size check."
     ],
@@ -1641,8 +1679,9 @@
       "hubasic.flow.end-errors"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic.js"
     ]
   },
@@ -1698,7 +1737,7 @@
       "hubasic.machine.memory-io"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/docs/HUBASIC.md",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_options.js",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic.js"
     ]
@@ -1795,7 +1834,10 @@
       "INT",
       "KBUF",
       "KEY",
+      "KEYLIST",
       "KILL",
+      "KLIST",
+      "KMODE",
       "LABEL",
       "LEFT$",
       "LEN",
@@ -1915,22 +1957,22 @@
     "summary": "Every reserved word of hubasic2sl, grouped by what the converter does with it. Words in the reserved group are recognized but rejected (HB0301/HB0302) and cannot be used as variable names.",
     "syntax": [
       "statements: REM LET GOTO GOSUB RETURN LABEL ON IF FOR NEXT REPEAT UNTIL WHILE WEND END INIT DIM DEFINT DEFSNG DEFDBL DEFSTR DATA READ RESTORE POKE CALL TIME OUT PRINT LOCATE CONSOLE COLOR CLS CFLASH CSIZE CGEN PRW VSYNC WIDTH TEMPO PAUSE PLAY MUSIC PALET SWAP RANDOMIZE BEEP SOUND INPUT CLICK LINE PAINT MID$ DEFCHR$ POKE@",
-      "no-op statements (warning): KBUF KEY SCREEN",
+      "no-op statements (warning): KBUF KEY SCREEN KEYLIST KLIST KMODE",
       "functions: INP MID$ RIGHT$ CHR$ ASC VAL HEXCHR$ MIRROR$ CGPAT$ STICK STRIG RND INT LEFT$ STRING$ CHARACTER$ INPUT$ STR$ ABS SGN SQR SIN COS TAN ATN LOG EXP FIX CINT FRAC CSNG CDBL PAI RAD LEN INSTR HEX$ SPACE$ SCRN$ PEEK INKEY$ TIME PEEK@",
       "operators and parts of statements: THEN TO STEP ELSE AND OR XOR NOT MOD USING SPC TAB OFF PSET PRESET",
       "reserved, not supported: ATTR$ AUTO BASE BIN$ BLOAD BSAVE CHAIN CIRCLE CLEAR CLOSE CLR CONT CREV CSRLIN CVD CVI CVS DATE$ DEF DELETE DEVF DSKF EDIT EOF EQV ERASE ERL ERR ERROR FIELD FILES FN FPOS FRE GET IMP KILL LIST LLIST LOAD LOC LOF LPOS LPRINT LSET MERGE MKD$ MKI$ MKS$ MON NAME NEW OCT$ OPEN OPTION POINT POP POS PUSH PUT RENUM RESUME RSET RUN SAVE SET STOP SUB TIME$ TRACE USR VARPTR VDIM WAIT WINDOW"
     ],
     "notes": [
       "TIME is both a statement (TIME=n) and a function; MID$ is both a function and an assignment statement; LINE is both a text and a graphics statement; REPEAT is a loop and, with ON/OFF, the key-repeat statement.",
-      "VSYNC is a hubasic2sl addition and not a HuBASIC word."
+      "VSYNC is a hubasic2sl addition and not a HuBASIC word. KEYLIST, KLIST and KMODE are X1turbo BASIC words, accepted as statements that do nothing."
     ],
     "relatedIds": [
       "hubasic.unsupported",
       "hubasic.program.structure"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/10cf481e99161fcf1a9b4a2d2b33db327878b47c/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/d15d32eb7c033ca73b8468d1401a2b57fad70979/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   }
 ]

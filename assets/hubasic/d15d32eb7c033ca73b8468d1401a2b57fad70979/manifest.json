@@ -1,5 +1,5 @@
 {
-  "slangCompilerRevision": "10cf481e99161fcf1a9b4a2d2b33db327878b47c",
+  "slangCompilerRevision": "d15d32eb7c033ca73b8468d1401a2b57fad70979",
   "dirty": false,
   "hubasic2slVersion": "0.1.0-alpha",
   "basAbi": 1,
@@ -150,18 +150,18 @@
     },
     {
       "path": "_framework/System.Linq.wasm",
-      "sha256": "ef9d7b2989a7d0083e48128b19a5871b81b3d67ef0b545a2c547df8679f80f04",
-      "size": 29973
+      "sha256": "fd24b2adc1f5101592beaf8dbc23ec4d5e4116c4b753af524936c762c1787ec6",
+      "size": 30997
     },
     {
       "path": "_framework/System.Linq.wasm.br",
-      "sha256": "4f9e18224a48041ba397e8c03cd83d6ee0c62a9f8e9da6f5fd7e087344a73b0a",
-      "size": 12111
+      "sha256": "7d8db55f2c1d19a58ca058ed12ff0e5b27aec2f9a7cd90b87781207cadb8f930",
+      "size": 12420
     },
     {
       "path": "_framework/System.Linq.wasm.gz",
-      "sha256": "a24cc3e0085f1e07bd8507bcbe2352b98d1eeea1c3dcb077d5867186db5cbfc6",
-      "size": 14020
+      "sha256": "528bc11ac3460c6f7833a3599fc59b03d94bdd0a2c495c3d23e8d8d3e46a9107",
+      "size": 14440
     },
     {
       "path": "_framework/System.Memory.wasm",
@@ -285,18 +285,18 @@
     },
     {
       "path": "_framework/blazor.boot.json",
-      "sha256": "6e7cd3b6281e806288eeddc04013b3c2453c88a4f538d9b03eebb272c974926b",
+      "sha256": "74c8b91e86deddc5f8425dcaeceba612fc12ffee506148792d42eae6cbbc586a",
       "size": 1735
     },
     {
       "path": "_framework/blazor.boot.json.br",
-      "sha256": "4214d8537804cf15f959ac7c4aad0f864f0e38f7dd5991fe958f220885388cfc",
-      "size": 866
+      "sha256": "6d947076a587906a3506e7a04bff1a66cdb7ef64316199ab6a9ab3a5fee359c1",
+      "size": 864
     },
     {
       "path": "_framework/blazor.boot.json.gz",
-      "sha256": "55315e3c52cc9b12aeb7fe78ba5c3ad5390252ff34c027be1701190da9e8f515",
-      "size": 962
+      "sha256": "e9aa7f20898c3b9bb7bfe0ab3889e5beaf53113329e59769f71496f012727ef2",
+      "size": 961
     },
     {
       "path": "_framework/dotnet.js",
@@ -360,18 +360,18 @@
     },
     {
       "path": "_framework/hubasic2sl-wasm.wasm",
-      "sha256": "5977356e1a409e6873560cae0fa0d38555813bbfdba64a668e3405dd26e6c7a5",
-      "size": 190229
+      "sha256": "de76c9746ee69b7b58aeaa6fc67bc7f488bc74e6e82e4eb9138ea931948345ad",
+      "size": 191253
     },
     {
       "path": "_framework/hubasic2sl-wasm.wasm.br",
-      "sha256": "ca4138c4199786ac207e390ba41623d257293e670710074c1be5fd2de045c71f",
-      "size": 62965
+      "sha256": "6d496786ce177008414e9a01b8af018b090187fe94f179b7f1e22f57a8e26d23",
+      "size": 63304
     },
     {
       "path": "_framework/hubasic2sl-wasm.wasm.gz",
-      "sha256": "9f3e26077d8d52646aeefdbd96f82f51d41afee0042cf06be1b50fd2b23de407",
-      "size": 77348
+      "sha256": "3ae69f13ec7c0cac97388eb11034e42869f17eb151d225ec42cff99470f54d24",
+      "size": 77739
     },
     {
       "path": "env/x1native.env",
@@ -415,8 +415,8 @@
     },
     {
       "path": "runtime/libx1_basic.asm",
-      "sha256": "4d0410941ada146b083e8d86f8ff61ff244136d9142f165749222da23aaad139",
-      "size": 148420
+      "sha256": "944314e78bd36ea0e61cbbd2dd32d9920cdf3c7a4f4b067219c83187b0003a17",
+      "size": 149175
     },
     {
       "path": "runtime/libx1_grp.asm",
@@ -555,8 +555,8 @@
     },
     {
       "path": "testdata/MUSIC.LST",
-      "sha256": "31c132707b7ca0a84724d0fcbca9a4b50d49bb7c8fb084fdc6764091f4ba9730",
-      "size": 100983
+      "sha256": "7a91aad8d888b73f2a3ece45d8f9f26a571c682fcddbb8a42f9aa2582c700b9d",
+      "size": 102282
     },
     {
       "path": "testdata/MUSIC.SL",
@@ -565,12 +565,12 @@
     },
     {
       "path": "testdata/MUSIC.bin",
-      "sha256": "225c4f730b3a21a57407393829d64a058219c8e09cfe661982010ffaec74ecd9",
-      "size": 2992
+      "sha256": "4165ac28b899aa7d580b1b6d2649dc533cf94112cd6d8771795b0c5c1a755e44",
+      "size": 3018
     },
     {
       "path": "testdata/MUSIC.d88",
-      "sha256": "f6fef8de811ac1f901276e8471cf68a602aa91be714b38809d86087d5f05f33d",
+      "sha256": "c3ddc85a0d430cb0821ee7cf468aed45c0c251a16b432fbfbd0f03a9b22ca3c9",
       "size": 348848
     }
   ]
