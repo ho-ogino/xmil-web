@@ -3619,6 +3619,9 @@ test('in X1Pen the HuBASIC editor imports and exports, and its side panel folds 
   assert.equal(await editor.locator('header [data-command="save-as"]').isVisible(), false);
   assert.equal((await editor.locator('header [data-command="open"]').textContent()).trim(), 'インポート…');
   assert.equal((await editor.locator('header [data-command="save"]').textContent()).trim(), 'エクスポート');
+  // X1Pen injects the host, so the editor is embedded: no file name bar of the desktop app
+  assert.equal(await editor.locator('html').getAttribute('data-host-mode'), 'embedded');
+  assert.equal(await editor.locator('#document-bar').isVisible(), false);
 
   const width = () => editor.locator('#editor').evaluate((el) => el.getBoundingClientRect().width);
   const before = await width();
@@ -3715,6 +3718,82 @@ test('resting the mouse on a string in the HuBASIC editor shows it as one image,
 
   await page.mouse.move(box.x + box.width + 40, box.y + 10);
   await frame.waitForFunction(() => document.getElementById('pcg-string-preview').hidden, null, { timeout: 10_000 });
+});
+
+// Selects the whole HuBASIC program in the editor, runs 選択からPCG設定 (with `start` in the dialog
+// when it asks for a start code) and returns the entries the editor asked X1Pen to build a font of
+async function setupHuBasicPcg(source, start) {
+  await setHuBasicProgram(source);
+  // The editor shows a tab as an X1 glyph, so wait for the last line instead of the whole text
+  await page.waitForFunction((last) => {
+    const doc = document.querySelector('#hubasic-editor-container iframe')?.contentDocument;
+    return doc && doc.readyState === 'complete' && doc.getElementById('editor')?.value.includes(last);
+  }, source.trim().split('\n').at(-1), { timeout: 30_000 });
+  const frame = page.frame({ url: /x1basic\/src\// });
+  const before = await frame.evaluate(() => {
+    window.__pcgFonts = [];
+    if (!window.__pcgFont) window.__pcgFont = window.X1Host.pcgFont;
+    window.X1Host.pcgFont = (request) => {
+      window.__pcgFonts.push(request.entries.map((entry) => [entry.code, entry.hex]));
+      return window.__pcgFont(request);
+    };
+    const editor = document.getElementById('editor');
+    editor.focus();
+    editor.setSelectionRange(0, editor.value.length);
+    const program = parent.X1PenAutomation.getProgram();
+    return { text: editor.value, revision: program.revision, hubasic: program.hubasic };
+  });
+  await hubasicEditorFrame().locator('[data-command="pcg-setup"]').click();
+  if (start != null) {
+    await frame.waitForFunction(() => document.getElementById('pcg-import-dialog').open);
+    await hubasicEditorFrame().locator('#pcg-start').fill(String(start));
+    await hubasicEditorFrame().locator('#pcg-import-confirm').click();
+  }
+  await frame.waitForFunction(() => window.__pcgFonts.length > 0, null, { timeout: 10_000 });
+  return frame.evaluate((before) => ({
+    entries: window.__pcgFonts.at(-1),
+    count: document.getElementById('pcg-count').textContent,
+    on: document.getElementById('pcg-enabled').checked,
+    unchanged: document.getElementById('editor').value === before.text &&
+      parent.X1PenAutomation.getProgram().revision === before.revision &&
+      parent.X1PenAutomation.getProgram().hubasic === before.hubasic,
+  }), before);
+}
+
+test('the HuBASIC editor takes PCG hex digits separated by spaces on one line', { timeout: 60_000 }, async () => {
+  const rows = ['0000000000010003 0007030707020301 000000000702031D', '0100000700000000\t2070603000000307 1E0F070007030000'];
+  const plane = 'FFFFFFFFFFFFFFFF 0000000000000000 FFFFFFFFFFFFFFFF';
+  const source = [
+    `10 DATA ${rows[0]}`,
+    `20 DATA ${rows[1]}`,
+    `30 DATA ${'0'.repeat(44)}FF`, // 46 digits
+    '40 DATA 0000 0000 0000', // 12 digits
+    `50 DATA ${'0'.repeat(16)}`, // a record is not joined across lines
+    `60 DATA ${'0'.repeat(32)}`,
+    `70 DEFCHR$(200)=HEXCHR$("${plane}")`,
+  ].join('\n') + '\n';
+  try {
+    const spaced = await setupHuBasicPcg(source, 128);
+    const joined = (text) => text.replace(/[ \t]/g, '');
+    assert.deepEqual(spaced.entries, [[128, joined(rows[0])], [129, joined(rows[1])], [200, joined(plane)]]);
+    assert.equal(spaced.count, '3 / 256 文字を定義');
+    assert.equal(spaced.on, true);
+    // Setting up PCG changes neither the editor text nor X1Pen's program
+    assert.equal(spaced.unchanged, true);
+
+    // 48 digits in a row are taken as before
+    const contiguous = await setupHuBasicPcg(`10 DATA ${'AA'.repeat(24)}\n`, 130);
+    assert.deepEqual(contiguous.entries.find(([code]) => code === 130), [130, 'AA'.repeat(24)]);
+    assert.equal(contiguous.unchanged, true);
+  } finally {
+    const frame = page.frame({ url: /x1basic\/src\// });
+    await frame.evaluate(() => { if (window.__pcgFont) window.X1Host.pcgFont = window.__pcgFont; });
+    // Later tests expect the editor's own font
+    await frame.evaluate(() => {
+      const on = document.getElementById('pcg-enabled');
+      if (on.checked) { on.checked = false; on.dispatchEvent(new Event('change')); }
+    });
+  }
 });
 
 test('setProgram refuses HuBASIC text the X1 cannot show and changes nothing', { timeout: 30_000 }, async () => {

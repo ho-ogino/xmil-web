@@ -1,6 +1,9 @@
 'use strict';
 (() => {
   const host = window.X1Host;
+  const embeddedHost=document.documentElement.dataset.hostMode==='embedded';
+  const standaloneDesktop=document.documentElement.dataset.hostMode==='desktop';
+  let filename='Untitled.bas';
   const $ = id => document.getElementById(id);
   const editor = $('editor'), mirror = $('mirror'), doc = new X1.ByteDocument();
   let selectionBefore = [0,0], pendingInputType = '', busy = false, composing = false, group = 'symbols';
@@ -114,7 +117,7 @@
   }
   async function setupPcg(){
     const [start,end]=selection();if(start===end){notify('PCG定義や48桁の16進データを選択してください。',true);return;}
-    const scan=X1Pcg.scan(doc.view.text.slice(start,end));
+    const scan=X1Pcg.scan(doc.view.text.slice(start,end).replaceAll(X1.glyph(9),'\t'));
     if(!scan.definitions.length&&!scan.raw.length){notify('取り込めるPCG定義が見つかりません。\n'+scan.warnings.join('\n'),true);return;}
     if(scan.raw.length){
       pcgImport={scan,bytes:doc.bytes};$('pcg-import-summary').textContent='コード指定の定義 '+scan.definitions.length+'件、開始コードを指定するデータ '+scan.raw.length+'件を検出しました。'+(scan.warnings.length?' '+scan.warnings.length+'件は読み飛ばします。':'');
@@ -274,6 +277,11 @@
     });
     mirror.replaceChildren(fragment); updateLayout();
     $('empty-hint').hidden = doc.bytes.length > 0;
+    if(standaloneDesktop){
+      const name=$('filename'),state=$('dirty-state');
+      if(name){name.textContent=filename;name.title=filename;}
+      if(state){state.textContent=doc.dirty?'未保存の変更':'保存済み';state.classList.toggle('dirty',doc.dirty);}
+    }
     const counts = doc.view.counts;
     $('eol-info').textContent = '既存：' + (Object.entries(counts).filter(([,n]) => n).map(([name,n]) => `${name} ${n}`).join(' / ') || 'なし');
     $('newline').value = {'\r\n':'CRLF','\n':'LF','\r':'CR'}[doc.newline];
@@ -375,7 +383,8 @@
     const snapshot = doc.bytes.slice();
     const result = await host.save({bytes:Array.from(snapshot),saveAs});
     if (!result) return false;
-    doc.markSaved(snapshot); render(...selection()); notify('エクスポートしました'); return true;
+    if(standaloneDesktop&&typeof result.name==='string'&&result.name)filename=result.name;
+    doc.markSaved(snapshot); render(...selection()); notify(embeddedHost?'エクスポートしました':'保存しました'); return true;
   }
   async function canLeave() {
     if (!doc.dirty) return true;
@@ -384,7 +393,7 @@
     if (answer === 'save') return save();
     return false;
   }
-  function load(data) { cancelPcgImport();doc.load(data.bytes); editor.scrollTop = 0; editor.scrollLeft = 0; render(0); }
+  function load(data) { cancelPcgImport();doc.load(data.bytes); if(standaloneDesktop)filename=typeof data.name==='string'&&data.name?data.name:'Untitled.bas'; editor.scrollTop = 0; editor.scrollLeft = 0; render(0); }
   async function command(name) {
     hoverPreview?.hide();
     if (busy) return;
@@ -481,7 +490,7 @@
     } catch (err) { notify(err.message,true); }
   });
   // Do not let native text dropping insert unvalidated data or trigger file navigation.
-  editor.addEventListener('drop',event => { event.preventDefault(); notify('ファイルは「インポート…」から選択してください。'); });
+  editor.addEventListener('drop',event => { event.preventDefault(); notify('ファイルは「'+(embeddedHost?'インポート…':'開く…')+'」から選択してください。'); });
   document.addEventListener('dragover',event=>event.preventDefault());
   document.addEventListener('drop',event=>event.preventDefault());
   document.querySelectorAll('[data-command]').forEach(button=>button.addEventListener('click',()=>command(button.dataset.command)));

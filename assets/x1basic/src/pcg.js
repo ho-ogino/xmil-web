@@ -6,7 +6,7 @@
   const ORDERS=['BRG','BGR','RGB','RBG','GBR','GRB'];
   const PALETTE=['#000000','#0000ff','#ff0000','#ff00ff','#00ff00','#00ffff','#ffff00','#ffffff'];
   const number='[+-]?(?:&H[0-9a-f]+|&O[0-7]+|&B[01]+|[0-9]+)%?';
-  const literal=new RegExp('^DEFCHR\\$\\s*\\(\\s*(?<code>'+number+')\\s*\\)\\s*=\\s*(?:HEXCHR\\$\\s*\\(\\s*"(?<hex>[0-9a-f]{48})"\\s*\\)|STRING\\$\\s*\\(\\s*24\\s*,\\s*(?<fill>'+number+')\\s*\\))(?=\\s*(?::|\'|REM\\b|$))','i');
+  const literal=new RegExp('^DEFCHR\\$\\s*\\(\\s*(?<code>'+number+')\\s*\\)\\s*=\\s*(?:HEXCHR\\$\\s*\\(\\s*"(?<hex>[0-9a-f \t]+)"\\s*\\)|STRING\\$\\s*\\(\\s*24\\s*,\\s*(?<fill>'+number+')\\s*\\))(?=\\s*(?::|\'|REM\\b|$))','i');
   function parseCode(text) {
     const input=String(text).trim();
     if (!new RegExp('^'+number+'$','i').test(input)) throw Error('文字コードは0〜255の整数で指定してください。');
@@ -21,6 +21,7 @@
     if(typeof hex!=='string'||!/^[0-9a-f]{48}$/i.test(hex))throw Error('PCGは48桁の16進数（24バイト）で指定してください。');
     return hex.toUpperCase();
   }
+  function sourceHex(text) { return validateHex(text.replace(/[ \t]/g,'')); }
   function pixels(hex,order='BRG',layout='planar') {
     validateHex(hex);
     if(!ORDERS.includes(order)||!['planar','interleaved'].includes(layout))throw Error('PCGの色順または配列形式が不正です。');
@@ -49,7 +50,7 @@
           consumed.push([match.index,match.index+found[0].length]);
           try {
             const code=parseCode(found.groups.code);
-            const hex=found.groups.hex?validateHex(found.groups.hex):parseCode(found.groups.fill).toString(16).padStart(2,'0').repeat(24).toUpperCase();
+            const hex=found.groups.hex?sourceHex(found.groups.hex):parseCode(found.groups.fill).toString(16).padStart(2,'0').repeat(24).toUpperCase();
             definitions.push({code,hex,line:index+1,offset:offset+match.index});
           }catch(err){warnings.push('選択内'+(index+1)+'行：'+err.message);}
         }else{
@@ -58,14 +59,28 @@
           consumed.push([match.index,end]);warnings.push('選択内'+(index+1)+'行：定数のDEFCHR$ / HEXCHR$ または STRING$(24,n) として読み取れませんでした。');
         }
       }
+      const rawStart=raw.length;
       for(const match of line.matchAll(/[0-9a-f]{48}/gi)) {
         const start=match.index,end=start+48;
         if(/[0-9a-f]/i.test(line[start-1]||'')||/[0-9a-f]/i.test(line[end]||''))continue;
         if(kind(start)==='comment'||consumed.some(([a,b])=>start>=a&&start<b))continue;
         raw.push({hex:validateHex(match[0]),line:index+1,offset:offset+start});
       }
+      // Keep existing contiguous records independent; only join horizontal gaps
+      // in the remaining source, without swallowing BASIC keywords or comments.
+      const search=line.split('');
+      const blocked=[...consumed,
+        ...spans.filter(span=>span.kind==='comment'||span.kind==='keyword'&&!/^[0-9a-f \t]+$/i.test(line.slice(span.start,span.end))).map(span=>[span.start,span.end]),
+        ...raw.slice(rawStart).map(entry=>[entry.offset-offset,entry.offset-offset+48])];
+      for(const [start,end] of blocked)search.fill('|',start,end);
+      for(const match of search.join('').matchAll(/[0-9a-f]+(?:[ \t]+[0-9a-f]+)*/gi)) {
+        if(!/[ \t]/.test(match[0]))continue;
+        const hex=match[0].replace(/[ \t]/g,'');
+        if(hex.length===48)raw.push({hex:validateHex(hex),line:index+1,offset:offset+match.index});
+      }
       offset+=line.length+1;
     }
+    raw.sort((a,b)=>a.offset-b.offset);
     return {definitions,raw,warnings};
   }
   function assignments(scanResult,startCode=0) {
