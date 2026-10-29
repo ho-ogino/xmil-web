@@ -1422,3 +1422,39 @@ test('HuBASIC INIT reference keeps the screen width, as the bundled runtime does
   assert.ok(screen.notes.some((note) => /INIT .*keeps the screen width/.test(note)));
   assert.ok(!JSON.stringify(screen).includes('WIDTH 40, default palette'));
 });
+
+test('HuBASIC MIRROR$ and HEXCHR$ reference matches the bundled converter and runtime', () => {
+  const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
+  const bundle = join(repoRoot, 'assets/hubasic', current.revision);
+  const runtime = readFileSync(join(bundle, 'runtime/libx1_basic.asm'), 'utf8');
+  const converter = readFileSync(join(bundle, '_framework/hubasic2sl-wasm.wasm'));
+  const routine = (name) => runtime.slice(runtime.indexOf(`; @name ${name}\n`), runtime.indexOf('; @name ', runtime.indexOf(`; @name ${name}\n`) + 1));
+
+  // A variable argument goes to BAS_SMIRRORV, which reverses it in place; other arguments are copied by BAS_SMIRROR
+  assert.match(routine('BAS_SMIRRORV'), /本物の MIRROR\$ は、引数が変数なら変数も書き換え/);
+  assert.match(routine('BAS_SMIRROR'), /一時領域に写してから/);
+  for (const name of ['BAS_SMIRRORV', 'BAS_SMIRROR']) {
+    assert.ok(converter.includes(Buffer.from(name, 'utf16le')), `${name} is not in hubasic2sl-wasm.wasm`);
+  }
+  const [mirror] = getReferenceEntries({ ids: ['hubasic.functions.mirror'] }).entries;
+  assert.match(mirror.title, /rewrites a variable argument in place/);
+  assert.match(mirror.summary, /also rewrites that variable in place/);
+  assert.ok(mirror.syntax.some((line) => /MIRROR\$\(A\$\+""\)\s+B\$ is reversed, A\$ is unchanged/.test(line)));
+
+  // HEXCHR$ skips spaces only, takes a lone digit as a byte and refuses the empty string
+  const hexchr = routine('BAS_SHEX');
+  assert.match(hexchr, /スペースは区切りとして飛ばし、\s*; スペースか終わりの前の 1 桁は 1 バイトにする/);
+  assert.match(hexchr, /空の文字列・16 進でもスペースでもない文字はエラー 5/);
+  assert.match(hexchr, /CP ' '/);
+  const [entry] = getReferenceEntries({ ids: ['hubasic.functions.hexchr'] }).entries;
+  assert.match(entry.summary, /Spaces are separators/);
+  assert.match(entry.summary, /a single digit before a space or at the end becomes one byte/);
+  assert.match(entry.summary, /An empty string.*is error 5/);
+  // The rule before 55e7271 must not survive anywhere
+  for (const other of hubasicEntries()) assert.ok(!/odd length/i.test(JSON.stringify(other)), other.id);
+
+  // Dedicated entries come first for the new words
+  for (const [query, id] of [['MIRROR$', 'hubasic.functions.mirror'], ['HEXCHR$', 'hubasic.functions.hexchr'], ['MUSIC', 'hubasic.sound.play']]) {
+    assert.equal(searchReference({ query, language: 'hubasic' }).matches[0].id, id, query);
+  }
+});

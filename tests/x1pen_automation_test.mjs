@@ -3137,6 +3137,58 @@ test('HuBASIC DEFCHR$ takes the blue, red and green planes in turn, as the refer
   assert.ok(green[1] > 128 && green[0] < 64 && green[2] < 64, `green ${green}`);
 });
 
+// Text rows 0-24 of the 40-column screen, without trailing spaces
+async function textRows() {
+  return page.evaluate(() => {
+    const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 1000 }).bytes;
+    return Array.from({ length: 25 }, (_, row) => String.fromCharCode(...bytes.slice(row * 40, row * 40 + 40)).trimEnd());
+  });
+}
+
+test('HuBASIC MIRROR$ rewrites its variable, HEXCHR$ skips spaces and MUSIC plays, as the reference says', { timeout: 180_000 }, async () => {
+  const [mirror] = HUBASIC_REFERENCE.filter((entry) => entry.id === 'hubasic.functions.mirror');
+  assert.match(mirror.summary, /After B\$=MIRROR\$\(A\$\), A\$ holds the reversed bytes too/);
+  await setHuBasicProgram([
+    '10 CLS',
+    '20 A$=CHR$(&H83):B$=MIRROR$(A$):PRINT "A";HEX$(ASC(A$));" B";HEX$(ASC(B$))',
+    '30 C$=CHR$(&H83):D$=MIRROR$(C$+""):PRINT "C";HEX$(ASC(C$));" D";HEX$(ASC(D$))',
+    '40 DIM M$(2):M$(1)=CHR$(&H83):E$=MIRROR$(M$(1)):PRINT "M";HEX$(ASC(M$(1)));" E";HEX$(ASC(E$))',
+    '50 F$=CHR$(&H83):G$=F$:H$=MIRROR$(G$):PRINT "F";HEX$(ASC(F$));" G";HEX$(ASC(G$))',
+    '60 DIM N%(200):S$=CHR$(1):N%(ASC(S$))=ASC(MIRROR$(S$)):PRINT "N";N%(1);N%(128)',
+    '70 I$=CHR$(&H83):J$=MIRROR$(MID$(I$,1)):PRINT "I";HEX$(ASC(I$));" J";HEX$(ASC(J$))',
+    '80 H$=HEXCHR$("0102 0304"):PRINT "L";LEN(H$)',
+    '90 H$=HEXCHR$("123 4"):PRINT "X";HEX$(ASC(H$));" ";HEX$(ASC(MID$(H$,2,1)));" ";HEX$(ASC(MID$(H$,3,1)));" ";LEN(H$)',
+    '100 H$=HEXCHR$("01\\{TAB}02"):PRINT "T";LEN(H$)',
+    '110 MUSIC "C":MUSIC 120:PRINT "DONE"',
+    '120 GOTO 120',
+  ].join('\n') + '\n');
+  let run = await page.evaluate(() => window.X1PenAutomation.run());
+  assert.equal(run.ok, true, JSON.stringify(run));
+  await textVramContains('DONE');
+  assert.deepEqual((await textRows()).slice(0, 11), [
+    'AC1 BC1', // a variable is reversed in place
+    'C83 DC1', // an expression is copied first
+    'MC1 EC1', // so is an array element
+    'F83 GC1', // only the copy passed to MIRROR$
+    'N 128  0', // the index is read before MIRROR$ changes S$
+    'I83 JC1', // MID$ is not rewritten (HuBASIC would)
+    'L 4',
+    'X12 3 4  3', // a single digit before a space or the end is one byte
+    'T 2', // a tab in the program text is read as a space
+    'DONE',
+    '',
+  ]);
+
+  // An empty string, or a tab made at run time, stops the program
+  for (const value of ['""', '"01"+CHR$(9)+"02"']) {
+    await setHuBasicProgram(`10 CLS\n20 PRINT "START"\n30 H$=HEXCHR$(${value})\n40 PRINT "AFTER"\n50 GOTO 50\n`);
+    run = await page.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(run.ok, true, JSON.stringify(run));
+    await textVramContains('Illegal function call in 30');
+    assert.ok(!(await textRows()).includes('AFTER'), value);
+  }
+});
+
 test('HuBASIC conversion errors stop Run before the disk is touched', { timeout: 60_000 }, async () => {
   await setHuBasicProgram('10 PRINT "A"\n20 CIRCLE (10,10),5\n');
   const result = await page.evaluate(async () => {
