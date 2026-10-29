@@ -78,6 +78,40 @@ test('the import script finds the local files that src/index.html loads', () => 
   ].join('\n')), ['src/style.css', 'src/codec.js', 'assets/a.js', 'src/b.js']);
 });
 
+test('browser builds version every HuBASIC iframe script, not just the iframe URL', () => {
+  const build = readFileSync(join(repoRoot, 'build.sh'), 'utf8');
+  const cacheBuster = build.match(/^for _html in [^\n]*; do\n[\s\S]*?^done$/m)?.[0];
+  assert.ok(cacheBuster, 'the build script must contain the HTML cache-busting loop');
+  const original = readFileSync(join(editorDir, 'src', 'index.html'), 'utf8');
+  const scriptPaths = [...original.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
+  assert.ok(scriptPaths.includes('x1pen-host.js'));
+  const work = mkdtempSync(join(tmpdir(), 'x1basic-cache-busting-'));
+  try {
+    mkdirSync(join(work, 'x1basic', 'src'), { recursive: true });
+    for (const hash of ['abc1234', 'def5678']) {
+      for (const file of ['x1pen.html', 'xmillennium.html', 'url-builder.html']) {
+        writeFileSync(join(work, file), '<script src="parent.js"></script><script src=unquoted.js></script>');
+      }
+      const iframe = join(work, 'x1basic', 'src', 'index.html');
+      writeFileSync(iframe, original);
+      execFileSync('bash', ['-c', cacheBuster], {
+        env: { ...process.env, DIST_DIR: work, XMIL_BUILD_HASH: hash },
+      });
+      const html = readFileSync(iframe, 'utf8');
+      const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
+      assert.deepEqual(scripts, scriptPaths.map((path) => `${path}?v=${hash}`));
+      for (const file of ['x1pen.html', 'xmillennium.html', 'url-builder.html']) {
+        assert.equal(readFileSync(join(work, file), 'utf8'),
+          `<script src="parent.js?v=${hash}"></script><script src="unquoted.js?v=${hash}"></script>`);
+      }
+    }
+    assert.equal(readFileSync(join(editorDir, 'src', 'index.html'), 'utf8'), original,
+      'the imported upstream editor must not be modified');
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
 test('the text form reads back every X1 byte', () => {
   for (let b = 0; b < 256; b++) {
     if (b === 0x0A || b === 0x0D) continue;
