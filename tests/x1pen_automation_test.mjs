@@ -3271,6 +3271,88 @@ test('HuBASIC CONSOLE keeps output in its window with absolute LOCATE, and CHR$(
   }
 });
 
+test('HuBASIC V16 uses the PSG envelope, V17 is volume 1, and the X1turbo WIDTH/KEYLIST/KLIST/KMODE forms convert as the reference says', { timeout: 240_000 }, async () => {
+  const [sound] = HUBASIC_REFERENCE.filter((entry) => entry.id === 'hubasic.sound.play');
+  assert.match(sound.summary, /V16 uses the PSG hardware envelope/);
+
+  const validate = async (hubasic) => {
+    await setHuBasicProgram(hubasic);
+    return page.evaluate(() => window.X1PenAutomation.validate());
+  };
+  const codes = (result) => result.diagnostics.map((d) => `${d.severity} ${d.message.match(/HB\d{4}/)?.[0]}`);
+  let result = await validate('10 WIDTH 40,25:KEYLIST 0:KLIST 0:KMODE 0\n');
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(codes(result), []);
+  result = await validate('10 WIDTH 40,20\n20 KLIST 1\n30 KMODE 1\n');
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(codes(result), ['warning HB0705', 'warning HB0706', 'warning HB0706']);
+  for (const [hubasic, code] of [['10 KEYLIST\n', 'HB0301'], ['10 KMODE\n', 'HB0203'], ['10 R=20:WIDTH 40,R\n', 'HB0703']]) {
+    result = await validate(hubasic);
+    assert.equal(result.ok, false, hubasic);
+    assert.deepEqual(codes(result), [`error ${code}`], hubasic);
+  }
+
+  // PSG registers, read from a state save taken while each note sounds (X1PenAutomation has no PSG reader)
+  const psg = () => page.evaluate(async () => {
+    const module = window.Module;
+    const sizePtr = module._malloc(4);
+    const bufPtr = module._js_save_state(sizePtr, 0);
+    const size = new Int32Array(module.wasmMemory.buffer, sizePtr, 1)[0];
+    module._free(sizePtr);
+    const data = new Uint8Array(module.wasmMemory.buffer, bufPtr, size).slice();
+    module._free(bufPtr);
+    // "XMST", version, flags, then (version 3) the body size and the zlib body of tagged sections
+    if (String.fromCharCode(...data.subarray(0, 4)) !== 'XMST') throw new Error('not a state save');
+    const version = data[4] | (data[5] << 8);
+    let body = data.subarray(8);
+    if (version >= 3) {
+      const stream = new Blob([data.subarray(12)]).stream().pipeThrough(new DecompressionStream('deflate'));
+      body = new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+    const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+    for (let pos = 0; pos + 8 <= body.length;) {
+      const tag = String.fromCharCode(...body.subarray(pos, pos + 4));
+      const length = view.getUint32(pos + 4, true);
+      // PSG0 is struct AY8910: int register_latch, then unsigned char Regs[16]
+      if (tag === 'PSG0') {
+        if (length < 20) throw new Error('PSG0 section is too short: ' + length);
+        return Array.from(body.subarray(pos + 12, pos + 28));
+      }
+      if (tag === 'END!') break;
+      pos += 8 + length;
+    }
+    throw new Error('no PSG0 section');
+  });
+  const waitForRegisters = async (expected, label) => {
+    const deadline = Date.now() + 30_000;
+    let regs;
+    while (Date.now() < deadline) {
+      regs = await psg();
+      if (Object.entries(expected).every(([r, v]) => regs[r] === v)) return;
+      await page.waitForTimeout(40);
+    }
+    assert.fail(`${label}: ${JSON.stringify(expected)} not seen, last ${JSON.stringify(regs)}`);
+  };
+  await setHuBasicProgram([
+    '10 CLS:SOUND 11,0:SOUND 12,20:SOUND 13,8',
+    '20 TEMPO 120',
+    '30 PLAY "V16O4C9"',
+    '40 PRINT "A";',
+    '50 PLAY "V17C9"',
+    '60 PRINT "B";',
+    '70 PLAY "V255C9"',
+    '80 PRINT "DONE"',
+    '90 GOTO 90',
+  ].join('\n') + '\n');
+  const run = await page.evaluate(() => window.X1PenAutomation.run());
+  assert.equal(run.ok, true, JSON.stringify(run));
+  // V16 writes 16 (envelope) to the volume register and leaves the shape and period that SOUND set
+  await waitForRegisters({ 8: 16, 11: 0, 12: 20, 13: 8 }, 'V16');
+  await waitForRegisters({ 8: 1, 13: 8 }, 'V17');
+  await waitForRegisters({ 8: 2 }, 'V255');
+  await textVramContains('ABDONE');
+});
+
 test('HuBASIC conversion errors stop Run before the disk is touched', { timeout: 60_000 }, async () => {
   await setHuBasicProgram('10 PRINT "A"\n20 CIRCLE (10,10),5\n');
   const result = await page.evaluate(async () => {

@@ -1493,3 +1493,37 @@ test('HuBASIC CONSOLE reference matches the bundled converter and runtime', () =
     assert.equal(searchReference({ query, language: 'hubasic' }).matches[0].id, id, query);
   }
 });
+
+test('HuBASIC V16 envelope, WIDTH rows and KEYLIST/KLIST/KMODE reference matches the bundled converter and runtime', () => {
+  const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
+  const bundle = join(repoRoot, 'assets/hubasic', current.revision);
+  const runtime = readFileSync(join(bundle, 'runtime/libx1_basic.asm'), 'utf8');
+  const converter = readFileSync(join(bundle, '_framework/hubasic2sl-wasm.wasm'));
+  const routine = (name) => runtime.slice(runtime.indexOf(`; @name ${name}\n`), runtime.indexOf('; @name ', runtime.indexOf(`; @name ${name}\n`) + 1));
+
+  // MML V is 0-16 (16 is the PSG envelope); every note rewrites R13 so the envelope restarts
+  const note = routine('BAS_PLNOTE');
+  assert.match(note, /音量 0-16 \(16 は PSG のエンベロープ\)/);
+  assert.match(note, /V17 は 1、V107 は 10、V255 は 2/);
+  assert.match(note, /エンベロープの形 \(R13\) を PSG から読んで同じ値を書き直す/);
+  assert.match(note, /LD A, 13\nOUT \(C\), A\nLD B, \$1B\nIN A, \(C\)\nOUT \(C\), A/);
+  for (const literal of ['KEYLIST', 'KLIST', 'KMODE', 'HB0705', 'HB0706']) {
+    assert.ok(converter.includes(Buffer.from(literal, 'utf16le')), `${literal} is not in hubasic2sl-wasm.wasm`);
+  }
+
+  const [sound] = getReferenceEntries({ ids: ['hubasic.sound.play'] }).entries;
+  assert.match(sound.summary, /MML volume V is 0-16, not 0-15/);
+  assert.match(sound.summary, /V16 uses the PSG hardware envelope/);
+  assert.ok(sound.notes.some((note) => /V17 is volume 1, V107 is 10, V255 is 2/.test(note)));
+  assert.ok(sound.notes.some((note) => /SOUND 13,n/.test(note) && /restarts on each note/.test(note) && /SOUND 11,n and SOUND 12,n/.test(note)));
+  const [screen] = getReferenceEntries({ ids: ['hubasic.text.screen'] }).entries;
+  assert.ok(screen.notes.some((note) => /always 25 rows/.test(note) && /HB0705/.test(note) && /HB0703/.test(note)));
+  const [keys] = getReferenceEntries({ ids: ['hubasic.input.keys'] }).entries;
+  for (const word of ['KEYLIST', 'KLIST', 'KMODE']) assert.ok(keys.symbols.includes(word), word);
+  assert.ok(keys.notes.some((note) => /supported statements that do nothing/.test(note) && /HB0706/.test(note) && /HB0301/.test(note)));
+
+  for (const [query, id] of [['V16', 'hubasic.sound.play'], ['envelope', 'hubasic.sound.play'], ['KEYLIST', 'hubasic.input.keys'],
+    ['KLIST', 'hubasic.input.keys'], ['KMODE', 'hubasic.input.keys']]) {
+    assert.equal(searchReference({ query, language: 'hubasic' }).matches[0].id, id, query);
+  }
+});
