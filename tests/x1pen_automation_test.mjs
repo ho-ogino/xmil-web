@@ -3189,6 +3189,88 @@ test('HuBASIC MIRROR$ rewrites its variable, HEXCHR$ skips spaces and MUSIC play
   }
 });
 
+test('HuBASIC CONSOLE keeps output in its window with absolute LOCATE, and CHR$(14)/CHR$(15) and PRINT , wrap as the reference says', { timeout: 240_000 }, async () => {
+  const [consoleEntry] = HUBASIC_REFERENCE.filter((entry) => entry.id === 'hubasic.text.console');
+  assert.match(consoleEntry.summary, /coordinates are NOT relative to the window/);
+  await setHuBasicProgram([
+    '10 CLS',
+    '20 FOR I=0 TO 999:POKE@ &H3000+I,46:NEXT I',
+    '30 LOCATE 0,0:PRINT "HEAD";',
+    '40 CONSOLE 2,5,10,20',
+    '50 FOR I=1 TO 8:PRINT "L";I:NEXT I',
+    '60 LOCATE 10,2:PRINT "TOP";',
+    '70 LOCATE 12,3:PRINT "A","B";',
+    '80 CONSOLE 9,3,10,20:CLS',
+    '90 PRINT "C"',
+    '100 CONSOLE',
+    '110 LOCATE 0,20:PRINT "DONE"',
+    '120 GOTO 120',
+  ].join('\n') + '\n');
+  let run = await page.evaluate(() => window.X1PenAutomation.run());
+  assert.equal(run.ok, true, JSON.stringify(run));
+  await textVramContains('DONE');
+  const dots = (count) => '.'.repeat(count);
+  const inWindow = (cells) => dots(10) + cells.padEnd(20) + dots(10);
+  assert.deepEqual(await textRows(), [
+    'HEAD' + dots(36), // outside the window nothing changes
+    dots(40),
+    dots(10) + 'TOP ' + dots(26), // LOCATE 10,2 is the window's top-left; the row scrolled up from below
+    inWindow('L A       B'), // LOCATE 12,3 is absolute, and the , stop is screen column 20
+    inWindow('L 7'),
+    inWindow('L 8'), // only the window scrolled
+    inWindow(''),
+    dots(40),
+    dots(40),
+    inWindow('C'), // CLS cleared only the second window
+    inWindow(''),
+    inWindow(''),
+    ...Array.from({ length: 8 }, () => dots(40)),
+    'DONE' + dots(36), // CONSOLE alone restored the full screen
+    ...Array.from({ length: 4 }, () => dots(40)),
+  ]);
+
+  await setHuBasicProgram([
+    '10 CLS',
+    '20 LOCATE 0,2:PRINT "1":PRINT "2":PRINT "3":PRINT "4"',
+    '30 LOCATE 0,3:PRINT CHR$(15);',
+    '40 LOCATE 0,10:PRINT "5":PRINT "6":PRINT "7"',
+    '50 LOCATE 0,11:PRINT CHR$(14);',
+    '60 LOCATE 0,15:PRINT STRING$(39,"X");',
+    '70 LOCATE 32,15:PRINT "Y","Z"',
+    '80 CONSOLE 18,3,5,30',
+    '90 LOCATE 30,18:PRINT "P","Q"',
+    '100 LOCATE 5,20:PRINT "R","S";',
+    '110 CONSOLE',
+    '120 LOCATE 0,23:PRINT "DONE"',
+    '130 GOTO 130',
+  ].join('\n') + '\n');
+  run = await page.evaluate(() => window.X1PenAutomation.run());
+  assert.equal(run.ok, true, JSON.stringify(run));
+  await textVramContains('DONE');
+  const rows = await textRows();
+  assert.deepEqual(rows.slice(0, 13), [
+    '', '1', '', '2', '3', '4', // CHR$(15) opened row 3, then CHR$(14) shifted rows 0-11 up and blanked row 11
+    '', '', '', '5', '6', '', '7',
+  ]);
+  assert.deepEqual(rows.slice(15, 21), [
+    'X'.repeat(32) + 'Y', // the , past the right edge overwrote columns 33-39 with spaces
+    'Z', // and wrapped to column 0, a stop
+    '',
+    ' '.repeat(30) + 'P',
+    ' '.repeat(10) + 'Q', // in a window from column 5 the wrap continues to the stop at column 10
+    ' '.repeat(5) + 'R    S',
+  ]);
+
+  // LOCATE outside the window, and a window that does not fit, stop the program
+  for (const [statement, line] of [['CONSOLE 2,5:LOCATE 0,0', 30], ['CONSOLE 20,6', 30]]) {
+    await setHuBasicProgram(`10 CLS\n20 PRINT "START"\n30 ${statement}\n40 PRINT "AFTER"\n50 GOTO 50\n`);
+    run = await page.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(run.ok, true, JSON.stringify(run));
+    await textVramContains(`Illegal function call in ${line}`);
+    assert.ok(!(await textRows()).includes('AFTER'), statement);
+  }
+});
+
 test('HuBASIC conversion errors stop Run before the disk is touched', { timeout: 60_000 }, async () => {
   await setHuBasicProgram('10 PRINT "A"\n20 CIRCLE (10,10),5\n');
   const result = await page.evaluate(async () => {
