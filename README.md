@@ -91,6 +91,8 @@ npm test
 
 Playwright を使うテスト（`test:relay`、`test:automation`）は、Playwright 用ブラウザを入れていない環境では `X1PEN_BROWSER_EXECUTABLE=/usr/bin/google-chrome npm test` のようにインストール済みの Chrome を指定できます。
 
+HuBASIC のエディタの「エクスポート」を Firefox で確かめる試験（`test:automation` の 1 本）は、Playwright の Firefox を入れたとき（`npx playwright install firefox`）だけ走り、入れていなければ飛ばします。
+
 ## ローカルでの実行
 
 ```bash

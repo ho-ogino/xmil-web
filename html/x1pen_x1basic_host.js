@@ -2,7 +2,8 @@
 // x1basic/src/x1pen-host.js and loaded by the editor page (in an iframe of x1pen.html) before
 // host.js. It sets window.X1Host synchronously; the program itself lives in X1Pen
 // (window.parent.X1PenHuBasicEditorBridge), so there is no "unsaved" state to protect.
-// "エクスポート" writes the bytes to a file; "インポート…" reads a file into the editor. The editor
+// "エクスポート" has X1Pen's page write the bytes to a file (a download started inside this iframe
+// is dropped by Firefox); "インポート…" reads a file into the editor. The editor
 // hides "新規" and "別名で保存…" when a host is injected, so their shortcuts are not mapped here.
 
 (function() {
@@ -73,17 +74,6 @@
             fontCandidate = { token: 'font-' + (++fontTokens), bitmap: bitmap };
             return { name: file.name, data: window.X1FontBuilder.buildFont(bitmap), token: fontCandidate.token };
         });
-    }
-
-    function download(bytes, name) {
-        var url = URL.createObjectURL(new Blob([Uint8Array.from(bytes)], { type: 'application/octet-stream' }));
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
     }
 
     // The Electron app's menu accelerators (main.cjs) for the commands shown in X1Pen; in a
@@ -177,7 +167,8 @@
                 if (!name) return false;
                 fileName = name;
             }
-            download(payload.bytes, name);
+            // An error here reaches the editor, which shows it instead of "エクスポートしました"
+            bridge.download(payload.bytes, name);
             return true;
         },
         confirmDirty: function() {
