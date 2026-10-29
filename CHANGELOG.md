@@ -1,26 +1,37 @@
 # Changelog
 
-## Unreleased
+## X1Pen Web 0.12.0 / x1pen-mcp 2.10.0
 
-- X1Pen の HuBASIC タブの X1 BASIC Editor を e55a98d にしました。「選択からPCG設定」が、同じ行の中でスペースやタブで区切った 16 進数も、合わせて 48 桁なら PCG の 1 文字として取り込みます（`970 DATA 0000000000010003 0007030707020301 000000000702031D` のような DATA の行）。行をまたいでは繋げません。今までの続けて書いた 48 桁の扱いは変わりません。X1Pen では、エディタの単独アプリ用のファイル名の欄は出ず、「インポート…」「エクスポート」のままです。
+X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のままです（変えていません）。HuBASIC の変換の仕組みとリファレンスがそろうように、x1pen-mcp → X1Pen Web の順に、間を空けずに出します（下の「版の組み合わせ」）。
+
+### X1Pen Web 0.12.0
+
 - X1Pen の HuBASIC の変換の仕組み（hubasic2sl とランタイム）を SLANG-compiler 55e7271 にしました（`scripts/import-hubasic-bundle.mjs`）。
   - `MIRROR$` を使えるようにしました（各バイトのビットを左右逆にする）。HuBASIC と同じく、引数が文字列の変数か配列の要素なら、その変数の中身もその場で書き換わります（`B$=MIRROR$(A$)` の後は `A$` も逆になる）。
   - `MUSIC` を使えるようにしました（`PLAY` と同じ）。
   - `HEXCHR$` を HuBASIC に合わせました。スペースを区切りとして飛ばし、スペースか終わりの前の 1 桁は 1 バイトにします。**空の文字列は Illegal function call になりました**（前は空の文字列を返していました）。前は error だった奇数の桁が通るようになりました。
   - BAS_ABI（変換結果とランタイムの組の番号）は 1 のまま、hubasic2sl の版も 0.1.0-alpha のままです。
-- x1pen-mcp の HuBASIC のリファレンスを 55e7271 に合わせて見直しました（版はまだ上げていません）。
-  - `MIRROR$`（引数の変数も書き換わることを、題と最初の文に書きました）と `HEXCHR$` の項目を足し、`MUSIC` を `PLAY` の項目に足しました。古くなっていた `HEXCHR$` の説明（奇数の桁は error）を直しました。
-  - SLANG-compiler 55e7271 のソースと `docs/HUBASIC.md`、X1Pen 自身のコードだけから書きました。HuBASIC のマニュアルは元にしていません。
-  - 公開中の x1pen-mcp 2.9.0 は 5abbffa を前提にしているので、この束の X1Pen とつなぐと `x1pen_get_language_profile` が `compatible: false`（`revisionMismatches`）を返します（ほかの道具はそのまま使えます）。Web と x1pen-mcp は一緒に出すのがよいです。
-- X1Pen の HuBASIC の変換の仕組みを SLANG-compiler 10cf481 にしました（上の 55e7271 の続き）。
+- X1Pen の HuBASIC の変換の仕組みを SLANG-compiler 10cf481 にしました（上の 55e7271 の続き。SLANG-compiler PR #247）。
   - `CONSOLE [ys,yl[,xs,xl]]`（テキストの窓）を使えるようにしました。表示・折り返し・改行・スクロール・`CLS`・`INPUT` は窓の中だけで行われます。**`LOCATE`・`TAB`・`PRINT ,` の区切り・`CHARACTER$`・`SCRN$` の座標は窓の中の相対ではなく、画面の絶対の座標のまま**で、窓の外への `LOCATE` は Illegal function call です（HuBASIC と同じ）。`WIDTH` と `INIT` で窓は全画面に戻ります。
   - `PRINT` の文字列の中の `CHR$(14)`（窓の上の行からカーソルの行までを 1 行上にずらす）と `CHR$(15)`（カーソルの行から窓の下の行までを 1 行下にずらす）が効くようになりました。窓がなくても効きます（前は捨てていました）。
   - **`CONSOLE` を使わないプログラムでも見え方が変わる所**: `PRINT ,` の次の区切りが行の右端を越えるとき、右端まで空白を書いてから次の行へ折り返すようになりました（前は空白を書かずに改行していたので、行の残りの文字が残っていました）。
   - 変換した bin は、`CONSOLE` を使わなくても 140〜196 バイトほど大きくなります（作業領域は 4 バイト増え）。BAS_ABI は 1、hubasic2sl は 0.1.0-alpha のままです。
-- x1pen-mcp の HuBASIC のリファレンスを 10cf481 に合わせて見直しました（版はまだ上げていません）。
+- X1Pen の HuBASIC タブの X1 BASIC Editor を e55a98d にしました。「選択からPCG設定」が、同じ行の中でスペースやタブで区切った 16 進数も、合わせて 48 桁なら PCG の 1 文字として取り込みます（`970 DATA 0000000000010003 0007030707020301 000000000702031D` のような DATA の行）。行をまたいでは繋げません。今までの続けて書いた 48 桁の扱いは変わりません。X1Pen では、エディタの単独アプリ用のファイル名の欄は出ず、「インポート…」「エクスポート」のままです。
+
+### x1pen-mcp 2.10.0
+
+- x1pen-mcp の HuBASIC のリファレンスを 55e7271 に合わせて見直しました（26 → 28 項目）。
+  - `MIRROR$`（引数の変数も書き換わることを、題と最初の文に書きました）と `HEXCHR$` の項目を足し、`MUSIC` を `PLAY` の項目に足しました。古くなっていた `HEXCHR$` の説明（奇数の桁は error）を直しました。
+  - SLANG-compiler 55e7271 のソースと `docs/HUBASIC.md`、X1Pen 自身のコードだけから書きました。HuBASIC のマニュアルは元にしていません。
+- 続けて、10cf481 に合わせて見直しました（28 → 29 項目）。
   - `CONSOLE` の項目を足しました。座標が窓の相対ではなく画面の絶対であること、窓の外への `LOCATE` は error 5 であることを、題と最初の文に書きました。
   - `PRINT` の項目に `CHR$(11)`・`CHR$(12)`・`CHR$(14)`・`CHR$(15)` と `,` の区切り（画面の 10 桁ごと、右端を越えると空白を書いて折り返す）を足し、`LOCATE`・`CLS`・`WIDTH`・`INIT`・`INPUT`・`CHARACTER$`・`SCRN$` の窓での動きを書き足しました。HuBASIC との違い（折り返した行を論理行としてつながない、`INPUT` は画面を読み直さない、縦 2 倍の `PRINT#0` の折り返し）も足しました。
   - SLANG-compiler 10cf481 のソースと `docs/HUBASIC.md`、X1Pen 自身のコードだけから書きました。HuBASIC のマニュアルは元にしていません。
+
+### 版の組み合わせ
+
+- x1pen-mcp のリファレンスは、X1Pen に入っている HuBASIC の変換の仕組みのリビジョンを前提にしています。x1pen-mcp 2.9.0（5abbffa）と X1Pen Web 0.12.0（10cf481）、x1pen-mcp 2.10.0（10cf481）と X1Pen Web 0.11.0（5abbffa）の組み合わせでは、X1Pen が変換の仕組みを読み込んだあと `x1pen_get_language_profile` が `compatible: false`（`revisionMismatches`）を返します。ほかの道具はそのまま使えます。両方を新しくすれば `compatible: true` に戻ります。
+- X1Pen Connector 1.4.0 のまま、どちらの組み合わせでも使えます。
 
 ## x1pen-mcp 2.9.0
 
