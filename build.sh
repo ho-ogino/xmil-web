@@ -287,9 +287,10 @@ XMIL_BUILD_HASH=$(git -C "${SCRIPT_DIR}" rev-parse --short HEAD 2>/dev/null || d
 sed -i.bak "s/@@XMIL_BUILD_HASH@@/${XMIL_BUILD_HASH}/g" "${DIST_DIR}/x1pen.js"
 rm -f "${DIST_DIR}/x1pen.js.bak"
 
-# script タグにキャッシュバスター付与 (x1pen.html, xmillennium.html)
+# iframe の HTML の ?v= は中の script URL には引き継がれないため、エディタ内も対象にする
+# script タグにキャッシュバスター付与 (親ページと HuBASIC エディタ)
 # minifier でクォートが外れるケース (src=foo.js) と付いたまま (src="foo.js") の両方に対応
-for _html in "${DIST_DIR}/x1pen.html" "${DIST_DIR}/xmillennium.html" "${DIST_DIR}/url-builder.html"; do
+for _html in "${DIST_DIR}/x1pen.html" "${DIST_DIR}/xmillennium.html" "${DIST_DIR}/url-builder.html" "${DIST_DIR}/x1basic/src/index.html"; do
     # クォート付き: src="foo.js" → src="foo.js?v=HASH"
     sed -i.bak "s|src=\"\([^\"?]*\.js\)\"|src=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${_html}"
     # クォートなし: src=foo.js → src="foo.js?v=HASH"
