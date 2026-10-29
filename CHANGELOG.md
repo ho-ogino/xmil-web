@@ -1,16 +1,30 @@
 # Changelog
 
-## Unreleased
+## X1Pen Web 0.13.0 / x1pen-mcp 2.11.0
 
-- HuBASIC タブのエディタの「エクスポート」が Firefox で保存されなかったのを直しました（「エクスポートしました」と出るのに、ファイルも保存ダイアログも出なかった）。ファイルはエディタの iframe の中ではなく X1Pen のページが作るようにしました（Firefox は iframe の中のダウンロードのリンクを X1Pen のページの CSP で止めていました。CSP は変えていません）。ファイルを作れなかったときは、「エクスポートしました」ではなくエラーを出します。
+X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のままです（変えていません）。HuBASIC の変換の仕組みとリファレンスがそろうように、x1pen-mcp → X1Pen Web の順に、間を空けずに出します（下の「版の組み合わせ」）。
+
+**`KEYLIST`・`KLIST`・`KMODE` が予約語になったので、これらを変数の名前に使っていた HuBASIC のプログラムは、変換が通らなくなります。**
+
+### X1Pen Web 0.13.0
+
 - X1Pen の HuBASIC の変換の仕組みを SLANG-compiler d15d32e にしました（SLANG-compiler PR #248）。
   - MML の音量 `V` が 0〜16 になりました。**`V16` は PSG のハードウェアのエンベロープ**を使います（前は `V16` 以上が Illegal function call でした）。エンベロープの形は `SOUND 13,n`、長さ（周期）は `SOUND 11,n`・`SOUND 12,n` で決め、`PLAY` は音符ごとに形を書き直してエンベロープを最初からやり直します。数字は先頭 2 桁が 16 以下なら 2 桁、そうでなければ先頭 1 桁を使います（`V17` は 1、`V255` は 2）。
   - X1turbo の形を受けるようにしました。`WIDTH` の 2 つめ（行数）は 25 なら黙って受け、25 以外と 3 つめ・4 つめは warning HB0705 を出して読み飛ばします（画面は 25 行のまま）。`KEYLIST n`・`KLIST n`・`KMODE n` は何もしない命令です（0 以外は warning HB0706。数のない `KEYLIST`・`KLIST` は未対応）。`KEYLIST`・`KLIST`・`KMODE` は予約語になったので、変数の名前には使えません。
   - `PLAY` を使うプログラムの bin は 26 バイト大きくなります。ほかのプログラムは変わりません。BAS_ABI は 1、hubasic2sl は 0.1.0-alpha のままです。
+- HuBASIC タブのエディタの「エクスポート」が Firefox で保存されなかったのを直しました（「エクスポートしました」と出るのに、ファイルも保存ダイアログも出なかった）。ファイルはエディタの iframe の中ではなく X1Pen のページが作るようにしました（Firefox は iframe の中のダウンロードのリンクを X1Pen のページの CSP で止めていました。CSP は変えていません）。ファイルを作れなかったときは、「エクスポートしました」ではなくエラーを出します。
+
+### x1pen-mcp 2.11.0
+
 - x1pen-mcp の HuBASIC のリファレンスを d15d32e に合わせて見直しました（29 項目のまま）。
   - `PLAY` の項目に、**音量は 0〜16 で `V15` が最大ではないこと、`V16` はエンベロープ**であることを最初の文に書き、数字の読み方と `SOUND 11`〜`13` との関係、エンベロープの例を足しました。
   - `WIDTH` の 2 つめ以降の扱いを画面の項目に、`KEYLIST`・`KLIST`・`KMODE`（何もしない命令）をキー入力の項目に足し、診断の番号（HB0703・HB0705・HB0706）、予約語の一覧、HuBASIC との違い（X1turbo の動きは確かめていない）を書き足しました。
   - SLANG-compiler d15d32e のソースと `docs/HUBASIC.md`、X1Pen 自身のコードだけから書きました。HuBASIC のマニュアルは元にしていません。
+
+### 版の組み合わせ
+
+- x1pen-mcp 2.11.0 のリファレンスは X1Pen Web 0.13.0 の HuBASIC の変換の仕組み（d15d32e）を前提にしています。x1pen-mcp 2.10.0（10cf481）と X1Pen Web 0.13.0、x1pen-mcp 2.11.0 と X1Pen Web 0.12.0（10cf481）の組み合わせでは、X1Pen が変換の仕組みを読み込んだあと `x1pen_get_language_profile` が `compatible: false`（`revisionMismatches`）を返します。ほかの道具はそのまま使えます。両方を新しくすれば `compatible: true` に戻ります。
+- X1Pen Connector 1.4.0 のまま、どちらの組み合わせでも使えます。
 
 ## X1Pen Web 0.12.0 / x1pen-mcp 2.10.0
 
