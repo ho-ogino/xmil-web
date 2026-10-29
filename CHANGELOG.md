@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- CSS（`library.css`・HuBASIC エディタの `style.css`）、エディタの文字のフォント（`x1-basic.ttf`）、内蔵フォントのデータ（`x1-font.json`）、Charmap のページの JS にもビルドのコミットを `?v=` として付けました。新しい版を出したあとも、前の版の CSS やフォントがブラウザのキャッシュから使われ続けることがなくなります（0.13.0 の `x1pen-host.js` と同じ問題）。アイコンと `manifest.json` には付けていません。
+
 ## X1Pen Web 0.13.0 / x1pen-mcp 2.11.0
 
 X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のままです（変えていません）。HuBASIC の変換の仕組みとリファレンスがそろうように、x1pen-mcp → X1Pen Web の順に、間を空けずに出します（下の「版の組み合わせ」）。
