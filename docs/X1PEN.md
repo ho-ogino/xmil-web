@@ -130,6 +130,48 @@ PCG の文字を描くタブです。中身は **DEFCHR TOOL for Web**（https:/
 - 「クリップボードにコピー」は、「X1Pen に挿入」と同じ出力先・形式で同じ形の文を作り、クリップボードに入れます（HuBASIC は `DEFCHR$` の行。エディタの中身とタブは変えません）。ブラウザがクリップボードへの書き込みを許していないと断ります。
 - 「ファイル保存」は、単独のツールと同じファイルを保存します（X1Pen のページが保存するので、Firefox でも保存できます）。
 - プログラムの中の `DEFCHR$` をツールに読み込むことは、まだできません。
+- PCG タブの上の「**使い方**」で、入れたデータを FuzzyBASIC・SLANG で PCG にするお手本を見られます（下と同じもの。コピーのボタン付き）。
+
+#### PCG の定義のお手本（FuzzyBASIC・SLANG）
+
+PCG タブの上の「使い方」で見られるものと同じです（コピーのボタンもあります）。DEFCHR TOOL の P の画面で入れたデータを、PCG として使うお手本です（$41・$42 の 2 文字を入れたとき。文字の数と最初の文字コードに合わせて直してください）。HuBASIC は DEFCHR$ の行が入るので、そのまま使えます。
+
+**FuzzyBASIC**: 出力先 FuzzyBASIC（ASM(x3)）で、ASM タブの ORG の下に入れます。ASM タブはアセンブルされて PROGRAM.BIN になり、BASIC から BLOAD で読みます。1 文字 24 バイトなので、2 文字目は $B018 です。
+
+ASM タブ:
+
+```asm
+	ORG	$B000
+; この下に「X1Pen に挿入」（出力先 FuzzyBASIC）
+```
+
+BASIC タブ:
+
+```basic
+10 LIMIT $AFFF
+20 BLOAD "PROGRAM.BIN",$B000
+30 PCGDEF 65,$B000
+40 PCGDEF 66,$B018
+50 WIDTH 40:TCOLOR $27
+60 PRINT CHR$(65);CHR$(66)
+70 TCOLOR 7
+```
+
+**SLANG**: 先に、出力先 SLANG（BIN(x3)）で「X1Pen に挿入」します（関数の外に ARRAY BYTE PCG41[] = { … }; が入ります）。その下にこれを貼ります。PCGDEFS で続けて定義し、表示するマスごとに TATTR で PCG を選んでから PRINT します。同じ名前がもうあると PCG41_2 などになるので、そのときは PCGDEFS の名前も合わせてください。
+
+SLANG タブ:
+
+```slang
+// この上に「X1Pen に挿入」（出力先 SLANG）で入れた配列
+MAIN()
+{
+    WIDTH(40);
+    PCGDEFS($41, PCG41, 2);
+    LOCATE(0, 0);
+    TATTR($27); PRINT(CHR$($41));
+    TATTR($27); PRINT(CHR$($42), /);
+}
+```
 
 ## 実行
 

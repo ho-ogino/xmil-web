@@ -5211,7 +5211,7 @@ async function until(check, what, timeoutMs = 30_000) {
 const PCG_HEX = PCG_PLANES.map((b) => b.toString(16).toUpperCase().padStart(2, '0')).join('');
 
 // A fresh X1Pen page whose DEFCHR TOOL starts with character $41 drawn (its own storage, B[8],R[8],G[8])
-async function openPcgPage(options = {}) {
+async function openPcgPage(options = {}, planes = PCG_PLANES) {
   const context = await browser.newContext({ acceptDownloads: true, ...options });
   const target = await context.newPage();
   const lines = [];
@@ -5225,7 +5225,7 @@ async function openPcgPage(options = {}) {
     localStorage.setItem('defchr-pcgdata', stored);
     localStorage.setItem('defchr-editbuffer', stored);
     localStorage.setItem('defchr-state', '{}');
-  }, PCG_PLANES);
+  }, planes);
   return { context, page: target, lines };
 }
 
@@ -5537,6 +5537,152 @@ test('DEFCHR TOOL copies what it would insert to the clipboard, changing no edit
     }
     assert.equal(await clipboard(), 'kept');
     assert.equal(await program(), before);
+  } finally {
+    await context.close();
+  }
+});
+
+test('the PCG tab\'s 使い方 shows the FuzzyBASIC and SLANG examples, copies each and closes like a panel', { timeout: 120_000 }, async () => {
+  const { context, page: target, lines } = await openPcgPage({ permissions: ['clipboard-read', 'clipboard-write'] });
+  try {
+    const button = target.locator('#btn-pcg-howto');
+    const panel = target.locator('#pcg-howto-panel');
+    const isOpen = () => target.evaluate(() => !document.getElementById('pcg-howto-panel').classList.contains('hidden'));
+    assert.equal(await button.isVisible(), false, 'not on the BASIC tab');
+    const frame = await showPcgTab(target, lines);
+    assert.equal(await button.isVisible(), true);
+    for (const tab of ['asm', 'slang', 'hubasic']) {
+      await target.click(`#editor-tabs [data-tab="${tab}"]`);
+      assert.equal(await button.isVisible(), false, tab);
+    }
+    await target.click('#editor-tabs [data-tab="pcg"]');
+
+    await button.click();
+    assert.equal(await isOpen(), true);
+    assert.equal(await button.getAttribute('aria-expanded'), 'true');
+    const howto = await target.evaluate(() => JSON.parse(JSON.stringify(window.X1PenPcgHowto)));
+    assert.deepEqual(await panel.locator('h3').allTextContents(), ['FuzzyBASIC', 'SLANG']);
+    const codes = howto.examples.flatMap((example) => example.blocks.map((block) => block.code));
+    assert.deepEqual(await panel.locator('pre').allTextContents(), codes);
+    assert.equal(await target.textContent('#pcg-howto-intro'), howto.intro);
+
+    // Each block's copy button puts that block on the clipboard
+    const copies = panel.locator('.pcg-howto-block-head button');
+    assert.equal(await copies.count(), 3);
+    for (let i = 0; i < 3; i++) {
+      await copies.nth(i).click();
+      await until(async () => (await copies.nth(i).textContent()) === 'コピーしました', 'the copy button to say so');
+      assert.equal(await target.evaluate(() => navigator.clipboard.readText()), codes[i]);
+    }
+    assert.equal(await target.textContent('#x1pen-status'), 'PCG: お手本（SLANG・SLANG タブ）をコピーしました。');
+    // Refused by the browser: the code is selected for Ctrl+C
+    await target.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(new Error('refused')); });
+    await copies.nth(1).click();
+    await until(async () => (await copies.nth(1).textContent()) === 'Ctrl+C でコピー', 'the copy button to fall back');
+    assert.equal(await target.evaluate(() => window.getSelection().toString()), codes[1].replace(/\n$/, ''),
+      'the whole code (the selection leaves out the last line end)');
+    assert.equal(await target.textContent('#x1pen-status'), 'PCG: コピーできませんでした。選んだ文を Ctrl+C でコピーしてください。');
+
+    // Closing: 閉じる (the focus goes back to the button), Esc, a click outside, another tab, the tool
+    await target.click('#pcg-howto-close');
+    assert.equal(await isOpen(), false);
+    assert.equal(await target.evaluate(() => document.activeElement.id), 'btn-pcg-howto');
+    assert.equal(await button.getAttribute('aria-expanded'), 'false');
+    await button.click();
+    await target.keyboard.press('Escape');
+    assert.equal(await isOpen(), false);
+    await button.click();
+    await target.click('#x1pen-status');
+    assert.equal(await isOpen(), false);
+    await button.click();
+    await target.click('#editor-tabs [data-tab="asm"]');
+    assert.equal(await isOpen(), false);
+    await target.click('#editor-tabs [data-tab="pcg"]');
+    await button.click();
+    assert.equal(await isOpen(), true);
+    await frame.locator('body').click({ position: { x: 2, y: 2 } });
+    await until(async () => !(await isOpen()), 'a click in DEFCHR TOOL to close the panel');
+  } finally {
+    await context.close();
+  }
+});
+
+// What the screen shows where the program printed CHR$(65);CHR$(66) as PCG: the distinct colors of each cell
+async function pcgCellsOnScreen(target) {
+  let at = -1;
+  await until(async () => {
+    at = await target.evaluate(() => {
+      const debug = window.X1PenAutomation.debugger;
+      const text = debug.readVram({ region: 'text', offset: 0, length: 1000 }).bytes;
+      const attr = debug.readVram({ region: 'attribute', offset: 0, length: 1000 }).bytes;
+      for (let i = 0; i + 1 < text.length; i++) {
+        if (text[i] === 65 && text[i + 1] === 66 && (attr[i] & 0x20) && (attr[i + 1] & 0x20)) return i;
+      }
+      return -1;
+    });
+    return at >= 0;
+  }, 'CHR$(65) and CHR$(66) as PCG on the screen', 60_000);
+  await target.waitForTimeout(300);
+  return target.evaluate(async (cell) => {
+    const image = new Image();
+    image.src = window.X1PenAutomation.captureScreen();
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    const width = image.width / 40;
+    const height = image.height / 25;
+    return [cell, cell + 1].map((n) => {
+      const data = context.getImageData((n % 40) * width, Math.floor(n / 40) * height, width, height).data;
+      const colors = new Set();
+      for (let i = 0; i < data.length; i += 4) colors.add(`${data[i]},${data[i + 1]},${data[i + 2]}`);
+      return [...colors];
+    });
+  }, at);
+}
+
+test('the PCG examples run in X1Pen with what the PCG tab inserts, showing the drawn characters', { timeout: 180_000 }, async () => {
+  // $41 all blue, $42 all red (DEFCHR TOOL's storage: B[8],R[8],G[8] a character)
+  const planes = [...new Array(8).fill(0xff), ...new Array(16).fill(0), ...new Array(8).fill(0), ...new Array(8).fill(0xff), ...new Array(8).fill(0)];
+  const { context, page: target, lines } = await openPcgPage({}, planes);
+  const solid = (colors, channel) => colors.length === 1 && colors[0].split(',').map(Number).every((v, i) => (i === channel ? v > 200 : v === 0));
+  try {
+    const howto = await target.evaluate(() => JSON.parse(JSON.stringify(window.X1PenPcgHowto)));
+    const [asmBlock, basicBlock] = howto.examples.find((example) => example.id === 'fuzzybasic').blocks;
+    const [slangBlock] = howto.examples.find((example) => example.id === 'slang').blocks;
+
+    // FuzzyBASIC: the ASM block, then "X1Pen に挿入" (FuzzyBASIC, ASM(x3)) at its end; the BASIC block
+    await target.evaluate(({ asm, basic }) => window.X1PenAutomation.setProgram({ sourceMode: 'basic+asm', basic, asm }),
+      { asm: asmBlock.code, basic: basicBlock.code });
+    await target.click('#editor-tabs [data-tab="asm"]');
+    await target.click('#asm-editor-container .cm-content');
+    await target.keyboard.press('Control+End');
+    const frame = await showPcgTab(target, lines);
+    await pcgPanel(frame, { target: 'fuzzybasic', start: '41', end: '42' });
+    await until(async () => (await activeEditorTab(target)) === 'asm', 'the ASM tab after inserting');
+    let run = await target.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(run.ok, true, JSON.stringify(run));
+    let cells = await pcgCellsOnScreen(target);
+    assert.ok(solid(cells[0], 2) && solid(cells[1], 0), `FuzzyBASIC: blue then red, got ${JSON.stringify(cells)}`);
+
+    // SLANG: "X1Pen に挿入" (SLANG, BIN(x3)) into a new program, then the example pasted below it
+    await target.evaluate(() => window.X1PenAutomation.setProgram({ sourceMode: 'slang', slang: '// PCG\n' }));
+    await target.click('#editor-tabs [data-tab="slang"]');
+    await target.click('#slang-editor-container .cm-content');
+    await target.keyboard.press('Control+End');
+    await target.click('#editor-tabs [data-tab="pcg"]');
+    await pcgPanel(frame, { target: 'slang', start: '41', end: '42' });
+    await until(async () => (await activeEditorTab(target)) === 'slang', 'the SLANG tab after inserting');
+    await target.keyboard.press('Control+End');
+    await target.keyboard.insertText(slangBlock.code);
+    assert.match(await target.evaluate(() => window.X1PenAutomation.getProgram().slang),
+      /^\/\/ PCG\n\/\/ DEFCHR TOOL: CHR \$41-\$42 \(rows of B,R,G\)\nARRAY BYTE PCG41\[\] = \{[^}]*\};\n\/\/ この上に/);
+    run = await target.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(run.ok, true, JSON.stringify(run));
+    cells = await pcgCellsOnScreen(target);
+    assert.ok(solid(cells[0], 2) && solid(cells[1], 0), `SLANG: blue then red, got ${JSON.stringify(cells)}`);
   } finally {
     await context.close();
   }
