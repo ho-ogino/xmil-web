@@ -1,12 +1,14 @@
 // x1pen_defchrtool_host.js — X1Pen's host adapter for DEFCHR TOOL for Web, published as
 // defchrtool/x1pen-host.js and loaded by the tool's page (in an iframe of x1pen.html) before its
-// module script, as the tool's X1HOST.md asks. It sets window.X1Host = { exportPCG }; the inserting
-// is done by X1Pen (window.parent.X1PenDefchrToolBridge). Opened on its own, outside X1Pen, the
-// page gets no X1Host and works as the standalone tool.
-// "ファイル保存" has X1Pen's page write the file: Firefox checks a download link clicked inside this
-// iframe against X1Pen's CSP frame-src, which does not allow blob:, and drops the download. The
-// tool clicks a detached <a download href="blob:..."> and revokes the URL right after, so the Blob
-// is remembered when its URL is made and handed over during the click.
+// module script, as the tool's X1HOST.md asks. It sets window.X1Host = { exportPCG, copyPCG,
+// saveFile }; the work is done by X1Pen (window.parent.X1PenDefchrToolBridge). Opened on its own,
+// outside X1Pen, the page gets no X1Host and works as the standalone tool.
+// - exportPCG ("X1Pen に挿入"): X1Pen inserts into the target tab.
+// - copyPCG ("クリップボードにコピー"): X1Pen builds the text; it is written to the clipboard from
+//   here, since this frame has the focus (Chrome refuses a write from X1Pen's page then). The write
+//   starts within the user's click, before X1Pen has read the Blob (Safari allows it only there).
+// - saveFile ("ファイル保存"): X1Pen's page writes the file. Firefox checks a download link clicked
+//   inside this iframe against X1Pen's CSP frame-src, which does not allow blob:, and drops it.
 
 (function() {
     'use strict';
@@ -29,35 +31,79 @@
         return out;
     }
 
+    function localError(error) {
+        return new Error(error && error.message ? String(error.message) : 'X1Pen failed');
+    }
+
+    // Starts a clipboard write now, whose text comes later (a ClipboardItem holding a promise), or
+    // returns null where the browser has no such write
+    function startCopy(textBlob) {
+        if (!navigator.clipboard || typeof navigator.clipboard.write !== 'function' || typeof ClipboardItem !== 'function') {
+            return null;
+        }
+        try {
+            var writing = navigator.clipboard.write([new ClipboardItem({ 'text/plain': textBlob })]);
+            writing.catch(function() {});     // looked at only when X1Pen built the text
+            return writing;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function copyText(text) {
+        if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+            return Promise.reject(new Error('no clipboard'));
+        }
+        return navigator.clipboard.writeText(text);
+    }
+
     window.X1Host = {
         exportPCG: function(request) {
             return new Promise(function(resolve, reject) {
                 Promise.resolve(bridge.exportPCG(request)).then(function(result) {
                     resolve(localResult(result));
                 }, function(error) {
-                    reject(new Error(error && error.message ? String(error.message) : 'X1Pen failed'));
+                    reject(localError(error));
                 });
             });
+        },
+        copyPCG: function(request) {
+            var formatted;
+            try {
+                formatted = Promise.resolve(bridge.formatPCG(request));
+            } catch (e) {
+                formatted = Promise.reject(e);
+            }
+            // A refusal leaves the clipboard as it was: the write fails with the text
+            var textBlob = formatted.then(function(result) {
+                if (!result || result.ok !== true) throw new Error('not copied');
+                return new Blob([String(result.text)], { type: 'text/plain' });
+            });
+            textBlob.catch(function() {});
+            var writing = startCopy(textBlob);
+            return new Promise(function(resolve, reject) {
+                formatted.then(function(result) {
+                    if (!result || result.ok !== true) { resolve(localResult(result)); return; }
+                    var message = String(result.message);
+                    (writing || copyText(String(result.text))).then(function() {
+                        resolve({ ok: true, message: message });
+                        try { bridge.copied(message); } catch (e) { /* only X1Pen's status line */ }
+                    }, function() {
+                        resolve({ ok: false, code: 'unavailable',
+                            message: 'クリップボードに書き込めませんでした。ブラウザがクリップボードへの書き込みを許しているか確かめてください。' });
+                    });
+                }, function(error) {
+                    reject(localError(error));
+                });
+            });
+        },
+        saveFile: function(blob, fileName) {
+            try {
+                bridge.download(blob, fileName);
+            } catch (e) {
+                throw localError(e);
+            }
         }
-    };
-
-    var blobs = new Map();     // blob: URLs made in this window -> their Blob, until revoked
-    var createObjectURL = URL.createObjectURL;
-    var revokeObjectURL = URL.revokeObjectURL;
-    URL.createObjectURL = function(object) {
-        var url = createObjectURL.call(URL, object);
-        if (object && typeof object.arrayBuffer === 'function') blobs.set(url, object);
-        return url;
-    };
-    URL.revokeObjectURL = function(url) {
-        blobs.delete(url);
-        return revokeObjectURL.call(URL, url);
-    };
-    var click = HTMLAnchorElement.prototype.click;
-    HTMLAnchorElement.prototype.click = function() {
-        var blob = this.hasAttribute('download') ? blobs.get(this.href) : undefined;
-        if (!blob) return click.call(this);
-        bridge.download(blob, this.getAttribute('download'));
     };
 
     // Focus in the tool pauses the emulator, as in X1Pen's other editors

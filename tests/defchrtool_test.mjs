@@ -12,7 +12,8 @@ import {
 } from '../scripts/import-defchrtool.mjs';
 
 // DEFCHR TOOL for Web (PCG tab): the committed build in assets/defchrtool, the import script, and
-// what X1Pen inserts for the tool's "X1Pen に挿入" (html/x1pen_pcg_export.js).
+// what X1Pen inserts or copies for the tool's "X1Pen に挿入" and "クリップボードにコピー"
+// (html/x1pen_pcg_export.js).
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const toolDir = join(repoRoot, 'assets', 'defchrtool');
@@ -50,6 +51,41 @@ function request(fields) {
   return { version: 1, target: 'asm', format: 'asm3', start: 0x41, end: 0x41, fileName: 'pcg.asm', blob: blobOf('x\n'), ...fields };
 }
 
+const HUBASIC_LINES = { lineStart: 60960, lineStep: 10 };
+
+// DEFCHR TOOL's BAS (ASCII) for characters start.. with the given hex digits (its BasFormat.saveAscii)
+function defchrLines(start, hexes, { lineStart = 60960, lineStep = 10 } = {}) {
+  return hexes.map((hex, i) => `${lineStart + i * lineStep}DEFCHR$(${start + i})=HEXCHR$("${hex}")`);
+}
+const HEX_A = '000102030405060710111213141516172021222324252627';
+const HEX_B = 'FF'.repeat(24);
+
+function hubasicRequest(lines, fields = {}) {
+  return request({ target: 'hubasic', format: 'bas', basFormat: 'asc', fileName: 'pcg.asc', hubasic: HUBASIC_LINES,
+    blob: blobOf(lines.join('\r') + '\r'), ...fields });
+}
+
+const bytesOf = (text) => Uint8Array.from(Buffer.from(text, 'latin1'));
+const textOf = (bytes) => Buffer.from(bytes).toString('latin1');
+
+// The new lines merged into a program: the program's text after the merge, or the failure
+async function merged(program, lines, fields = {}) {
+  const built = await inserted(hubasicRequest(lines, fields));
+  if (!built.ok) return built;
+  const result = pcg.mergeHuBasic(bytesOf(program), built.lines);
+  return result.ok ? { ok: true, text: textOf(result.bytes), added: result.added, replaced: result.replaced } : plain(result);
+}
+
+// The program as HuBASIC (hubasic2sl's HuSource.FromX1Bytes and HuParser) reads it: lines split
+// at CR, LF and CRLF, up to 0x1A; blank lines skipped; the leading number after spaces
+function readHuBasic(text) {
+  return text.split('\x1a')[0].split(/\r\n|\r|\n/).map((line) => line.replace(/\t/g, ' '))
+    .filter((line) => line.trim() !== '').map((line) => {
+      const m = /^ *(\d+)(.*)$/.exec(line);
+      return m ? { number: Number(m[1]), rest: m[2] } : { number: null, rest: line };
+    });
+}
+
 // Bytes that tell the planes and rows apart: B=$00..$07, R=$10..$17, G=$20..$27 (+ $40 per character)
 function charsBytes(count, rowOrder) {
   const out = [];
@@ -71,7 +107,7 @@ async function inserted(fields, slangSource = '') {
 
 test('assets/defchrtool is one build of DEFCHR TOOL, unchanged except the host adapter line', () => {
   assert.equal(source.repository, 'https://github.com/h-o-soft/defchrtool');
-  assert.equal(source.commit, '07fa3388984be6476ff57bc6d8a2845426a20133');
+  assert.equal(source.commit, 'cd11507d6cf10564beae3711b8ed83ce73f0e648');
   assert.equal(source.build.command, 'npm ci && npx vite build --base ./');
   assert.deepEqual(source.injected, { path: 'index.html', line: HOST_LINE, before: HOST_ANCHOR });
   const present = listFiles(toolDir).map((path) => relative(toolDir, path).split('\\').join('/')).sort();
@@ -222,12 +258,20 @@ test('requests are checked by their shape before anything is read', () => {
     request({ start: -1 }), request({ end: 256 }), request({ start: 1.5, end: 2 }), request({ start: 3, end: 2 }),
     request({ start: '0' }), request({ blob: null }), request({ blob: { size: 1, text() {} } }),
     request({ blob: { ...blobOf('x'), size: 1024 * 1024 + 1 } }),
+    // HuBASIC needs the line numbers: positive integers, the last line at most 65529
+    hubasicRequest([], { hubasic: undefined }), hubasicRequest([], { hubasic: { lineStart: 0, lineStep: 10 } }),
+    hubasicRequest([], { hubasic: { lineStart: 60960, lineStep: 0 } }), hubasicRequest([], { hubasic: { lineStart: 1.5, lineStep: 1 } }),
+    hubasicRequest([], { hubasic: { lineStart: '10', lineStep: 10 } }), hubasicRequest([], { hubasic: { lineStart: 65530, lineStep: 1 } }),
+    hubasicRequest([], { end: 0x42, hubasic: { lineStart: 65520, lineStep: 10 } }),
   ]) {
     const result = plain(pcg.checkRequest(bad));
     assert.equal(result.ok, false, JSON.stringify(bad));
     assert.equal(result.code, 'invalid');
     assert.equal(typeof result.message, 'string');
   }
+  assert.deepEqual(plain(pcg.checkRequest(hubasicRequest([], { end: 0x42, hubasic: { lineStart: 65519, lineStep: 10 } }))).hubasic,
+    { lineStart: 65519, lineStep: 10 }, 'the last line may be 65529');
+  assert.equal(pcg.checkRequest(request({ hubasic: { lineStart: 0, lineStep: 0 } })).ok, true, 'other targets do not look at the lines');
 });
 
 test('each target and format goes where X1Pen and DEFCHR TOOL agreed', () => {
@@ -235,12 +279,12 @@ test('each target and format goes where X1Pen and DEFCHR TOOL agreed', () => {
     fuzzybasic: { image: null, bin: 'asm/bytes', bin3: 'asm/bytes', basasc: 'asm/text', basbin: null, asm: 'asm/text', asm3: 'asm/text' },
     asm: { image: null, bin: 'asm/bytes', bin3: 'asm/bytes', basasc: 'asm/text', basbin: null, asm: 'asm/text', asm3: 'asm/text' },
     slang: { image: null, bin: 'slang/bytes', bin3: 'slang/bytes', basasc: 'slang/text', basbin: null, asm: 'slang/text', asm3: 'slang/text' },
-    hubasic: { image: null, bin: null, bin3: null, basasc: null, basbin: null, asm: null, asm3: null },
+    hubasic: { image: null, bin: null, bin3: null, basasc: 'hubasic/text', basbin: null, asm: null, asm3: null },
   };
   for (const [target, row] of Object.entries(expected)) {
     for (const [key, where] of Object.entries(row)) {
       const format = key.startsWith('bas') ? 'bas' : key;
-      const checked = pcg.checkRequest(request({ target, format, basFormat: key.startsWith('bas') ? key.slice(3) : undefined }));
+      const checked = pcg.checkRequest(request({ target, format, basFormat: key.startsWith('bas') ? key.slice(3) : undefined, hubasic: HUBASIC_LINES }));
       const planned = plain(pcg.plan(checked));
       if (where === null) {
         assert.deepEqual([planned.ok, planned.code], [false, 'unsupported'], `${target} ${key}`);
@@ -249,7 +293,7 @@ test('each target and format goes where X1Pen and DEFCHR TOOL agreed', () => {
       }
     }
   }
-  assert.match(pcg.plan(pcg.checkRequest(request({ target: 'hubasic', format: 'bas', basFormat: 'asc' }))).message, /HuBASIC/);
+  assert.match(pcg.plan(pcg.checkRequest(request({ target: 'hubasic', format: 'asm3', hubasic: HUBASIC_LINES }))).message, /BAS（ASCII）/);
 });
 
 test('text formats go in as they are, with CR, CRLF and LF read as lines', async () => {
@@ -322,4 +366,107 @@ test('the success message names the tab, the line and the characters', () => {
   assert.equal(pcg.successMessage(checked, { editor: 'asm', read: 'text' }, 12), 'ASM タブの 12 行目に 2 文字分（$41〜$42）を入れました。');
   assert.equal(pcg.successMessage(pcg.checkRequest(request({ target: 'slang' })), { editor: 'slang', read: 'bytes' }, 1),
     'SLANG タブの 1 行目に 1 文字分（$41）を入れました。配列は関数の外に置いてください。');
+  const hubasic = { editor: 'hubasic', read: 'text' };
+  assert.equal(pcg.successMessage(pcg.checkRequest(hubasicRequest([], { end: 0x42 })), hubasic, { replaced: 1 }),
+    'HuBASIC タブの 60960〜60970 行に 2 文字分（$41〜$42）を入れました（1 行は置き換え）。HuBASIC への挿入は Ctrl+Z では戻せません。');
+  assert.equal(pcg.successMessage(pcg.checkRequest(hubasicRequest([])), hubasic, { replaced: 0 }),
+    'HuBASIC タブの 60960 行に 1 文字分（$41）を入れました。HuBASIC への挿入は Ctrl+Z では戻せません。');
+  assert.equal(pcg.copyMessage(checked, { editor: 'asm', read: 'bytes' }), '2 文字分（$41〜$42）を ASM の DB でクリップボードにコピーしました。');
+  assert.equal(pcg.copyMessage(checked, { editor: 'slang', read: 'bytes' }), '2 文字分（$41〜$42）を SLANG の配列でクリップボードにコピーしました。');
+  assert.equal(pcg.copyMessage(checked, { editor: 'asm', read: 'text' }), '2 文字分（$41〜$42）を ASM 向けの文でクリップボードにコピーしました。');
+  assert.equal(pcg.copyMessage(checked, hubasic), '2 文字分（$41〜$42）を HuBASIC の DEFCHR$ の行でクリップボードにコピーしました。');
+});
+
+test('HuBASIC takes DEFCHR TOOL\'s DEFCHR$ lines only as the request numbers them', async () => {
+  const lines = defchrLines(0x41, [HEX_A, HEX_B]);
+  const built = await inserted(hubasicRequest(lines, { end: 0x42 }));
+  assert.deepEqual(built, { ok: true, text: lines.join('\n') + '\n',
+    lines: [{ number: 60960, code: 65, text: lines[0] }, { number: 60970, code: 66, text: lines[1] }] });
+  // CR (what DEFCHR TOOL writes), CRLF, LF and no last line end read the same
+  for (const blob of [lines.join('\r\n'), lines.join('\n') + '\n', lines.join('\r')]) {
+    assert.deepEqual(await inserted(hubasicRequest([], { end: 0x42, blob: blobOf(blob) })), built);
+  }
+  // Other numbers, steps and the 256 characters at the top of the range
+  const all = defchrLines(0, new Array(256).fill(HEX_B), { lineStart: 1, lineStep: 256 });
+  const top = await inserted(hubasicRequest(all, { start: 0, end: 255, hubasic: { lineStart: 1, lineStep: 256 } }));
+  assert.equal(top.lines.at(-1).number, 65281);
+  for (const [bad, fields] of [
+    [defchrLines(0x41, [HEX_A], { lineStart: 60970 }), {}],                  // another line number
+    [defchrLines(0x42, [HEX_A]), {}],                                        // another character
+    [defchrLines(0x41, [HEX_A, HEX_B], { lineStep: 20 }), { end: 0x42 }],    // another step
+    [defchrLines(0x41, [HEX_A]), { end: 0x42 }],                             // too few lines
+    [defchrLines(0x41, [HEX_A.slice(2)]), {}],                               // not 24 bytes
+    [[defchrLines(0x41, [HEX_A])[0] + ':RETURN'], {}],                       // more than DEFCHR$
+    [['60960 DEFCHR$(65)=HEXCHR$("' + HEX_A + '")'], {}],                   // not DEFCHR TOOL's form
+  ]) {
+    assert.equal((await inserted(hubasicRequest(bad, fields))).code, 'invalid', bad.join('|'));
+  }
+});
+
+test('HuBASIC lines merge by line number: in order, replacing only the same character\'s DEFCHR$', async () => {
+  const [a, b] = defchrLines(0x41, [HEX_A, HEX_B]);
+  const two = { end: 0x42 };
+  // An empty program: the lines alone, with CRLF
+  assert.deepEqual(await merged('', [a, b], two), { ok: true, text: `${a}\r\n${b}\r\n`, added: 2, replaced: 0 });
+  // In number order among the program's lines; trailing blank lines stay at the end
+  assert.deepEqual(await merged('10 CLS\r\n60965 PRINT\r\n65000 END\r\n\r\n', [a, b], two),
+    { ok: true, text: `10 CLS\r\n${a}\r\n60965 PRINT\r\n${b}\r\n65000 END\r\n\r\n`, added: 2, replaced: 0 });
+  assert.equal((await merged('10 CLS\r\n20 END\r\n\r\n', [a])).text, `10 CLS\r\n20 END\r\n${a}\r\n\r\n`);
+  assert.equal((await merged('65000 END\r\n', [a])).text, `${a}\r\n65000 END\r\n`);
+  // The program's own line end; untouched lines keep theirs, a last line without one gets it
+  assert.equal((await merged('10 CLS\r20 END\r', [a])).text, `10 CLS\r20 END\r${a}\r`);
+  assert.equal((await merged('10 CLS\n20 END', [a])).text, `10 CLS\n20 END\n${a}\n`);
+  assert.equal((await merged('10 CLS\r\n65000 A=1\r65010 END\n', [a])).text, `10 CLS\r\n${a}\r\n65000 A=1\r65010 END\n`);
+  // Replaced: the same character's DEFCHR$ alone on the line, however it is written
+  for (const old of [
+    '60960DEFCHR$(65)=HEXCHR$("00")', '60960 defchr$ ( &h41 ) = hexchr$ ( "00 11 ff" ) ', '  60960 DEFCHR$(65)=HEXCHR$("")',
+    '\t60960\tDEFCHR$(065)=HEXCHR$("' + HEX_B + '")',
+  ]) {
+    assert.deepEqual(await merged(`10 CLS\r\n${old}\r\n65000 END\r\n`, [a]),
+      { ok: true, text: `10 CLS\r\n${a}\r\n65000 END\r\n`, added: 0, replaced: 1 }, old);
+  }
+  // Two lines with that number become one; the line end of a last line is added
+  assert.deepEqual(await merged(`60960 DEFCHR$(65)=HEXCHR$("00")\r\n10 CLS\r\n60960 DEFCHR$(65)=HEXCHR$("11")`, [a]),
+    { ok: true, text: `${a}\r\n10 CLS\r\n`, added: 0, replaced: 1 });
+  assert.equal((await merged('10 CLS\r\n60960DEFCHR$(65)=HEXCHR$("00")', [a])).text, `10 CLS\r\n${a}\r\n`);
+  // Anything else with the number is a conflict, and the program is not touched
+  for (const old of [
+    '60960 PRINT', '60960 DEFCHR$(66)=HEXCHR$("00")', '60960 DEFCHR$(65)=HEXCHR$("00"):PRINT', '60960 DEFCHR$(65)=A$',
+    '60960 DEFCHR$(65)=HEXCHR$("00")\'X', '60960', '060960 REM', '60960 DEFCHR$(65)=HEXCHR$("0G")',
+  ]) {
+    const result = await merged(`10 CLS\r\n${old}\r\n`, [a]);
+    assert.deepEqual([result.ok, result.code], [false, 'conflict'], old);
+    assert.match(result.message, /^行番号 60960 に別の行があるので、何も変えていません。/);
+  }
+  // One clash refuses all the lines, and names up to five of them
+  assert.equal((await merged('60970 PRINT\r\n', [a, b], two)).code, 'conflict');
+  const many = defchrLines(0, new Array(7).fill(HEX_B), { lineStart: 100, lineStep: 1 });
+  const clash = await merged(Array.from({ length: 7 }, (_, i) => `${100 + i} PRINT`).join('\r\n'), many,
+    { start: 0, end: 6, hubasic: { lineStart: 100, lineStep: 1 } });
+  assert.equal(clash.message, '行番号 100, 101, 102, 103, 104 ほか 2 行 に別の行があるので、何も変えていません。開始行かステップを変えてください。');
+  // Lines without a number never clash; an unsorted program gets each line before the first greater number
+  assert.equal((await merged('REM\r\n70000 X\r\n50000 Y\r\n', [a])).text, `REM\r\n${a}\r\n70000 X\r\n50000 Y\r\n`);
+});
+
+test('HuBASIC merging keeps 0x1A and what follows it, and puts the lines before it', async () => {
+  const [a] = defchrLines(0x41, [HEX_A]);
+  const program = '10 CLS\r\n65000 END\r\n\x1a60960 PRINT\r\n\x00\xff';
+  const result = await merged(program, [a]);
+  assert.deepEqual(result, { ok: true, text: `10 CLS\r\n${a}\r\n65000 END\r\n\x1a60960 PRINT\r\n\x00\xff`, added: 1, replaced: 0 },
+    'the line after 0x1A is not read, so it does not clash');
+  assert.deepEqual(readHuBasic(result.text).map((line) => line.number), [10, 60960, 65000]);
+  assert.equal((await merged('10 CLS\x1a', [a])).text, `10 CLS\r\n${a}\r\n\x1a`);
+  assert.equal((await merged('\x1a', [a])).text, `${a}\r\n\x1a`);
+});
+
+test('a merged program reads back with each new line once and the old lines as they were', async () => {
+  const lines = defchrLines(0x30, new Array(10).fill(HEX_A), { lineStart: 100, lineStep: 5 });
+  const program = ['10 CLS', '105 DEFCHR$(49)=HEXCHR$("00")', '107 PRINT "A"', '120 DEFCHR$(&H34)=HEXCHR$("FF")', '', '200 END', ''].join('\r\n');
+  const result = await merged(program, lines, { start: 0x30, end: 0x39, hubasic: { lineStart: 100, lineStep: 5 } });
+  assert.equal(result.ok, true);
+  assert.deepEqual([result.added, result.replaced], [8, 2]);
+  const read = readHuBasic(result.text);
+  assert.deepEqual(read.map((line) => line.number), [10, 100, 105, 107, 110, 115, 120, 125, 130, 135, 140, 145, 200]);
+  for (const line of lines) assert.equal(read.filter((r) => `${r.number}${r.rest}` === line).length, 1, line);
+  assert.equal(read.find((r) => r.number === 107).rest, ' PRINT "A"');
 });
