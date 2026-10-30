@@ -101,6 +101,7 @@ cp "${SCRIPT_DIR}/html/x1pen_slfs_disk.js"   ./x1pen_slfs_disk.js
 cp "${SCRIPT_DIR}/html/x1pen_hubasic.js"     ./x1pen_hubasic.js
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_text.js" ./x1pen_hubasic_text.js
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_options.js" ./x1pen_hubasic_options.js
+cp "${SCRIPT_DIR}/html/x1pen_pcg_export.js"  ./x1pen_pcg_export.js
 [ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ./x1pen_slang_compiler.js
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" ./x1pen_charmap.html
@@ -145,6 +146,15 @@ fi
 rm -rf ./x1basic
 cp -R "${SCRIPT_DIR}/assets/x1basic" ./x1basic
 cp "${SCRIPT_DIR}/html/x1pen_x1basic_host.js" ./x1basic/src/x1pen-host.js
+# DEFCHR TOOL for Web (PCG tab), one commit of its repository built for X1Pen plus X1Pen's host adapter
+if [ ! -f "${SCRIPT_DIR}/assets/defchrtool/source.json" ]; then
+    echo "Error: DEFCHR TOOL is missing (assets/defchrtool/source.json)."
+    echo "Import it with: node scripts/import-defchrtool.mjs <checkout-dir>"
+    exit 1
+fi
+rm -rf ./defchrtool
+cp -R "${SCRIPT_DIR}/assets/defchrtool" ./defchrtool
+cp "${SCRIPT_DIR}/html/x1pen_defchrtool_host.js" ./defchrtool/x1pen-host.js
 if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
     mkdir -p ./slang_include
     for f in "${SCRIPT_DIR}"/assets/slang_include/*; do
@@ -219,6 +229,7 @@ cp "${SCRIPT_DIR}/html/x1pen_slfs_disk.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_hubasic.js"     "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_text.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_options.js" "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_pcg_export.js"  "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" "${DIST_DIR}/"
@@ -248,6 +259,9 @@ cp -R "${SCRIPT_DIR}/assets/hubasic" "${DIST_DIR}/hubasic"
 rm -rf "${DIST_DIR}/x1basic"
 cp -R "${SCRIPT_DIR}/assets/x1basic" "${DIST_DIR}/x1basic"
 cp "${SCRIPT_DIR}/html/x1pen_x1basic_host.js" "${DIST_DIR}/x1basic/src/x1pen-host.js"
+rm -rf "${DIST_DIR}/defchrtool"
+cp -R "${SCRIPT_DIR}/assets/defchrtool" "${DIST_DIR}/defchrtool"
+cp "${SCRIPT_DIR}/html/x1pen_defchrtool_host.js" "${DIST_DIR}/defchrtool/x1pen-host.js"
 if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
     mkdir -p "${DIST_DIR}/slang_include"
     for f in "${SCRIPT_DIR}"/assets/slang_include/*; do
@@ -288,11 +302,11 @@ sed -i.bak "s/@@XMIL_BUILD_HASH@@/${XMIL_BUILD_HASH}/g" "${DIST_DIR}/x1pen.js"
 rm -f "${DIST_DIR}/x1pen.js.bak"
 
 # iframe の HTML の ?v= は中の script URL には引き継がれないため、エディタ内も対象にする
-# script タグと CSS にキャッシュバスター付与 (親ページ・Charmap・HuBASIC エディタ)
+# script タグと CSS にキャッシュバスター付与 (親ページ・Charmap・HuBASIC エディタ・DEFCHR TOOL)
 # 本番は js・css・ttf などをブラウザが 4 時間問い合わせずに使う (json・wasm は毎回確かめる)
 # minifier でクォートが外れるケース (src=foo.js) と付いたまま (src="foo.js") の両方に対応
 # アイコンと manifest (.svg/.png/.json の href) は対象外
-for _html in "${DIST_DIR}/x1pen.html" "${DIST_DIR}/xmillennium.html" "${DIST_DIR}/url-builder.html" "${DIST_DIR}/x1pen_charmap.html" "${DIST_DIR}/x1basic/src/index.html"; do
+for _html in "${DIST_DIR}/x1pen.html" "${DIST_DIR}/xmillennium.html" "${DIST_DIR}/url-builder.html" "${DIST_DIR}/x1pen_charmap.html" "${DIST_DIR}/x1basic/src/index.html" "${DIST_DIR}/defchrtool/index.html"; do
     # クォート付き: src="foo.js" → src="foo.js?v=HASH"
     sed -i.bak "s|src=\"\([^\"?]*\.js\)\"|src=\"\1?v=${XMIL_BUILD_HASH}\"|g" "${_html}"
     # クォートなし: src=foo.js → src="foo.js?v=HASH"
@@ -307,6 +321,13 @@ done
 for _css in "${DIST_DIR}/library.css" "${DIST_DIR}/x1basic/src/style.css"; do
     sed -E -i.bak "s#url\\((['\"]?)([^'\"():?]+\\.(ttf|otf|woff2?|png|svg|gif|jpe?g|webp))(['\"]?)\\)#url(\\1\\2?v=${XMIL_BUILD_HASH}\\4)#g" "${_css}"
     rm -f "${_css}.bak"
+done
+
+# DEFCHR TOOL の JS が読む画像 ("./assets/fonts/X1font.png") は名前にハッシュが無いので ?v= を付ける
+for _js in "${DIST_DIR}"/defchrtool/assets/*.js; do
+    [ -f "${_js}" ] || continue
+    sed -E -i.bak "s#\"(\./assets/[^\"?]+\.png)\"#\"\1?v=${XMIL_BUILD_HASH}\"#g" "${_js}"
+    rm -f "${_js}.bak"
 done
 
 # config.js: html/config.js があればそれを使用、なければ空の example を使用

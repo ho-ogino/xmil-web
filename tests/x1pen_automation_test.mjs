@@ -27,6 +27,7 @@ const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
   '.ttf': 'font/ttf',
   '.wasm': 'application/wasm',
 };
@@ -3826,7 +3827,7 @@ test('showing a HuBASIC program neither pauses the emulator nor takes the focus'
   }
 });
 
-test('every script, stylesheet and font X1Pen and its HuBASIC editor load carries the build commit', { timeout: 90_000 }, async () => {
+test('every script, stylesheet and font X1Pen, its HuBASIC editor and DEFCHR TOOL load carries the build commit', { timeout: 90_000 }, async () => {
   // Production lets the browser reuse js, css and fonts for hours without asking; a file loaded
   // without ?v=<commit> can stay at the previous release (0.13.0 kept the old x1pen-host.js)
   const hash = /var XMIL_BUILD_HASH = '([^']*)'/.exec(readFileSync(join(distDir, 'x1pen.js'), 'utf8'))?.[1];
@@ -3851,6 +3852,13 @@ test('every script, stylesheet and font X1Pen and its HuBASIC editor load carrie
       await document.querySelector('#hubasic-editor-container iframe').contentDocument.fonts.ready;
       await window.X1PenHuBasicEditorBridge.builtinFontBitmap();
     });
+    // DEFCHR TOOL (PCG tab): its page, X1Pen's adapter, its module script and its font image
+    await freshPage.click('#editor-tabs [data-tab="pcg"]');
+    await freshPage.waitForFunction(() => {
+      const frame = document.querySelector('#pcg-editor-container iframe');
+      return frame && frame.contentWindow.performance.getEntriesByType('resource')
+        .some((entry) => new URL(entry.name).pathname === '/defchrtool/assets/fonts/X1font.png');
+    }, null, { timeout: 30_000 });
     const urls = [];
     for (const frame of freshPage.frames()) {
       urls.push(...await frame.evaluate(() => [
@@ -3859,12 +3867,15 @@ test('every script, stylesheet and font X1Pen and its HuBASIC editor load carrie
       ]));
     }
     const versioned = urls.map((url) => new URL(url)).filter((url) => url.origin === baseUrl
-      && (/\.(?:js|css|ttf|otf|woff2?)$/.test(url.pathname) || url.pathname.endsWith('/x1-font.json')));
+      && (/\.(?:js|css|ttf|otf|woff2?)$/.test(url.pathname) || url.pathname.endsWith('/x1-font.json')
+        || url.pathname.startsWith('/defchrtool/')));
     const paths = new Set(versioned.map((url) => url.pathname));
     for (const path of ['/library.css', '/x1pen.js', '/x1basic/src/style.css', '/x1basic/src/x1pen-host.js',
-      '/x1basic/assets/x1-basic.ttf', '/x1basic/assets/x1-font.json']) {
+      '/x1basic/assets/x1-basic.ttf', '/x1basic/assets/x1-font.json',
+      '/x1pen_pcg_export.js', '/defchrtool/x1pen-host.js', '/defchrtool/assets/fonts/X1font.png']) {
       assert.ok(paths.has(path), `${path} was loaded`);
     }
+    assert.ok([...paths].some((path) => /^\/defchrtool\/assets\/index-[^/]+\.js$/.test(path)), 'DEFCHR TOOL\'s module script was loaded');
     assert.deepEqual(versioned.filter((url) => url.searchParams.get('v') !== hash).map((url) => url.pathname + url.search), [],
       `every one carries ?v=${hash}`);
   } finally {
@@ -5178,5 +5189,197 @@ test('the published x1pen-mcp 2.7.0 still works with this page, and stops visibl
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── PCG tab: DEFCHR TOOL for Web (defchrtool/) in an iframe ──
+
+// Rows of B,R,G for character $41 whose planes are B=$00..$07, R=$10..$17, G=$20..$27
+const PCG_ROWS = Array.from({ length: 8 }, (_, r) => [r, 0x10 + r, 0x20 + r]).flat();
+const PCG_PLANES = [0, 0x10, 0x20].flatMap((plane) => Array.from({ length: 8 }, (_, r) => plane + r));
+const dollars = (bytes) => bytes.map((b) => '$' + b.toString(16).toUpperCase().padStart(2, '0')).join(',');
+
+async function until(check, what, timeoutMs = 30_000) {
+  const end = Date.now() + timeoutMs;
+  while (!(await check())) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+// A fresh X1Pen page whose DEFCHR TOOL starts with character $41 drawn (its own storage, B[8],R[8],G[8])
+async function openPcgPage() {
+  const context = await browser.newContext({ acceptDownloads: true });
+  const target = await context.newPage();
+  const lines = [];
+  target.on('console', (message) => lines.push(message.text()));
+  await target.goto(`${baseUrl}/x1pen.html`);
+  await target.evaluate(() => window.X1PenAutomation.ready());
+  await target.evaluate((planes) => {
+    const data = new Uint8Array(256 * 24);
+    data.set(planes, 0x41 * 24);
+    const stored = btoa(String.fromCharCode(...data));
+    localStorage.setItem('defchr-pcgdata', stored);
+    localStorage.setItem('defchr-editbuffer', stored);
+    localStorage.setItem('defchr-state', '{}');
+  }, PCG_PLANES);
+  return { context, page: target, lines };
+}
+
+async function showPcgTab(target, lines) {
+  await target.click('#editor-tabs [data-tab="pcg"]');
+  const frame = await (await target.waitForSelector('#pcg-editor-container iframe')).contentFrame();
+  await until(() => lines.includes('[DEFCHRApp] Initialized successfully'), 'DEFCHR TOOL to start');
+  return frame;
+}
+
+// DEFCHR TOOL's PROGRAMMING panel (key P), as its own tests drive it
+async function pcgPanel(frame, settings) {
+  await frame.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyP', key: 'p', bubbles: true })));
+  await frame.waitForFunction(() => document.getElementById('programming-area').classList.contains('visible'));
+  await frame.evaluate((s) => {
+    const set = (id, value) => {
+      const control = document.getElementById(id);
+      control.value = value;
+      control.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    if (s.delivery) set('host-delivery', s.delivery);
+    if (s.target) set('host-target', s.target);
+    if (s.format) document.querySelector(`input[name="prog-format"][value="${s.format}"]`).click();
+    document.getElementById('prog-start').value = s.start;
+    document.getElementById('prog-end').value = s.end;
+    document.getElementById('prog-exec-btn').click();
+  }, settings);
+}
+
+const activeEditorTab = (target) => target.evaluate(() => document.querySelector('#editor-tabs .editor-tab.active').dataset.tab);
+
+test('the PCG tab runs DEFCHR TOOL in one iframe, inserts at the ASM cursor from its panel and saves files from X1Pen\'s page', { timeout: 120_000 }, async () => {
+  const { context, page: target, lines } = await openPcgPage();
+  try {
+    await target.evaluate(() => window.X1PenAutomation.setProgram({ sourceMode: 'asm', asm: '\tORG\t$C000\nDATA:' }));
+    await target.click('#editor-tabs [data-tab="asm"]');
+    await target.click('#asm-editor-container .cm-content');
+    await target.keyboard.press('Control+End');
+
+    const frame = await showPcgTab(target, lines);
+    assert.equal(await frame.evaluate(() => typeof window.X1Host.exportPCG), 'function');
+    await frame.evaluate(() => { window.x1penMarker = 'same window'; });
+    await pcgPanel(frame, { target: 'asm', start: '41', end: '41' });
+    await until(async () => (await activeEditorTab(target)) === 'asm', 'the ASM tab after inserting');
+    const inserted = `\tORG\t$C000\nDATA:\n; CHR $41\n\tDB\t${dollars(PCG_ROWS)}\n`;
+    assert.equal(await target.evaluate(() => window.X1PenAutomation.getProgram().asm), inserted,
+      'the recommended ASM(x3) goes in on a new line at the cursor');
+    assert.equal(await target.evaluate(() => localStorage.getItem('x1pen_editor_asm')), inserted, 'and is saved like an edit');
+    assert.equal(await target.textContent('#x1pen-status'), 'PCG: ASM タブの 3 行目に 1 文字分（$41）を入れました。');
+    assert.equal(await frame.evaluate(() => document.getElementById('programming-area').classList.contains('visible')), false);
+    assert.equal(await target.evaluate(() => Boolean(document.activeElement.closest('#asm-editor-container'))), true,
+      'the keyboard goes to the ASM tab, not on to the hidden tool');
+
+    // One Ctrl+Z takes the whole insertion back
+    await target.keyboard.press('Control+z');
+    assert.equal(await target.evaluate(() => window.X1PenAutomation.getProgram().asm), '\tORG\t$C000\nDATA:');
+
+    // Switching tabs keeps the tool: the same iframe and window
+    await target.click('#editor-tabs [data-tab="slang"]');
+    await target.click('#editor-tabs [data-tab="pcg"]');
+    assert.equal(await target.locator('#pcg-editor-container iframe').count(), 1);
+    assert.equal(await frame.evaluate(() => window.x1penMarker), 'same window');
+    assert.equal(await target.evaluate(() => !document.getElementById('pcg-editor-container').classList.contains('hidden')), true);
+
+    // "ファイル保存" is written by X1Pen's page (a download inside the iframe is dropped by Firefox)
+    const download = target.waitForEvent('download');
+    await pcgPanel(frame, { delivery: 'file', format: 'bin3', start: '41', end: '41' });
+    const saved = await download;
+    assert.equal(saved.suggestedFilename(), 'pcg_x3.bin');
+    assert.deepEqual([...readFileSync(await saved.path())], PCG_ROWS);
+  } finally {
+    await context.close();
+  }
+});
+
+test('DEFCHR TOOL\'s X1Host inserts each agreed format and changes nothing when X1Pen refuses', { timeout: 120_000 }, async () => {
+  const { context, page: target, lines } = await openPcgPage();
+  try {
+    await target.evaluate(() => window.X1PenAutomation.setProgram({ sourceMode: 'slang', slang: 'MAIN()\n{\n}\n' }));
+    const frame = await showPcgTab(target, lines);
+    const exportPCG = (fields) => frame.evaluate(async ({ bytes, text, ...rest }) => {
+      const blob = new Blob(bytes ? [new Uint8Array(bytes)] : [text ?? '']);
+      return window.X1Host.exportPCG({ version: 1, start: 0x41, end: 0x41, fileName: 'pcg', blob, ...rest });
+    }, fields);
+    const program = () => target.evaluate(() => {
+      const { asm, slang } = window.X1PenAutomation.getProgram();
+      return { asm, slang, tab: document.querySelector('#editor-tabs .editor-tab.active').dataset.tab };
+    });
+
+    // BIN(x3) → a SLANG array; the second one gets a name of its own
+    for (const name of ['PCG41', 'PCG41_2']) {
+      const result = await exportPCG({ target: 'slang', format: 'bin3', bytes: PCG_ROWS });
+      assert.equal(result.ok, true);
+      assert.equal(result.insertedInto, 'slang');
+      assert.match(result.message, /^SLANG タブの \d+ 行目に 1 文字分（\$41）を入れました。配列は関数の外に置いてください。$/);
+      assert.ok((await program()).slang.includes(`ARRAY BYTE ${name}[] = {\n    ${dollars(PCG_ROWS)} // $41\n};\n`), name);
+      assert.equal((await program()).tab, 'slang');
+    }
+    const validated = await target.evaluate(() => window.X1PenAutomation.validate());
+    assert.equal(validated.ok, true, JSON.stringify(validated.diagnostics));
+
+    // FuzzyBASIC: DB data in the ASM tab; BIN keeps its plane order
+    await target.evaluate(() => window.X1PenAutomation.setProgram({ sourceMode: 'basic+asm', basic: '10 PCGDEF 65,&HC000', asm: '' }));
+    assert.deepEqual(await exportPCG({ target: 'fuzzybasic', format: 'bin', bytes: PCG_PLANES }),
+      { ok: true, insertedInto: 'asm', message: 'ASM タブの 1 行目に 1 文字分（$41）を入れました。' });
+    assert.equal((await program()).asm, `; DEFCHR TOOL: CHR $41 (B[8],R[8],G[8])\n; CHR $41\n\tDB\t${dollars(PCG_PLANES)}\n`);
+    // A text format chosen by hand goes in as it is, even into SLANG
+    assert.equal((await exportPCG({ target: 'slang', format: 'asm', text: '; CHR $41\r\tDB\t$00\r' })).ok, true);
+    assert.ok((await program()).slang.startsWith('; CHR $41\n\tDB\t$00\n'));
+
+    await target.click('#editor-tabs [data-tab="pcg"]');
+    const before = await program();
+    const refused = [
+      [{ target: 'hubasic', format: 'bas', basFormat: 'asc', text: '60960DEFCHR$(65)=HEXCHR$("00")\r', hubasic: { lineStart: 60960, lineStep: 10 } }, 'unsupported'],
+      [{ target: 'asm', format: 'image', bytes: [0x89, 0x50] }, 'unsupported'],
+      [{ target: 'asm', format: 'bas', basFormat: 'bin', bytes: [0] }, 'unsupported'],
+      [{ target: 'asm', format: 'bin3', bytes: PCG_ROWS.slice(1) }, 'invalid'],
+      [{ target: 'slang', format: 'bin3', bytes: PCG_ROWS, version: 2 }, 'invalid'],
+      [{ target: 'asm', format: 'asm3', text: '\r\n' }, 'invalid'],
+    ];
+    for (const [fields, code] of refused) {
+      const result = await exportPCG(fields);
+      assert.equal(result.ok, false, JSON.stringify(fields));
+      assert.equal(result.code, code, JSON.stringify(fields));
+      assert.equal(typeof result.message, 'string');
+      assert.deepEqual(await program(), before, `${JSON.stringify(fields)} changes nothing`);
+    }
+
+    // While AI holds the interaction lock: nothing goes in, and the tool itself cannot be used
+    await target.evaluate(() => window.X1PenAutomation.setInteractionLocked(true, 'AI test'));
+    try {
+      assert.equal(await frame.evaluate(() => document.body.inert), true);
+      const result = await exportPCG({ target: 'asm', format: 'asm3', text: '; CHR $41\n' });
+      assert.deepEqual([result.ok, result.code], [false, 'unavailable']);
+      assert.deepEqual(await program(), before);
+    } finally {
+      await target.evaluate(() => window.X1PenAutomation.setInteractionLocked(false));
+    }
+    assert.equal(await frame.evaluate(() => document.body.inert), false);
+  } finally {
+    await context.close();
+  }
+});
+
+test('opened on its own, DEFCHR TOOL gets no X1Host and works as the standalone tool', { timeout: 60_000 }, async () => {
+  const context = await browser.newContext();
+  const target = await context.newPage();
+  const lines = [];
+  const errors = [];
+  target.on('console', (message) => lines.push(message.text()));
+  target.on('pageerror', (error) => errors.push(error.message));
+  try {
+    await target.goto(`${baseUrl}/defchrtool/index.html`);
+    await until(() => lines.includes('[DEFCHRApp] Initialized successfully'), 'DEFCHR TOOL to start');
+    assert.equal(await target.evaluate(() => typeof window.X1Host), 'undefined');
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
   }
 });

@@ -99,9 +99,40 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## X1 互換フォント / 美咲フォント（X1 BASIC Editor の内蔵字形）
+## DEFCHR TOOL for Web (X1Pen の PCG タブ)
 
-**ファイル**: `assets/x1basic/assets/x1-basic.ttf` / `x1-font.json`（エディタの repo の `assets/x1-font-source.txt` から作られたもの）
+**ファイル**: `assets/defchrtool/`（公開先 `defchrtool/`）
+**ソース**: https://github.com/h-o-soft/defchrtool （取り込んだコミットとビルドは `assets/defchrtool/source.json`）
+
+MIT License の下で配布されています。本文はリポジトリの `README.md` の「ライセンス」節と `LICENSE` にあり、どちらも `assets/defchrtool/` に入れています（公開先 `defchrtool/README.md`・`defchrtool/LICENSE`）。X1Pen が足したのは、ビルドした `index.html` の 1 行（X1Pen 用のつなぎ `x1pen-host.js` を読む）だけです。ツールが使うフォントの画像（`assets/fonts/X1font.png`）の条件は、下の「X1 互換フォント / 美咲フォント」と、`README.md` の「使用フォント」節にあります。
+
+```
+MIT License
+
+Copyright (c) 2026 H.O SOFT
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## X1 互換フォント / 美咲フォント（X1 BASIC Editor の内蔵字形、DEFCHR TOOL の字形）
+
+**ファイル**: `assets/x1basic/assets/x1-basic.ttf` / `x1-font.json`（エディタの repo の `assets/x1-font-source.txt` から作られたもの）、`assets/defchrtool/assets/fonts/X1font.png`（DEFCHR TOOL の repo の `public/assets/fonts/X1font.png`）
 **ソース**: Meister 氏の X1 互換フォント https://github.com/meister68k/X1_compatible_font （`FNT0808.X1`、取得元と SHA-256 は `assets/x1basic/assets/x1-font-provenance.json`）
 **元の字形**: 門真 なむ氏「8×8 ドット日本語フォント『美咲フォント』」https://littlelimit.net/misaki.htm
 
