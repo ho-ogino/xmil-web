@@ -632,9 +632,11 @@ window.__X1PEN_MODE = true;
             if (frame && frame.contentWindow && !locked) frame.contentWindow.focus();
         }
 
-        // Checks the request, reads its Blob and builds the text: { checked, planned, built } or a
-        // failure. Only the Blob is waited for; what the caller does next sees the same editors.
-        async function preparePCG(request) {
+        // Checks the request, reads its Blob, builds the text and hands { checked, planned, built }
+        // to use(), whose result it returns; or returns a failure. Only the Blob is waited for:
+        // the admission check, the text built from the editors (the SLANG array name) and use()
+        // run in one go, so no RUN, lock or other insertion comes in between.
+        async function preparePCG(request, use) {
             var api = window.X1PenPcgExport;
             var checked = api.checkRequest(request);
             if (!checked.ok) return checked;
@@ -652,7 +654,7 @@ window.__X1PEN_MODE = true;
             }
             var built = api.build(checked, planned, data, slangEditor ? slangEditor.getValue() : '');
             if (!built.ok) return built;
-            return { ok: true, checked: checked, planned: planned, built: built };
+            return use({ checked: checked, planned: planned, built: built });
         }
 
         // HuBASIC: DEFCHR TOOL's lines merged into the program by line number, in one setBytes
@@ -675,10 +677,12 @@ window.__X1PEN_MODE = true;
         // Insert DEFCHR TOOL's output at the target editor's cursor, in one change (one Ctrl+Z), or
         // merge HuBASIC lines by line number. Never asks: the promise always settles, and a
         // failure changes nothing.
-        async function exportPCG(request) {
+        function exportPCG(request) {
+            return preparePCG(request, insertPCG);
+        }
+
+        function insertPCG(prepared) {
             var api = window.X1PenPcgExport;
-            var prepared = await preparePCG(request);
-            if (!prepared.ok) return prepared;
             var checked = prepared.checked;
             var planned = prepared.planned;
             if (planned.editor === 'hubasic') return mergeIntoHuBasic(prepared);
@@ -704,11 +708,11 @@ window.__X1PEN_MODE = true;
         // The text "クリップボードにコピー" puts on the clipboard, as it would be inserted (HuBASIC:
         // the DEFCHR$ lines). Changes no editor and no tab; x1pen-host.js writes the clipboard from
         // the iframe, which has the focus (Chrome refuses a write from this page then).
-        async function formatPCG(request) {
-            var prepared = await preparePCG(request);
-            if (!prepared.ok) return prepared;
-            return { ok: true, text: prepared.built.text,
-                message: window.X1PenPcgExport.copyMessage(prepared.checked, prepared.planned) };
+        function formatPCG(request) {
+            return preparePCG(request, function(prepared) {
+                return { ok: true, text: prepared.built.text,
+                    message: window.X1PenPcgExport.copyMessage(prepared.checked, prepared.planned) };
+            });
         }
 
         // Called by defchrtool/x1pen-host.js inside the iframe (same origin)

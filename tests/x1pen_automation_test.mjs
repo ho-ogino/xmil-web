@@ -5375,6 +5375,54 @@ test('DEFCHR TOOL\'s X1Host inserts each agreed format and changes nothing when 
   }
 });
 
+test('X1Pen waits only for DEFCHR TOOL\'s Blob: no lock or other insertion comes between its checks and the change', { timeout: 120_000 }, async () => {
+  const { context, page: target, lines } = await openPcgPage();
+  try {
+    await showPcgTab(target, lines);
+    // Only the Blob is waited for: a lock taken at any point either comes before the check
+    // (nothing changes) or after the insertion, never in between
+    const raced = await target.evaluate(async () => {
+      const out = [];
+      for (let depth = 0; depth < 12; depth++) {
+        await window.X1PenAutomation.setProgram({ sourceMode: 'basic+asm', basic: '10 END', asm: '' });
+        let atLock = null;
+        const lockAfter = (n) => {
+          if (n > 0) { queueMicrotask(() => lockAfter(n - 1)); return; }
+          atLock = window.X1PenAutomation.getProgram().asm;
+          window.X1PenAutomation.setInteractionLocked(true, 'race');
+        };
+        const text = '; CHR $41\n';
+        const blob = { size: text.length, type: '', text: () => Promise.resolve(text), arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) };
+        const pending = window.X1PenDefchrToolBridge.exportPCG({ version: 1, target: 'asm', format: 'asm3', start: 0x41, end: 0x41, fileName: 'pcg', blob });
+        lockAfter(depth);
+        const result = await pending;
+        await new Promise((resolve) => setTimeout(resolve, 0));     // the lock has been taken by now
+        const after = window.X1PenAutomation.getProgram().asm;
+        window.X1PenAutomation.setInteractionLocked(false);
+        out.push({ depth, ok: result.ok, code: result.code, atLock, after });
+      }
+      return out;
+    });
+    for (const r of raced) {
+      if (r.ok) assert.ok(r.atLock === null || r.atLock === '; CHR $41\n', `inserted while locked: ${JSON.stringify(r)}`);
+      else assert.deepEqual([r.code, r.after], ['unavailable', ''], JSON.stringify(r));
+    }
+    assert.ok(raced.some((r) => r.ok) && raced.some((r) => !r.ok), JSON.stringify(raced.map((r) => r.ok)));
+
+    // Two at once into SLANG: the second sees the first's array and takes another name
+    const both = await target.evaluate(async (rows) => {
+      await window.X1PenAutomation.setProgram({ sourceMode: 'basic+asm', basic: '10 END', slang: '' });
+      const request = () => ({ version: 1, target: 'slang', format: 'bin3', start: 0x41, end: 0x41, fileName: 'pcg', blob: new Blob([new Uint8Array(rows)]) });
+      const results = await Promise.all([window.X1PenDefchrToolBridge.exportPCG(request()), window.X1PenDefchrToolBridge.exportPCG(request())]);
+      return { ok: results.map((r) => r.ok), slang: window.X1PenAutomation.getProgram().slang };
+    }, PCG_ROWS);
+    assert.deepEqual(both.ok, [true, true]);
+    assert.deepEqual(both.slang.match(/ARRAY BYTE \w+/g).sort(), ['ARRAY BYTE PCG41', 'ARRAY BYTE PCG41_2']);
+  } finally {
+    await context.close();
+  }
+});
+
 test('DEFCHR TOOL\'s HuBASIC lines merge into the program by line number from its panel', { timeout: 120_000 }, async () => {
   const { context, page: target, lines } = await openPcgPage();
   try {
