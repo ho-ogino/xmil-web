@@ -733,7 +733,9 @@ window.__X1PEN_MODE = true;
                 document.body.removeChild(a);
                 setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
             },
-            focus: function() { pauseCallbacks.onFocus(); },
+            // The user went into the tool: also close the "使い方" panel (clicks in the iframe
+            // never reach this page's outside-click handler)
+            focus: function() { closePcgHowtoPanel(false); pauseCallbacks.onFocus(); },
             blur: function() { pauseCallbacks.onBlur(); }
         };
 
@@ -4413,6 +4415,7 @@ window.__X1PEN_MODE = true;
         var slangImportAction = document.getElementById('btn-slang-import');
         var manualBtn = document.getElementById('btn-basic-manual');
         var hubasicOptionsBtn = document.getElementById('btn-hubasic-options');
+        var pcgHowtoBtn = document.getElementById('btn-pcg-howto');
 
         // 全エディタコンテナを非表示
         if (basicContainer) basicContainer.classList.add('hidden');
@@ -4424,7 +4427,9 @@ window.__X1PEN_MODE = true;
         if (slangImportAction) slangImportAction.classList.add('hidden');
         if (manualBtn) manualBtn.classList.add('hidden');
         if (hubasicOptionsBtn) hubasicOptionsBtn.classList.add('hidden');
+        if (pcgHowtoBtn) pcgHowtoBtn.classList.add('hidden');
         if (target !== 'hubasic') closeHuBasicOptionsPanel(false);
+        if (target !== 'pcg') closePcgHowtoPanel(false);
 
         // 選択されたタブのコンテナを表示
         if (target === 'basic') {
@@ -4442,8 +4447,112 @@ window.__X1PEN_MODE = true;
             hubasicEditor.mount();
         } else if (target === 'pcg') {
             if (pcgContainer) pcgContainer.classList.remove('hidden');
+            if (pcgHowtoBtn) pcgHowtoBtn.classList.remove('hidden');
             pcgTool.show();
         }
+    }
+
+    // ── PCG タブの「使い方」の枠 ──
+    // How FuzzyBASIC and SLANG define PCG characters from the inserted data (x1pen_pcg_howto.js),
+    // each block with a copy button. Closes like the HuBASIC options panel, and also when the
+    // DEFCHR TOOL iframe takes the focus (clicks in it never reach this page).
+    var pcgHowtoBtnEl = document.getElementById('btn-pcg-howto');
+    var pcgHowtoPanel = document.getElementById('pcg-howto-panel');
+
+    function renderPcgHowto() {
+        var howto = window.X1PenPcgHowto;
+        document.getElementById('pcg-howto-intro').textContent = howto.intro;
+        var list = document.getElementById('pcg-howto-examples');
+        list.textContent = '';
+        howto.examples.forEach(function(example) {
+            var title = document.createElement('h3');
+            title.textContent = example.title;
+            var note = document.createElement('p');
+            note.className = 'pcg-howto-note';
+            note.textContent = example.note;
+            list.appendChild(title);
+            list.appendChild(note);
+            example.blocks.forEach(function(block) {
+                var head = document.createElement('div');
+                head.className = 'pcg-howto-block-head';
+                var label = document.createElement('span');
+                label.textContent = block.label;
+                var copy = document.createElement('button');
+                copy.type = 'button';
+                copy.textContent = 'コピー';
+                copy.setAttribute('aria-label', example.title + '・' + block.label + 'のお手本をコピー');
+                var pre = document.createElement('pre');
+                var code = document.createElement('code');
+                code.textContent = block.code;
+                pre.appendChild(code);
+                copy.addEventListener('click', function() {
+                    copyPcgHowto(copy, code, block.code, example.title + '・' + block.label);
+                });
+                head.appendChild(label);
+                head.appendChild(copy);
+                list.appendChild(head);
+                list.appendChild(pre);
+            });
+        });
+    }
+
+    // The button says what happened for a moment; when the browser refuses, the code is selected
+    // for Ctrl+C
+    function copyPcgHowto(button, codeEl, text, what) {
+        function show(label, status) {
+            button.textContent = label;
+            elStatus.textContent = status;
+            clearTimeout(button._resetTimer);
+            button._resetTimer = setTimeout(function() { button.textContent = 'コピー'; }, 1500);
+        }
+        function refused() {
+            var range = document.createRange();
+            range.selectNodeContents(codeEl);
+            var selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            show('Ctrl+C でコピー', 'PCG: コピーできませんでした。選んだ文を Ctrl+C でコピーしてください。');
+        }
+        var writing;
+        try {
+            writing = navigator.clipboard && typeof navigator.clipboard.writeText === 'function'
+                ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard'));
+        } catch (e) {
+            writing = Promise.reject(e);
+        }
+        writing.then(function() {
+            show('コピーしました', 'PCG: お手本（' + what + '）をコピーしました。');
+        }, refused);
+    }
+
+    function openPcgHowtoPanel() {
+        renderPcgHowto();
+        pcgHowtoPanel.classList.remove('hidden');
+        pcgHowtoBtnEl.setAttribute('aria-expanded', 'true');
+        var first = pcgHowtoPanel.querySelector('.pcg-howto-block-head button');
+        if (first) first.focus();
+    }
+
+    function closePcgHowtoPanel(restoreFocus) {
+        if (!pcgHowtoPanel || pcgHowtoPanel.classList.contains('hidden')) return;
+        var hadFocus = pcgHowtoPanel.contains(document.activeElement);
+        pcgHowtoPanel.classList.add('hidden');
+        pcgHowtoBtnEl.setAttribute('aria-expanded', 'false');
+        if (restoreFocus && hadFocus) pcgHowtoBtnEl.focus();
+    }
+
+    if (pcgHowtoPanel && pcgHowtoBtnEl) {
+        pcgHowtoBtnEl.addEventListener('click', function() {
+            if (pcgHowtoPanel.classList.contains('hidden')) openPcgHowtoPanel();
+            else closePcgHowtoPanel(true);
+        });
+        document.getElementById('pcg-howto-close').addEventListener('click', function() { closePcgHowtoPanel(true); });
+        pcgHowtoPanel.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { e.preventDefault(); closePcgHowtoPanel(true); }
+        });
+        document.addEventListener('pointerdown', function(e) {
+            if (!pcgHowtoPanel.contains(e.target) && !pcgHowtoBtnEl.contains(e.target)) closePcgHowtoPanel(false);
+        }, true);
     }
 
     // ── HuBASIC の変換オプションの枠 ──

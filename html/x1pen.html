@@ -255,6 +255,49 @@
         #hubasic-options-panel input[aria-invalid="true"] { border-color: #e94560; }
         #hubasic-options-panel .disabled { opacity: 0.45; }
         .hubasic-options-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+
+        #pcg-howto-panel {
+            position: absolute;
+            top: 30px;
+            right: 8px;
+            z-index: 60;
+            width: 420px;
+            max-width: calc(100% - 32px);
+            max-height: calc(100% - 40px);
+            overflow-y: auto;
+            box-sizing: border-box;
+            padding: 10px 12px;
+            background: #16213e;
+            border: 1px solid #1a4a88;
+            border-radius: 4px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+            color: #c8d0e0;
+            font-size: 0.8em;
+        }
+        #pcg-howto-panel p { margin: 0 0 6px; }
+        #pcg-howto-panel h3 { margin: 10px 0 4px; font-size: 1.05em; color: #e0e6f0; }
+        .pcg-howto-note { color: #8899bb; }
+        .pcg-howto-block-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 2px; }
+        .pcg-howto-block-head button {
+            font: inherit;
+            padding: 2px 10px;
+            background: #0d1e36;
+            border: 1px solid #1a4a88;
+            border-radius: 3px;
+            color: #5599ee;
+            cursor: pointer;
+        }
+        #pcg-howto-panel pre {
+            margin: 0;
+            padding: 6px 8px;
+            overflow-x: auto;
+            background: #0b1426;
+            border: 1px solid #1a3358;
+            border-radius: 3px;
+            color: #d8e0f0;
+            font-family: 'Courier New', monospace;
+            tab-size: 8;
+        }
         .hubasic-options-actions button {
             background: #0d1e36;
             border: 1px solid #1a4a88;
@@ -702,13 +745,14 @@
                 <button class="editor-tab" data-tab="asm">ASM</button>
                 <button class="editor-tab" data-tab="slang">SLANG</button>
                 <button class="editor-tab" data-tab="hubasic" title="HuBASIC (converted to SLANG and booted from a disk image)">HuBASIC</button>
-                <button class="editor-tab" data-tab="pcg" title="DEFCHR TOOL (PCG editor): draw PCG characters and insert them into the ASM or SLANG tab">PCG</button>
+                <button class="editor-tab" data-tab="pcg" title="DEFCHR TOOL (PCG editor): draw PCG characters and insert them into the ASM, SLANG or HuBASIC tab">PCG</button>
                 <button class="editor-tab-action hidden" id="btn-asm-import" title="Import binary as DB lines">Import</button>
                 <input type="file" id="asm-import-file" style="display:none">
                 <button class="editor-tab-action hidden" id="btn-slang-import" title="Insert binary array values at the SLANG cursor">Import</button>
                 <input type="file" id="slang-import-file" style="display:none">
                 <a href="http://retropc.net/ohishi/s-os/fubasic.htm" class="editor-tab-action" id="btn-basic-manual" style="text-decoration:none; margin-left:auto;" title="FuzzyBASIC Manual" target="_blank" rel="noopener">Manual</a>
                 <button class="editor-tab-action hidden" id="btn-hubasic-options" title="HuBASIC conversion options (all HuBASIC programs)" aria-expanded="false" aria-controls="hubasic-options-panel">Options</button>
+                <button class="editor-tab-action hidden" id="btn-pcg-howto" title="How FuzzyBASIC and SLANG define PCG characters from the inserted data" aria-expanded="false" aria-controls="pcg-howto-panel">使い方</button>
                 <a href="x1pen_charmap.html" class="editor-tab-action" style="text-decoration:none; margin-left:4px;" title="Character code reference" target="_blank">Charmap</a>
             </div>
             <div id="hubasic-options-panel" class="hidden" role="group" aria-label="HuBASIC の変換オプション">
@@ -738,6 +782,13 @@
                 <div class="hubasic-options-actions">
                     <button type="button" id="hubasic-opt-reset">既定に戻す</button>
                     <button type="button" id="hubasic-opt-close">閉じる</button>
+                </div>
+            </div>
+            <div id="pcg-howto-panel" class="hidden" role="group" aria-label="PCG の定義のお手本">
+                <p class="pcg-howto-note" id="pcg-howto-intro"></p>
+                <div id="pcg-howto-examples"></div>
+                <div class="hubasic-options-actions">
+                    <button type="button" id="pcg-howto-close">閉じる</button>
                 </div>
             </div>
             <div id="basic-editor-container"></div>
@@ -942,6 +993,7 @@
     <script src="x1pen_hubasic_text.js"></script>
     <script src="x1pen_hubasic_options.js"></script>
     <script src="x1pen_pcg_export.js"></script>
+    <script src="x1pen_pcg_howto.js"></script>
     <script src="x1pen-version.js"></script>
     <script src="x1pen.js"></script>
     <script src="disk_container.js"></script>

@@ -30,10 +30,11 @@ function listFiles(dir) {
 const context = { console };
 context.window = context;
 vm.createContext(context);
-for (const file of ['x1pen_pcg_export.js', 'x1pen_z80asm.js', 'x1pen_slang_compiler.js']) {
+for (const file of ['x1pen_pcg_export.js', 'x1pen_pcg_howto.js', 'x1pen_z80asm.js', 'x1pen_slang_compiler.js']) {
   vm.runInContext(readFileSync(join(repoRoot, 'html', file), 'utf8'), context, { filename: file });
 }
 const pcg = context.X1PenPcgExport;
+const howto = context.X1PenPcgHowto;
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 // A Blob stand-in from another window: the right shape, not this realm's Blob
@@ -469,4 +470,45 @@ test('a merged program reads back with each new line once and the old lines as t
   assert.deepEqual(read.map((line) => line.number), [10, 100, 105, 107, 110, 115, 120, 125, 130, 135, 140, 145, 200]);
   for (const line of lines) assert.equal(read.filter((r) => `${r.number}${r.rest}` === line).length, 1, line);
   assert.equal(read.find((r) => r.number === 107).rest, ' PRINT "A"');
+});
+
+// ── The PCG tab's "使い方" (html/x1pen_pcg_howto.js) ──
+
+const howtoBlocks = () => plain(howto.examples.flatMap((example) => example.blocks.map((block) => ({ example: example.id, ...block }))));
+
+test('the PCG examples are FuzzyBASIC (ASM and BASIC tabs) and SLANG, the same code as docs/X1PEN.md', () => {
+  assert.deepEqual(howtoBlocks().map((block) => `${block.example}/${block.label}`),
+    ['fuzzybasic/ASM タブ', 'fuzzybasic/BASIC タブ', 'slang/SLANG タブ']);
+  const docs = readFileSync(join(repoRoot, 'docs', 'X1PEN.md'), 'utf8');
+  const section = docs.slice(docs.indexOf('#### PCG の定義のお手本'), docs.indexOf('\n## 実行'));
+  assert.ok(section.includes(howto.intro), 'the intro');
+  for (const example of howto.examples) assert.ok(section.includes(`**${example.title}**: ${example.note}`), example.id);
+  const fenced = [...section.matchAll(/```\w*\n([\s\S]*?)```/g)].map((m) => m[1]);
+  assert.deepEqual(fenced, howtoBlocks().map((block) => block.code), 'the docs have the panel\'s code, as it is');
+});
+
+test('the FuzzyBASIC example assembles with inserted DB lines where its PCGDEF lines read them', async () => {
+  const [asmBlock, basicBlock] = howto.examples.find((example) => example.id === 'fuzzybasic').blocks;
+  const rows = charsBytes(2, true);
+  const data = (await inserted(request({ target: 'fuzzybasic', format: 'bin3', end: 0x42, blob: blobOf(rows) }))).text;
+  const assembled = context.X1PenZ80Asm.assemble(asmBlock.code + data);
+  assert.deepEqual(plain(assembled.errors), []);
+  assert.deepEqual([...assembled.bytes], rows);
+  const org = Number.parseInt(/ORG\t\$([0-9A-F]+)/.exec(asmBlock.code)[1], 16);
+  const pcgdef = [...basicBlock.code.matchAll(/PCGDEF (\d+),\$([0-9A-F]+)/g)].map((m) => [Number(m[1]), Number.parseInt(m[2], 16)]);
+  assert.deepEqual(pcgdef, [[0x41, org], [0x42, org + 24]], 'each character 24 bytes on');
+  assert.match(basicBlock.code, new RegExp(`BLOAD "PROGRAM.BIN",\\$${org.toString(16).toUpperCase()}\n`));
+});
+
+test('the SLANG example compiles pasted below the inserted array, whose name it uses', async () => {
+  const [block] = howto.examples.find((example) => example.id === 'slang').blocks;
+  const rows = charsBytes(2, true);
+  const array = (await inserted(request({ target: 'slang', format: 'bin3', end: 0x42, blob: blobOf(rows) }))).text;
+  assert.match(array, /^ARRAY BYTE PCG41\[\] = \{$/m, 'the name the example uses');
+  assert.match(block.code, /PCGDEFS\(\$41, PCG41, 2\);/);
+  assert.equal(pcg.slangArrayName(block.code.split('\n')[0], 0x41), 'PCG41', 'its first line does not take the name');
+  const runtimeDir = join(repoRoot, 'assets', 'slang_runtime');
+  const vfs = Object.fromEntries(readdirSync(runtimeDir).map((name) => [name, readFileSync(join(runtimeDir, name), 'utf8')]));
+  const compiled = context.X1PenSlangCompiler.compile(array + block.code, vfs, { defaultOrg: 0x100, codeReadonly: false, defines: { ENV_TYPE: 1 } });
+  assert.deepEqual(plain(compiled.errors), []);
 });
