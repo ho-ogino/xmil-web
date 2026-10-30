@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DEFCHR TOOL for Web</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        background-color: #1a1a2e;
+        color: #eaeaea;
+        font-family: monospace;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-height: 100vh;
+        padding: 20px;
+      }
+
+      h1 {
+        margin-bottom: 20px;
+        color: #00ff88;
+        text-shadow: 0 0 10px #00ff8855;
+      }
+
+      #canvas-container {
+        border: 2px solid #00ff88;
+        box-shadow: 0 0 20px #00ff8833;
+        background-color: #000;
+      }
+
+      canvas {
+        display: block;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+      }
+
+      #status {
+        margin-top: 10px;
+        color: #00ff88;
+        font-size: 14px;
+        min-height: 1.5em;
+      }
+
+      #copyright {
+        margin-top: 10px;
+        color: #666;
+        font-size: 12px;
+      }
+
+      /* 共通入力エリアスタイル */
+      .input-panel {
+        margin-top: 15px;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 15px 20px;
+        background-color: #2a2a4e;
+        border: 1px solid #00ff88;
+        border-radius: 4px;
+      }
+
+      .input-panel.visible {
+        display: flex;
+      }
+
+      .input-panel label {
+        color: #00ff88;
+        font-size: 14px;
+      }
+
+      .input-panel input {
+        background-color: #1a1a2e;
+        border: 1px solid #00ff88;
+        color: #ffffff;
+        font-family: monospace;
+        font-size: 14px;
+        padding: 5px 10px;
+        text-transform: uppercase;
+      }
+
+      .input-panel input:focus {
+        outline: none;
+        box-shadow: 0 0 5px #00ff88;
+      }
+
+      .input-panel .hint {
+        color: #888;
+        font-size: 12px;
+      }
+
+      /* 通常入力エリア */
+      #input-area {
+        flex-direction: row;
+      }
+
+      #input-area input {
+        width: 80px;
+      }
+
+      /* ROTATIONメニュー */
+      #rotation-area {
+        min-width: 400px;
+      }
+
+      #rotation-area .menu-title {
+        color: #00ffff;
+        font-size: 14px;
+        margin-bottom: 5px;
+      }
+
+      #rotation-area .menu-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 5px 15px;
+        margin-bottom: 10px;
+        font-size: 14px;
+      }
+
+      #rotation-area .menu-item {
+        color: #00ffff;
+      }
+
+      #rotation-area .input-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      #rotation-area input {
+        width: 40px;
+        text-align: center;
+      }
+
+      /* TRANSFERエリア */
+      #transfer-area .input-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      #transfer-area .field-group {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      #transfer-area .field-label {
+        color: #ffff00;
+        font-size: 14px;
+      }
+
+      #transfer-area input {
+        width: 50px;
+        text-align: center;
+      }
+
+      /* COLOR CHANGEエリア */
+      #color-change-area {
+        min-width: 400px;
+      }
+
+      #color-change-area .color-row {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-bottom: 5px;
+      }
+
+      #color-change-area .color-label-fixed {
+        color: #00ffff;
+        font-size: 14px;
+        min-width: 130px;
+      }
+
+      #color-change-area .color-label {
+        color: #00ffff;
+        font-size: 14px;
+        min-width: 130px;
+      }
+
+      #color-change-area .color-index {
+        color: #00ffff;
+        font-size: 14px;
+        width: 24px;
+        text-align: center;
+      }
+
+      #color-change-area .color-input {
+        width: 20px;
+        text-align: center;
+        padding: 2px 4px;
+        margin: 0 2px;
+      }
+
+      /* PROGRAMMINGエリア */
+      #programming-area {
+        min-width: 450px;
+        max-width: calc(100vw - 60px);
+        max-height: calc(100vh - 60px);
+        overflow: auto;
+      }
+
+      #programming-area [hidden] {
+        display: none !important;
+      }
+
+      #programming-area select {
+        background: #1a1a2e;
+        color: #fff;
+        border: 1px solid #00ff88;
+        padding: 4px;
+        font: inherit;
+      }
+
+      #programming-area .host-lines input[type="text"] {
+        width: 75px;
+      }
+
+      #host-output-note {
+        max-width: 600px;
+        white-space: normal;
+        font-size: 13px;
+      }
+
+      @media (max-width: 650px) {
+        #programming-area { min-width: 0; width: calc(100vw - 60px); }
+        #programming-area .form-row,
+        #programming-area .radio-group { flex-wrap: wrap; gap: 8px; }
+      }
+
+      #programming-area .panel-title {
+        color: #ffff00;
+        font-size: 14px;
+        margin-bottom: 10px;
+      }
+
+      #programming-area .form-row {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 10px;
+        width: 100%;
+      }
+
+      #programming-area .form-label {
+        color: #00ffff;
+        font-size: 14px;
+        min-width: 60px;
+      }
+
+      #programming-area .radio-group {
+        display: flex;
+        gap: 15px;
+      }
+
+      #programming-area .radio-label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: #ffffff;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      #programming-area .radio-label.disabled {
+        color: #666;
+        cursor: not-allowed;
+      }
+
+      #programming-area input[type="radio"] {
+        cursor: pointer;
+      }
+
+      #programming-area input[type="radio"]:disabled {
+        cursor: not-allowed;
+      }
+
+      #programming-area .range-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      #programming-area .range-group.hidden {
+        display: none;
+      }
+
+      #programming-area .field-group {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      #programming-area .field-label {
+        color: #ffff00;
+        font-size: 14px;
+      }
+
+      #programming-area input[type="text"] {
+        width: 50px;
+        text-align: center;
+      }
+
+      #programming-area input[type="text"]:disabled {
+        background-color: #333;
+        color: #666;
+        border-color: #555;
+      }
+
+      #programming-area .button-row {
+        display: flex;
+        gap: 15px;
+        margin-top: 10px;
+      }
+
+      #programming-area button {
+        background-color: #1a1a2e;
+        border: 1px solid #00ff88;
+        color: #00ff88;
+        font-family: monospace;
+        font-size: 14px;
+        padding: 8px 20px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      #programming-area button:hover:not(:disabled) {
+        background-color: #00ff88;
+        color: #1a1a2e;
+      }
+
+      #programming-area button:disabled {
+        border-color: #555;
+        color: #555;
+        cursor: not-allowed;
+      }
+
+      #programming-area button.cancel-btn {
+        border-color: #ff6666;
+        color: #ff6666;
+      }
+
+      #programming-area button.cancel-btn:hover {
+        background-color: #ff6666;
+        color: #1a1a2e;
+      }
+    </style>
+    <script src="x1pen-host.js"></script><script type="module" crossorigin src="./assets/index-K3VHm9yx.js"></script>
+  </head>
+  <body>
+    <h1>DEFCHR TOOL for Web</h1>
+    <div id="canvas-container">
+      <canvas id="main-canvas"></canvas>
+    </div>
+
+    <!-- 通常入力エリア（EDIT CHR., SET CHR.用） -->
+    <div id="input-area" class="input-panel">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <label id="input-label">Character code=&amp;h</label>
+        <input type="text" id="input-field" maxlength="2" placeholder="00">
+        <span class="hint">(Enter: OK / Esc: Cancel)</span>
+      </div>
+    </div>
+
+    <!-- ROTATIONメニュー -->
+    <div id="rotation-area" class="input-panel">
+      <div class="menu-title">----- Rotation -----</div>
+      <div class="menu-grid">
+        <span class="menu-item">0..Right</span>
+        <span class="menu-item">1..Left</span>
+        <span class="menu-item">2..Up</span>
+        <span class="menu-item">3..Down</span>
+        <span class="menu-item">4..90°</span>
+        <span class="menu-item">5..180°</span>
+        <span class="menu-item">6..─</span>
+        <span class="menu-item">7..│</span>
+      </div>
+      <div class="input-row">
+        <label>Select(0-7)?</label>
+        <input type="text" id="rotation-field" maxlength="1" placeholder="0">
+        <span class="hint">(Enter: OK / Esc: Cancel)</span>
+      </div>
+    </div>
+
+    <!-- TRANSFERエリア -->
+    <div id="transfer-area" class="input-panel">
+      <label>TRANSFER HEX CODE</label>
+      <div class="input-row">
+        <div class="field-group">
+          <span class="field-label">S=&amp;h</span>
+          <input type="text" id="transfer-start" maxlength="2" placeholder="00">
+        </div>
+        <div class="field-group">
+          <span class="field-label">E=&amp;h</span>
+          <input type="text" id="transfer-end" maxlength="2" placeholder="00">
+        </div>
+        <div class="field-group">
+          <span class="field-label">T=&amp;h</span>
+          <input type="text" id="transfer-target" maxlength="2" placeholder="00">
+        </div>
+        <span class="hint">(Tab: Next / Enter: OK / Esc: Cancel)</span>
+      </div>
+    </div>
+
+    <!-- CLR確認エリア -->
+    <div id="clear-area" class="input-panel">
+      <label style="color: #00ffff;">CLS OK THEN push RETURN key ?</label>
+      <span class="hint">(Enter: Clear / Esc: Cancel)</span>
+    </div>
+
+    <!-- COLOR CHANGEエリア -->
+    <div id="color-change-area" class="input-panel">
+      <div class="color-row">
+        <span class="color-label-fixed">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;COLOR =</span>
+        <span class="color-index">0,</span>
+        <span class="color-index">1,</span>
+        <span class="color-index">2,</span>
+        <span class="color-index">3,</span>
+        <span class="color-index">4,</span>
+        <span class="color-index">5,</span>
+        <span class="color-index">6,</span>
+        <span class="color-index">7</span>
+      </div>
+      <div class="color-row">
+        <span class="color-label">CHANGE COLOR =</span>
+        <input type="text" class="color-input" id="color-0" maxlength="1" value="0">
+        <input type="text" class="color-input" id="color-1" maxlength="1" value="1">
+        <input type="text" class="color-input" id="color-2" maxlength="1" value="2">
+        <input type="text" class="color-input" id="color-3" maxlength="1" value="3">
+        <input type="text" class="color-input" id="color-4" maxlength="1" value="4">
+        <input type="text" class="color-input" id="color-5" maxlength="1" value="5">
+        <input type="text" class="color-input" id="color-6" maxlength="1" value="6">
+        <input type="text" class="color-input" id="color-7" maxlength="1" value="7">
+      </div>
+      <span class="hint">(Tab: Next / Enter: OK / Esc: Cancel)</span>
+    </div>
+
+    <!-- PROGRAMMINGエリア -->
+    <div id="programming-area" class="input-panel">
+      <div class="panel-title">## DEFCHR Programming ##</div>
+
+      <div class="form-row" id="host-delivery-row" hidden>
+        <label class="form-label" for="host-delivery">保存先:</label>
+        <select id="host-delivery">
+          <option value="host">X1Pen に挿入</option>
+          <option value="file">ファイル保存</option>
+        </select>
+      </div>
+      <div class="form-row" id="host-target-row" hidden>
+        <label class="form-label" for="host-target">出力先:</label>
+        <select id="host-target">
+          <option value="">選んでください</option>
+          <option value="fuzzybasic">FuzzyBASIC</option>
+          <option value="asm">ASM</option>
+          <option value="slang">SLANG</option>
+          <option value="hubasic">HuBASIC</option>
+        </select>
+      </div>
+      <div class="form-row host-lines" id="host-lines-row" hidden>
+        <label class="form-label" for="host-line-start">開始行:</label>
+        <input type="text" id="host-line-start" inputmode="numeric" value="60960">
+        <label class="field-label" for="host-line-step">ステップ:</label>
+        <input type="text" id="host-line-step" inputmode="numeric" value="10">
+      </div>
+      <p id="host-output-note" role="status" hidden></p>
+
+      <!-- Format選択 -->
+      <div class="form-row">
+        <span class="form-label">Format:</span>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" name="prog-format" value="image" checked>
+            IMAGE
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="prog-format" value="bin">
+            BIN
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="prog-format" value="bin3">
+            BIN(x3)
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="prog-format" value="bas">
+            BAS
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="prog-format" value="asm">
+            ASM
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="prog-format" value="asm3">
+            ASM(x3)
+          </label>
+        </div>
+      </div>
+
+      <!-- Mode選択 -->
+      <div class="form-row">
+        <span class="form-label">Mode:</span>
+        <div class="radio-group">
+          <label class="radio-label" id="mode-save-label">
+            <input type="radio" name="prog-mode" value="save" id="mode-save" checked>
+            SAVE
+          </label>
+          <label class="radio-label" id="mode-load-label">
+            <input type="radio" name="prog-mode" value="load" id="mode-load">
+            LOAD
+          </label>
+        </div>
+      </div>
+
+      <!-- Range入力 -->
+      <div class="form-row range-group" id="range-row">
+        <span class="form-label">Range:</span>
+        <div class="field-group">
+          <span class="field-label">S=&amp;h</span>
+          <input type="text" id="prog-start" maxlength="2" placeholder="00" value="00">
+        </div>
+        <div class="field-group">
+          <span class="field-label">E=&amp;h</span>
+          <input type="text" id="prog-end" maxlength="2" placeholder="FF" value="FF">
+        </div>
+      </div>
+
+      <!-- BAS保存形式選択（BAS + SAVE時のみ表示） -->
+      <div class="form-row" id="bas-save-format-row" style="display: none;">
+        <span class="form-label">Type:</span>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" name="bas-save-format" value="asc" checked>
+            ASC (ASCII)
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="bas-save-format" value="bin">
+            BAS (Binary)
+          </label>
+        </div>
+      </div>
+
+      <!-- BASロードモード選択（BAS + LOAD時のみ表示） -->
+      <div class="form-row" id="bas-load-mode-row" style="display: none;">
+        <span class="form-label">Code:</span>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" name="bas-load-mode" value="start" checked>
+            From START
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="bas-load-mode" value="original">
+            As defined
+          </label>
+        </div>
+      </div>
+
+      <!-- 画像減色モード選択（IMAGE + LOAD時のみ表示） -->
+      <div class="form-row" id="image-reduce-mode-row" style="display: none;">
+        <span class="form-label">Reduce:</span>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" name="image-reduce-mode" value="none" checked>
+            none
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="image-reduce-mode" value="reduce">
+            reduce
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="image-reduce-mode" value="dither">
+            dither
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="image-reduce-mode" value="edfs">
+            edfs
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="image-reduce-mode" value="retro">
+            retro
+          </label>
+        </div>
+      </div>
+
+      <!-- ボタン -->
+      <div class="button-row">
+        <button type="button" id="prog-exec-btn">EXEC</button>
+        <button type="button" id="prog-cancel-btn" class="cancel-btn">CANCEL</button>
+      </div>
+
+      <span class="hint">(Esc: Cancel)</span>
+    </div>
+
+    <div id="status">Loading...</div>
+    <div id="copyright">Based on X1 DEFCHR TOOL / Web version by H.O SOFT</div>
+  </body>
+</html>

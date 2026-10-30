@@ -265,21 +265,21 @@
             font: inherit;
         }
 
-        #basic-editor-container, #asm-editor-container, #slang-editor-container, #hubasic-editor-container {
+        #basic-editor-container, #asm-editor-container, #slang-editor-container, #hubasic-editor-container, #pcg-editor-container {
             flex: 1;
             overflow: hidden;
             background: #0d1117;
         }
         /* display:none だと CodeMirror の DOM 初期化が壊れるため、
            エディタコンテナは visibility で非表示にする */
-        #basic-editor-container.hidden, #asm-editor-container.hidden, #slang-editor-container.hidden, #hubasic-editor-container.hidden {
+        #basic-editor-container.hidden, #asm-editor-container.hidden, #slang-editor-container.hidden, #hubasic-editor-container.hidden, #pcg-editor-container.hidden {
             display: flex !important;
             visibility: hidden;
             height: 0 !important;
             flex: 0 !important;
             overflow: hidden;
         }
-        #hubasic-editor-container iframe {
+        #hubasic-editor-container iframe, #pcg-editor-container iframe {
             width: 100%;
             height: 100%;
             border: 0;
@@ -702,6 +702,7 @@
                 <button class="editor-tab" data-tab="asm">ASM</button>
                 <button class="editor-tab" data-tab="slang">SLANG</button>
                 <button class="editor-tab" data-tab="hubasic" title="HuBASIC (converted to SLANG and booted from a disk image)">HuBASIC</button>
+                <button class="editor-tab" data-tab="pcg" title="DEFCHR TOOL (PCG editor): draw PCG characters and insert them into the ASM or SLANG tab">PCG</button>
                 <button class="editor-tab-action hidden" id="btn-asm-import" title="Import binary as DB lines">Import</button>
                 <input type="file" id="asm-import-file" style="display:none">
                 <button class="editor-tab-action hidden" id="btn-slang-import" title="Insert binary array values at the SLANG cursor">Import</button>
@@ -743,6 +744,7 @@
             <div id="asm-editor-container" class="hidden"></div>
             <div id="slang-editor-container" class="hidden"></div>
             <div id="hubasic-editor-container" class="hidden"></div>
+            <div id="pcg-editor-container" class="hidden"></div>
         </div>
         <div id="emu-panel">
             <div style="position:relative; display:inline-block;">
@@ -939,6 +941,7 @@
     <script src="x1basic/src/codec.js"></script>
     <script src="x1pen_hubasic_text.js"></script>
     <script src="x1pen_hubasic_options.js"></script>
+    <script src="x1pen_pcg_export.js"></script>
     <script src="x1pen-version.js"></script>
     <script src="x1pen.js"></script>
     <script src="disk_container.js"></script>

@@ -1,0 +1,36 @@
+{
+  "repository": "https://github.com/h-o-soft/defchrtool",
+  "commit": "07fa3388984be6476ff57bc6d8a2845426a20133",
+  "build": {
+    "command": "npm ci && npx vite build --base ./",
+    "node": "v24.19.0",
+    "npm": "12.0.2"
+  },
+  "files": {
+    "assets/fonts/X1font.png": {
+      "sha256": "ab4c5293853f2d563d9335e28d2a4f5902566f962596f4e0b61378a6d8a6b88e",
+      "size": 2480
+    },
+    "assets/index-K3VHm9yx.js": {
+      "sha256": "1ec4fa47b6c7e7d98884dc30487c62f862c22a29c3c11a474c5412e54db6b855",
+      "size": 74247
+    },
+    "index.html": {
+      "sha256": "2fb37c62921c70d5b758f41b0a55dea57ed6dfc42e4b260904d2e338df77a87d",
+      "size": 17304
+    },
+    "LICENSE": {
+      "sha256": "ef9c8b2d139fa5509e914eb0fe8aa1c52944611f30c5575dddebd07a49c46eb0",
+      "size": 1065
+    },
+    "README.md": {
+      "sha256": "b8769d703322de2683a3f0dcb12dd89a5d2cba670af54a779a34ab95e13777b0",
+      "size": 10785
+    }
+  },
+  "injected": {
+    "path": "index.html",
+    "line": "<script src=\"x1pen-host.js\"></script>",
+    "before": "<script type=\"module\""
+  }
+}

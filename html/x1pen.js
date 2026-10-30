@@ -610,6 +610,102 @@ window.__X1PEN_MODE = true;
         };
     }
 
+    // PCG: DEFCHR TOOL for Web (defchrtool/, imported by scripts/import-defchrtool.mjs) in an iframe.
+    // Its drawing lives in its own localStorage (defchr-*), not in X1Pen's program or Share. Its
+    // "X1Pen に挿入" calls X1Host.exportPCG (defchrtool/x1pen-host.js), which lands in exportPCG here.
+    var pcgTool = createPcgTool(document.getElementById('pcg-editor-container'));
+
+    function createPcgTool(container) {
+        var frame = null;
+        var locked = false;
+        var editors = { asm: asmEditor, slang: slangEditor };
+
+        function applyLock() {
+            var doc = frame && frame.contentDocument;
+            if (!doc || !doc.body) return;
+            doc.body.inert = locked;
+            if (locked && doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
+        }
+
+        function focusFrame() {
+            if (frame && frame.contentWindow && !locked) frame.contentWindow.focus();
+        }
+
+        // Insert DEFCHR TOOL's output at the target editor's cursor, in one change (one Ctrl+Z).
+        // Never asks: the promise always settles, and a failure changes nothing.
+        async function exportPCG(request) {
+            var api = window.X1PenPcgExport;
+            var checked = api.checkRequest(request);
+            if (!checked.ok) return checked;
+            var planned = api.plan(checked);
+            if (!planned.ok) return planned;
+            var data;
+            try {
+                data = planned.read === 'text' ? await request.blob.text() : new Uint8Array(await request.blob.arrayBuffer());
+            } catch (e) {
+                return { ok: false, code: 'invalid', message: '出力のデータが読めません。' };
+            }
+            // From here on nothing waits: the checks and the change see the same editors
+            if (runAdmission || automationInteractionLocked) {
+                return { ok: false, code: 'unavailable', message: 'RUN の準備中か、AI が操作中です。終わってからもう一度試してください。' };
+            }
+            var editor = editors[planned.editor];
+            if (!editor || !editor.view) return { ok: false, code: 'unavailable', message: '挿入先のエディタがありません。' };
+            var built = api.build(checked, planned, data, slangEditor ? slangEditor.getValue() : '');
+            if (!built.ok) return built;
+            var pos = editor.getCursor();
+            var text = (pos > 0 && editor.getCharAt(pos - 1) !== '\n' ? '\n' : '') + built.text;
+            var line = editor.view.state.doc.lineAt(pos).number + (text.charAt(0) === '\n' ? 1 : 0);
+            editor.view.dispatch({
+                changes: { from: pos, insert: text },
+                selection: { anchor: pos + text.length },
+                scrollIntoView: true
+            });
+            setActiveEditorTab(planned.editor);
+            // The keyboard follows: typing must not go on to the hidden tool
+            editor.focus();
+            var message = api.successMessage(checked, planned, line);
+            elStatus.textContent = 'PCG: ' + message;
+            return { ok: true, insertedInto: planned.editor, message: message };
+        }
+
+        // Called by defchrtool/x1pen-host.js inside the iframe (same origin)
+        window.X1PenDefchrToolBridge = {
+            exportPCG: exportPCG,
+            // "ファイル保存": the file is made by this page (see x1pen_defchrtool_host.js)
+            download: function(blob, name) {
+                var url = URL.createObjectURL(new Blob([blob], { type: blob.type || 'application/octet-stream' }));
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = typeof name === 'string' && name ? name : 'pcg.bin';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
+            },
+            focus: function() { pauseCallbacks.onFocus(); },
+            blur: function() { pauseCallbacks.onBlur(); }
+        };
+
+        return {
+            // Creates the iframe the first time the PCG tab is shown, and gives it the keyboard
+            show: function() {
+                if (frame) { focusFrame(); return; }
+                frame = document.createElement('iframe');
+                frame.title = 'DEFCHR TOOL';
+                frame.src = 'defchrtool/index.html' +
+                    ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
+                frame.addEventListener('load', function() {
+                    applyLock();
+                    if (activeTab === 'pcg') focusFrame();
+                });
+                frame.addEventListener('error', function() { elStatus.textContent = 'PCG: DEFCHR TOOL failed to load'; });
+                container.appendChild(frame);
+            },
+            setLocked: function(value) { locked = !!value; applyLock(); }
+        };
+    }
+
     // localStorage から復元 (silent: onChange を発火させない)
     if (!isEphemeralShareSession) {
         try {
@@ -3095,6 +3191,7 @@ window.__X1PEN_MODE = true;
         }
         if (panel) panel.inert = automationInteractionLocked;
         if (hubasicEditor) hubasicEditor.setLocked(automationInteractionLocked);
+        if (pcgTool) pcgTool.setLocked(automationInteractionLocked);
         if (overlay) {
             if (automationInteractionLocked && label) overlay.textContent = label;
             if (!automationInteractionLocked) overlay.textContent = 'AI is editing...';
@@ -4261,6 +4358,7 @@ window.__X1PEN_MODE = true;
         var asmContainer = document.getElementById('asm-editor-container');
         var slangContainer = document.getElementById('slang-editor-container');
         var hubasicContainer = document.getElementById('hubasic-editor-container');
+        var pcgContainer = document.getElementById('pcg-editor-container');
         var asmImportAction = document.getElementById('btn-asm-import');
         var slangImportAction = document.getElementById('btn-slang-import');
         var manualBtn = document.getElementById('btn-basic-manual');
@@ -4271,6 +4369,7 @@ window.__X1PEN_MODE = true;
         if (asmContainer) asmContainer.classList.add('hidden');
         if (slangContainer) slangContainer.classList.add('hidden');
         if (hubasicContainer) hubasicContainer.classList.add('hidden');
+        if (pcgContainer) pcgContainer.classList.add('hidden');
         if (asmImportAction) asmImportAction.classList.add('hidden');
         if (slangImportAction) slangImportAction.classList.add('hidden');
         if (manualBtn) manualBtn.classList.add('hidden');
@@ -4291,6 +4390,9 @@ window.__X1PEN_MODE = true;
             if (hubasicContainer) hubasicContainer.classList.remove('hidden');
             if (hubasicOptionsBtn) hubasicOptionsBtn.classList.remove('hidden');
             hubasicEditor.mount();
+        } else if (target === 'pcg') {
+            if (pcgContainer) pcgContainer.classList.remove('hidden');
+            pcgTool.show();
         }
     }
 
@@ -4441,7 +4543,8 @@ window.__X1PEN_MODE = true;
             setTimeout(function() {
                 var editor = (panel === 'basic') ? basicEditor :
                              (panel === 'slang') ? slangEditor :
-                             (panel === 'hubasic') ? hubasicEditor : asmEditor;
+                             (panel === 'hubasic') ? hubasicEditor :
+                             (panel === 'asm') ? asmEditor : null;
                 if (editor && editor.view) editor.view.requestMeasure();
             }, 0);
         }
@@ -4472,7 +4575,8 @@ window.__X1PEN_MODE = true;
             setTimeout(function() {
                 var editor = (activeTab === 'basic') ? basicEditor :
                              (activeTab === 'slang') ? slangEditor :
-                             (activeTab === 'hubasic') ? hubasicEditor : asmEditor;
+                             (activeTab === 'hubasic') ? hubasicEditor :
+                             (activeTab === 'asm') ? asmEditor : null;
                 if (editor && editor.view) editor.view.requestMeasure();
             }, 0);
         } else {

@@ -84,6 +84,7 @@ test('the import script finds the local files that src/index.html loads', () => 
 const buildScript = readFileSync(join(repoRoot, 'build.sh'), 'utf8');
 const htmlCacheBuster = buildScript.match(/^for _html in [^\n]*; do\n[\s\S]*?^done$/m)?.[0];
 const cssCacheBuster = buildScript.match(/^for _css in [^\n]*; do\n[\s\S]*?^done$/m)?.[0];
+const jsCacheBuster = buildScript.match(/^for _js in [^\n]*; do\n[\s\S]*?^done$/m)?.[0];
 // dist path → the source it is built from
 const bustedPages = {
   'x1pen.html': join(repoRoot, 'html', 'x1pen.html'),
@@ -91,18 +92,20 @@ const bustedPages = {
   'url-builder.html': join(repoRoot, 'html', 'url-builder.html'),
   'x1pen_charmap.html': join(repoRoot, 'html', 'x1pen_charmap.html'),
   'x1basic/src/index.html': join(editorDir, 'src', 'index.html'),
+  'defchrtool/index.html': join(repoRoot, 'assets', 'defchrtool', 'index.html'),
 };
 const bustedStyles = {
   'library.css': join(repoRoot, 'html', 'library.css'),
   'x1basic/src/style.css': join(editorDir, 'src', 'style.css'),
 };
 
-function runCacheBusters(files, hash) {
+function runCacheBusters(files, hash, loops = [htmlCacheBuster, cssCacheBuster, jsCacheBuster]) {
   const work = mkdtempSync(join(tmpdir(), 'x1pen-cache-busting-'));
   try {
     mkdirSync(join(work, 'x1basic', 'src'), { recursive: true });
+    mkdirSync(join(work, 'defchrtool', 'assets'), { recursive: true });
     for (const [path, text] of Object.entries(files)) writeFileSync(join(work, path), text);
-    execFileSync('bash', ['-e', '-c', `${htmlCacheBuster}\n${cssCacheBuster}`], {
+    execFileSync('bash', ['-e', '-c', loops.join('\n')], {
       env: { ...process.env, DIST_DIR: work, XMIL_BUILD_HASH: hash },
     });
     return Object.fromEntries(Object.keys(files).map((path) => [path, readFileSync(join(work, path), 'utf8')]));
@@ -134,6 +137,8 @@ test('browser builds version every script, stylesheet and stylesheet font of the
   // The loads this fix is about; a page that stops loading them makes the test stale, not wrong
   assert.ok(pageLoads(sources['x1basic/src/index.html']).includes('x1pen-host.js'));
   assert.ok(pageLoads(sources['x1basic/src/index.html']).includes('style.css'));
+  assert.ok(pageLoads(sources['defchrtool/index.html']).includes('x1pen-host.js'));
+  assert.ok(pageLoads(sources['defchrtool/index.html']).some((url) => /^\.\/assets\/index-[^/]+\.js$/.test(url)));
   assert.ok(pageLoads(sources['x1pen.html']).includes('library.css'));
   assert.ok(pageLoads(sources['xmillennium.html']).includes('library.css'));
   assert.ok(pageLoads(sources['x1pen_charmap.html']).includes('x1pen_tokenizer.js'));
@@ -175,6 +180,23 @@ test('the cache-busting loops handle minified pages and leave icons, external an
   assert.deepEqual(runCacheBusters(once, 'abc1234'), once);
 });
 
+test('the images DEFCHR TOOL\'s script loads by a fixed name carry the build commit', () => {
+  assert.ok(jsCacheBuster, 'the build script must contain the DEFCHR TOOL script loop');
+  const toolDir = join(repoRoot, 'assets', 'defchrtool', 'assets');
+  const [script] = readdirSync(toolDir).filter((name) => name.endsWith('.js'));
+  const path = `defchrtool/assets/${script}`;
+  const source = readFileSync(join(toolDir, script), 'utf8');
+  assert.equal(source.split('"./assets/fonts/X1font.png"').length, 2, 'the tool loads its font image by this name');
+  const built = runCacheBusters({ [path]: source }, 'abc1234', [jsCacheBuster])[path];
+  assert.equal(built, source.replace('"./assets/fonts/X1font.png"', '"./assets/fonts/X1font.png?v=abc1234"'));
+  const sample = 'a("./assets/x.png");b("./assets/y.png?x=1");c("https://e.test/z.png");d(\'./assets/w.png\')';
+  const once = runCacheBusters({ 'defchrtool/assets/t.js': sample }, 'abc1234', [jsCacheBuster])['defchrtool/assets/t.js'];
+  assert.equal(once, 'a("./assets/x.png?v=abc1234");b("./assets/y.png?x=1");c("https://e.test/z.png");d(\'./assets/w.png\')');
+  assert.equal(runCacheBusters({ 'defchrtool/assets/t.js': once }, 'abc1234', [jsCacheBuster])['defchrtool/assets/t.js'], once);
+  // Without any script (the loop's pattern matches nothing) the loop does nothing and does not fail
+  assert.deepEqual(runCacheBusters({}, 'abc1234', [jsCacheBuster]), {});
+});
+
 test('the text form reads back every X1 byte', () => {
   for (let b = 0; b < 256; b++) {
     if (b === 0x0A || b === 0x0D) continue;
@@ -205,14 +227,18 @@ test('text from the former plain HuBASIC tab is migrated without reading escapes
   assert.equal(fromLegacyText('10 PRINT 1').replaced, 0);
 });
 
-test('only x1basic/ may be framed, and only by the same origin', () => {
+test('only x1basic/ and defchrtool/ may be framed, and only by the same origin', () => {
   const rules = readFileSync(join(repoRoot, 'html', '_headers'), 'utf8').split(/\n\s*\n/).map((block) =>
     block.split('\n').filter((line) => line.trim() && !line.trim().startsWith('#')));
   const rule = (path) => rules.find((lines) => lines[0] === path).slice(1).map((line) => line.trim());
   assert.ok(rule('/*').includes('X-Frame-Options: DENY'));
   assert.ok(rule('/*').includes("Content-Security-Policy: frame-ancestors 'none'"));
-  assert.deepEqual(rule('/x1basic/*'), ['! X-Frame-Options', '! Content-Security-Policy',
-    "Content-Security-Policy: frame-ancestors 'self'"]);
+  for (const path of ['/x1basic/*', '/defchrtool/*']) {
+    assert.deepEqual(rule(path), ['! X-Frame-Options', '! Content-Security-Policy',
+      "Content-Security-Policy: frame-ancestors 'self'"], path);
+  }
+  assert.deepEqual(rules.filter((lines) => lines.some((line) => line.includes('! X-Frame-Options'))).map((lines) => lines[0]),
+    ['/x1basic/*', '/defchrtool/*']);
 });
 
 test('the import command takes a checkout and an optional --expect commit', () => {
