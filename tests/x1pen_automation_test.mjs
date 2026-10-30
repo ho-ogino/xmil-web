@@ -5503,6 +5503,21 @@ test('DEFCHR TOOL copies what it would insert to the clipboard, changing no edit
     assert.deepEqual(await copyPCG({ target: 'asm', format: 'asm3', text: '; CHR $41\r' }),
       { ok: true, message: '1 文字分（$41）を ASM 向けの文でクリップボードにコピーしました。' });
     assert.equal(await clipboard(), '; CHR $41\n');
+    // The write starts within the call (the user's click), before X1Pen has read the Blob:
+    // Safari allows a clipboard write only there
+    assert.deepEqual(await frame.evaluate(async () => {
+      const write = navigator.clipboard.write;
+      let started = 0;
+      navigator.clipboard.write = function(items) { started++; return write.call(this, items); };
+      try {
+        const pending = window.X1Host.copyPCG({ version: 1, target: 'asm', format: 'asm3', start: 0x41, end: 0x41, fileName: 'pcg', blob: new Blob(['; CHR $41\r']) });
+        const atCall = started;
+        const result = await pending;
+        return [atCall, started, result.ok];
+      } finally {
+        navigator.clipboard.write = write;
+      }
+    }), [1, 1, true]);
     await frame.evaluate(() => navigator.clipboard.writeText('kept'));
     for (const [fields, code] of [
       [{ target: 'hubasic', format: 'asm3', text: '; CHR $41\r', hubasic: { lineStart: 60960, lineStep: 10 } }, 'unsupported'],

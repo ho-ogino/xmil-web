@@ -5,7 +5,8 @@
 // outside X1Pen, the page gets no X1Host and works as the standalone tool.
 // - exportPCG ("X1Pen に挿入"): X1Pen inserts into the target tab.
 // - copyPCG ("クリップボードにコピー"): X1Pen builds the text; it is written to the clipboard from
-//   here, since this frame has the focus (Chrome refuses a write from X1Pen's page then).
+//   here, since this frame has the focus (Chrome refuses a write from X1Pen's page then). The write
+//   starts within the user's click, before X1Pen has read the Blob (Safari allows it only there).
 // - saveFile ("ファイル保存"): X1Pen's page writes the file. Firefox checks a download link clicked
 //   inside this iframe against X1Pen's CSP frame-src, which does not allow blob:, and drops it.
 
@@ -34,6 +35,21 @@
         return new Error(error && error.message ? String(error.message) : 'X1Pen failed');
     }
 
+    // Starts a clipboard write now, whose text comes later (a ClipboardItem holding a promise), or
+    // returns null where the browser has no such write
+    function startCopy(textBlob) {
+        if (!navigator.clipboard || typeof navigator.clipboard.write !== 'function' || typeof ClipboardItem !== 'function') {
+            return null;
+        }
+        try {
+            var writing = navigator.clipboard.write([new ClipboardItem({ 'text/plain': textBlob })]);
+            writing.catch(function() {});     // looked at only when X1Pen built the text
+            return writing;
+        } catch (e) {
+            return null;
+        }
+    }
+
     function copyText(text) {
         if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
             return Promise.reject(new Error('no clipboard'));
@@ -52,11 +68,24 @@
             });
         },
         copyPCG: function(request) {
+            var formatted;
+            try {
+                formatted = Promise.resolve(bridge.formatPCG(request));
+            } catch (e) {
+                formatted = Promise.reject(e);
+            }
+            // A refusal leaves the clipboard as it was: the write fails with the text
+            var textBlob = formatted.then(function(result) {
+                if (!result || result.ok !== true) throw new Error('not copied');
+                return new Blob([String(result.text)], { type: 'text/plain' });
+            });
+            textBlob.catch(function() {});
+            var writing = startCopy(textBlob);
             return new Promise(function(resolve, reject) {
-                Promise.resolve(bridge.formatPCG(request)).then(function(result) {
+                formatted.then(function(result) {
                     if (!result || result.ok !== true) { resolve(localResult(result)); return; }
                     var message = String(result.message);
-                    copyText(String(result.text)).then(function() {
+                    (writing || copyText(String(result.text))).then(function() {
                         resolve({ ok: true, message: message });
                         try { bridge.copied(message); } catch (e) { /* only X1Pen's status line */ }
                     }, function() {
