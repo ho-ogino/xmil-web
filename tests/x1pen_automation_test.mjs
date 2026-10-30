@@ -5207,9 +5207,12 @@ async function until(check, what, timeoutMs = 30_000) {
   }
 }
 
+// $41 as DEFCHR TOOL's HuBASIC lines write it (B[8],R[8],G[8] in hex)
+const PCG_HEX = PCG_PLANES.map((b) => b.toString(16).toUpperCase().padStart(2, '0')).join('');
+
 // A fresh X1Pen page whose DEFCHR TOOL starts with character $41 drawn (its own storage, B[8],R[8],G[8])
-async function openPcgPage() {
-  const context = await browser.newContext({ acceptDownloads: true });
+async function openPcgPage(options = {}) {
+  const context = await browser.newContext({ acceptDownloads: true, ...options });
   const target = await context.newPage();
   const lines = [];
   target.on('console', (message) => lines.push(message.text()));
@@ -5287,7 +5290,11 @@ test('the PCG tab runs DEFCHR TOOL in one iframe, inserts at the ASM cursor from
     assert.equal(await frame.evaluate(() => window.x1penMarker), 'same window');
     assert.equal(await target.evaluate(() => !document.getElementById('pcg-editor-container').classList.contains('hidden')), true);
 
-    // "ファイル保存" is written by X1Pen's page (a download inside the iframe is dropped by Firefox)
+    // "ファイル保存" goes to X1Host.saveFile and is written by X1Pen's page (a download inside the
+    // iframe is dropped by Firefox); nothing in the iframe is wrapped for it any more
+    assert.equal(await frame.evaluate(() => typeof window.X1Host.saveFile), 'function');
+    assert.deepEqual(await frame.evaluate(() => [URL.createObjectURL, URL.revokeObjectURL, HTMLAnchorElement.prototype.click]
+      .map((f) => /\[native code\]/.test(Function.prototype.toString.call(f)))), [true, true, true]);
     const download = target.waitForEvent('download');
     await pcgPanel(frame, { delivery: 'file', format: 'bin3', start: '41', end: '41' });
     const saved = await download;
@@ -5336,7 +5343,8 @@ test('DEFCHR TOOL\'s X1Host inserts each agreed format and changes nothing when 
     await target.click('#editor-tabs [data-tab="pcg"]');
     const before = await program();
     const refused = [
-      [{ target: 'hubasic', format: 'bas', basFormat: 'asc', text: '60960DEFCHR$(65)=HEXCHR$("00")\r', hubasic: { lineStart: 60960, lineStep: 10 } }, 'unsupported'],
+      [{ target: 'hubasic', format: 'asm3', text: '; CHR $41\r', hubasic: { lineStart: 60960, lineStep: 10 } }, 'unsupported'],
+      [{ target: 'hubasic', format: 'bas', basFormat: 'asc', text: '60960DEFCHR$(65)=HEXCHR$("00")\r', hubasic: { lineStart: 60960, lineStep: 10 } }, 'invalid'],
       [{ target: 'asm', format: 'image', bytes: [0x89, 0x50] }, 'unsupported'],
       [{ target: 'asm', format: 'bas', basFormat: 'bin', bytes: [0] }, 'unsupported'],
       [{ target: 'asm', format: 'bin3', bytes: PCG_ROWS.slice(1) }, 'invalid'],
@@ -5362,6 +5370,110 @@ test('DEFCHR TOOL\'s X1Host inserts each agreed format and changes nothing when 
       await target.evaluate(() => window.X1PenAutomation.setInteractionLocked(false));
     }
     assert.equal(await frame.evaluate(() => document.body.inert), false);
+  } finally {
+    await context.close();
+  }
+});
+
+test('DEFCHR TOOL\'s HuBASIC lines merge into the program by line number from its panel', { timeout: 120_000 }, async () => {
+  const { context, page: target, lines } = await openPcgPage();
+  try {
+    await target.evaluate(() => window.X1PenAutomation.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT "A"\n65000 END\n' }));
+    const frame = await showPcgTab(target, lines);
+    const hubasic = () => target.evaluate(() => window.X1PenAutomation.getProgram().hubasic);
+    const zeros = '00'.repeat(24);
+    const merged = `10 PRINT "A"\n60960DEFCHR$(65)=HEXCHR$("${PCG_HEX}")\n60970DEFCHR$(66)=HEXCHR$("${zeros}")\n65000 END\n`;
+
+    // The recommended BAS (ASCII) with the default 60960 / 10
+    await pcgPanel(frame, { target: 'hubasic', start: '41', end: '42' });
+    await until(async () => (await activeEditorTab(target)) === 'hubasic', 'the HuBASIC tab after inserting');
+    assert.equal(await hubasic(), merged, 'in number order, before 65000');
+    assert.equal(await target.evaluate(() => localStorage.getItem('x1pen_editor_hubasic_x1')), merged, 'and saved like an edit');
+    assert.equal(await target.textContent('#x1pen-status'),
+      'PCG: HuBASIC タブの 60960〜60970 行に 2 文字分（$41〜$42）を入れました。HuBASIC への挿入は Ctrl+Z では戻せません。');
+    assert.equal(await target.evaluate(() => document.activeElement.matches('.editor-tab[data-tab="hubasic"]')), true,
+      'the keyboard leaves the hidden tool');
+    await until(async () => (await hubasicEditorText(target)).includes('60970DEFCHR$(66)'), 'the editor to show the lines');
+    const validated = await target.evaluate(() => window.X1PenAutomation.validate());
+    assert.equal(validated.ok, true, JSON.stringify(validated.diagnostics));
+
+    // Again: the same characters' DEFCHR$ are replaced, nothing is added
+    await target.click('#editor-tabs [data-tab="pcg"]');
+    await pcgPanel(frame, { start: '41', end: '42' });
+    await until(async () => (await activeEditorTab(target)) === 'hubasic', 'the HuBASIC tab after replacing');
+    assert.equal(await hubasic(), merged);
+    assert.match(await target.textContent('#x1pen-status'), /（2 行は置き換え）/);
+
+    // Another line with one of the numbers: refused, the program and the tab stay
+    await target.evaluate(() => window.X1PenAutomation.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT "A"\n60970 PRINT "B"\n' }));
+    await target.click('#editor-tabs [data-tab="pcg"]');
+    await pcgPanel(frame, { start: '41', end: '42' });
+    await frame.waitForFunction(() => document.body.textContent.includes('行番号 60970 に別の行があるので、何も変えていません。'));
+    assert.equal(await frame.evaluate(() => document.getElementById('programming-area').classList.contains('visible')), true,
+      'the panel stays for another try');
+    assert.equal(await hubasic(), '10 PRINT "A"\n60970 PRINT "B"\n');
+    assert.equal(await activeEditorTab(target), 'pcg');
+  } finally {
+    await context.close();
+  }
+});
+
+test('DEFCHR TOOL copies what it would insert to the clipboard, changing no editor', { timeout: 120_000 }, async () => {
+  const { context, page: target, lines } = await openPcgPage({ permissions: ['clipboard-read', 'clipboard-write'] });
+  try {
+    await target.evaluate(() => window.X1PenAutomation.setProgram({ sourceMode: 'slang', slang: 'ARRAY BYTE PCG41[] = {0};\n' }));
+    const frame = await showPcgTab(target, lines);
+    assert.equal(await frame.evaluate(() => typeof window.X1Host.copyPCG), 'function');
+    const program = () => target.evaluate(() => JSON.stringify(window.X1PenAutomation.getProgram()));
+    // Read in the tool's frame, which must have the focus for it
+    const clipboard = async () => {
+      await target.evaluate(() => document.querySelector('#pcg-editor-container iframe').contentWindow.focus());
+      return frame.evaluate(() => navigator.clipboard.readText());
+    };
+    const before = await program();
+
+    const copied = [
+      [{ target: 'asm' }, `; CHR $41\n\tDB\t${dollars(PCG_ROWS)}\n`, 'PCG: 1 文字分（$41）を ASM 向けの文でクリップボードにコピーしました。'],
+      [{ target: 'slang' }, `// DEFCHR TOOL: CHR $41 (rows of B,R,G)\nARRAY BYTE PCG41_2[] = {\n    ${dollars(PCG_ROWS)} // $41\n};\n`,
+        'PCG: 1 文字分（$41）を SLANG の配列でクリップボードにコピーしました。'],
+      [{ target: 'hubasic' }, `60960DEFCHR$(65)=HEXCHR$("${PCG_HEX}")\n`, 'PCG: 1 文字分（$41）を HuBASIC の DEFCHR$ の行でクリップボードにコピーしました。'],
+    ];
+    for (const [settings, text, status] of copied) {
+      await frame.evaluate(() => navigator.clipboard.writeText('before'));
+      await pcgPanel(frame, { delivery: 'copy', start: '41', end: '41', ...settings });
+      await until(async () => (await target.textContent('#x1pen-status')) === status, `the status after copying for ${settings.target}`);
+      assert.equal(await clipboard(), text, settings.target);
+      assert.equal(await program(), before, 'no editor changes');
+      assert.equal(await activeEditorTab(target), 'pcg', 'and the tab stays');
+      assert.equal(await frame.evaluate(() => document.getElementById('programming-area').classList.contains('visible')), false);
+    }
+
+    // Called directly: a success has no insertedInto; a refusal leaves the clipboard as it was
+    const copyPCG = (fields) => frame.evaluate(async ({ text, ...rest }) => {
+      return window.X1Host.copyPCG({ version: 1, start: 0x41, end: 0x41, fileName: 'pcg', blob: new Blob([text]), ...rest });
+    }, fields);
+    assert.deepEqual(await copyPCG({ target: 'asm', format: 'asm3', text: '; CHR $41\r' }),
+      { ok: true, message: '1 文字分（$41）を ASM 向けの文でクリップボードにコピーしました。' });
+    assert.equal(await clipboard(), '; CHR $41\n');
+    await frame.evaluate(() => navigator.clipboard.writeText('kept'));
+    for (const [fields, code] of [
+      [{ target: 'hubasic', format: 'asm3', text: '; CHR $41\r', hubasic: { lineStart: 60960, lineStep: 10 } }, 'unsupported'],
+      [{ target: 'hubasic', format: 'bas', basFormat: 'asc', text: '60970DEFCHR$(65)=HEXCHR$("00")\r', hubasic: { lineStart: 60960, lineStep: 10 } }, 'invalid'],
+      [{ target: 'asm', format: 'bin3', text: 'x' }, 'invalid'],
+    ]) {
+      const result = await copyPCG(fields);
+      assert.deepEqual([result.ok, result.code], [false, code], JSON.stringify(fields));
+      assert.equal(await clipboard(), 'kept');
+    }
+    await target.evaluate(() => window.X1PenAutomation.setInteractionLocked(true, 'AI test'));
+    try {
+      const result = await copyPCG({ target: 'asm', format: 'asm3', text: '; CHR $41\r' });
+      assert.deepEqual([result.ok, result.code], [false, 'unavailable']);
+    } finally {
+      await target.evaluate(() => window.X1PenAutomation.setInteractionLocked(false));
+    }
+    assert.equal(await clipboard(), 'kept');
+    assert.equal(await program(), before);
   } finally {
     await context.close();
   }

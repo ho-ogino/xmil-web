@@ -612,7 +612,8 @@ window.__X1PEN_MODE = true;
 
     // PCG: DEFCHR TOOL for Web (defchrtool/, imported by scripts/import-defchrtool.mjs) in an iframe.
     // Its drawing lives in its own localStorage (defchr-*), not in X1Pen's program or Share. Its
-    // "X1Pen に挿入" calls X1Host.exportPCG (defchrtool/x1pen-host.js), which lands in exportPCG here.
+    // "X1Pen に挿入" calls X1Host.exportPCG (defchrtool/x1pen-host.js), which lands in exportPCG here;
+    // "クリップボードにコピー" calls X1Host.copyPCG, which gets its text from formatPCG here.
     var pcgTool = createPcgTool(document.getElementById('pcg-editor-container'));
 
     function createPcgTool(container) {
@@ -631,9 +632,9 @@ window.__X1PEN_MODE = true;
             if (frame && frame.contentWindow && !locked) frame.contentWindow.focus();
         }
 
-        // Insert DEFCHR TOOL's output at the target editor's cursor, in one change (one Ctrl+Z).
-        // Never asks: the promise always settles, and a failure changes nothing.
-        async function exportPCG(request) {
+        // Checks the request, reads its Blob and builds the text: { checked, planned, built } or a
+        // failure. Only the Blob is waited for; what the caller does next sees the same editors.
+        async function preparePCG(request) {
             var api = window.X1PenPcgExport;
             var checked = api.checkRequest(request);
             if (!checked.ok) return checked;
@@ -649,10 +650,41 @@ window.__X1PEN_MODE = true;
             if (runAdmission || automationInteractionLocked) {
                 return { ok: false, code: 'unavailable', message: 'RUN の準備中か、AI が操作中です。終わってからもう一度試してください。' };
             }
-            var editor = editors[planned.editor];
-            if (!editor || !editor.view) return { ok: false, code: 'unavailable', message: '挿入先のエディタがありません。' };
             var built = api.build(checked, planned, data, slangEditor ? slangEditor.getValue() : '');
             if (!built.ok) return built;
+            return { ok: true, checked: checked, planned: planned, built: built };
+        }
+
+        // HuBASIC: DEFCHR TOOL's lines merged into the program by line number, in one setBytes
+        // (which, like every program the editor is given, clears its undo)
+        function mergeIntoHuBasic(prepared) {
+            var api = window.X1PenPcgExport;
+            var merged = api.mergeHuBasic(hubasicEditor.getBytes(), prepared.built.lines);
+            if (!merged.ok) return merged;
+            hubasicEditor.setBytes(merged.bytes);
+            setActiveEditorTab('hubasic');
+            // The keyboard leaves the hidden tool; the editor takes it when clicked, as when the
+            // tab is opened
+            var tab = editorTabs && editorTabs.querySelector('.editor-tab[data-tab="hubasic"]');
+            if (tab) tab.focus();
+            var message = api.successMessage(prepared.checked, prepared.planned, merged);
+            elStatus.textContent = 'PCG: ' + message;
+            return { ok: true, insertedInto: 'hubasic', message: message };
+        }
+
+        // Insert DEFCHR TOOL's output at the target editor's cursor, in one change (one Ctrl+Z), or
+        // merge HuBASIC lines by line number. Never asks: the promise always settles, and a
+        // failure changes nothing.
+        async function exportPCG(request) {
+            var api = window.X1PenPcgExport;
+            var prepared = await preparePCG(request);
+            if (!prepared.ok) return prepared;
+            var checked = prepared.checked;
+            var planned = prepared.planned;
+            if (planned.editor === 'hubasic') return mergeIntoHuBasic(prepared);
+            var editor = editors[planned.editor];
+            if (!editor || !editor.view) return { ok: false, code: 'unavailable', message: '挿入先のエディタがありません。' };
+            var built = prepared.built;
             var pos = editor.getCursor();
             var text = (pos > 0 && editor.getCharAt(pos - 1) !== '\n' ? '\n' : '') + built.text;
             var line = editor.view.state.doc.lineAt(pos).number + (text.charAt(0) === '\n' ? 1 : 0);
@@ -669,10 +701,24 @@ window.__X1PEN_MODE = true;
             return { ok: true, insertedInto: planned.editor, message: message };
         }
 
+        // The text "クリップボードにコピー" puts on the clipboard, as it would be inserted (HuBASIC:
+        // the DEFCHR$ lines). Changes no editor and no tab; x1pen-host.js writes the clipboard from
+        // the iframe, which has the focus (Chrome refuses a write from this page then).
+        async function formatPCG(request) {
+            var prepared = await preparePCG(request);
+            if (!prepared.ok) return prepared;
+            return { ok: true, text: prepared.built.text,
+                message: window.X1PenPcgExport.copyMessage(prepared.checked, prepared.planned) };
+        }
+
         // Called by defchrtool/x1pen-host.js inside the iframe (same origin)
         window.X1PenDefchrToolBridge = {
             exportPCG: exportPCG,
-            // "ファイル保存": the file is made by this page (see x1pen_defchrtool_host.js)
+            formatPCG: formatPCG,
+            copied: function(message) { elStatus.textContent = 'PCG: ' + message; },
+            // "ファイル保存" (X1Host.saveFile): the file is made by this page. Firefox checks a
+            // download link clicked inside the iframe against this page's CSP frame-src, which does
+            // not allow blob:, and drops the download. Throws if the file cannot be made.
             download: function(blob, name) {
                 var url = URL.createObjectURL(new Blob([blob], { type: blob.type || 'application/octet-stream' }));
                 var a = document.createElement('a');
