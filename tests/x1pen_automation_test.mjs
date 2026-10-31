@@ -5356,8 +5356,8 @@ test('the PCG tab runs DEFCHR TOOL in one iframe, inserts at the ASM cursor from
     assert.equal(await target.evaluate(() => Boolean(document.activeElement.closest('#asm-editor-container'))), true,
       'the keyboard goes to the ASM tab, not on to the hidden tool');
 
-    // One Ctrl+Z takes the whole insertion back
-    await target.keyboard.press('Control+z');
+    // One undo shortcut (Cmd+Z on macOS, Ctrl+Z elsewhere) takes the whole insertion back
+    await target.keyboard.press('ControlOrMeta+z');
     assert.equal(await target.evaluate(() => window.X1PenAutomation.getProgram().asm), '\tORG\t$C000\nDATA:');
 
     // Switching tabs keeps the tool: the same iframe and window
