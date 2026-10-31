@@ -247,7 +247,7 @@ test('automation API loads and runs a BASIC program', { timeout: 60_000 }, async
   assert.equal(await page.evaluate(() => window.X1PenAutomation.version), 2);
   assert.deepEqual(ready.x1pen, {
     name: 'x1pen',
-    version: '0.13.0',
+    version: '0.14.0',
     automationApiVersion: 2,
     features: ['automation.core', 'automation.run-recovery', 'automation.source-sync', 'screen.capture', 'input.keyboard', 'input.pad', 'debugger.cpu', 'debugger.vram', 'hubasic.options'],
   });
