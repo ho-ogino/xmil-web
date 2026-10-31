@@ -1,5 +1,5 @@
 {
-  "slangCompilerRevision": "d15d32eb7c033ca73b8468d1401a2b57fad70979",
+  "slangCompilerRevision": "ff3cf7eaea73a0157da014783604eafe9cf52845",
   "dirty": false,
   "hubasic2slVersion": "0.1.0-alpha",
   "basAbi": 1,
@@ -285,18 +285,18 @@
     },
     {
       "path": "_framework/blazor.boot.json",
-      "sha256": "74c8b91e86deddc5f8425dcaeceba612fc12ffee506148792d42eae6cbbc586a",
+      "sha256": "a318db1008ec945b3073b1ba0f2954230b596560d7a2d5880ebff6336127e097",
       "size": 1735
     },
     {
       "path": "_framework/blazor.boot.json.br",
-      "sha256": "6d947076a587906a3506e7a04bff1a66cdb7ef64316199ab6a9ab3a5fee359c1",
+      "sha256": "83984734cc26e1e441463526f627dafc9178f22e752d358a7a9ef40f28db248b",
       "size": 864
     },
     {
       "path": "_framework/blazor.boot.json.gz",
-      "sha256": "e9aa7f20898c3b9bb7bfe0ab3889e5beaf53113329e59769f71496f012727ef2",
-      "size": 961
+      "sha256": "85a3391919a659fb095f33f3da760b645298fc0ba2f3a0fe7da7e18255234b86",
+      "size": 962
     },
     {
       "path": "_framework/dotnet.js",
@@ -360,18 +360,18 @@
     },
     {
       "path": "_framework/hubasic2sl-wasm.wasm",
-      "sha256": "de76c9746ee69b7b58aeaa6fc67bc7f488bc74e6e82e4eb9138ea931948345ad",
-      "size": 191253
+      "sha256": "3b46e481dc3fbaddc077a1b157fdf75e2fa63d1d8385a40f5c53c55b1580f7e7",
+      "size": 195861
     },
     {
       "path": "_framework/hubasic2sl-wasm.wasm.br",
-      "sha256": "6d496786ce177008414e9a01b8af018b090187fe94f179b7f1e22f57a8e26d23",
-      "size": 63304
+      "sha256": "a7f756b95c391794f1158b41454a94b8ff34101cb21cad2ffec24214c56a7b8c",
+      "size": 65135
     },
     {
       "path": "_framework/hubasic2sl-wasm.wasm.gz",
-      "sha256": "3ae69f13ec7c0cac97388eb11034e42869f17eb151d225ec42cff99470f54d24",
-      "size": 77739
+      "sha256": "76b221c3a1e10d0f31169025a6376bfdcdc128bcd5dd252f13904143f8d2901c",
+      "size": 79642
     },
     {
       "path": "env/x1native.env",
@@ -415,8 +415,8 @@
     },
     {
       "path": "runtime/libx1_basic.asm",
-      "sha256": "944314e78bd36ea0e61cbbd2dd32d9920cdf3c7a4f4b067219c83187b0003a17",
-      "size": 149175
+      "sha256": "ad73b69a0bd48907a32ad3d15b512c7b2a74d9e0f306a1f915c69be74ab6cc2c",
+      "size": 149866
     },
     {
       "path": "runtime/libx1_grp.asm",

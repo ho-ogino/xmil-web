@@ -1527,3 +1527,55 @@ test('HuBASIC V16 envelope, WIDTH rows and KEYLIST/KLIST/KMODE reference matches
     assert.equal(searchReference({ query, language: 'hubasic' }).matches[0].id, id, query);
   }
 });
+
+test('HuBASIC BIN$, two-dimensional arrays and the --string-len hints reference matches the bundled converter and runtime', () => {
+  const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
+  const bundle = join(repoRoot, 'assets/hubasic', current.revision);
+  const runtime = readFileSync(join(bundle, 'runtime/libx1_basic.asm'), 'utf8');
+  const converter = readFileSync(join(bundle, '_framework/hubasic2sl-wasm.wasm'));
+  const routine = (name) => runtime.slice(runtime.indexOf(`; @name ${name}\n`), runtime.indexOf('; @name ', runtime.indexOf(`; @name ${name}\n`) + 1));
+
+  // BIN$ is the 16-bit value in binary without leading zeros ("0" for 0)
+  assert.match(routine('BAS_SBINS'), /2 進 \(頭の 0 なし。0 は "0"\)/);
+  // 3-D is HB0303, mixed rank HB0314; HB0305 has a generic --string-len hint (no number), and the 2-D
+  // undimensioned case and HB0309 name a value
+  for (const literal of ['3 次元以上の配列は未対応です', 'HB0314', '--string-len で 1 本を短くすると上限が増えます',
+    '以下にしてください', '以下にすると収まります']) {
+    assert.ok(converter.includes(Buffer.from(literal, 'utf16le')), `${literal} is not in hubasic2sl-wasm.wasm`);
+  }
+
+  const [strings] = getReferenceEntries({ ids: ['hubasic.functions.string'] }).entries;
+  assert.ok(strings.symbols.includes('BIN$'));
+  assert.match(strings.summary, /BIN\$\(5\) is "101" \(not "0000000000000101"\)/);
+  assert.match(strings.summary, /WITHOUT leading zeros/);
+  assert.match(strings.summary, /BIN\$\(-1\) is sixteen 1s/);
+  assert.ok(strings.notes.every((note) => !/BIN\$.*HB0302/.test(note)));
+  const [arrays] = getReferenceEntries({ ids: ['hubasic.values.arrays'] }).entries;
+  assert.match(arrays.summary, /one or two dimensions/);
+  assert.match(arrays.summary, /three or more are error HB0303/);
+  assert.match(arrays.summary, /11x11 = 121 elements/);
+  assert.ok(arrays.notes.some((note) => /HB0314/.test(note) && /Duplicate definition/.test(note)));
+  assert.ok(arrays.notes.some((note) => /134 or less/.test(note)));
+  assert.ok(arrays.notes.some((note) => /without a number/.test(note) && /names 134/.test(note) && /HB0309/.test(note)));
+  const [diagnostics] = getReferenceEntries({ ids: ['hubasic.diagnostics'] }).entries;
+  assert.ok(diagnostics.syntax.some((line) => /HB0303/.test(line) && /HB0314/.test(line) && /HB0305/.test(line)));
+  assert.ok(diagnostics.notes.some((note) => /--string-len/.test(note) && /stringLen/.test(note) && /without a number/.test(note)));
+  const [run] = getReferenceEntries({ ids: ['hubasic.x1pen.run'] }).entries;
+  assert.ok(run.notes.some((note) => /stringLen is hubasic2sl's --string-len/.test(note)));
+  const [unsupported] = getReferenceEntries({ ids: ['hubasic.unsupported'] }).entries;
+  assert.ok(!unsupported.symbols.includes('BIN$'));
+  assert.ok(!unsupported.summary.includes('BIN$'));
+  const [catalog] = getReferenceEntries({ ids: ['hubasic.keywords.catalog'] }).entries;
+  assert.ok(catalog.syntax.find((line) => line.startsWith('functions:')).split(/\s+/).includes('BIN$'));
+  assert.ok(!catalog.syntax.find((line) => line.startsWith('reserved, not supported:')).split(/\s+/).includes('BIN$'));
+
+  for (const [query, id] of [['BIN$', 'hubasic.functions.string'], ['binary digits', 'hubasic.functions.string'],
+    ['two-dimensional array', 'hubasic.values.arrays'], ['2 次元', 'hubasic.values.arrays']]) {
+    assert.equal(searchReference({ query, language: 'hubasic' }).matches[0].id, id, query);
+  }
+  // Both entries explain these: the code list and hints, and the arrays or the option
+  for (const [query, ids] of [['HB0314', ['hubasic.diagnostics', 'hubasic.values.arrays']],
+    ['--string-len', ['hubasic.diagnostics', 'hubasic.x1pen.run']]]) {
+    assert.deepEqual(searchReference({ query, language: 'hubasic' }).matches.slice(0, 2).map((match) => match.id).sort(), ids, query);
+  }
+});

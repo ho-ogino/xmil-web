@@ -3059,10 +3059,9 @@ test('the HuBASIC reference names the code hubasic2sl gives each unsupported wor
     ['USR', 'HB0302', '10 A=USR(0)'],
     ['TIME$', 'HB0302', '10 A$=TIME$'],
     ['OCT$', 'HB0302', '10 A$=OCT$(8)'],
-    ['BIN$', 'HB0302', '10 A$=BIN$(8)'],
     ['POINT', 'HB0302', '10 A=POINT(1,1)'],
     ['ON ERROR', 'HB0302', '10 ON ERROR GOTO 100'],
-    ['DIM A(2,2)', 'HB0303', '10 DIM A(2,2)'],
+    ['DIM A(2,2,2)', 'HB0303', '10 DIM A(2,2,2)'],
     ['LINE -(x,y)', 'HB0203', '10 LINE -(10,10),PSET'],
   ];
   for (const [word, code, source] of cases) {
@@ -3072,6 +3071,84 @@ test('the HuBASIC reference names the code hubasic2sl gives each unsupported wor
     assert.equal(validation.ok, false, source);
     const errors = validation.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
     assert.ok(errors.some((message) => message.includes(`error ${code} `)), `${source}: ${JSON.stringify(errors)}`);
+  }
+});
+
+test('HuBASIC BIN$, two-dimensional arrays and the --string-len hints behave as the reference says', { timeout: 180_000 }, async () => {
+  const errorsOf = (validation) => validation.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
+  const setStringLen = (value) => page.evaluate((stringLen) => window.X1PenAutomation.setHuBasicOptions({ stringLen }), value);
+  try {
+    // BIN$ has no leading zeros and works on the 16-bit value; 2-D arrays with DIM and without (11x11)
+    await setHuBasicProgram([
+      '10 CLS',
+      '20 PRINT "B5=";BIN$(5);" B0=";BIN$(0)',
+      '30 PRINT "BM1=";BIN$(-1);" L";LEN(BIN$(-1))',
+      '40 PRINT "BMIN=";BIN$(-32768);" BF=";BIN$(2.6)',
+      '50 PRINT "B8=";RIGHT$("0000000"+BIN$(5),8)',
+      '60 DIM T%(2,3)',
+      '70 FOR I=0 TO 2:FOR J=0 TO 3:T%(I,J)=I*10+J:NEXT J:NEXT I',
+      '80 S=0:FOR I=0 TO 2:FOR J=0 TO 3:S=S+T%(I,J):NEXT J:NEXT I',
+      '90 PRINT "T=";T%(2,3);" S=";S',
+      '100 B(10,10)=7:B(0,10)=3:PRINT "B=";B(10,10);B(0,10);B(10,0)',
+      '110 PRINT "DONE"',
+      '120 GOTO 120',
+      '',
+    ].join('\n'));
+    let run = await page.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(run.ok, true, JSON.stringify(run));
+    await textVramContains('DONE');
+    for (const text of ['B5=101 B0=0', 'BM1=1111111111111111 L 16', 'BMIN=1000000000000000 BF=11', 'B8=00000101',
+      'T= 23  S= 138', 'B= 7  3  0']) {
+      await textVramContains(text);
+    }
+
+    // Each subscript is checked against its own bound, not the flat index
+    await setHuBasicProgram('10 CLS\n20 DIM A%(2,3)\n30 A%(2,3)=1\n40 A%(0,4)=1\n50 GOTO 50\n');
+    run = await page.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(run.ok, true, JSON.stringify(run));
+    await textVramContains('Subscript out of range in 40');
+    // Without DIM a 2-D array is 11x11
+    await setHuBasicProgram('10 CLS\n20 B(10,10)=1\n30 B(11,0)=1\n40 GOTO 40\n');
+    run = await page.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(run.ok, true, JSON.stringify(run));
+    await textVramContains('Subscript out of range in 30');
+
+    const failsWith = async (source, code) => {
+      const validation = await validateHuBasic(source);
+      assert.equal(validation.ok, false, source);
+      const errors = errorsOf(validation);
+      // A diagnostic without a program line (HB0309) reads 'error HB0309: …'
+      const matching = errors.filter((message) => message.includes(`error ${code} `) || message.includes(`error ${code}:`));
+      assert.ok(matching.length > 0, `${source}: ${JSON.stringify(errors)}`);
+      return matching.join('\n');
+    };
+    assert.match(await failsWith('10 DIM A(1,1,1)\n', 'HB0303'), /3 次元以上の配列は未対応です/);
+    await failsWith('10 A(1)=1:A(1,2)=2\n', 'HB0314');
+    await failsWith('10 A(1,2)=1\n20 PRINT A(1)\n', 'HB0314');
+    assert.equal((await validateHuBasic('10 A(1)=1:A%(1,2)=2:A$(1)="X"\n')).ok, true, 'A, A% and A$ are different arrays');
+
+    // The hints: the undimensioned 2-D string array names 134; an explicit DIM only suggests --string-len;
+    // integer arrays get no hint
+    assert.match(await failsWith('10 A$(1,1)="X"\n', 'HB0305'), /--string-len で文字列 1 本を 134 以下に/);
+    const explicit = await failsWith('10 DIM A$(64)\n', 'HB0305');
+    assert.match(explicit, /--string-len で 1 本を短くすると上限が増えます/);
+    assert.doesNotMatch(explicit, /--string-len \d/);
+    assert.doesNotMatch(await failsWith('10 DIM A%(8192)\n', 'HB0305'), /--string-len/);
+    await setStringLen(134);
+    assert.equal((await validateHuBasic('10 A$(1,1)="X"\n')).ok, true, 'stringLen 134 fits the 11x11 string array');
+    await setStringLen(null);
+
+    // HB0309 names a --string-len that makes the static data fit, and it is the largest that does
+    const tooMuch = '10 DIM A$(63),B$(63)\n20 A$(0)="X":B$(0)="Y"\n';
+    const hint = (await failsWith(tooMuch, 'HB0309')).match(/--string-len (\d+) 以下にすると/);
+    assert.ok(hint, 'HB0309 must name a --string-len value');
+    const fits = Number(hint[1]);
+    await setStringLen(fits);
+    assert.equal((await validateHuBasic(tooMuch)).ok, true, `stringLen ${fits} must fit`);
+    await setStringLen(fits + 1);
+    await failsWith(tooMuch, 'HB0309');
+  } finally {
+    await setStringLen(null);
   }
 });
 
