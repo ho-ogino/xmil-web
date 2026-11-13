@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- ライセンスの一覧（`licenses.html`・`THIRD_PARTY_LICENSES.md`）に **SLANG-compiler** の節を足しました。X1Pen が配っている SLANG タブのコンパイラとランタイム、HuBASIC タブのバンドル（hubasic2sl とランタイム、.NET の WebAssembly ランタイム）の分です。浮動小数のライブラリ `libfloat.asm` は z80float を元にしたもので、**Apache License 2.0** です（ほかは MIT License）。
+
 ## X1Pen Web 0.14.0 / x1pen-mcp 2.12.0
 
 X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のままです（変えていません）。HuBASIC の変換の仕組みとリファレンスがそろうように、x1pen-mcp → X1Pen Web の順に、間を空けずに出します（下の「版の組み合わせ」）。

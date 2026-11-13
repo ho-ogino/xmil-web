@@ -145,3 +145,99 @@ THESE FONTS ARE PROVIDED "AS IS" WITHOUT WARRANTY.
 
 Copyright(C) 2002-2019 Num Kadoma
 ```
+
+## SLANG-compiler（X1Pen の SLANG タブのコンパイラとランタイム、HuBASIC タブのバンドル）
+
+**ファイル**:
+- `html/x1pen_slang_compiler.js`（SLANG-compiler の C# のコンパイラを JavaScript に移したもの。元にしたコミットはファイルの頭）
+- `assets/slang_runtime/`・`assets/slang_include/`（公開先 `slang_runtime/`・`slang_include/`）
+- `assets/hubasic/<リビジョン>/`（公開先 `hubasic/<リビジョン>/`）。hubasic2sl（HuBASIC を SLANG に変えるもの、.NET の WebAssembly 版）と x1native のランタイム。リビジョンは `assets/hubasic/current.json`
+
+**ソース**: https://github.com/h-o-soft/SLANG-compiler
+
+MIT License の下で配布されています。ただし **浮動小数のライブラリ `libfloat.asm`**（`slang_runtime/libfloat.asm` と `hubasic/<リビジョン>/runtime/libfloat.asm`）は z80float（https://github.com/Zeda/z80float ）を元にしたもので、SLANG-compiler で変えた所も含めて **Apache License 2.0** です。
+
+ランタイムには、ほかの作者のコードから来た所もあります（ZX0 の展開、MAG・M8A の画像の読み込みなど）。それぞれの許諾の文は SLANG-compiler の `LICENSE` にまとめて載っています。
+
+- `LICENSE`（MIT と Apache 2.0 の境目、ほかの作者の許諾の文）: https://github.com/h-o-soft/SLANG-compiler/blob/7a5c4a20e14ca890641119486d19ef4e84769d73/LICENSE
+- `LICENSE-APACHE-2.0.txt`（Apache License 2.0 の全文）: https://github.com/h-o-soft/SLANG-compiler/blob/7a5c4a20e14ca890641119486d19ef4e84769d73/LICENSE-APACHE-2.0.txt
+
+いまの HuBASIC のバンドルには、この 2 本がまだ入っていません。次にバンドルを取り込むときから `hubasic/<リビジョン>/` に入ります。
+
+```
+MIT License
+
+Copyright (c) 2022-2026 H.O SOFT / OGINO Hiroshi and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+z80float（`libfloat.asm`）:
+
+```
+   Copyright 2018 Zeda A.K. Thomas
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+The changes and additions made for SLANG:
+   Copyright (c) 2022-2026 H.O SOFT / OGINO Hiroshi and contributors
+These changes and additions are also licensed under the Apache License,
+Version 2.0.
+```
+
+### .NET ランタイム（HuBASIC タブのバンドルの `_framework/`）
+
+**ファイル**: `assets/hubasic/<リビジョン>/_framework/`（hubasic2sl をブラウザで動かす .NET の WebAssembly ランタイム）
+**ソース**: https://github.com/dotnet/runtime
+
+```
+The MIT License (MIT)
+
+Copyright (c) .NET Foundation and Contributors
+
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

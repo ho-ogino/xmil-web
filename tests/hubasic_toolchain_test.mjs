@@ -229,3 +229,22 @@ test('saved HuBASIC options are read field by field and never throw', () => {
   assert.deepEqual(json(HuOptions.fromStored({ wait: 'line:450', stringLen: 999, noLineNumbers: true, extra: 'x' })),
     { ...defaults, wait: 'line:450', noLineNumbers: true });
 });
+
+// X1Pen ships SLANG-compiler's code in three places; both license notices must name them,
+// and libfloat.asm (from z80float) is Apache 2.0, not MIT
+test('the license notices cover the SLANG-compiler code X1Pen ships, with libfloat as Apache 2.0', () => {
+  for (const path of [join(repoRoot, 'html', 'x1pen_slang_compiler.js'), join(repoRoot, 'assets', 'slang_runtime', 'libfloat.asm'),
+    join(bundleDir, 'runtime', 'libfloat.asm'), join(bundleDir, '_framework', 'dotnet.js')]) {
+    assert.ok(existsSync(path), path);
+  }
+  for (const file of ['THIRD_PARTY_LICENSES.md', 'html/licenses.html']) {
+    const text = readFileSync(join(repoRoot, file), 'utf8');
+    for (const word of ['SLANG-compiler', 'x1pen_slang_compiler.js', 'slang_runtime/', 'slang_include/', 'hubasic/',
+      'libfloat.asm', 'z80float', 'Apache License 2.0', 'Copyright 2018 Zeda A.K. Thomas', '_framework/',
+      'Copyright (c) .NET Foundation and Contributors',
+      'https://github.com/h-o-soft/SLANG-compiler/blob/7a5c4a20e14ca890641119486d19ef4e84769d73/LICENSE',
+      'https://github.com/h-o-soft/SLANG-compiler/blob/7a5c4a20e14ca890641119486d19ef4e84769d73/LICENSE-APACHE-2.0.txt']) {
+      assert.ok(text.includes(word), `${file} names ${word}`);
+    }
+  }
+});
