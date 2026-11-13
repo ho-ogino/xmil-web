@@ -256,6 +256,8 @@ test('the license notices cover the SLANG-compiler code X1Pen ships, with libflo
   for (const word of ['runtime/libfloat.asm', 'LICENSE-APACHE-2.0.txt', 'MIT License', 'Zeda A.K. Thomas']) {
     assert.ok(license.includes(word), `LICENSE.txt names ${word}`);
   }
-  assert.match(readFileSync(join(repoRoot, 'build.sh'), 'utf8'), /cp -R "\$\{SCRIPT_DIR\}\/assets\/third_party" "\$\{DIST_DIR\}\/third_party"/,
-    'the build publishes them');
+  // into build/ (served locally) and dist/ (published), like licenses.html
+  const build = readFileSync(join(repoRoot, 'build.sh'), 'utf8');
+  assert.match(build, /cp -R "\$\{SCRIPT_DIR\}\/assets\/third_party" \.\/third_party/, 'the build puts them in build/');
+  assert.match(build, /cp -R "\$\{SCRIPT_DIR\}\/assets\/third_party" "\$\{DIST_DIR\}\/third_party"/, 'the build publishes them');
 });
