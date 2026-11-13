@@ -242,9 +242,20 @@ test('the license notices cover the SLANG-compiler code X1Pen ships, with libflo
     for (const word of ['SLANG-compiler', 'x1pen_slang_compiler.js', 'slang_runtime/', 'slang_include/', 'hubasic/',
       'libfloat.asm', 'z80float', 'Apache License 2.0', 'Copyright 2018 Zeda A.K. Thomas', '_framework/',
       'Copyright (c) .NET Foundation and Contributors',
-      'https://github.com/h-o-soft/SLANG-compiler/blob/7a5c4a20e14ca890641119486d19ef4e84769d73/LICENSE',
-      'https://github.com/h-o-soft/SLANG-compiler/blob/7a5c4a20e14ca890641119486d19ef4e84769d73/LICENSE-APACHE-2.0.txt']) {
+      'third_party/slang-compiler/LICENSE.txt', 'third_party/slang-compiler/LICENSE-APACHE-2.0.txt']) {
       assert.ok(text.includes(word), `${file} names ${word}`);
     }
   }
+  // Apache 2.0 wants the full text with the files, not a link: X1Pen ships SLANG-compiler's own copies
+  const licenses = join(repoRoot, 'assets', 'third_party', 'slang-compiler');
+  const apache = readFileSync(join(licenses, 'LICENSE-APACHE-2.0.txt'), 'utf8');
+  assert.match(apache, /^\s*Apache License\s+Version 2\.0, January 2004/);
+  assert.ok(apache.includes('TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION'));
+  assert.ok(apache.includes('END OF TERMS AND CONDITIONS'));
+  const license = readFileSync(join(licenses, 'LICENSE.txt'), 'utf8');
+  for (const word of ['runtime/libfloat.asm', 'LICENSE-APACHE-2.0.txt', 'MIT License', 'Zeda A.K. Thomas']) {
+    assert.ok(license.includes(word), `LICENSE.txt names ${word}`);
+  }
+  assert.match(readFileSync(join(repoRoot, 'build.sh'), 'utf8'), /cp -R "\$\{SCRIPT_DIR\}\/assets\/third_party" "\$\{DIST_DIR\}\/third_party"/,
+    'the build publishes them');
 });

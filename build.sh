@@ -256,6 +256,9 @@ if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
         [ -f "$f" ] && cp "$f" "${DIST_DIR}/slang_runtime/"
     done
 fi
+# Full license texts for the SLANG-compiler code shipped above (licenses.html links to them)
+rm -rf "${DIST_DIR}/third_party"
+cp -R "${SCRIPT_DIR}/assets/third_party" "${DIST_DIR}/third_party"
 rm -rf "${DIST_DIR}/hubasic"
 cp -R "${SCRIPT_DIR}/assets/hubasic" "${DIST_DIR}/hubasic"
 rm -rf "${DIST_DIR}/x1basic"

@@ -159,10 +159,12 @@ MIT License の下で配布されています。ただし **浮動小数のラ�
 
 ランタイムには、ほかの作者のコードから来た所もあります（ZX0 の展開、MAG・M8A の画像の読み込みなど）。それぞれの許諾の文は SLANG-compiler の `LICENSE` にまとめて載っています。
 
-- `LICENSE`（MIT と Apache 2.0 の境目、ほかの作者の許諾の文）: https://github.com/h-o-soft/SLANG-compiler/blob/7a5c4a20e14ca890641119486d19ef4e84769d73/LICENSE
-- `LICENSE-APACHE-2.0.txt`（Apache License 2.0 の全文）: https://github.com/h-o-soft/SLANG-compiler/blob/7a5c4a20e14ca890641119486d19ef4e84769d73/LICENSE-APACHE-2.0.txt
+SLANG-compiler 7a5c4a2（7a5c4a20e14ca890641119486d19ef4e84769d73）の次の 2 本を、そのまま `assets/third_party/slang-compiler/` に入れています（公開先 `third_party/slang-compiler/`）。
 
-いまの HuBASIC のバンドルには、この 2 本がまだ入っていません。次にバンドルを取り込むときから `hubasic/<リビジョン>/` に入ります。
+- `third_party/slang-compiler/LICENSE.txt`（SLANG-compiler の `LICENSE`。MIT と Apache 2.0 の境目、ほかの作者の許諾の文）
+- `third_party/slang-compiler/LICENSE-APACHE-2.0.txt`（Apache License 2.0 の全文）
+
+いまの HuBASIC のバンドルには、この 2 本がまだ入っていません。SLANG-compiler 7a5c4a2 より後のバンドルでは、`scripts/import-hubasic-bundle.mjs` が根の `LICENSE`・`LICENSE-APACHE-2.0.txt` も `hubasic/<リビジョン>/` に置きます。
 
 ```
 MIT License

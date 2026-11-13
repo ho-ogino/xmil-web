@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- ライセンスの一覧（`licenses.html`・`THIRD_PARTY_LICENSES.md`）に **SLANG-compiler** の節を足しました。X1Pen が配っている SLANG タブのコンパイラとランタイム、HuBASIC タブのバンドル（hubasic2sl とランタイム、.NET の WebAssembly ランタイム）の分です。浮動小数のライブラリ `libfloat.asm` は z80float を元にしたもので、**Apache License 2.0** です（ほかは MIT License）。
+- ライセンスの一覧（`licenses.html`・`THIRD_PARTY_LICENSES.md`）に **SLANG-compiler** の節を足しました。X1Pen が配っている SLANG タブのコンパイラとランタイム、HuBASIC タブのバンドル（hubasic2sl とランタイム、.NET の WebAssembly ランタイム）の分です。浮動小数のライブラリ `libfloat.asm` は z80float を元にしたもので、**Apache License 2.0** です（ほかは MIT License）。SLANG-compiler の `LICENSE` と Apache License 2.0 の全文を `third_party/slang-compiler/` に置き、一覧からリンクしました。
 
 ## X1Pen Web 0.14.0 / x1pen-mcp 2.12.0
 

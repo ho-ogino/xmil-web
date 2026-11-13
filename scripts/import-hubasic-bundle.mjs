@@ -77,7 +77,8 @@ for (const name of ['_framework/dotnet.js', ...env.libraries.map((lib) => `runti
 const target = join(assetsDir, revision);
 await rm(target, { recursive: true, force: true });
 for (const [path, bytes] of bundleFiles) {
-  if (!/^(_framework|runtime|env)\//.test(path) || /\.(br|gz)$/.test(path)) continue;
+  // LICENSE and LICENSE-APACHE-2.0.txt at the root (SLANG-compiler 7a5c4a2 and later) go with it
+  if (!/^((_framework|runtime|env)\/|LICENSE[^/]*$)/.test(path) || /\.(br|gz)$/.test(path)) continue;
   await mkdir(dirname(join(target, path)), { recursive: true });
   await writeFile(join(target, path), bytes);
 }
