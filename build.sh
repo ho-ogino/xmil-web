@@ -136,6 +136,9 @@ if [ -z "${HUBASIC_REVISION}" ] || [ ! -f "${SCRIPT_DIR}/assets/hubasic/${HUBASI
     echo "Import one with: node scripts/import-hubasic-bundle.mjs <bundle-dir>"
     exit 1
 fi
+# Full license texts for the SLANG-compiler code above (licenses.html links to them)
+rm -rf ./third_party
+cp -R "${SCRIPT_DIR}/assets/third_party" ./third_party
 rm -rf ./hubasic
 cp -R "${SCRIPT_DIR}/assets/hubasic" ./hubasic
 # X1 BASIC Editor (HuBASIC tab), one commit of its repository plus X1Pen's host adapter
