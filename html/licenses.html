@@ -286,6 +286,89 @@ SOFTWARE.</pre>
         <p>ツールの字形（defchrtool/assets/fonts/X1font.png）は、上の「X1Pen HuBASIC エディタ」の「X1 互換フォント / 美咲フォント」と同じ条件です。</p>
     </div>
 
+    <!-- SLANG-compiler -->
+    <div class="panel">
+        <div class="panel-title">X1Pen SLANG タブ・HuBASIC タブ</div>
+
+        <div class="comp-name">SLANG-compiler <span class="license-tag">MIT License</span></div>
+        <div class="comp-files">x1pen_slang_compiler.js, slang_runtime/, slang_include/, hubasic/ &mdash; <a href="https://github.com/h-o-soft/SLANG-compiler" target="_blank" rel="noopener noreferrer" style="color:#ffcc88">github.com/h-o-soft/SLANG-compiler</a> &mdash; <a href="third_party/slang-compiler/LICENSE.txt" target="_blank" rel="noopener" style="color:#ffcc88">LICENSE</a>（SLANG-compiler 7a5c4a2 の写し）</div>
+        <p>SLANG タブのコンパイラ（C# のものを JavaScript に移したもの）とランタイム、HuBASIC タブのバンドル（hubasic2sl とランタイム）です。ランタイムには、ほかの作者のコードから来た所もあります（ZX0 の展開、MAG・M8A の画像の読み込みなど）。それぞれの許諾の文は、上の LICENSE（SLANG-compiler の LICENSE の写し）にまとめて載っています。</p>
+        <pre class="license-text">MIT License
+
+Copyright (c) 2022-2026 H.O SOFT / OGINO Hiroshi and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</pre>
+
+        <hr class="divider">
+
+        <div class="comp-name">z80float <span class="license-tag">Apache License 2.0</span></div>
+        <div class="comp-files">slang_runtime/libfloat.asm, hubasic/&lt;リビジョン&gt;/runtime/libfloat.asm &mdash; <a href="https://github.com/Zeda/z80float" target="_blank" rel="noopener noreferrer" style="color:#ffcc88">github.com/Zeda/z80float</a> &mdash; <a href="third_party/slang-compiler/LICENSE-APACHE-2.0.txt" target="_blank" rel="noopener" style="color:#ffcc88">全文</a></div>
+        <p>浮動小数のライブラリ libfloat.asm は z80float を元にしたもので、SLANG-compiler で変えた所も含めて Apache License 2.0 です。</p>
+        <pre class="license-text">   Copyright 2018 Zeda A.K. Thomas
+
+   Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+The changes and additions made for SLANG:
+   Copyright (c) 2022-2026 H.O SOFT / OGINO Hiroshi and contributors
+These changes and additions are also licensed under the Apache License,
+Version 2.0.</pre>
+
+        <hr class="divider">
+
+        <div class="comp-name">.NET ランタイム <span class="license-tag">MIT License</span></div>
+        <div class="comp-files">hubasic/&lt;リビジョン&gt;/_framework/ &mdash; <a href="https://github.com/dotnet/runtime" target="_blank" rel="noopener noreferrer" style="color:#ffcc88">github.com/dotnet/runtime</a></div>
+        <p>hubasic2sl をブラウザで動かす .NET の WebAssembly ランタイムです。</p>
+        <pre class="license-text">The MIT License (MIT)
+
+Copyright (c) .NET Foundation and Contributors
+
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</pre>
+    </div>
+
     <!-- Emscripten -->
     <div class="panel">
         <div class="panel-title">ビルドツール・ランタイム</div>
