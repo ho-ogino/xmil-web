@@ -48,3 +48,7 @@ html/x1pen_editor.bundle.js
 .idea/
 *.swp
 *.swo
+
+# 設計の控え（リポジトリの外で管理する）
+/plan.md
+/plans/
