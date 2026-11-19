@@ -146,16 +146,14 @@ THESE FONTS ARE PROVIDED "AS IS" WITHOUT WARRANTY.
 Copyright(C) 2002-2019 Num Kadoma
 ```
 
-## SLANG-compiler（X1Pen の SLANG タブのコンパイラとランタイム、HuBASIC タブのバンドル）
+## SLANG-compiler（X1Pen の SLANG タブ・HuBASIC タブのバンドル）
 
 **ファイル**:
-- `html/x1pen_slang_compiler.js`（SLANG-compiler の C# のコンパイラを JavaScript に移したもの。元にしたコミットはファイルの頭）
-- `assets/slang_runtime/`・`assets/slang_include/`（公開先 `slang_runtime/`・`slang_include/`）
 - `assets/hubasic/<リビジョン>/`（公開先 `hubasic/<リビジョン>/`）。SLANG-compiler のブラウザ向けバンドル（.NET の WebAssembly 版）。hubasic2sl（HuBASIC を SLANG に変えるもの）、slangc（SLANG のコンパイラ）、Hu-BASIC と同じ形のディスクを作る部分、各環境のランタイムと include。リビジョンは `assets/hubasic/current.json`
 
 **ソース**: https://github.com/h-o-soft/SLANG-compiler
 
-MIT License の下で配布されています。ただし **浮動小数のライブラリ `libfloat.asm`**（`slang_runtime/libfloat.asm` と `hubasic/<リビジョン>/runtime/libfloat.asm`）は z80float（https://github.com/Zeda/z80float ）を元にしたもので、SLANG-compiler で変えた所も含めて **Apache License 2.0** です。
+MIT License の下で配布されています。ただし **浮動小数のライブラリ `libfloat.asm`**（`hubasic/<リビジョン>/runtime/libfloat.asm`）は z80float（https://github.com/Zeda/z80float ）を元にしたもので、SLANG-compiler で変えた所も含めて **Apache License 2.0** です。
 
 ランタイムには、ほかの作者のコードから来た所もあります（ZX0 の展開、MAG・M8A の画像の読み込みなど）。それぞれの許諾の文は SLANG-compiler の `LICENSE` にまとめて載っています。
 
