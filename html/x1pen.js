@@ -1532,6 +1532,12 @@ window.__X1PEN_MODE = true;
         };
     }
 
+    // The ASM source as the assembler reads it: trimmed (the first line loses its indentation and a
+    // leading BOM, as before), but the blank lines before it stay, so error lines are the editor's
+    function asmForAssembler(text) {
+        return text.replace(/^\s+/, function(lead) { return lead.replace(/[^\n]/g, ''); }).trimEnd();
+    }
+
     async function performRun(token) {
         if (!runAdmission || runAdmission.token !== token) {
             console.warn('[x1pen] performRun called without the active Run token');
@@ -1542,9 +1548,9 @@ window.__X1PEN_MODE = true;
         // 0. sourceMode / runMode 判定
         var basicSrc = basicEditor.getValue().trim();
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
-        // What the assembler reads: the ASM tab as it is, so error lines are the editor's lines
-        // (and the first line keeps its indentation); SLANG's output when SLANG compiles
-        var asmText = asmEditor ? asmEditor.getValue() : '';
+        // What the assembler reads: the ASM tab (SLANG's output when SLANG compiles), with its
+        // error lines on the editor's lines
+        var asmText = asmEditor ? asmForAssembler(asmEditor.getValue()) : '';
         var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
         var hubasicSrc = hubasicEditor ? hubasicEditor.getValue().trim() : '';
         // The SLANG program as it is now, untrimmed (line numbers match the editor): the compiler
@@ -2646,8 +2652,7 @@ window.__X1PEN_MODE = true;
         if (asmSource.trim() && !hasErrors()) {
             var coldState = program.sourceMode === 'basic+asm' ? COLD_STATE_FILE : LSX_COLD_STATE;
             var predefined = await getPredefinedSymbols(coldState);
-            // As it is (not trimmed), so the lines of its errors are the editor's lines
-            var asmResult = window.X1PenZ80Asm.assemble(asmSource, predefined);
+            var asmResult = window.X1PenZ80Asm.assemble(asmForAssembler(asmSource), predefined);
             asmBytes = asmResult.bytes.length;
             for (var ai = 0; ai < asmResult.errors.length; ai++) {
                 var asmError = asmResult.errors[ai];

@@ -755,30 +755,28 @@ testErrors('Other errors after a macro call are on their source lines too',
 testErrors('An error inside a macro body is on the line that calls it',
     errorLines('BAD MACRO\n NOP\n JP NOWHERE\nENDM\n NOP\n BAD'),
     [[6, 'Failed to encode: JP NOWHERE']]);
-// A duplicate EQU does not change which #IF branch is taken: the first value stays
-testErrors('A duplicate EQU leaves the #IF branch of the first value',
+// A duplicate is the first error: #IF may have taken a branch by the later value (it reads names
+// as before, the latest value), and any error there would otherwise come first
+testErrors('A duplicate EQU comes before an error in the #IF branch it opened',
     errorLines('FLAG EQU 0\nFLAG EQU 1\n#IF FLAG\n#IF\n#ENDIF\n#ENDIF\n NOP'),
-    [[2, 'Duplicate label: FLAG (first defined on line 1)']]);
-testErrorBytes('A duplicate EQU leaves the first value in #IF and in code',
-    'FLAG EQU 0\nFLAG EQU 1\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF\n LD A,FLAG',
-    [0x00, 0x3E, 0x00], 'Duplicate label: FLAG (first defined on line 1)');
-// #IF reads names as the passes do: a local EQU under its global label, a name in the current
-// namespace first; a macro's name is not a definition
-testOK('#IF reads a local EQU', 'MAIN:\n.FLAG EQU 1\n#IF .FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76]);
-testOK('#IF reads the local EQU of the current global label (1)',
-    'A:\n.F EQU 1\nB:\n.F EQU 0\n#IF .F\n HALT\n#ELSE\n NOP\n#ENDIF', [0x00]);
-testOK('#IF reads the local EQU of the current global label (2)',
-    'A:\n.F EQU 0\nB:\n.F EQU 1\n#IF .F\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76]);
-testErrors('A duplicate local EQU leaves the #IF branch of the first value',
+    [[2, 'Duplicate label: FLAG (first defined on line 1)'], [4, 'Invalid #IF expression']]);
+testErrors('A duplicate local EQU comes first too',
     errorLines('MAIN:\n.F EQU 0\n.F EQU 1\n#IF .F\n#IF\n#ENDIF\n#ENDIF\n NOP'),
-    [[3, 'Duplicate label: MAIN.F (first defined on line 2)']]);
+    [[3, 'Duplicate label: MAIN.F (first defined on line 2)'], [5, 'Invalid #IF expression']]);
+testErrors('An EQU of an address label\'s name comes first too',
+    errorLines('FLAG:\nFLAG EQU 1\n#IF FLAG\n#IF\n#ENDIF\n#ENDIF\n NOP'),
+    [[2, 'Duplicate label: FLAG (first defined on line 1)'], [4, 'Invalid #IF expression']]);
+testErrors('A duplicate after another namespace\'s name comes first too',
+    errorLines('[ONE]\nFLAG EQU 0\n[TWO]\nFLAG EQU 1\n[ONE]\nFLAG EQU 1\n#IF FLAG\n#IF\n#ENDIF\n#ENDIF\n NOP'),
+    [[6, 'Duplicate label: ONE.FLAG (first defined on line 2)'], [8, 'Invalid #IF expression']]);
+// #IF reads names as it always has (no duplicates here)
+testOK('#IF reads a local EQU', 'MAIN:\n.FLAG EQU 1\n#IF .FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76]);
+testOK('#IF exists sees a local EQU', 'MAIN:\n.FLAG EQU 1\n#IF exists .FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76]);
+testOK('A macro call between a local EQU and #IF', 'TWO MACRO\n NOP\nENDM\nMAIN:\n.FLAG EQU 1\n TWO\n#IF .FLAG\n HALT\n#ELSE\n NOP\n#ENDIF',
+    [0x00, 0x76]);
+testOK('A local EQU is not a global name in #IF', 'MAIN:\n.FLAG EQU 1\nOTHER:\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x00]);
 testOK('A macro and an EQU may share a name',
     'FLAG MACRO\n NOP\nENDM\n FLAG\nFLAG: EQU 1\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x00, 0x76]);
-testOK('#IF reads the name of the current namespace',
-    '[ONE]\nFLAG EQU 0\n[TWO]\nFLAG EQU 1\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF\n[ONE]\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76, 0x00]);
-testErrors('Another namespace does not hide a duplicate EQU from #IF',
-    errorLines('[ONE]\nFLAG EQU 0\n[TWO]\nFLAG EQU 1\n[ONE]\nFLAG EQU 1\n#IF FLAG\n#IF\n#ENDIF\n#ENDIF\n NOP'),
-    [[6, 'Duplicate label: ONE.FLAG (first defined on line 2)']]);
 (function() {
     // A program's EQU of a predefined name still overrides it in #IF
     var result = asm.assemble('ENV_TYPE EQU 3\n#IF ENV_TYPE==3\n NOP\n#ELSE\n HALT\n#ENDIF', { ENV_TYPE: 1 });
