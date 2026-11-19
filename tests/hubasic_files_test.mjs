@@ -311,6 +311,30 @@ test('a body that cannot be read once stops changes instead of dropping it', asy
   assert.deepEqual(json((await reloaded.open()).files), []);
 });
 
+test('removing one unreadable file keeps the others, also those saved meanwhile by another tab', async () => {
+  const storage = fakeStorage();
+  const ls = fakeLocalStorage();
+  const other = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
+  await other.open();
+  await other.replaceAll(['A', 'B', 'C', 'D'].map((name) => ({ name, bytes: bytes(name.toLowerCase()) })));
+  // This tab cannot read A, B and D (the other tab can)
+  const keyOf = (name) => JSON.parse(ls.getItem(Files.LIST_KEY)).files.find((f) => f.name === name)?.key;
+  const unreadableKeys = new Set(['A', 'B', 'D'].map(keyOf));
+  const failing = { ...storage, read: async (key) => { if (unreadableKeys.has(key)) throw new Error('read failed'); return storage.read(key); } };
+  const tab = Files.createStore({ storage: failing, localStorage: ls, locks: sharedLocks });
+  assert.deepEqual(json((await tab.open()).missing), ['A', 'B', 'D']);
+  await other.put([{ name: 'E', bytes: bytes('e') }]);
+  // The new generation of the other tab renamed every key: B and D are still unreadable here
+  unreadableKeys.clear();
+  ['A', 'B', 'D'].forEach((name) => unreadableKeys.add(keyOf(name)));
+  await tab.forget('A');
+  assert.deepEqual(json(tab.unreadable()), ['B', 'D']);
+  assert.deepEqual(json(tab.list().map((f) => f.name)), ['C', 'E']);
+  const reloaded = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
+  await reloaded.open();
+  assert.deepEqual(json(reloaded.files().map((f) => [f.name, new TextDecoder().decode(f.bytes)])), [['B', 'b'], ['C', 'c'], ['D', 'd'], ['E', 'e']]);
+});
+
 test('Hu-BASIC text comes back as text: up to $1A, CR as LF', () => {
   assert.deepEqual([...Files.textFromHu(new Uint8Array([0x41, 0x0D, 0x42, 0x1A, 0x00, 0x00]))], [0x41, 0x0A, 0x42]);
   assert.deepEqual([...Files.textFromHu(new Uint8Array([0x41]))], [0x41]);
@@ -382,6 +406,33 @@ test('the disk editor adds text files as Hu-BASIC Asc ($04) and reads them back'
   legacy.rawEntry[0] = 0x24;
   reopened.setFileMode(legacy, 'M');
   assert.equal(legacy.mode, 0x21);
+});
+
+test('changing a Hu-BASIC Asc file to Bin in the disk editor keeps its length', async () => {
+  await page.X1PenSlangWasm.load();
+  const disk = await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array([0xC9]), { mainName: 'PROG', files: [
+    { name: 'LOG.TXT', kind: 'text', bytes: bytes('LINE 1\nLINE 2\n') },
+    { name: 'BIG.DAT', kind: 'raw', bytes: new Uint8Array(70000).fill(0x41) },
+  ] });
+  assert.equal(disk.ok, true, disk.error);
+  const open = (buffer) => new page.XmilDiskFS.HuBasicFS(page.XmilDiskContainer.openContainer(buffer, 'x.d88'));
+  let container = page.XmilDiskContainer.openContainer(disk.d88.buffer, 'x.d88');
+  let fs = new page.XmilDiskFS.HuBasicFS(container);
+  const log = fs.listDirectory().find((e) => e.name.trim() === 'LOG');
+  assert.equal(log.size, 0);
+  const before = fs.readFile(log);
+  assert.equal(before.length, 256);
+  fs.setFileMode(log, 'M');
+  const reopened = open(container.toArrayBuffer());
+  const asBin = reopened.listDirectory().find((e) => e.name.trim() === 'LOG');
+  assert.equal(asBin.mode, 0x01);
+  assert.equal(asBin.size, 256);
+  assert.deepEqual([...reopened.readFile(asBin)], [...before]);
+  // Too long for the size field: refused, nothing changed
+  const big = reopened.listDirectory().find((e) => e.name.trim() === 'BIG');
+  assert.throws(() => reopened.setFileMode(big, 'M'), /65535/);
+  assert.equal(big.mode, 0x04);
+  assert.equal(big.size, 0);
 });
 
 test('a raw file as large as the disk allows keeps its whole records through a read-back and a rebuild', async () => {

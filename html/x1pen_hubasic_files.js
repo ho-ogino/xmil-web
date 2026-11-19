@@ -260,6 +260,32 @@
             });
         }
 
+        // Removes one file from the saved list as it is now, without reading or rewriting the
+        // others (some of which may be unreadable): the list keeps their bodies as they are
+        function forget(name) {
+            return withLock(async function() {
+                var previous = readList();
+                var kept = previous.files.filter(function(f) { return f.name !== name; });
+                var dropped = previous.files.filter(function(f) { return f.name === name; });
+                if (dropped.length === 0) { await sync(); return summary(cache); }
+                var next = { version: 1, generation: newGeneration(), files: kept };
+                var json = JSON.stringify(next);
+                try {
+                    ls.setItem(LIST_KEY, json);
+                    if (ls.getItem(LIST_KEY) !== json) throw new Error('the list did not read back');
+                } catch (e) {
+                    try {
+                        if (previous.generation) ls.setItem(LIST_KEY, JSON.stringify(previous));
+                        else ls.removeItem(LIST_KEY);
+                    } catch (ignored) {}
+                    throw filesError('ファイルの一覧を保存できませんでした: ' + (e && e.message || e), 'HUBASIC_FILES_SAVE_FAILED');
+                }
+                await removeQuietly(dropped.map(function(f) { return f.key; }));
+                await load(next);
+                return summary(cache);
+            });
+        }
+
         // Reads the saved set again if another tab changed it (or a body was unreadable); true
         // when the set read now differs
         function refresh() {
@@ -270,6 +296,7 @@
             open: open,
             update: update,
             replaceAll: replaceAll,
+            forget: forget,
             refresh: refresh,
             current: function() { return cache; },
             unreadable: function() { return unreadable.slice(); },
@@ -292,6 +319,7 @@
             open: async function() { return { files: summary(files), missing: [] }; },
             update: update,
             replaceAll: function(next) { return update(function() { return next; }); },
+            forget: function(name) { return update(function(all) { return all.filter(function(f) { return f.name !== name; }); }); },
             refresh: async function() { return false; },
             current: function() { return files; },
             unreadable: function() { return []; },
@@ -313,6 +341,8 @@
             update: impl.update,
             refresh: impl.refresh,
             replaceAll: impl.replaceAll,
+            // Removes one file by name, also one whose body cannot be read
+            forget: impl.forget,
             // Names of saved files whose bodies could not be read (see createStore)
             unreadable: impl.unreadable,
             list: function() { return summary(impl.current()); },

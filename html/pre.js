@@ -4819,6 +4819,15 @@
         downloadState:  downloadState,
         getStateList:   getStateList,
         clearStorage: async function() {
+            // X1Pen's HuBASIC files (x1pen_hubasic_files.js) are saved under a Web Lock; take it so
+            // that a save in progress finishes before its bodies and list are cleared
+            if (navigator.locks && navigator.locks.request) {
+                var self = this;
+                return navigator.locks.request('x1pen_hubasic_files', function() { return self._clearStorageLocked(); });
+            }
+            return this._clearStorageLocked();
+        },
+        _clearStorageLocked: async function() {
             if (window.XmilStorage) {
                 // Step 1: manifest キーを削除（JSON 破損時は空扱いで続行）
                 var manifest = [];

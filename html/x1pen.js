@@ -4979,9 +4979,8 @@ window.__X1PEN_MODE = true;
             drop.textContent = '外す';
             drop.setAttribute('aria-label', name + ' を外す');
             drop.addEventListener('click', function() {
-                // Saves the readable files as the whole set, which drops the unreadable ones
                 applyHuBasicFilesChange(function() {
-                    return changeHuBasicFiles(function(store) { return store.replaceAll(store.files()); });
+                    return changeHuBasicFiles(function(store) { return store.forget(name); });
                 });
             });
             var actions = row.insertCell();
@@ -5142,10 +5141,17 @@ window.__X1PEN_MODE = true;
                 var diskName = window.X1PenHuBasicFiles.diskName;
                 // Files whose own names follow the rules come first and replace same-named files;
                 // then each made-up name takes a name nothing else has (in any order of the choice)
+                // The kind comes from the file's own name (a .TXT stays text when it is renamed).
+                // Two chosen files with one directory name ("A" and "A.") never replace each other:
+                // the later one is treated like a file whose name does not follow the rules.
                 var taken = {};
-                var kept = chosen.filter(function(c) { return huBasicFileNameFor(c.original) === c.original; });
-                kept.forEach(function(c) {
+                var kept = [];
+                chosen.forEach(function(c) {
+                    if (huBasicFileNameFor(c.original) !== c.original || taken[diskName(c.original)]) return;
                     taken[diskName(c.original)] = true;
+                    kept.push(c);
+                });
+                kept.forEach(function(c) {
                     files = files.filter(function(f) { return diskName(f.name) !== diskName(c.original); })
                         .concat([{ name: c.original, kind: defaultHuBasicFileKind(c.original), bytes: c.bytes }]);
                 });
@@ -5156,7 +5162,7 @@ window.__X1PEN_MODE = true;
                     var name = freeHuBasicFileName(huBasicFileNameFor(c.original), taken);
                     renamed.push(c.original + ' → ' + name);
                     taken[diskName(name)] = true;
-                    files = files.concat([{ name: name, kind: defaultHuBasicFileKind(name), bytes: c.bytes }]);
+                    files = files.concat([{ name: name, kind: defaultHuBasicFileKind(c.original), bytes: c.bytes }]);
                 });
                 return files;
             });

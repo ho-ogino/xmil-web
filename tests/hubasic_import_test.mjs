@@ -1,35 +1,40 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
-// scripts/import-hubasic-bundle.mjs checks a whole bundle before it changes anything: a bundle
-// whose testdata is wrong must leave the bundle, current.json and fixtures as they are. The
-// importer runs against a temporary destination (IMPORT_HUBASIC_ROOT), never this checkout.
+// scripts/import-hubasic-bundle.mjs checks a whole bundle, and starts it the way the page does,
+// before it changes anything; a failure at any later step puts everything back. It runs here
+// against temporary destinations (IMPORT_HUBASIC_ROOT), never this checkout. The bundles are made
+// from the committed one (its .NET framework, runtime and environments) with small testdata.
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const importer = join(repoRoot, 'scripts', 'import-hubasic-bundle.mjs');
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+const revision = JSON.parse(readFileSync(join(repoRoot, 'assets', 'hubasic', 'current.json'), 'utf8')).revision;
+const committedDir = join(repoRoot, 'assets', 'hubasic', revision);
+const committed = JSON.parse(readFileSync(join(committedDir, 'manifest.json'), 'utf8'));
 
 function snapshot(root) {
   const out = {};
   const walk = (at) => {
     for (const entry of readdirSync(at, { withFileTypes: true })) {
       const path = join(at, entry.name);
-      if (entry.isDirectory()) walk(path);
-      else out[relative(root, path)] = sha256(readFileSync(path));
+      if (entry.isDirectory()) { out[`${relative(root, path)}/`] = 'dir'; walk(path); } else out[relative(root, path)] = sha256(readFileSync(path));
     }
   };
   walk(root);
   return out;
 }
 
-// A destination with a bundle already imported: its selector, bundle directory and fixtures
-function fakeDestination() {
+// A destination with another bundle already imported (or nothing at all)
+function fakeDestination({ empty = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'x1pen-dest-'));
+  if (empty) return root;
   const write = (path, text) => {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), text);
@@ -42,12 +47,9 @@ function fakeDestination() {
   return root;
 }
 
-// The environments of the committed bundle: a fake bundle with them passes the page's checks
-const committed = JSON.parse(readFileSync(join(repoRoot, 'assets', 'hubasic',
-  JSON.parse(readFileSync(join(repoRoot, 'assets', 'hubasic', 'current.json'), 'utf8')).revision, 'manifest.json'), 'utf8'));
-
-// A small bundle with every file the importer asks for, and testdata that `mutate` can break
-function fakeBundle(mutate) {
+// The committed bundle's files (linked, not copied) and small testdata that `mutate` can break.
+// skip: bundle files to leave out of the bundle and its file list.
+function fakeBundle(mutate = () => {}, { skip = () => false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'x1pen-bundle-'));
   const files = {};
   const put = (path, text) => {
@@ -55,18 +57,18 @@ function fakeBundle(mutate) {
     writeFileSync(join(dir, path), text);
     files[path] = Buffer.from(text);
   };
-  const envs = JSON.parse(JSON.stringify(committed.envs));
-  for (const [name, env] of Object.entries(envs)) {
-    put(`env/${name}.env`, name);
-    for (const lib of env.libraries) if (!files[`runtime/${lib}`]) put(`runtime/${lib}`, `; ${lib}`);
-  }
-  // The markers the page looks for in the runtime
-  put('runtime/libx1_basic.asm', `; @name BAS_ABI_${committed.basAbi}\n`);
-  put('runtime/libx1_basic_file.asm', `; @name BAS_FABI_${committed.basFileAbi}\n`);
-  put('include/GRAPH.LIB', '// lib');
-  put('_framework/dotnet.js', '// dotnet');
-  put('LICENSE', 'MIT');
-  put('LICENSE-APACHE-2.0.txt', 'Apache');
+  const walk = (at) => {
+    for (const entry of readdirSync(at, { withFileTypes: true })) {
+      const path = join(at, entry.name);
+      const rel = relative(committedDir, path);
+      if (entry.isDirectory()) { walk(path); continue; }
+      if (rel === 'manifest.json' || skip(rel)) continue;
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      symlinkSync(path, join(dir, rel));
+      files[rel] = readFileSync(path);
+    }
+  };
+  walk(committedDir);
   for (const name of ['HELLO', 'FILEIO']) {
     put(`testdata/${name}.BAS`, '10 END');
     put(`testdata/${name}.SL`, 'MAIN() {}');
@@ -83,9 +85,7 @@ function fakeBundle(mutate) {
     lst: `testdata/${name}.LST`, d88: `testdata/${name}.d88`, diskMainName: name,
   });
   const manifest = {
-    slangCompilerRevision: 'a'.repeat(40), dirty: false, hubasic2slVersion: 'test', slangcVersion: 'test',
-    basAbi: committed.basAbi, basFileAbi: committed.basFileAbi, loadAddress: committed.loadAddress,
-    reservedStart: committed.reservedStart, envs,
+    ...JSON.parse(JSON.stringify(committed)),
     testdata: { env: 'x1native_slfs', cases: [caseOf('HELLO')] },
     hufsTestdata: { env: 'x1native_hufs', cases: [{ ...caseOf('FILEIO'), hufsAdd: [{ name: 'GREET.TXT', file: 'testdata/FILEIO.GREET.TXT', kind: 'text' }] }] },
     slangTestdata: { env: 'x1', includePaths: ['include'], cases: [{ name: 'SCREEN', sl: 'testdata/slang/SCREEN.SL', asm: 'testdata/slang/SCREEN.ASM', bin: 'testdata/slang/SCREEN.bin' }] },
@@ -96,48 +96,60 @@ function fakeBundle(mutate) {
   return dir;
 }
 
-function assertImportChangesNothing(mutate, env = {}, stderrPattern) {
-  const root = fakeDestination();
+function runImport(bundle, root, env = {}) {
+  return spawnSync(process.execPath, ['--no-warnings', importer, bundle],
+    { encoding: 'utf8', env: { ...process.env, ...env, IMPORT_HUBASIC_ROOT: root } });
+}
+
+function assertImportChangesNothing({ mutate, skip, env = {}, empty = false }, stderrPattern) {
+  const root = fakeDestination({ empty });
   const before = snapshot(root);
-  const bundle = fakeBundle(mutate);
+  const bundle = fakeBundle(mutate, { skip });
   try {
-    const run = spawnSync(process.execPath, [join(repoRoot, 'scripts', 'import-hubasic-bundle.mjs'), bundle],
-      { encoding: 'utf8', env: { ...process.env, ...env, IMPORT_HUBASIC_ROOT: root } });
+    const run = runImport(bundle, root, env);
     assert.equal(run.status, 1, run.stdout + run.stderr);
     assert.match(run.stderr, stderrPattern);
-    // Nothing changed and nothing was left behind (staging, previous copies, the lock)
-    assert.deepEqual(snapshot(root), before);
+    // Nothing changed and nothing was left behind (staging, previous copies, the lock); an empty
+    // destination may keep the empty folders the lock was made in
+    const after = snapshot(root);
+    if (empty) {
+      for (const key of Object.keys(after)) assert.ok(/\/$/.test(key), `${key} is left in an empty destination`);
+    } else {
+      assert.deepEqual(after, before);
+    }
   } finally {
     rmSync(bundle, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 }
 
-test('a good bundle is imported into the destination and the lock is released', () => {
-  const root = fakeDestination();
-  const bundle = fakeBundle(() => {});
-  try {
-    const run = spawnSync(process.execPath, [join(repoRoot, 'scripts', 'import-hubasic-bundle.mjs'), bundle],
-      { encoding: 'utf8', env: { ...process.env, IMPORT_HUBASIC_ROOT: root } });
-    assert.equal(run.status, 0, run.stdout + run.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(join(root, 'assets/hubasic/current.json'), 'utf8')), { revision: 'a'.repeat(40) });
-    assert.deepEqual(readdirSync(join(root, 'assets/hubasic')).sort(), ['a'.repeat(40), 'current.json']);
-    assert.deepEqual(readdirSync(join(root, 'tests/fixtures')).sort(), ['hubasic', 'slang']);
-    assert.ok(readdirSync(join(root, 'tests/fixtures/hubasic')).includes('FILEIO.ADD.0'));
-  } finally {
-    rmSync(bundle, { recursive: true, force: true });
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+for (const empty of [false, true]) {
+  test(`a good bundle is imported into ${empty ? 'an empty destination' : 'a destination with another bundle'}, and the lock is released`, () => {
+    const root = fakeDestination({ empty });
+    const bundle = fakeBundle();
+    try {
+      const run = runImport(bundle, root);
+      assert.equal(run.status, 0, run.stdout + run.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(join(root, 'assets/hubasic/current.json'), 'utf8')), { revision });
+      assert.deepEqual(readdirSync(join(root, 'assets/hubasic')).sort(), [revision, 'current.json']);
+      assert.deepEqual(readdirSync(join(root, 'tests/fixtures')).sort(), ['hubasic', 'slang']);
+      assert.ok(readdirSync(join(root, 'tests/fixtures/hubasic')).includes('FILEIO.ADD.0'));
+      assert.equal(readFileSync(join(root, 'assets/hubasic', revision, 'manifest.json'), 'utf8'),
+        readFileSync(join(bundle, 'manifest.json'), 'utf8'), 'the manifest that was checked is the one published');
+    } finally {
+      rmSync(bundle, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test('an import stops while another one holds the lock', () => {
   const root = fakeDestination();
   writeFileSync(join(root, 'assets/hubasic/.import.lock'), '1\n');
   const before = snapshot(root);
-  const bundle = fakeBundle(() => {});
+  const bundle = fakeBundle();
   try {
-    const run = spawnSync(process.execPath, [join(repoRoot, 'scripts', 'import-hubasic-bundle.mjs'), bundle],
-      { encoding: 'utf8', env: { ...process.env, IMPORT_HUBASIC_ROOT: root } });
+    const run = runImport(bundle, root);
     assert.equal(run.status, 1);
     assert.match(run.stderr, /another import is running/);
     assert.deepEqual(snapshot(root), before);
@@ -155,21 +167,28 @@ for (const [what, mutate] of [
 ]) {
   test(`a bundle where ${what} changes nothing`, () => {
     // Stopped at the testdata, not earlier at the bundle's own files
-    assertImportChangesNothing(mutate, {}, /^import-hubasic-bundle: .*(testdata|slangTestdata|hufsAdd|__WORKEND__)/);
+    assertImportChangesNothing({ mutate }, /^import-hubasic-bundle: .*(testdata|slangTestdata|hufsAdd|__WORKEND__)/);
   });
 }
 
 test('a bundle the page would refuse is not imported', () => {
-  assertImportChangesNothing((m) => { m.envs.x1native_hufs.defaultOrg = 0x2000; }, {},
+  assertImportChangesNothing({ mutate: (m) => { m.envs.x1native_hufs.defaultOrg = 0x2000; } },
     /^import-hubasic-bundle: the page would refuse this bundle: .*x1native_hufs\.defaultOrg/);
   // The runtime markers too: a file ABI the runtime does not carry
-  assertImportChangesNothing((m) => { m.basFileAbi += 1; }, {},
+  assertImportChangesNothing({ mutate: (m) => { m.basFileAbi += 1; } },
     /^import-hubasic-bundle: the page would refuse this bundle: .*BAS_FABI/);
 });
 
-for (const failAfter of [1, 2, 3, 4]) {
-  test(`a failure after publishing step ${failAfter} puts everything back`, () => {
-    assertImportChangesNothing(() => {}, { IMPORT_HUBASIC_FAIL_AFTER: String(failAfter) },
-      /^import-hubasic-bundle: could not publish the bundle, nothing changed: stopped after step/);
-  });
+test('a bundle missing a file its .NET framework needs is not imported', () => {
+  assertImportChangesNothing({ skip: (rel) => /^_framework\/dotnet\.native\.[^/]*\.wasm$/.test(rel) },
+    /^import-hubasic-bundle: nothing changed: the page could not start this bundle/);
+});
+
+for (const empty of [false, true]) {
+  for (const failAfter of [1, 2, 3, 4, 5, 6]) {
+    test(`a failure after step ${failAfter} puts ${empty ? 'an empty destination' : 'everything'} back`, () => {
+      assertImportChangesNothing({ env: { IMPORT_HUBASIC_FAIL_AFTER: String(failAfter) }, empty },
+        /^import-hubasic-bundle: nothing changed: stopped after step/);
+    });
+  }
 }

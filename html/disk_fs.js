@@ -339,6 +339,16 @@
         // 1 つだけにする (Hu-BASIC は種類のビットがちょうど 1 つの項目しか開かない)。前の版が ASCII の
         // 印に使った $20 (種類のビットの無い項目の $20) は外す。ほかの $20 は Hu-BASIC の属性なので残す
         var raw = entry.rawEntry[0];
+        // Bin・Bas は大きさの欄で長さを決める。大きさの欄が 0 の Asc (長さはレコードの分) を変えるときは、
+        // 先に長さを読んで大きさの欄に書く (書かないと空のファイルになる)
+        if (newMode !== 'A' && (raw & 0x03) === 0 && entry.size === 0) {
+            var data = this.readFile(entry);
+            var length = data ? data.length : 0;
+            if (length > 0xFFFF) throw new Error('65535 バイトより大きいので、この種類にはできません');
+            entry.rawEntry[0x12] = length & 0xFF;
+            entry.rawEntry[0x13] = (length >> 8) & 0xFF;
+            entry.size = length;
+        }
         var mode = raw & 0xF8;
         if ((raw & 0x07) === 0) mode &= ~0x20;
         if (newMode === 'M') mode |= 0x01;

@@ -3917,6 +3917,32 @@ test('HuBASIC files stay after a reload, stay out of the library, and go with a 
       keys: (await window.XmilStorage.list()).map((entry) => entry.key).filter((key) => key.startsWith('x1pen_hufile_')),
     }));
     assert.deepEqual(cleared, { files: [], list: null, keys: [] });
+
+    // A full reset waits for a save in progress, then clears it too (never a list without its files)
+    const raced = await keptPage.evaluate(async () => {
+      let release;
+      const held = new Promise((resolve) => { release = resolve; });
+      let wrote;
+      const wroteBody = new Promise((resolve) => { wrote = resolve; });
+      const write = window.XmilStorage.write;
+      window.XmilStorage.write = async (key, buffer) => {
+        await write.call(window.XmilStorage, key, buffer);
+        if (key.startsWith('x1pen_hufile_')) { wrote(); await held; }
+      };
+      const saving = window.X1PenAutomation.setHuBasicFiles([{ name: 'RACE.TXT', kind: 'text', base64: btoa('race') }]);
+      await wroteBody;
+      const clearing = window.XMillennium.clearStorage();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      release();
+      await saving;
+      await clearing;
+      window.XmilStorage.write = write;
+      return {
+        list: localStorage.getItem('x1pen_hubasic_files'),
+        keys: (await window.XmilStorage.list()).map((entry) => entry.key).filter((key) => key.startsWith('x1pen_hufile_')),
+      };
+    });
+    assert.deepEqual(raced, { list: null, keys: [] });
   } finally {
     await context.close();
   }
@@ -3960,6 +3986,8 @@ test('HuBASIC files: two first uses share one bundle, and picked names never rep
     assert.deepEqual(Object.keys(byName).sort(), ['FILE', 'FILE2', 'FILE3', 'OK.TXT']);
     assert.equal(byName.FILE, 'KEEP');
     assert.deepEqual([byName.FILE2, byName.FILE3].sort(), ['A\n', 'B\n']);
+    // The kind follows the file's own name: a renamed .TXT stays text
+    assert.deepEqual(picked.files.filter((f) => f.name !== 'FILE').map((f) => f.kind), ['text', 'text', 'text']);
     assert.match(await first.locator('#hubasic-files-message').textContent(), /売上\.TXT → FILE[23]/);
     // A file whose own name is FILE keeps it, whichever comes first in the choice
     for (const order of [['売上.TXT', 'FILE'], ['FILE', '売上.TXT']]) {
@@ -3971,6 +3999,15 @@ test('HuBASIC files: two first uses share one bundle, and picked names never rep
       assert.deepEqual(Object.fromEntries(both.files.map((f) => [f.name, Buffer.from(f.base64, 'base64').toString('latin1')])),
         { FILE: 'OWN', FILE2: 'MADE' }, order.join(','));
     }
+    // "A" and "A." are one directory name: the second one gets another name instead of replacing the first
+    await setHuBasicFiles([], first);
+    await first.locator('#hubasic-files-input').setInputFiles(['A', 'A.'].map((name) =>
+      ({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(name) })));
+    await first.waitForFunction(() => document.getElementById('btn-hubasic-files').textContent === 'Files (2)');
+    const dotted = await first.evaluate(() => window.X1PenAutomation.getHuBasicFiles());
+    assert.deepEqual(Object.fromEntries(dotted.files.map((f) => [f.name, Buffer.from(f.base64, 'base64').toString('latin1')])),
+      { A: 'A', 'A2.': 'A.' });
+    assert.match(await first.locator('#hubasic-files-message').textContent(), /A\. → A2\./);
     await first.locator('#hubasic-files-close').click();
 
     await setHuBasicFiles([], first);
