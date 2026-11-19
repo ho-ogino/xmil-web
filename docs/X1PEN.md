@@ -45,7 +45,8 @@ SLANG のプログラムを書くタブです。RUN すると、SLANG-compiler �
 
 - 書き方・ランタイムの関数・include（`#INCLUDE "GRAPH.LIB"` など）は、SLANG-compiler の `docs/SLANG-spec.md` と、バンドルに入っている `runtime/`・`include/` のとおりです（x1pen-mcp のリファレンスもこれに合わせてあります）。
 - 初めて SLANG を組むときに、バンドル（約 2.3MB、圧縮後）を読み込みます。SLANG タブを開いた時点で裏で読み始め、読み込み中に RUN するとステータス欄に `SLANG: loading compiler...` と出ます。HuBASIC タブと同じバンドルなので、どちらかで読めば、もう一方では読みません。
-- コンパイルのエラーは、ステータス欄に `SLANG: L<行>:<桁>: <エラー>` と出ます（`#INCLUDE` したファイルの中なら、頭にファイル名）。警告は、組めたときに数だけ出ます。自動操作の `validate` の診断にも、行と桁が付きます。
+- コンパイルのエラーは、ステータス欄に `SLANG: L<行>:<桁>: <エラー>` と出ます（`#INCLUDE` したファイルの中なら、頭にファイル名）。警告があっても組めたときは、起動のあとのステータス欄に数が出ます（`LSX-Dodgers mode (SLANG: 1 warning(s))`）。自動操作の `validate` は警告も行と桁つきで返し、エラーが無ければ通ります。
+- `#INCLUDE` のファイル名は、大文字でも小文字でも見つかります（`#INCLUDE "graph.lib"` も可）。
 - バンドルを読めないときは `SLANG: compiler unavailable (…)` と出て RUN しません。読めるようになれば、次の RUN で通ります。
 
 SLANGタブの **Import** ボタンは、binary fileを現在のcursor位置へ大文字の`$XX`値列として挿入します。16 bytesごとに改行し、値の間だけにカンマを入れます。末尾カンマ、label、`ARRAY`宣言、filename commentは生成しません。周囲のsourceは解析しないため、必要なカンマや括弧は利用者が用意してください。

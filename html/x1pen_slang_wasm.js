@@ -213,9 +213,14 @@
         checkBasAbi(manifest, runtimeText, hubasicVersion.basAbi);
 
         Object.keys(files).forEach(function(path) { slang.PutFile(VFS_ROOT + '/' + path, files[path]); });
+        // The include files by upper-case name, for programs that spell them in another case
+        var includes = {};
+        Object.keys(files).forEach(function(path) {
+            if (path.indexOf('include/') === 0) includes[path.slice(8).toUpperCase()] = files[path];
+        });
         state = {
             revision: current.revision, base: base, manifest: manifest, envs: envs,
-            hubasic: hubasic, slang: slang,
+            hubasic: hubasic, slang: slang, includes: includes,
             versions: { hubasic2sl: hubasicVersion.version, slangc: slangVersion.slangc }
         };
         return info();
@@ -286,6 +291,23 @@
 
     // Compiles SLANG text in one of the checked environments. Never throws for program errors.
     // Returns { ok, asm, diagnostics: [{severity, message, file, line, column}], log, error? }.
+    // The bundled include files are upper case (GRAPH.LIB); X1Pen's former compiler found them
+    // whatever the case of the name in #INCLUDE, but slangc's file system tells cases apart. Put
+    // each bundled file also under the spelling a program uses (#INCLUDE "graph.lib", #include
+    // Graph.Lib, #CHAIN likewise).
+    var INCLUDE_LINE = /^[ \t]*#(?:INCLUDE|CHAIN)[ \t]+"?([^"\s;]+)"?/gim;
+    function provideIncludeSpellings(s, source) {
+        var m;
+        INCLUDE_LINE.lastIndex = 0;
+        while ((m = INCLUDE_LINE.exec(source))) {
+            var spelled = m[1];
+            var bytes = s.includes[spelled.toUpperCase()];
+            if (bytes && /^[A-Za-z0-9_.-]+$/.test(spelled) && !s.includes[spelled]) {
+                s.slang.PutFile(VFS_ROOT + '/include/' + spelled, bytes);
+            }
+        }
+    }
+
     // options: { sourceName } ('PROGRAM.SL')
     async function compile(source, envName, options) {
         var s = requireState();
@@ -293,6 +315,7 @@
         var name = (options && options.sourceName) || 'PROGRAM.SL';
         var path = WORK_DIR + name;
         s.slang.PutFile(path, new TextEncoder().encode(source));
+        provideIncludeSpellings(s, source);
         // #INCLUDE looks next to the source, then in the bundle's include/ (as slangc -I)
         var request = { env: envName, libPaths: [VFS_ROOT], includePaths: [VFS_ROOT + '/include'] };
         var r = JSON.parse(s.slang.Compile(path, JSON.stringify(request)));

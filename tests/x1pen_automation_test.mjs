@@ -1358,6 +1358,38 @@ test('the SLANG tab compiles with the bundle\'s slangc, loads it when the tab op
   }
 });
 
+test('SLANG errors point at the editor line, and warnings are kept by Validate and Run', { timeout: 120_000 }, async () => {
+  const setSlang = (slang) => page.evaluate(async (source) => {
+    const api = window.X1PenAutomation;
+    const current = api.getProgram();
+    return api.setProgram({ sourceMode: 'slang', basic: '', asm: '', slang: source }, current.revision, current.revisionEpoch);
+  }, slang);
+  // Two blank lines at the top: the error is on editor line 6
+  await setSlang('\n\nFLOAT F;\nMAIN() {\n  F = 1.5;\n  IF F THEN F = 2.0;\n}\n');
+  const failed = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const validation = await api.validate();
+    await api.run();
+    return { line: validation.diagnostics[0].line, status: document.getElementById('x1pen-status').textContent };
+  });
+  assert.equal(failed.line, 6);
+  assert.match(failed.status, /^SLANG: L6:3: /);
+  // A warning: validation passes and lists it, the Run keeps its count
+  await setSlang('MAIN() {\n  LOOP { }\n}\n#CHAIN "SOROBAN.LIB"\nVAR X;\n');
+  const warned = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    const validation = await api.validate();
+    const run = await api.run();
+    return { validation, run, status: document.getElementById('x1pen-status').textContent };
+  });
+  assert.equal(warned.validation.ok, true);
+  assert.deepEqual(warned.validation.diagnostics.map((d) => [d.kind, d.severity, d.line]), [['slang', 'warning', 5]]);
+  assert.equal(warned.run.ok, true, JSON.stringify(warned.run));
+  assert.equal(warned.run.warnings.length, 1);
+  assert.equal(warned.run.warnings[0].line, 5);
+  assert.equal(warned.status, 'LSX-Dodgers mode (SLANG: 1 warning(s))');
+});
+
 test('a SLANG Run without the compiler says so and works again once the bundle can be loaded', { timeout: 120_000 }, async () => {
   const context = await browser.newContext();
   try {

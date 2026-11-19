@@ -1559,6 +1559,7 @@ window.__X1PEN_MODE = true;
         }
 
         // SLANG → コンパイル → ASM に変換
+        var slangWarnings = 0;
         if (sourceMode === 'slang') {
             elStatus.textContent = isSlangToolchainLoaded() ? 'Compiling SLANG...' : 'SLANG: loading compiler...';
             var slangResult;
@@ -1566,14 +1567,16 @@ window.__X1PEN_MODE = true;
                 await ensureSlangToolchain();
                 elStatus.textContent = 'Compiling SLANG...';
                 // x1 環境 (LSX-Dodgers、$100 から。ENV_TYPE 1・OS_TYPE 0)
-                slangResult = await window.X1PenSlangWasm.compile(slangSrc, 'x1');
+                // The editor text as it is (slangSrc is trimmed), so that line numbers match the editor
+                slangResult = await window.X1PenSlangWasm.compile(slangEditor.getValue(), 'x1');
             } catch(e) {
                 elStatus.textContent = e.message;
                 lastRunDetails = { code: e.code || 'SLANG_TOOLCHAIN_UNAVAILABLE', stage: 'toolchain' };
                 clearSymbols();
                 return false;
             }
-            var slangWarnings = slangResult.diagnostics.filter(function(d) { return d.severity === 'warning'; }).length;
+            var slangWarningList = slangResult.diagnostics.filter(function(d) { return d.severity === 'warning'; });
+            slangWarnings = slangWarningList.length;
             if (!slangResult.ok) {
                 var firstErr = slangResult.diagnostics.filter(function(d) { return d.severity === 'error'; })[0];
                 elStatus.textContent = 'SLANG: ' + formatSlangDiagnostic(firstErr);
@@ -1583,6 +1586,7 @@ window.__X1PEN_MODE = true;
             }
             // コンパイル結果の ASM を使う
             asmSrc = slangResult.asm;
+            lastRunDetails = { warnings: slangWarningList };
             // ASM タブにユーザーの手書き ASM がある場合は確認
             if (asmEditor && lastAsmTabOrigin === 'user' && asmEditor.getValue().trim()) {
                 if (!confirm('ASM タブの内容が上書きされます。よろしいですか？')) {
@@ -1911,7 +1915,7 @@ window.__X1PEN_MODE = true;
             if (canvas) canvas.focus();
             await new Promise(function(r) { setTimeout(r, 500); });
             await simulateProgCommand();
-            elStatus.textContent = 'LSX-Dodgers mode';
+            elStatus.textContent = 'LSX-Dodgers mode' + (slangWarnings ? ' (SLANG: ' + slangWarnings + ' warning(s))' : '');
         } else {
             // FuzzyBASIC モード: BASIC 注入 + RUN キー注入
             if (!tokenized) {
@@ -2597,12 +2601,13 @@ window.__X1PEN_MODE = true;
         if (program.sourceMode === 'slang' && diagnostics.length === 0) {
             try {
                 await ensureSlangToolchain();
-                var slangResult = await window.X1PenSlangWasm.compile(program.slang.trim(), 'x1');
-                // Errors only: a warning does not stop a Run, so it does not fail validation either
+                // The text as it is, so that line numbers match the editor
+                var slangResult = await window.X1PenSlangWasm.compile(program.slang, 'x1');
+                // Warnings are reported too; only errors fail validation (a warning does not stop a Run)
                 slangResult.diagnostics.forEach(function(d) {
-                    if (d.severity !== 'error') return;
                     diagnostics.push(makeAutomationDiagnostic('slang', d.message, {
-                        severity: 'error', file: d.file, line: d.line, column: d.column
+                        severity: d.severity === 'error' ? 'error' : 'warning',
+                        file: d.file, line: d.line, column: d.column
                     }));
                 });
                 asmSource = slangResult.ok ? slangResult.asm : '';
@@ -2611,7 +2616,8 @@ window.__X1PEN_MODE = true;
                 diagnostics.push(makeAutomationDiagnostic('slang', e.message));
             }
         }
-        if (asmSource.trim() && diagnostics.length === 0) {
+        var hasErrors = function() { return diagnostics.some(function(d) { return d.severity !== 'warning'; }); };
+        if (asmSource.trim() && !hasErrors()) {
             var coldState = program.sourceMode === 'basic+asm' ? COLD_STATE_FILE : LSX_COLD_STATE;
             var predefined = await getPredefinedSymbols(coldState);
             var asmResult = window.X1PenZ80Asm.assemble(asmSource.trim(), predefined);
@@ -2630,7 +2636,7 @@ window.__X1PEN_MODE = true;
         }
 
         return {
-            ok: diagnostics.length === 0,
+            ok: !hasErrors(),
             sourceMode: program.sourceMode,
             revision: automationRevision,
             diagnostics: diagnostics,

@@ -153,6 +153,21 @@ test('#INCLUDE reads the bundle\'s include files', async () => {
   assert.ok(missing.diagnostics.some((d) => d.severity === 'error'));
 });
 
+test('#INCLUDE finds the bundle\'s files whatever the case of the name, as X1Pen did before', async () => {
+  for (const line of ['#INCLUDE "graph.lib"', '#include Graph.Lib', '#INCLUDE "GRAPH.LIB"']) {
+    const compiled = await compile(`${line}\nMAIN()\n{\n}\n`);
+    assert.equal(compiled.ok, true, `${line}: ${JSON.stringify(compiled.diagnostics)}`);
+  }
+});
+
+test('a warning comes back with its place and does not stop the build', async () => {
+  const compiled = await compile('MAIN()\n{\n}\n#CHAIN "SOROBAN.LIB"\nVAR X;\n');
+  assert.equal(compiled.ok, true, JSON.stringify(compiled.diagnostics));
+  const warning = compiled.diagnostics.find((d) => d.severity === 'warning');
+  assert.deepEqual([warning.file, warning.line, warning.column], ['PROGRAM.SL', 5, 1]);
+  assert.match(warning.message, /Text after #CHAIN is not read/);
+});
+
 test('STICK and TATTR come from the bundle\'s x1 runtime', async () => {
   const { asm } = await build('VAR S;\nMAIN()\n{\n  S = STICK(0);\n  TATTR($07);\n}\n');
   assert.match(asm, /^STICK:/m);
