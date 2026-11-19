@@ -214,7 +214,8 @@
             if (!hubasic || !slang) throw new Error('the bundle has no HuBasicWeb/SlangWeb exports');
         } catch (e) {
             runtimeFailure = 'Failed to start the SLANG bundle: ' + (e && e.message || e);
-            throw toolchainError(runtimeFailure);
+            // The runtime cannot start again in this page: say so already the first time
+            throw toolchainError(runtimeFailure + ' (reload the page to try again)', { needsReload: true });
         }
         var hubasicVersion = JSON.parse(hubasic.Version());
         var slangVersion = JSON.parse(slang.Version());

@@ -1518,6 +1518,7 @@ test('a SLANG compiler that failed to start asks for a reload, and works after o
     const failed = await runSlang();
     assert.equal(failed.ok, false);
     assert.equal(failed.code, 'SLANG_TOOLCHAIN_UNAVAILABLE');
+    assert.match(failed.status, /reload the page to try again\)\)$/, 'the first failure already asks for a reload');
     block = false;
     const again = await runSlang();
     assert.equal(again.ok, false);
