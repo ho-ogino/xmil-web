@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -1296,7 +1296,15 @@ test('PCG reference matches the bundled X1 runtime contract', () => {
   assert.ok(details.includes('Blue, Red, Green'));
 });
 
-const HUBASIC_PROFILE = 'x1pen-hubasic-x1native-slfs';
+const HUBASIC_PROFILE = 'x1pen-hubasic-x1native';
+
+// The converter assembly of a bundle; .NET 10 puts a content hash in the file name
+function converterWasm(bundleDir) {
+  const dir = join(bundleDir, '_framework');
+  const names = readdirSync(dir).filter((name) => /^hubasic2sl-wasm(\.[a-z0-9]+)?\.wasm$/.test(name));
+  assert.equal(names.length, 1, `one hubasic2sl-wasm assembly in ${dir}`);
+  return readFileSync(join(dir, names[0]));
+}
 
 function hubasicEntries() {
   return validateReferenceData().entries.filter((entry) => entry.language === 'hubasic');
@@ -1364,7 +1372,7 @@ test('the HuBASIC reference is stamped with the bundled hubasic2sl revision', ()
 
 test('every HuBASIC catalog word is a keyword string of the bundled converter', () => {
   const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
-  const converter = readFileSync(join(repoRoot, 'assets/hubasic', current.revision, '_framework/hubasic2sl-wasm.wasm'));
+  const converter = converterWasm(join(repoRoot, 'assets/hubasic', current.revision));
   const [catalog] = getReferenceEntries({ ids: ['hubasic.keywords.catalog'] }).entries;
   const groups = catalog.syntax.map((line) => line.slice(line.indexOf(':') + 1).trim().split(/\s+/));
   const grouped = groups.flat();
@@ -1427,7 +1435,7 @@ test('HuBASIC MIRROR$ and HEXCHR$ reference matches the bundled converter and ru
   const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
   const bundle = join(repoRoot, 'assets/hubasic', current.revision);
   const runtime = readFileSync(join(bundle, 'runtime/libx1_basic.asm'), 'utf8');
-  const converter = readFileSync(join(bundle, '_framework/hubasic2sl-wasm.wasm'));
+  const converter = converterWasm(bundle);
   const routine = (name) => runtime.slice(runtime.indexOf(`; @name ${name}\n`), runtime.indexOf('; @name ', runtime.indexOf(`; @name ${name}\n`) + 1));
 
   // A variable argument goes to BAS_SMIRRORV, which reverses it in place; other arguments are copied by BAS_SMIRROR
@@ -1463,7 +1471,7 @@ test('HuBASIC CONSOLE reference matches the bundled converter and runtime', () =
   const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
   const bundle = join(repoRoot, 'assets/hubasic', current.revision);
   const runtime = readFileSync(join(bundle, 'runtime/libx1_basic.asm'), 'utf8');
-  const converter = readFileSync(join(bundle, '_framework/hubasic2sl-wasm.wasm'));
+  const converter = converterWasm(bundle);
   const routine = (name) => runtime.slice(runtime.indexOf(`; @name ${name}\n`), runtime.indexOf('; @name ', runtime.indexOf(`; @name ${name}\n`) + 1));
 
   // The window limits output, but LOCATE and the PRINT , stops keep absolute screen coordinates
@@ -1498,7 +1506,7 @@ test('HuBASIC V16 envelope, WIDTH rows and KEYLIST/KLIST/KMODE reference matches
   const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
   const bundle = join(repoRoot, 'assets/hubasic', current.revision);
   const runtime = readFileSync(join(bundle, 'runtime/libx1_basic.asm'), 'utf8');
-  const converter = readFileSync(join(bundle, '_framework/hubasic2sl-wasm.wasm'));
+  const converter = converterWasm(bundle);
   const routine = (name) => runtime.slice(runtime.indexOf(`; @name ${name}\n`), runtime.indexOf('; @name ', runtime.indexOf(`; @name ${name}\n`) + 1));
 
   // MML V is 0-16 (16 is the PSG envelope); every note rewrites R13 so the envelope restarts
@@ -1532,7 +1540,7 @@ test('HuBASIC BIN$, two-dimensional arrays and the --string-len hints reference 
   const current = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8'));
   const bundle = join(repoRoot, 'assets/hubasic', current.revision);
   const runtime = readFileSync(join(bundle, 'runtime/libx1_basic.asm'), 'utf8');
-  const converter = readFileSync(join(bundle, '_framework/hubasic2sl-wasm.wasm'));
+  const converter = converterWasm(bundle);
   const routine = (name) => runtime.slice(runtime.indexOf(`; @name ${name}\n`), runtime.indexOf('; @name ', runtime.indexOf(`; @name ${name}\n`) + 1));
 
   // BIN$ is the 16-bit value in binary without leading zeros ("0" for 0)

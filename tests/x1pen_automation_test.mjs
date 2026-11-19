@@ -3045,13 +3045,13 @@ test('the HuBASIC reference names the code hubasic2sl gives each unsupported wor
   const documented = [unsupported.summary, ...unsupported.syntax, ...unsupported.notes].join('\n');
   const cases = [
     ['CIRCLE', 'HB0301', '10 CIRCLE (10,10),5'],
-    ['PSET', 'HB0301', '10 PSET (1,1)'],
     ['DEF FN', 'HB0301', '10 DEF FNA(X)=X'],
     ['ERASE', 'HB0301', '10 ERASE A'],
-    ['CLEAR', 'HB0301', '10 CLEAR'],
+    ['CLEAR with two arguments', 'HB0301', '10 CLEAR 1,&HDFFF'],
     ['LOADM', 'HB0301', '10 LOADM "X"'],
+    ['LOAD', 'HB0301', '10 LOAD "X"'],
     ['RUN "file"', 'HB0301', '10 RUN "X"'],
-    ['OPEN', 'HB0301', '10 OPEN "X" FOR INPUT AS #1'],
+    ['LINE INPUT from the keyboard', 'HB0301', '10 LINE INPUT A$'],
     ['CREV', 'HB0301', '10 CREV 1'],
     ['GOTO A$', 'HB0301', '10 GOTO A$'],
     ['RESTORE "name"', 'HB0301', '10 RESTORE "X"'],
@@ -3059,10 +3059,11 @@ test('the HuBASIC reference names the code hubasic2sl gives each unsupported wor
     ['USR', 'HB0302', '10 A=USR(0)'],
     ['TIME$', 'HB0302', '10 A$=TIME$'],
     ['OCT$', 'HB0302', '10 A$=OCT$(8)'],
-    ['POINT', 'HB0302', '10 A=POINT(1,1)'],
+    ['MKI$', 'HB0302', '10 A$=MKI$(1)'],
+    ['DSKF', 'HB0302', '10 A=DSKF(0)'],
     ['ON ERROR', 'HB0302', '10 ON ERROR GOTO 100'],
     ['DIM A(2,2,2)', 'HB0303', '10 DIM A(2,2,2)'],
-    ['LINE -(x,y)', 'HB0203', '10 LINE -(10,10),PSET'],
+    ['STEP', 'HB0203', '10 PSET STEP(1,1)'],
   ];
   for (const [word, code, source] of cases) {
     assert.ok(documented.includes(word), `hubasic.unsupported must mention ${word}`);
@@ -3566,15 +3567,13 @@ test('HuBASIC Run replaces a temporary disk whose last track is still dirty', { 
   // emulator holds that track unflushed when HuBASIC Run puts the new image in place.
   await setHuBasicProgram('10 PRINT "NEW IMAGE"\n20 GOTO 20\n');
   const result = await page.evaluate(async () => {
-    // Loads the HuBASIC toolchain scripts (SLANG compiler, assembler, disk builder)
+    // Loads the HuBASIC toolchain (the SLANG bundle, the assembler and the disk builder)
     const validation = await window.X1PenAutomation.validate();
     if (!validation.ok) return { setup: validation.diagnostics };
     const current = await (await fetch('hubasic/current.json')).json();
     const base = `hubasic/${current.revision}/`;
     const manifest = await (await fetch(`${base}manifest.json`)).json();
     const env = manifest.envs.x1native_slfs;
-    const vfs = {};
-    for (const lib of env.libraries) vfs[lib] = await (await fetch(`${base}runtime/${lib}`)).text();
     const constants = { ENV_TYPE: env.envType, OS_TYPE: env.osType, ...env.defines };
     const writer = [
       'ARRAY BYTE BUF[256];',
@@ -3589,8 +3588,8 @@ test('HuBASIC Run replaces a temporary disk whose last track is still dirty', { 
       '  GOTO SPIN;',
       'END',
     ].join('\n');
-    const compiled = window.X1PenSlangCompiler.compile(writer, vfs, { defaultOrg: env.defaultOrg, codeReadonly: false, defines: constants });
-    if (compiled.errors.length) return { setup: compiled.errors };
+    const compiled = await window.X1PenSlangWasm.compile(writer, 'x1native_slfs');
+    if (!compiled.ok) return { setup: compiled.diagnostics };
     const assembled = window.X1PenZ80Asm.assemble(compiled.asm, constants, { allowTopLevelLocalLabels: true });
     if (assembled.errors.length) return { setup: assembled.errors };
     const writerDisk = window.X1PenSlfsDisk.buildSlfsD88(new Uint8Array(assembled.bytes), {
@@ -3671,6 +3670,377 @@ test('HuBASIC Run leaves a library disk in FDD0 and the other drives alone', { t
   } finally {
     await context.close();
   }
+});
+
+// ── HuBASIC files (programs that use the file statements boot from a Hu-BASIC format disk) ──
+
+const HUBASIC_FILEIO = [
+  '10 CLS',
+  '20 OPEN "I",#1,"GREET.TXT"',
+  '30 LINE INPUT #1,A$',
+  '40 CLOSE #1',
+  '50 PRINT "READ:";A$',
+  '60 OPEN "O",#2,"OUT.TXT"',
+  '70 PRINT #2,"WRITTEN ";A$',
+  '80 CLOSE #2',
+  '90 PRINT "FILES DONE"',
+  '100 GOTO 100',
+].join('\n') + '\n';
+
+const latin1Base64 = (text) => Buffer.from(text, 'latin1').toString('base64');
+
+function setHuBasicFiles(files, target = page) {
+  return target.evaluate((list) => window.X1PenAutomation.setHuBasicFiles(list), files);
+}
+
+// Reads a D88 the page made (a download) with the page's own Hu-BASIC disk reader
+function readD88InPage(bytes, target = page) {
+  return target.evaluate((base64) => {
+    const binary = atob(base64);
+    const d88 = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) d88[i] = binary.charCodeAt(i);
+    return window.X1PenHuBasicFiles.readDiskFiles(d88).map((f) => ({
+      name: f.name, kind: f.kind, protected: f.protected,
+      text: new TextDecoder('latin1').decode(f.kind === 'text' ? window.X1PenHuBasicFiles.textFromHu(f.bytes) : f.bytes),
+    }));
+  }, Buffer.from(bytes).toString('base64'));
+}
+
+async function downloadFrom(target, click) {
+  const [download] = await Promise.all([target.waitForEvent('download'), click()]);
+  return { name: download.suggestedFilename(), bytes: readFileSync(await download.path()) };
+}
+
+test('a HuBASIC program reads the files put on its disk and writes new ones that can be read back', { timeout: 180_000 }, async () => {
+  try {
+    const set = await setHuBasicFiles([{ name: 'GREET.TXT', kind: 'text', base64: latin1Base64('HELLO FILE\n') }]);
+    assert.equal(set.persistent, true);
+    assert.deepEqual(set.files.map((f) => [f.name, f.kind, f.size]), [['GREET.TXT', 'text', 11]]);
+    await setHuBasicProgram(HUBASIC_FILEIO);
+    const result = await page.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const validation = await api.validate();
+      const run = await api.run();
+      return { validation, run, features: api.getStatus().x1pen.features, profile: api.getStatus().languageProfiles.hubasic };
+    });
+    assert.equal(result.validation.ok, true, JSON.stringify(result.validation.diagnostics));
+    assert.equal(result.run.ok, true, JSON.stringify(result.run));
+    assert.equal(result.run.environment, 'x1native_hufs');
+    assert.equal(result.run.filesUsed, 1);
+    assert.ok(!result.features.includes('hubasic.files'), 'announced with the Connector and x1pen-mcp support');
+    assert.equal(result.profile.id, 'x1pen-hubasic-x1native');
+    assert.deepEqual(result.profile.environments, ['x1native_slfs', 'x1native_hufs']);
+    await textVramContains('READ:HELLO FILE');
+    await textVramContains('FILES DONE');
+
+    // FDD0 Save, before anything else reads the disk, carries what the program just wrote
+    const saved = await downloadFrom(page, () => page.evaluate(() => document.getElementById('ec-fdd0-save').click()));
+    assert.ok((await readD88InPage(saved.bytes)).some((f) => f.name === 'OUT.TXT' && /^WRITTEN HELLO FILE/.test(f.text)));
+
+    // What the program wrote, straight after it wrote it (the drive's track buffer is written back first)
+    const disk = await page.evaluate(() => window.X1PenAutomation.readHuBasicDiskFiles());
+    const byName = Object.fromEntries(disk.files.map((f) => [f.name, f]));
+    assert.ok(byName['OUT.TXT'], JSON.stringify(disk.files.map((f) => f.name)));
+    assert.equal(byName['OUT.TXT'].kind, 'asc');
+    assert.match(Buffer.from(byName['OUT.TXT'].base64, 'base64').toString('latin1'), /^WRITTEN HELLO FILE\r\x1a/);
+    assert.equal(byName['GREET.TXT'].kind, 'asc');
+    assert.equal(Object.values(byName).filter((f) => f.protected).length, 1, 'the program itself is write-protected');
+
+    // The Files panel lists the same disk and puts a file back into the list
+    await page.evaluate(() => document.querySelector('.editor-tab[data-tab="hubasic"]').click());
+    await page.locator('#btn-hubasic-files').click();
+    assert.equal(await page.locator('#btn-hubasic-files').textContent(), 'Files (1)');
+    assert.equal(await page.locator('#hubasic-disk-read').isDisabled(), false);
+    await page.locator('#hubasic-disk-read').click();
+    const row = page.locator('#hubasic-disk-list tr', { hasText: 'OUT.TXT' });
+    await row.getByRole('button', { name: 'テキストで戻す' }).click();
+    await page.waitForFunction(() => document.getElementById('btn-hubasic-files').textContent === 'Files (2)');
+    const files = await page.evaluate(() => window.X1PenAutomation.getHuBasicFiles());
+    const out = files.files.find((f) => f.name === 'OUT.TXT');
+    assert.equal(out.kind, 'text');
+    assert.equal(Buffer.from(out.base64, 'base64').toString('latin1'), 'WRITTEN HELLO FILE\n');
+
+    await page.locator('#hubasic-files-close').click();
+
+    // A track that cannot be written back stops both the read-back and FDD0 Save
+    const failed = await page.evaluate(async () => {
+      const flush = window.Module._js_fdd_flush;
+      window.Module._js_fdd_flush = () => -1;
+      let downloads = 0;
+      const click = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function() { if (this.download) downloads++; else click.call(this); };
+      try {
+        const read = await window.X1PenAutomation.readHuBasicDiskFiles().then(() => 'read', (e) => e.code);
+        document.getElementById('ec-fdd0-save').click();
+        return { read, downloads, status: document.getElementById('x1pen-status').textContent };
+      } finally {
+        window.Module._js_fdd_flush = flush;
+        HTMLAnchorElement.prototype.click = click;
+      }
+    });
+    assert.deepEqual(failed, { read: 'HUBASIC_DISK_UNREADABLE', downloads: 0,
+      status: 'FDD0: ドライブの書きかけをディスクに書き戻せなかったので、保存しませんでした' });
+  } finally {
+    await setHuBasicFiles([]);
+  }
+});
+
+test('files added to a HuBASIC program without file statements are left out, and a disk that cannot hold them stops Run', { timeout: 120_000 }, async () => {
+  try {
+    await setHuBasicFiles([{ name: 'GREET.TXT', kind: 'text', base64: latin1Base64('HELLO\n') }]);
+    await setHuBasicProgram('10 CLS\n20 PRINT "NO FILES"\n30 GOTO 30\n');
+    const plain = await page.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(plain.ok, true, JSON.stringify(plain));
+    assert.equal(plain.environment, 'x1native_slfs');
+    assert.equal(plain.filesIgnored, 1);
+    assert.match(plain.status, /ファイルの命令が無いので、入れたファイルは使いません/);
+    await textVramContains('NO FILES');
+    // Not a Hu-BASIC disk: there is nothing to read back
+    const notHufs = await page.evaluate(() => window.X1PenAutomation.readHuBasicDiskFiles().then(() => null, (e) => e.code));
+    assert.equal(notHufs, 'HUBASIC_DISK_NOT_HUFS');
+
+    // 307,000 bytes fit the size limits (300 KB) but not the disk with the program (78 clusters of 4 KB)
+    const big = latin1Base64('\0'.repeat(60000));
+    await setHuBasicFiles([0, 1, 2, 3, 4].map((i) => ({ name: `BIG${i}.BIN`, kind: 'bin', base64: big }))
+      .concat([{ name: 'LAST.BIN', kind: 'bin', base64: latin1Base64('\0'.repeat(7000)) }]));
+    await setHuBasicProgram(HUBASIC_FILEIO);
+    const full = await page.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(full.ok, false);
+    assert.equal(full.code, 'HUBASIC_DISK_FAILED');
+    assert.match(full.status, /^HuBASIC: disk: hufs: /);
+    // The limits themselves are checked before anything is saved
+    const refused = await page.evaluate((base64) => window.X1PenAutomation.setHuBasicFiles([{ name: 'X.BIN', kind: 'bin', base64 }])
+      .then(() => null, (e) => e.code), latin1Base64('\0'.repeat(65536)));
+    assert.equal(refused, 'HUBASIC_FILES_TOO_LARGE');
+    assert.equal((await page.evaluate(() => window.X1PenAutomation.getHuBasicFiles())).files.length, 6);
+  } finally {
+    await setHuBasicFiles([]);
+  }
+});
+
+test('the disk of a HuBASIC Run is read back only while FDD0 still holds it', { timeout: 120_000 }, async () => {
+  try {
+    await setHuBasicFiles([{ name: 'GREET.TXT', kind: 'text', base64: latin1Base64('HELLO FILE\n') }]);
+    await setHuBasicProgram(HUBASIC_FILEIO);
+    const run = await page.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(run.ok, true, JSON.stringify(run));
+    await textVramContains('FILES DONE');
+    const codes = await page.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const read = () => api.readHuBasicDiskFiles().then((r) => 'ok:' + r.files.length, (e) => e.code);
+      const out = { before: await read() };
+      // Another temporary disk (as a BASIC Run puts its PROGRAM disk) in FDD0
+      const other = await (await fetch('fuzzybasic_boot.v2.d88')).arrayBuffer();
+      await window.XmilControls.mountTempDisk(other, 'drive0');
+      out.otherTemporary = await read();
+      out.buttonDisabled = (document.getElementById('hubasic-disk-read').click(), document.getElementById('hubasic-disk-read').disabled);
+      // A library disk in FDD0
+      const entry = await window.XmilLibrary.addToLibrary(new File([other], 'LIB-HU.D88'));
+      await window.XmilLibrary.mountFromLibrary(entry.key, 'drive0');
+      out.library = await read();
+      await window.XmilCore.ejectSlot('drive0');
+      out.empty = await read();
+      await window.XmilLibrary.deleteFromLibrary?.(entry.key);
+      return out;
+    });
+    assert.equal(codes.before, 'ok:3');
+    assert.equal(codes.otherTemporary, 'HUBASIC_DISK_NOT_CURRENT');
+    assert.equal(codes.library, 'HUBASIC_DISK_NOT_CURRENT');
+    assert.equal(codes.empty, 'HUBASIC_DISK_NOT_CURRENT');
+    await page.evaluate(() => document.querySelector('.editor-tab[data-tab="hubasic"]').click());
+    await page.locator('#btn-hubasic-files').click();
+    assert.equal(await page.locator('#hubasic-disk-read').isDisabled(), true);
+    await page.locator('#hubasic-files-close').click();
+  } finally {
+    await setHuBasicFiles([]);
+  }
+});
+
+test('a Hu-BASIC disk still boots after its program added and removed files', { timeout: 180_000 }, async () => {
+  try {
+    const files = [];
+    for (let i = 0; i < 12; i++) files.push({ name: `F${String(i).padStart(2, '0')}.TXT`, kind: 'text', base64: latin1Base64(`FILE ${i}\n`.repeat(400)) });
+    await setHuBasicFiles(files);
+    await setHuBasicProgram([
+      '10 CLS',
+      '20 PRINT "BOOT"',
+      '30 OPEN "O",#1,"NEW.TXT":PRINT #1,"NEW":CLOSE #1',
+      '40 KILL "F01.TXT"',
+      '50 PRINT "CHANGED"',
+      '60 GOTO 60',
+    ].join('\n') + '\n');
+    const run = await page.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(run.ok, true, JSON.stringify(run));
+    await textVramContains('CHANGED');
+    const names = (await page.evaluate(() => window.X1PenAutomation.readHuBasicDiskFiles())).files.map((f) => f.name);
+    assert.ok(names.includes('NEW.TXT') && !names.includes('F01.TXT'), names.join(','));
+    // Booting the same disk again: the IPL still finds the program (CLS clears CHANGED, then
+    // BOOT is printed; KILL then stops it, as F01.TXT is gone)
+    await page.evaluate(() => window.XmilControls.iplReset());
+    await page.waitForFunction(() => {
+      const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes;
+      const text = String.fromCharCode(...bytes);
+      return text.includes('BOOT') && !text.includes('CHANGED');
+    }, null, { timeout: 30_000 });
+  } finally {
+    await setHuBasicFiles([]);
+  }
+});
+
+test('HuBASIC files stay after a reload, stay out of the library, and go with a full reset', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext();
+  try {
+    const keptPage = await context.newPage();
+    await keptPage.goto(`${baseUrl}/x1pen.html`);
+    await keptPage.evaluate(() => window.X1PenAutomation.ready());
+    await setHuBasicFiles([
+      { name: 'GREET.TXT', kind: 'text', base64: latin1Base64('HELLO\n') },
+      { name: 'DATA.BIN', kind: 'bin', base64: latin1Base64('\x01\x02\x03') },
+    ], keptPage);
+    await keptPage.reload();
+    await keptPage.evaluate(() => window.X1PenAutomation.ready());
+    const reloaded = await keptPage.evaluate(async () => ({
+      files: (await window.X1PenAutomation.getHuBasicFiles()).files,
+      library: window.XmilCore.getLibrary().map((entry) => entry.name),
+      keys: (await window.XmilStorage.list()).map((entry) => entry.key),
+    }));
+    assert.deepEqual(reloaded.files.map((f) => [f.name, f.kind, f.size]), [['GREET.TXT', 'text', 6], ['DATA.BIN', 'bin', 3]]);
+    assert.equal(Buffer.from(reloaded.files[1].base64, 'base64').toString('latin1'), '\x01\x02\x03');
+    assert.deepEqual(reloaded.library, []);
+    assert.equal(reloaded.keys.filter((key) => key.startsWith('x1pen_hufile_')).length, 2);
+    await keptPage.evaluate(() => window.XMillennium.clearStorage());
+    await keptPage.reload();
+    await keptPage.evaluate(() => window.X1PenAutomation.ready());
+    const cleared = await keptPage.evaluate(async () => ({
+      files: (await window.X1PenAutomation.getHuBasicFiles()).files,
+      list: localStorage.getItem('x1pen_hubasic_files'),
+      keys: (await window.XmilStorage.list()).map((entry) => entry.key).filter((key) => key.startsWith('x1pen_hufile_')),
+    }));
+    assert.deepEqual(cleared, { files: [], list: null, keys: [] });
+
+    // A full reset waits for a save in progress, then clears it too (never a list without its files)
+    const raced = await keptPage.evaluate(async () => {
+      let release;
+      const held = new Promise((resolve) => { release = resolve; });
+      let wrote;
+      const wroteBody = new Promise((resolve) => { wrote = resolve; });
+      const write = window.XmilStorage.write;
+      window.XmilStorage.write = async (key, buffer) => {
+        await write.call(window.XmilStorage, key, buffer);
+        if (key.startsWith('x1pen_hufile_')) { wrote(); await held; }
+      };
+      const saving = window.X1PenAutomation.setHuBasicFiles([{ name: 'RACE.TXT', kind: 'text', base64: btoa('race') }]);
+      await wroteBody;
+      const clearing = window.XMillennium.clearStorage();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      release();
+      await saving;
+      await clearing;
+      window.XmilStorage.write = write;
+      return {
+        list: localStorage.getItem('x1pen_hubasic_files'),
+        keys: (await window.XmilStorage.list()).map((entry) => entry.key).filter((key) => key.startsWith('x1pen_hufile_')),
+      };
+    });
+    assert.deepEqual(raced, { list: null, keys: [] });
+  } finally {
+    await context.close();
+  }
+});
+
+test('HuBASIC files: two first uses share one bundle, and picked names never replace each other', { timeout: 180_000 }, async () => {
+  const context = await browser.newContext();
+  try {
+    const first = await context.newPage();
+    await first.goto(`${baseUrl}/x1pen.html`);
+    await first.evaluate(() => window.X1PenAutomation.ready());
+    await first.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT "TWO"\n' }, current.revision, current.revisionEpoch);
+    });
+    // The disk image button and a validation both load the bundle for the first time
+    await first.evaluate(() => document.querySelector('.editor-tab[data-tab="hubasic"]').click());
+    await first.locator('#btn-hubasic-files').click();
+    const [image, overlapping] = await Promise.all([
+      first.waitForEvent('download'),
+      first.evaluate(async () => {
+        document.getElementById('hubasic-files-save-disk').click();
+        const validation = await window.X1PenAutomation.validate();
+        return { ok: validation.ok, scripts: document.querySelectorAll('script[src*="x1pen_slang_wasm.js"]').length };
+      }),
+    ]);
+    assert.equal(image.suggestedFilename(), 'PROGRAM.d88');
+    assert.deepEqual(overlapping, { ok: true, scripts: 1 });
+
+    // Names made for files whose own names do not follow the rules never take another file's place
+    await setHuBasicFiles([{ name: 'FILE', kind: 'raw', base64: latin1Base64('KEEP') }], first);
+    await first.locator('#hubasic-files-input').setInputFiles([
+      { name: '売上.TXT', mimeType: 'text/plain', buffer: Buffer.from('A\n') },
+      { name: '明細.TXT', mimeType: 'text/plain', buffer: Buffer.from('B\n') },
+      { name: 'OK.TXT', mimeType: 'text/plain', buffer: Buffer.from('C\n') },
+    ]);
+    await first.waitForFunction(() => document.getElementById('btn-hubasic-files').textContent === 'Files (4)');
+    const picked = await first.evaluate(() => window.X1PenAutomation.getHuBasicFiles());
+    const byName = Object.fromEntries(picked.files.map((f) => [f.name, Buffer.from(f.base64, 'base64').toString('latin1')]));
+    assert.deepEqual(Object.keys(byName).sort(), ['FILE', 'FILE2', 'FILE3', 'OK.TXT']);
+    assert.equal(byName.FILE, 'KEEP');
+    assert.deepEqual([byName.FILE2, byName.FILE3].sort(), ['A\n', 'B\n']);
+    // The kind follows the file's own name: a renamed .TXT stays text
+    assert.deepEqual(picked.files.filter((f) => f.name !== 'FILE').map((f) => f.kind), ['text', 'text', 'text']);
+    assert.match(await first.locator('#hubasic-files-message').textContent(), /売上\.TXT → FILE[23]/);
+    // A file whose own name is FILE keeps it, whichever comes first in the choice
+    for (const order of [['売上.TXT', 'FILE'], ['FILE', '売上.TXT']]) {
+      await setHuBasicFiles([], first);
+      await first.locator('#hubasic-files-input').setInputFiles(order.map((name) =>
+        ({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(name === 'FILE' ? 'OWN' : 'MADE') })));
+      await first.waitForFunction(() => document.getElementById('btn-hubasic-files').textContent === 'Files (2)');
+      const both = await first.evaluate(() => window.X1PenAutomation.getHuBasicFiles());
+      assert.deepEqual(Object.fromEntries(both.files.map((f) => [f.name, Buffer.from(f.base64, 'base64').toString('latin1')])),
+        { FILE: 'OWN', FILE2: 'MADE' }, order.join(','));
+    }
+    // "A" and "A." are one directory name: the second one gets another name instead of replacing the first
+    await setHuBasicFiles([], first);
+    await first.locator('#hubasic-files-input').setInputFiles(['A', 'A.'].map((name) =>
+      ({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(name) })));
+    await first.waitForFunction(() => document.getElementById('btn-hubasic-files').textContent === 'Files (2)');
+    const dotted = await first.evaluate(() => window.X1PenAutomation.getHuBasicFiles());
+    assert.deepEqual(Object.fromEntries(dotted.files.map((f) => [f.name, Buffer.from(f.base64, 'base64').toString('latin1')])),
+      { A: 'A', 'A2.': 'A.' });
+    assert.match(await first.locator('#hubasic-files-message').textContent(), /A\. → A2\./);
+    await first.locator('#hubasic-files-close').click();
+
+    await setHuBasicFiles([], first);
+  } finally {
+    await context.close();
+  }
+});
+
+test('a HuBASIC program opens empty and text files the disk editor added to its disk', { timeout: 120_000 }, async () => {
+  await setHuBasicProgram([
+    '10 CLS',
+    '20 OPEN "I",#1,"EMPTY.TXT"',
+    '30 PRINT "EOF";EOF(1)',
+    '40 CLOSE #1',
+    '50 OPEN "I",#1,"NOTE.TXT":LINE INPUT #1,A$:CLOSE #1',
+    '60 PRINT "NOTE:";A$',
+    '70 GOTO 70',
+  ].join('\n') + '\n');
+  const built = await page.evaluate(async () => {
+    await window.X1PenAutomation.validate();
+    const result = await window.X1PenHuBasic.build(window.X1PenAutomation.getProgram().hubasic, {}, []);
+    if (!result.ok) return { error: result.message };
+    const container = window.XmilDiskContainer.openContainer(result.d88.buffer, 'p.d88');
+    const fs = new window.XmilDiskFS.HuBasicFS(container);
+    fs.addFile('EMPTY', 'TXT', new Uint8Array(0));
+    fs.addFile('NOTE', 'TXT', new TextEncoder().encode('HI\r\x1a'));
+    await window.XmilControls.mountTempDisk(container.toArrayBuffer(), 'drive0');
+    window.XmilControls.coldPowerOn(window.Module._js_get_rom_type());
+    return { environment: result.environment };
+  });
+  assert.deepEqual(built, { environment: 'x1native_hufs' });
+  await textVramContains('EOF-1');
+  await textVramContains('NOTE:HI');
 });
 
 test('HuBASIC and the other source modes clear each other and persist', { timeout: 60_000 }, async () => {
@@ -4306,8 +4676,8 @@ async function recordHuBasicBuilds(target = page) {
     const hu = window.X1PenHuBasic || (await window.X1PenAutomation.validate(), window.X1PenHuBasic);
     if (!window.__huBuild) window.__huBuild = hu.build;
     window.__huBuilds = [];
-    hu.build = async (source, options) => {
-      const built = await window.__huBuild(source, options);
+    hu.build = async (source, options, ...rest) => {
+      const built = await window.__huBuild(source, options, ...rest);
       window.__huBuilds.push({ options: JSON.parse(JSON.stringify(options)), ok: built.ok, sl: built.sl || '' });
       return built;
     };
@@ -4634,7 +5004,7 @@ async function shareFrom(target) {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
       const status = document.getElementById('x1pen-status').textContent;
-      if (status === 'Shared!' || status === 'Same content - URL reused' || /^Share failed|Nothing to share|cannot/.test(status)) {
+      if (status === 'Shared!' || status === 'Same content - URL reused' || /^Share failed|Nothing to share|cannot|Shareできません/.test(status)) {
         const dialog = document.getElementById('share-dialog');
         if (!dialog.classList.contains('hidden')) document.getElementById('share-dialog-close').click();
         return { status, url: document.getElementById('share-dialog-url').value };
@@ -4656,9 +5026,9 @@ async function openShare(context, id) {
       get: () => hu,
       set: (value) => {
         const build = value.build;
-        value.build = async (source, options) => {
+        value.build = async (source, options, ...rest) => {
           window.__huBuilds.push(JSON.parse(JSON.stringify(options || {})));
-          return build(source, options);
+          return build(source, options, ...rest);
         };
         hu = value;
       },
@@ -4925,6 +5295,87 @@ test('a HuBASIC link whose program cannot be read runs nothing and changes nothi
       await sharePage.close();
     }
     assert.deepEqual(await snapshotX1PenPersistence(ownerPage), baseline);
+  } finally {
+    await context.close();
+  }
+});
+
+test('a HuBASIC program with files is not shared but saved as a bootable disk image, and a share tab keeps its own files', { timeout: 240_000 }, async () => {
+  const context = await browser.newContext();
+  const blocked = 'HuBASIC のディスクに入れるファイルがあるためShareできません。配るときは Files の「ディスクイメージを保存」を使ってください';
+  try {
+    const posts = await captureSharePosts(context, ['HuNoFil1']);
+    const ownerPage = await context.newPage();
+    await ownerPage.goto(`${baseUrl}/x1pen.html`);
+    await ownerPage.evaluate(() => window.X1PenAutomation.ready());
+    await ownerPage.evaluate(async (hubasic) => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic }, current.revision, current.revisionEpoch);
+    }, HUBASIC_FILEIO);
+    await setHuBasicFiles([{ name: 'GREET.TXT', kind: 'text', base64: latin1Base64('FROM DISK\n') }], ownerPage);
+
+    const refused = await shareFrom(ownerPage);
+    assert.equal(refused.status, blocked);
+    assert.equal(posts.length, 0, 'nothing is posted while files are added');
+
+    // The disk image of the program and its files boots and reads them
+    await ownerPage.evaluate(() => document.querySelector('.editor-tab[data-tab="hubasic"]').click());
+    await ownerPage.locator('#btn-hubasic-files').click();
+    const image = await downloadFrom(ownerPage, () => ownerPage.locator('#hubasic-files-save-disk').click());
+    assert.equal(image.name, 'PROGRAM.d88');
+    const onDisk = await readD88InPage(image.bytes, ownerPage);
+    assert.deepEqual(onDisk.map((f) => f.name), ['PROGRAM.Sys', 'GREET.TXT']);
+    assert.equal(onDisk[0].protected, true);
+    await ownerPage.locator('#hubasic-files-close').click();
+    await ownerPage.evaluate(async (base64) => {
+      const binary = atob(base64);
+      const d88 = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) d88[i] = binary.charCodeAt(i);
+      await window.XmilControls.mountTempDisk(d88.buffer, 'drive0');
+      window.XmilControls.coldPowerOn(window.Module._js_get_rom_type());
+    }, image.bytes.toString('base64'));
+    await ownerPage.waitForFunction(() => {
+      const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes;
+      return String.fromCharCode(...bytes).includes('READ:FROM DISK');
+    }, null, { timeout: 30_000 });
+
+    // A share tab starts with no files, never uses or changes the saved ones, and refuses to
+    // share again once files are added there
+    const savedList = await ownerPage.evaluate(() => localStorage.getItem('x1pen_hubasic_files'));
+    await installShareRoute(context, 'HuFiles1', {
+      basic: null, asm: null, slang: null, hubasicX1: Buffer.from(HUBASIC_FILEIO, 'latin1').toString('base64'),
+      meta: { model: 1, runMode: 'x1native', sourceMode: 'hubasic' },
+    });
+    const sharePage = await context.newPage();
+    await sharePage.goto(`${baseUrl}/x1pen.html?id=HuFiles1`);
+    await sharePage.evaluate(() => window.X1PenAutomation.ready());
+    // The shared program runs once on opening (and stops at File not found: no files yet)
+    await sharePage.waitForFunction(() => !window.X1PenAutomation.getStatus().runAdmission.pending &&
+      /^HuBASIC: booting/.test(document.getElementById('x1pen-status').textContent), null, { timeout: 60_000 });
+    const first = await sharePage.evaluate(() => window.X1PenAutomation.getHuBasicFiles());
+    assert.equal(first.persistent, false);
+    assert.deepEqual(first.files, []);
+    await setHuBasicFiles([{ name: 'GREET.TXT', kind: 'text', base64: latin1Base64('IN SHARE\n') }], sharePage);
+    const run = await sharePage.evaluate(() => window.X1PenAutomation.run());
+    assert.equal(run.ok, true, JSON.stringify(run));
+    await sharePage.waitForFunction(() => {
+      const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes;
+      return String.fromCharCode(...bytes).includes('READ:IN SHARE');
+    }, null, { timeout: 30_000 });
+    assert.equal((await shareFrom(sharePage)).status, blocked);
+    assert.equal(posts.length, 0);
+    await sharePage.close();
+    assert.equal(await ownerPage.evaluate(() => localStorage.getItem('x1pen_hubasic_files')), savedList);
+    const kept = await ownerPage.evaluate(() => window.X1PenAutomation.getHuBasicFiles());
+    assert.deepEqual(kept.files.map((f) => f.name), ['GREET.TXT']);
+
+    // Without files the same program is shared as before
+    await setHuBasicFiles([], ownerPage);
+    const shared = await shareFrom(ownerPage);
+    assert.equal(shared.status, 'Shared!');
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].meta.sourceMode, 'hubasic');
   } finally {
     await context.close();
   }

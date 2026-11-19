@@ -38,7 +38,17 @@
     // ファイルライブラリ: スロット状態
     // slotName: 'drive0', 'drive1', 'hdd0', 'hdd1', 'cmt', 'emm0'..'emm9'
     // ----------------------------------------------------------------
-    const slotState         = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
+    // slotGeneration[slot] goes up on every write to slotState[slot] (mount, eject, temporary disk),
+    // so a caller can tell whether a slot still holds the medium it put there (X1Pen reads back the
+    // HuBASIC disk it booted only while its generation is unchanged).
+    const slotGeneration    = {};
+    const slotState         = new Proxy({ drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null }, {
+        set: function(target, slot, value) {
+            slotGeneration[slot] = (slotGeneration[slot] || 0) + 1;
+            target[slot] = value;
+            return true;
+        }
+    });
     const slotDirty         = { drive0: false, drive1: false, hdd0: false, hdd1: false, cmt: false, emm0: false, emm1: false, emm2: false, emm3: false, emm4: false, emm5: false, emm6: false, emm7: false, emm8: false, emm9: false };
     const slotFlushInFlight = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
     const slotVfsPath       = { drive0: null, drive1: null, hdd0: null, hdd1: null, cmt: null, emm0: null, emm1: null, emm2: null, emm3: null, emm4: null, emm5: null, emm6: null, emm7: null, emm8: null, emm9: null };
@@ -4809,6 +4819,15 @@
         downloadState:  downloadState,
         getStateList:   getStateList,
         clearStorage: async function() {
+            // X1Pen's HuBASIC files (x1pen_hubasic_files.js) are saved under a Web Lock; take it so
+            // that a save in progress finishes before its bodies and list are cleared
+            if (navigator.locks && navigator.locks.request) {
+                var self = this;
+                return navigator.locks.request('x1pen_hubasic_files', function() { return self._clearStorageLocked(); });
+            }
+            return this._clearStorageLocked();
+        },
+        _clearStorageLocked: async function() {
             if (window.XmilStorage) {
                 // Step 1: manifest キーを削除（JSON 破損時は空扱いで続行）
                 var manifest = [];
@@ -4831,7 +4850,8 @@
                     for (var j = 0; j < allEntries.length; j++) {
                         var k = allEntries[j].key;
                         if (k.indexOf('lib_') === 0 || k.indexOf('remote_') === 0
-                            || k.indexOf('state_') === 0 || KNOWN_SLOTS.indexOf(k) !== -1) {
+                            || k.indexOf('state_') === 0 || k.indexOf('x1pen_hufile_') === 0
+                            || KNOWN_SLOTS.indexOf(k) !== -1) {
                             try { await window.XmilStorage.remove(k); } catch(e) {}
                         }
                     }
@@ -4841,7 +4861,7 @@
             [LS_SETTINGS, LS_ROM, LS_ROM_X1, LS_ROM_X1T,
              LS_FNT_ANK8, LS_FNT_ANK16, LS_FNT_KNJ,
              LS_LIBRARY, LS_MOUNT_STATE, LS_STATES, QUICK_STATE_KEY,
-             'xmil_drive_links'].forEach(function(k) {
+             'xmil_drive_links', 'x1pen_hubasic_files'].forEach(function(k) {
                 localStorage.removeItem(k);
             });
             return true;
@@ -4859,6 +4879,7 @@
         ejectSlot:         ejectSlot,
         flushSlot:         flushSlot,
         getSlotState:      function() { return Object.assign({}, slotState); },
+        getSlotGeneration: function(slotName) { return slotGeneration[slotName] || 0; },
         getSlotDirty:      function() { return Object.assign({}, slotDirty); },
         getSlotVfsPath:    function() { return Object.assign({}, slotVfsPath); },
         getSlotEphemeral:  function() { return Object.assign({}, slotEphemeral); },

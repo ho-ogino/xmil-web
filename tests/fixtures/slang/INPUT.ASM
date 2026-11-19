@@ -1,0 +1,734 @@
+	ORG	$0100
+ENV_TYPE EQU 1 
+OS_TYPE EQU 0
+LD HL,($0001)
+LD (WBOOTBK),HL
+; WORK ZERO CLEAR
+XOR A
+LD HL,__WORK__
+LD DE,__WORK__+1
+LD BC,__WORKEND__-__WORK__-1
+LD (HL),A
+LDIR
+ CALL RUNTIME_INIT
+LD HL,EEC0H   ; LSX-Dodgers 1.62c
+LD (_CTCVEC),HL
+LD IY,__IYWORK
+CALL MAIN
+JP 0
+
+VSYNC_PROC:
+; function VSYNC_PROC
+_VSYNC_PROC_EXIT:
+	RET
+
+MAIN:
+; function MAIN
+	LD	HL,$0028
+	CALL	WIDTH
+	LD	HL,$0000
+	LD	DE,$0000
+	CALL	LOCATE
+	CALL	MPRNT
+	DB	"KEY / STICK(0) / STICK(1)  ESC=END",0
+_L0:
+	LD	HL,$0000
+	CALL	INKEY
+	LD	(_V_MAIN_K),HL
+	LD	DE,$001B
+	OR	A
+	SBC	HL,DE
+	JP	NZ,_L2
+	JP	_L1
+_L2:
+	LD	HL,$0000
+	CALL	STICK
+	LD	(_V_MAIN_J0),HL
+	LD	HL,$0001
+	CALL	STICK
+	LD	(_V_MAIN_J1),HL
+	LD	HL,$0000
+	LD	DE,$0002
+	CALL	LOCATE
+	CALL	MPRNT
+	DB	"KEY ",0
+	LD	HL,(_V_MAIN_K)
+	CALL	P10
+	CALL	MPRNT
+	DB	"   ",0
+	LD	HL,$0000
+	LD	DE,$0003
+	CALL	LOCATE
+	CALL	MPRNT
+	DB	"STICK0 ",0
+	LD	HL,(_V_MAIN_J0)
+	CALL	P10
+	CALL	MPRNT
+	DB	"   ",0
+	LD	HL,$0000
+	LD	DE,$0004
+	CALL	LOCATE
+	CALL	MPRNT
+	DB	"STICK1 ",0
+	LD	HL,(_V_MAIN_J1)
+	CALL	P10
+	CALL	MPRNT
+	DB	"   ",0
+	LD	HL,(_V_MAIN_J0)
+	LD	DE,$0001
+	LD	A,H
+	AND	D
+	LD	H,A
+	LD	A,L
+	AND	E
+	LD	L,A
+	LD	DE,$0000
+	OR	A
+	SBC	HL,DE
+	JP	NZ,_L4
+	CALL	MPRNT
+	DB	"UP   ",0
+	JP	_L3
+_L4:
+	CALL	MPRNT
+	DB	"     ",0
+_L3:
+	LD	HL,$0001
+	CALL	VSYNC
+	JP	_L0
+_L1:
+_MAIN_EXIT:
+	RET
+
+
+RUNTIME_INIT:
+	RET
+
+; === Runtime Functions ===
+DIVHLDE8:
+INC E
+DEC E
+JR NZ, .div81
+EX DE, HL
+LD HL, 0000
+RET
+.div81
+XOR A
+LD B, $10
+.div84
+ADD HL, HL
+ADC A, A
+JR C, .div82
+CP E
+JR C, .div83
+.div82
+SUB E
+INC L
+.div83
+DJNZ .div84
+LD E, A
+RET
+
+LSXCALLS:
+BDOS EQU $0005
+PRNOUT EQU $05
+INPOUT EQU $06
+DIRIO EQU $06
+DIRIN	EQU	$07
+GETS EQU $0A
+CONST	EQU	$0B
+lSCRN EQU $EFD0
+lLOC EQU $EFD6
+FCB1	EQU	005CH
+FCB2	EQU	006CH
+DTA1	EQU	0080H
+
+sSYSTEM:
+EXX
+PUSH	BC
+PUSH	DE
+PUSH	HL
+PUSH	IX
+PUSH	IY
+EXX
+CALL	$0005
+EXX
+POP	IY
+POP	IX
+POP	HL
+POP	DE
+POP	BC
+EXX
+RET
+
+sGETKY:
+GETKY_INIT:
+JP	GETKY_DOINIT	; 初回のみ実行。実行後NOP×3に自己書き換え
+GETKY_MAIN:
+PUSH	BC
+PUSH	DE
+PUSH	HL
+LD	E,$FF
+LD	C,INPOUT
+JR	GETKY1
+
+sFLGET:
+PUSH	BC
+PUSH	DE
+PUSH	HL
+LD	C,DIRIN
+GETKY1:
+CALL	sSYSTEM
+POP	HL
+POP	DE
+POP	BC
+CP	4
+JR	NZ,.fl1
+LD	A,$1C
+RET
+.fl1
+CP	5
+JR	NZ,.fl2
+LD	A,$1E
+RET
+.fl2
+CP	$13
+JR	NZ,.fl3
+LD	A,$1D
+RET
+.fl3
+CP	$18
+JR	NZ,.fl4
+LD	A,$1F
+RET
+.fl4
+OR	A
+JR	NZ,GETKY_FL5
+; LSX-Dodgers 1.62c: キーデータ直読み（バージョン不一致時はNOP×3に書き換え済み）
+GETKY_PATCH:
+LD	A,($EE92)
+GETKY_FL5:
+AND	A
+RET
+
+GETKY_DOINIT:
+; sGETKY初回: LSX-Dodgersバージョン判定＋自己書き換え
+PUSH	BC
+PUSH	DE
+PUSH	HL
+; _DOSVER (C=$6F) でバージョン取得
+LD	C,$6F
+CALL	$0005
+; DE = LSX-Dodgersバージョン (1.62c = $0162)
+LD	A,D
+CP	$01
+JR	NZ,.getky_nopatch
+LD	A,E
+CP	$62
+JR	Z,.getky_patchdone
+.getky_nopatch:
+; バージョン不一致: LD A,(nn) → NOP×3 に書き換え
+XOR	A
+LD	(GETKY_PATCH),A		; $3A(LD A,(nn)) → $00(NOP)
+LD	(GETKY_PATCH+1),A	; → NOP
+LD	(GETKY_PATCH+2),A	; → NOP
+.getky_patchdone:
+; 初期化コード自体を無効化: JP → NOP×3
+XOR	A
+LD	(GETKY_INIT),A
+LD	(GETKY_INIT+1),A
+LD	(GETKY_INIT+2),A
+POP	HL
+POP	DE
+POP	BC
+JR	GETKY_MAIN
+
+sINKEY:
+CALL	sGETKY
+OR	A
+JR	Z,sINKEY
+RET
+
+sWORK:
+
+VSYNC_CHECK:
+LD A,1AH
+IN A,(01H)
+LD HL,LASTVSYNCFLAG
+XOR (HL)
+RET P
+XOR (HL)
+LD (HL),A
+RET M
+; LD HL,VSYNCCOUNTER
+INC HL
+INC (HL)
+JP VSYNC_PROC
+
+VSYNC:
+; HL = WAIT COUNT
+VSYNC_LOOP:
+LD A,(VSYNCCOUNTER)
+CP L
+JP NC,VSYNC_OVER
+PUSH HL
+CALL VSYNC_CHECK
+POP HL
+JP VSYNC_LOOP
+VSYNC_OVER:
+XOR A
+LD (VSYNCCOUNTER),A
+RET
+
+STICK:
+; HL = ジョイスティックの番号 (0 = 1 つ目、1 = 2 つ目) → HL = そのポートの生の値 (PSG のレジスタ 14・15)。
+; 押したレバーとボタンのビットが 0 になる。範囲外の番号は $00FF。
+; 読む間だけ、PSG のレジスタ 7 のそのポートのビット (6 = ポート A、7 = ポート B) を 0 (入力) にして、読んだら元に戻す
+; (音の部品はポート B を出力にするので、そのままでは出力の値を読んでしまう)。
+; PSG を使う間は割り込みを止め、割り込みの状態は呼ぶ前のまま戻す。
+; 状態は LD A,I (IFF2 を P/V に写す) で知る。NMOS の Z80 は、LD A,I の終わりで割り込みを受けると、許可でも P/V が 0 になる。
+; そこで、スタックのすぐ下に印を置いてから LD A,I し、P/V が 0 なら、そこが割り込みの戻り先で上書きされていないかを見る。
+; 印は、上位も下位も「LD A,I の番地の上位 + $80」のバイト。印を置いてから読み戻すまでに受けた割り込みの戻り先は、
+; LD A,I (.STICK_LDAI) から POP DE までの命令の番地 (7 バイトの中) なので、上位は h か h+1 (h は .STICK_LDAI の上位)。
+; 戻り先の 2 バイトを丸ごと書いても、SP が 1 ずれた所で 1 バイトだけ書いても、印のバイト (h+$80) にはならない。
+; 上書きされていれば、何かの割り込みを受けた (止めていても NMI は入る) ので、もう一度確かめる。
+; (印の式を括弧で始めると、アセンブラが LD DE,(nn) の番地の読み出しと取るので、$0101 * … と書く)
+; P/V が 1 なら許可、P/V が 0 で上書きされていなければ止まっていた。
+; 割り込みの処理 (とくに NMI の処理) の中からは呼ばない。NMI の処理の中では IFF2 が元の許可を残しているので、
+; 許可と読んで EI し、RETN より前に割り込みを入れてしまう
+LD A,H
+OR A
+JR NZ,.STICK_INVALID
+LD A,L
+CP 2
+JR NC,.STICK_INVALID
+.STICK_PROBE
+LD DE,$0101 * (((.STICK_LDAI >> 8) + $80) & $FF)
+PUSH DE
+POP DE
+.STICK_LDAI
+LD A,I
+JP PE,.STICK_ON
+DEC SP
+DEC SP
+POP DE
+PUSH HL
+LD HL,$0101 * (((.STICK_LDAI >> 8) + $80) & $FF)
+OR A
+SBC HL,DE
+POP HL
+JR NZ,.STICK_PROBE
+LD D,0
+JR .STICK_READ
+.STICK_ON
+LD D,1
+.STICK_READ
+DI
+LD BC,$1C00
+LD A,7
+OUT (C),A
+LD B,$1B
+IN E,(C)
+LD A,L
+OR A
+LD A,$BF
+JR Z,.STICK_MASK
+LD A,$7F
+.STICK_MASK
+AND E
+OUT (C),A
+LD B,$1C
+LD A,L
+ADD A,$0E
+OUT (C),A
+LD B,$1B
+IN L,(C)
+LD B,$1C
+LD A,7
+OUT (C),A
+LD B,$1B
+OUT (C),E
+LD H,0
+LD A,D
+OR A
+RET Z
+EI
+RET
+.STICK_INVALID
+LD HL,$00FF
+RET
+
+INKEY:
+LD A,L
+CP 1
+JR NC,.inkey1
+CALL sGETKY
+JR .inkey_end
+.inkey1
+JR NZ,.inkey2
+CALL sFLGET
+JR .inkey_end
+.inkey2
+CALL sINKEY
+.inkey_end
+LD L,A
+LD H,0
+RET
+
+WIDTH:
+PUSH	BC
+PUSH	DE
+PUSH	HL
+LD A,L
+LD	BC,$01FF0
+CP	41
+JR	C,.WIDTH40
+IN	A,(C)
+RRCA
+LD	HL,_C8025L
+JR	C,.SETCRTC
+LD	HL,_C8025H
+JR	.SETCRTC
+.WIDTH40
+IN	A,(C)
+RRCA
+LD	HL,_C4025L
+JR	C,.SETCRTC
+LD	HL,_C4025H
+.SETCRTC
+LD	DE,_CRTCD
+LD	BC,16
+LDIR
+LD	HL,_CRTCD
+XOR	A
+.SETCRT1
+LD	BC,01800H
+OUT	(C),A
+INC	C
+INC	B
+OUTI
+INC	A
+CP	12
+JR	NZ,.SETCRT1
+INC	HL
+INC	HL
+LD	BC,01A03H+00100H
+OUTI
+LD	BC,01FD0H+00100H
+OUTI
+CALL	CTRL0C
+POP	HL
+POP	DE
+POP	BC
+; LSX-Dodgers の CRTCD 領域 (LSX_base + $B0, 16 byte) を同期する。
+; これにより LSX 内部の _WIDTH ($+$B1), _PAGE_MINUS ($+$BA),
+; _WIDTH_MINUS ($+$BC), WK1FD0 ($+$BF) が一括更新され、プログラム終了後
+; に LSX がプロンプト再描画で CRTC を再設定しても画面が崩れない
+; (refs/MODE.ASM X1 パスと同じ考え方)。
+; LSX 基底は WBOOT の JP 先アドレス ($0001 のワード) から動的に取得する。
+; WBOOTBK は SLANGINIT の直後に WORK ゼロクリアされて使えないため
+; 直接 ($0001) を読む必要がある。
+; ※ 本実装は LSX_HEIGHT を 25 に固定して運用する (X1 CRTC が 25 行表示
+;   なので物理画面を使い切れる形)。LSX デフォルト (24) から 25 に書き換え
+;   られるので、WIDTH 呼出し以降 LSX 内部の HEIGHT も 25 になる点に注意。
+LD	HL,($0001)		; HL = WBOOT の JP 先 (= LSX 基底 + 微小オフセット)
+LD	L,$B0			; HL = LSX_base + $B0 (CRTCD 先頭)
+EX	DE,HL			; DE = dest (LSX CRTCD)
+LD	HL,_CRTCD		; HL = source (ローカル 16 byte)
+LD	BC,16
+LDIR
+; LSX の _HEIGHT ($+$97) を 25 に書き込む。
+; テンプレート側の _PAGE_MINUS = -WIDTH*25 と整合が取れ、LSX が 25 行目も
+; 使い切るようになる。
+LD	HL,($0001)
+LD	L,$97
+LD	(HL),25
+LD	A,(WK1FD0)
+LD	(_WK1FD0),A
+LD	A,(_CRTCD+1)
+LD	(AT_WIDTH),A
+AND	A
+RET
+
+CTRL0B:
+LD	HL,0
+LD	(_TXADR),HL
+RET
+
+CTRL0C:
+CALL	CTRL0B
+CTRL06:
+LD	BC,(_TXADR)
+.C1AX1
+LD	A,B
+OR	038H
+LD	B,A
+DB	0EDH,071H	;OUT (C),0	Z80未定義命令	kanji
+RES	3,B
+LD	A,020H
+OUT	(C),A		;Text
+RES	4,B
+LD	A,(AT_COLORF)
+OUT	(C),A		;Color
+INC	BC
+RES	5,B
+LD	HL,(_CRTCD+10)
+ADD	HL,BC
+JR	NC,.C1AX1
+RET
+
+LOCATE:
+LD H,E
+PUSH	BC
+PUSH	HL
+CALL	AT_VRCALC
+LD	(_TXADR),HL
+POP	HL
+POP	BC
+RET
+
+AT_VRCALC:
+PUSH	DE
+LD C,L
+LD B,8
+LD E,H
+LD D,0
+LD HL,(_CRTCD)
+LD L,D
+.LOC2
+ADD HL,HL
+JR NC,.LOC3
+ADD HL,DE
+.LOC3
+DJNZ .LOC2
+ADD HL,BC
+POP DE
+RET
+
+PRT:
+PUSH DE
+PUSH BC
+PUSH HL
+CP 00EH
+JR C,PRT_CTRL
+; PRINT ANK
+LD	E,A
+LD	BC,(_TXADR)
+LD	A,B
+OR	038H
+LD	B,A
+DB	0EDH,071H	;OUT (C),0
+RES	3,B
+OUT	(C),E		;Text
+LD A,B
+AND 007H
+LD B,A
+INC BC
+LD	(_TXADR),BC
+LD	A,E
+PRT_END:
+POP HL
+POP BC
+POP DE
+AND	A
+RET
+PRT_CTRL:
+CP 13
+JP NZ,CTRL_NO13
+CALL CTRL0D
+JR PRT_END
+CTRL_NO13:
+JR PRT_END
+WORK10:
+DB  "12345",0
+DS  4
+
+CTRL0D:
+; BDOSにCR+LFを送りLSX-Dodgersに改行・スクロールを委譲
+; _TXADR($EE8E)はLSX-Dodgersと共有しているため自動的に同期される
+PUSH DE
+LD E,$0D
+LD C,$06
+CALL $0005
+LD E,$0A
+LD C,$06
+CALL $0005
+POP DE
+RET
+
+P10:
+LD DE, -1
+JR P10toN
+
+P10to5:
+LD DE, 0005
+
+P10toN:
+PUSH DE
+LD DE, WORK10
+CALL VTOS
+EX DE, HL
+POP DE
+LD A, E
+CP $05
+JR NC, .p10ton1
+LD A, $05
+SUB E
+.p10ton2
+INC HL
+DEC A
+JR NZ, .p10ton2
+JR PMSX
+.p10ton1
+LD A, E
+CP $FF
+JR NZ, PMSX
+.p10ton4
+LD A, (HL)
+CP $20
+JR NZ, PMSX
+INC HL
+JR .p10ton4
+
+PMSX:
+LD B, 00
+
+PMSX1:
+LD A, (HL)
+CP B
+RET Z
+CALL PRT
+INC HL
+JR PMSX1
+
+PMSG:
+LD B, $0D
+JR PMSX1
+
+MPRNT:
+EX (SP),HL
+.mprnt2
+LD A, (HL)
+INC HL
+OR A
+JR Z, .mprnt1
+CALL PRT
+JR .mprnt2
+.mprnt1
+EX (SP),HL
+RET
+
+VTOS:
+PUSH HL
+EXX
+POP HL
+EXX
+LD HL, $0005
+ADD HL, DE
+LD (HL), $00
+LD B, $05
+.vtos1
+EXX
+LD E, $0A
+CALL DIVHLDE8
+LD A, E
+ADD A, $30
+EXX
+DEC HL
+LD (HL), A
+DJNZ .vtos1
+LD B, $04
+.vtos3
+LD A, (HL)
+CP $30
+JR NZ, .vtos2
+LD (HL), $20
+INC HL
+DJNZ .vtos3
+.vtos2
+RET
+
+X1WORK:
+; LSX-Dodgers 1.62c ワーク共有
+_TXADR		EQU	$EE8E	; テキストカーソルVRAMアドレス
+; CRTCD 関連 (_WIDTH / _PAGE_MINUS / _WIDTH_MINUS / WK1FD0) は WIDTH 内で
+; LSX_base + $B0 へ 16 byte LDIR することで同期するため、個別 EQU は不要。
+AT_COLORF:
+DB	7
+AT_WIDTH:
+DB	80
+_WK1FD0:DB  0
+; X1 の CRTC は 25 行表示。LSX-Dodgers のデフォルト _HEIGHT は 24 だが、
+; WIDTH 関数内で LSX の _HEIGHT を 25 に書き換えて整合を取り、25 行
+; すべてを使えるようにする (下記 WIDTH 末尾の _HEIGHT 書き込みを参照)。
+CRTC_LINE EQU 25
+_CRTCD:
+DB	06FH,050H,059H,038H,01FH,002H,019H,01CH
+DB	000H,007H
+DW	0-80*CRTC_LINE,0-80
+DB	00CH
+WK1FD0:	DB	020H
+_C8025L:
+DB	06FH,050H,059H,038H,01FH,002H,019H,01CH
+DB	000H,007H
+DW	0-80*CRTC_LINE,0-80
+DB	00CH
+DB	020H
+_C8025H:
+DB	06BH,050H,059H,088H,01BH,000H,019H,01AH
+DB	000H,00FH
+DW	0-80*CRTC_LINE,0-80
+DB	00CH
+DB	023H
+_C4025L:
+DB	037H,028H,02DH,034H,01FH,002H,019H,01CH
+DB	000H,007H
+DW	0-40*CRTC_LINE,0-40
+DB	00DH
+DB	020H
+_C4025H:
+DB	035H,028H,02DH,084H,01BH,000H,019H,01AH
+DB	000H,00FH
+DW	0-40*CRTC_LINE,0-40
+DB	00DH
+DB	023H
+
+
+; === Exported User Functions ===
+; FUNC MAIN
+; FUNC VSYNC_PROC
+SLANG_PROG_END:
+
+; ; Variables (works)
+__WORK__:
+_V_MAIN_K EQU (__WORK__ + 0)
+_V_MAIN_J0 EQU (__WORK__ + 2)
+_V_MAIN_J1 EQU (__WORK__ + 4)
+_BC EQU (__WORK__ + 6)
+_DE EQU (__WORK__ + 8)
+_HL EQU (__WORK__ + 10)
+_IX EQU (__WORK__ + 12)
+_IY EQU (__WORK__ + 14)
+_AF EQU (__WORK__ + 16)
+_CARRY EQU (__WORK__ + 18)
+_ZERO EQU (__WORK__ + 20)
+_SP EQU (__WORK__ + 22)
+_A EQU (_AF + 1)
+__IYWORK EQU (__WORK__ + 256)
+sCRTCD EQU (__WORK__ + 512)
+sXYADR EQU (__WORK__ + 513)
+sKBFAD EQU (__WORK__ + 515)
+sKBFAD0 EQU (__WORK__ + 643)
+sKBFAD1 EQU (__WORK__ + 644)
+sKBFADX EQU (__WORK__ + 645)
+sPRBF EQU (__WORK__ + 726)
+sSUBPS EQU (__WORK__ + 806)
+sSUBBF EQU (__WORK__ + 808)
+sSPBK EQU (__WORK__ + 1064)
+WBOOTBK EQU (__WORK__ + 1066)
+_CTCVEC EQU (__WORK__ + 1068)
+LASTVSYNCFLAG EQU (__WORK__ + 1070)
+VSYNCCOUNTER EQU (__WORK__ + 1071)
+WORKEND EQU (__WORK__ + 1072)
+
+__WORKEND__ EQU (__WORK__ + 1072)

@@ -335,13 +335,35 @@
     HuBasicFS.prototype.setFileMode = function(entry, newMode) {
         if (this.readOnly) throw new Error(this.readOnlyReason || '読み取り専用です');
         // newMode: 'A' (ASCII), 'M' (Machine/Binary), 'B' (BASIC)
-        // 既存の上位ビット (RO, Hidden, Dir 等) は保持し、bit0-1 のみ変更
-        var mode = entry.rawEntry[0] & 0xFC; // bit0,1 をクリア
+        // 既存の上位ビット (RO, Hidden, Dir 等) は保持し、種類の bit0-2 (Bin $01・Bas $02・Asc $04) を
+        // 1 つだけにする (Hu-BASIC は種類のビットがちょうど 1 つの項目しか開かない)。前の版が ASCII の
+        // 印に使った $20 (種類のビットの無い項目の $20) は外す。ほかの $20 は Hu-BASIC の属性なので残す
+        var raw = entry.rawEntry[0];
+        // Bin・Bas は大きさの欄で長さを決める。大きさの欄が 0 の Asc (長さはレコードの分) を変えるときは、
+        // 先に長さを読んで大きさの欄に書く (書かないと空のファイルになる)
+        if (newMode !== 'A' && (raw & 0x03) === 0 && entry.size === 0) {
+            var data = this.readFile(entry);
+            var length = data ? data.length : 0;
+            if (length > 0xFFFF) throw new Error('65535 バイトより大きいので、この種類にはできません');
+            entry.rawEntry[0x12] = length & 0xFF;
+            entry.rawEntry[0x13] = (length >> 8) & 0xFF;
+            entry.size = length;
+        }
+        // An empty Bin・Bas becomes an empty text ($1A only, as addFile writes it): an Asc entry with
+        // nothing in its record would read as a record of zeros
+        if (newMode === 'A' && (raw & 0x03) !== 0 && entry.size === 0 && entry.startCluster < 0x80) {
+            var record = new Uint8Array(this._sectorSize);
+            record[0] = 0x1A;
+            this._writeLogicalSector(entry.startCluster * this._clusterSectors + 1, record);
+            entry.rawEntry[0x12] = 1;
+            entry.rawEntry[0x13] = 0;
+            entry.size = 1;
+        }
+        var mode = raw & 0xF8;
+        if ((raw & 0x07) === 0) mode &= ~0x20;
         if (newMode === 'M') mode |= 0x01;
         else if (newMode === 'B') mode |= 0x02;
-        // 'A' は bit0,1 共に 0 だが mode=0x00 は削除マーク
-        // → 上位ビットが全て 0 の場合、bit5 を立てて 0x00 を回避
-        if (mode === 0x00) mode = 0x20;
+        else mode |= 0x04;
         entry.rawEntry[0] = mode;
         entry.mode = mode;
         entry.isBinary = !!(mode & 0x01);
@@ -419,15 +441,22 @@
         }
 
         // データ読み出し
-        var result = new Uint8Array(entry.size);
+        // A Hu-BASIC Asc entry ($04) may leave the size field 0 (text ends at $1A; Hu-BASIC and
+        // the SLANG Hu-BASIC disk builder write 0): its length is then the records of its chain.
+        // Entries the disk editor wrote before as $20 keep their size field, empty included.
+        var length = entry.size;
+        if (length === 0 && (entry.mode & 0x07) === 0x04) {
+            length = ((clusters.length - 1) * this._clusterSectors + lastUsedSectors) * this._sectorSize;
+        }
+        var result = new Uint8Array(length);
         var pos = 0;
         for (var ci = 0; ci < clusters.length; ci++) {
             var sectorsToRead = (ci === clusters.length - 1) ? lastUsedSectors : this._clusterSectors;
             var baseSector = clusters[ci] * this._clusterSectors + 1;
-            for (var s = 0; s < sectorsToRead && pos < entry.size; s++) {
+            for (var s = 0; s < sectorsToRead && pos < length; s++) {
                 var sectorData = this._readLogicalSector(baseSector + s);
                 if (!sectorData) break;
-                var copyLen = Math.min(this._sectorSize, entry.size - pos);
+                var copyLen = Math.min(this._sectorSize, length - pos);
                 result.set(sectorData.subarray(0, copyLen), pos);
                 pos += copyLen;
             }
@@ -487,13 +516,19 @@
             throw new Error('ファイルサイズが大きすぎます (最大 65535 バイト)');
         }
 
-        // 必要クラスタ数
+        // 空のテキスト (Asc) は Hu-BASIC と同じく $1A だけのファイルにする (Asc には大きさの欄が無く、
+        // 終わりは $1A で表す)。どのファイルもクラスタを 1 つ以上取る (Hu-BASIC は開始クラスタの無い項目を開かない)
+        var fileExtUpper = (ext || '').toUpperCase();
+        if (data.length === 0 && (fileExtUpper === 'TXT' || fileExtUpper === 'ASC')) {
+            data = new Uint8Array([0x1A]);
+            fileSize = 1;
+        }
         var bytesPerCluster = this._clusterSectors * this._sectorSize;
         var neededClusters = Math.max(1, Math.ceil(fileSize / bytesPerCluster));
 
         // 空きクラスタ検索
         var freeClusters = [];
-        for (var i = this._reservedClusters; i < this._maxClusters; i++) {
+        for (var i = this._reservedClusters; i < this._maxClusters && freeClusters.length < neededClusters; i++) {
             if (this._fat[i] === 0x00) {
                 freeClusters.push(i);
                 if (freeClusters.length >= neededClusters) break;
@@ -575,14 +610,12 @@
         var rawEntry = new Uint8Array(32);
         // モード: HuBASIC ディレクトリエントリの mode byte
         //   0x00 = 削除済み, 0xFF = 終端
-        //   bit0 = Binary, bit1 = BASIC
-        //   bit0,1 共に 0 = ASCII だが mode=0x00 は削除マークと衝突
-        //   → ASCII は bit5 (0x20) を立てて 0x20 とする (mode!=0 かつ bit0,1=0)
+        //   bit0 = Binary ($01), bit1 = BASIC ($02), bit2 = ASCII ($04)
         var fileExt = (ext || '').toUpperCase();
         if (fileExt === 'BAS') {
             rawEntry[0] = 0x02; // BASIC
         } else if (fileExt === 'TXT' || fileExt === 'ASC') {
-            rawEntry[0] = 0x20; // ASCII (bit5 を立てて削除マーク 0x00 と区別)
+            rawEntry[0] = 0x04; // ASCII (Hu-BASIC の Asc)
         } else {
             rawEntry[0] = 0x01; // Binary
         }

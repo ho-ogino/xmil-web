@@ -17,7 +17,7 @@ ARRAY BYTE K_7[] = { 3,66,89,69 };
 
 MAIN()
 BEGIN
-  BAS_ABI_1();
+  BAS_ABI_4();
   BAS_INIT();
   BAS_LNINIT(&H_LINE);
 L10:

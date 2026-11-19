@@ -151,7 +151,7 @@ Copyright(C) 2002-2019 Num Kadoma
 **ファイル**:
 - `html/x1pen_slang_compiler.js`（SLANG-compiler の C# のコンパイラを JavaScript に移したもの。元にしたコミットはファイルの頭）
 - `assets/slang_runtime/`・`assets/slang_include/`（公開先 `slang_runtime/`・`slang_include/`）
-- `assets/hubasic/<リビジョン>/`（公開先 `hubasic/<リビジョン>/`）。hubasic2sl（HuBASIC を SLANG に変えるもの、.NET の WebAssembly 版）と x1native のランタイム。リビジョンは `assets/hubasic/current.json`
+- `assets/hubasic/<リビジョン>/`（公開先 `hubasic/<リビジョン>/`）。SLANG-compiler のブラウザ向けバンドル（.NET の WebAssembly 版）。hubasic2sl（HuBASIC を SLANG に変えるもの）、slangc（SLANG のコンパイラ）、Hu-BASIC と同じ形のディスクを作る部分、各環境のランタイムと include。リビジョンは `assets/hubasic/current.json`
 
 **ソース**: https://github.com/h-o-soft/SLANG-compiler
 
@@ -164,7 +164,7 @@ SLANG-compiler 7a5c4a2（7a5c4a20e14ca890641119486d19ef4e84769d73）の次の 2 
 - `third_party/slang-compiler/LICENSE.txt`（SLANG-compiler の `LICENSE`。MIT と Apache 2.0 の境目、ほかの作者の許諾の文）
 - `third_party/slang-compiler/LICENSE-APACHE-2.0.txt`（Apache License 2.0 の全文）
 
-いまの HuBASIC のバンドルには、この 2 本がまだ入っていません。SLANG-compiler 7a5c4a2 より後のバンドルでは、`scripts/import-hubasic-bundle.mjs` が根の `LICENSE`・`LICENSE-APACHE-2.0.txt` も `hubasic/<リビジョン>/` に置きます。
+バンドルにも同じ 2 本が入っています（`hubasic/<リビジョン>/LICENSE`・`hubasic/<リビジョン>/LICENSE-APACHE-2.0.txt`。`scripts/import-hubasic-bundle.mjs` は、この 2 本の無いバンドルを取り込みません）。
 
 ```
 MIT License
@@ -213,9 +213,9 @@ These changes and additions are also licensed under the Apache License,
 Version 2.0.
 ```
 
-### .NET ランタイム（HuBASIC タブのバンドルの `_framework/`）
+### .NET ランタイム（SLANG-compiler のバンドルの `_framework/`）
 
-**ファイル**: `assets/hubasic/<リビジョン>/_framework/`（hubasic2sl をブラウザで動かす .NET の WebAssembly ランタイム）
+**ファイル**: `assets/hubasic/<リビジョン>/_framework/`（hubasic2sl・slangc をブラウザで動かす .NET の WebAssembly ランタイム）
 **ソース**: https://github.com/dotnet/runtime
 
 ```
@@ -231,6 +231,33 @@ in the Software without restriction, including without limitation the rights
 to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### YamlDotNet（SLANG-compiler のバンドルの `_framework/`）
+
+**ファイル**: `assets/hubasic/<リビジョン>/_framework/YamlDotNet.*.wasm`（slangc が環境の設定ファイル `env/*.env` を読むのに使うもの。版 12.0.2）
+**ソース**: https://github.com/aaubry/YamlDotNet
+
+```
+Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014 Antoine Aubry and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.

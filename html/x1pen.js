@@ -414,6 +414,69 @@ window.__X1PEN_MODE = true;
         return Object.assign({}, hubasicOptions);
     }
 
+    // Files put on the Hu-BASIC format disk of a program that uses the file statements
+    // (X1PenHuBasicFiles). Kept in the browser; a share tab has its own set that starts empty and
+    // is never saved, so the files kept here are neither used nor changed there.
+    var hubasicFiles = isEphemeralShareSession
+        ? window.X1PenHuBasicFiles.createMemoryStore()
+        : window.X1PenHuBasicFiles.createStore();
+    var hubasicFilesListeners = [];
+    var hubasicFilesReady = hubasicFiles.open().then(function(opened) {
+        if (opened.missing.length > 0) {
+            console.warn('[x1pen] HuBASIC files could not be read and were left out:', opened.missing);
+        }
+        return opened;
+    }).catch(function(e) {
+        console.warn('[x1pen] HuBASIC files could not be read:', e);
+        return { files: [], missing: [] };
+    }).then(function(opened) {
+        notifyHuBasicFiles();
+        return opened;
+    });
+
+    // The error for a saved set with a body that cannot be read (X1PenHuBasicFiles), or null
+    function hubasicFilesUnreadableMessage(store) {
+        var names = store.unreadable();
+        return names.length ? '保存してあるファイルを読めません: ' + names.join(', ') + '（Files で外してください）' : null;
+    }
+
+    // The files as saved now: another tab may have changed them since this one read them
+    async function currentHuBasicFiles() {
+        await hubasicFilesReady;
+        try {
+            if (await hubasicFiles.refresh()) notifyHuBasicFiles();
+        } catch (e) {
+            console.warn('[x1pen] HuBASIC files could not be read again:', e);
+        }
+        return hubasicFiles;
+    }
+
+    // Another tab saved a new set: read it, so the panel and the next Run see it
+    if (hubasicFiles.persistent) {
+        window.addEventListener('storage', function(e) {
+            if (e.key !== null && e.key !== window.X1PenHuBasicFiles.LIST_KEY) return;
+            currentHuBasicFiles();
+        });
+    }
+
+    function notifyHuBasicFiles() {
+        hubasicFilesListeners.forEach(function(listener) {
+            try { listener(); } catch (e) { console.error('[x1pen] HuBASIC files listener failed:', e); }
+        });
+    }
+
+    // Changes the set: change(store) calls one store method (put, remove, rename, setKind,
+    // replaceAll). Each applies to the set saved last, one after another (X1PenHuBasicFiles checks
+    // the result; a failure keeps the previous set).
+    async function changeHuBasicFiles(change) {
+        await hubasicFilesReady;
+        try {
+            return await change(hubasicFiles);
+        } finally {
+            notifyHuBasicFiles();
+        }
+    }
+
     function persistEditorSources(basic, asm, slang, hubasic) {
         if (isEphemeralShareSession) return;
         try {
@@ -1262,22 +1325,36 @@ window.__X1PEN_MODE = true;
         window._slangRuntimeVFS = vfs;
     }
 
-    // HuBASIC: x1pen_hubasic.js (lazy) + the SLANG compiler; the x1native runtime VFS lives in X1PenHuBasic
-    async function ensureHuBasicToolchain() {
-        await ensureSlangToolchain();
-        if (!window.X1PenHuBasic) {
-            await new Promise(function(resolve, reject) {
+    // One script tag per file: callers that come while it loads share it; a failed load is
+    // forgotten so that a later call can retry
+    var pageScriptLoads = {};
+    function loadPageScriptOnce(file, globalName, errorMessage, errorCode) {
+        if (window[globalName]) return Promise.resolve();
+        if (!pageScriptLoads[file]) {
+            pageScriptLoads[file] = new Promise(function(resolve, reject) {
                 var s = document.createElement('script');
-                s.src = 'x1pen_hubasic.js' + ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
+                s.src = file + ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
                 s.onload = resolve;
                 s.onerror = function() {
-                    var error = new Error('Failed to load the HuBASIC toolchain');
-                    error.code = 'HUBASIC_TOOLCHAIN_UNAVAILABLE';
+                    s.remove();
+                    delete pageScriptLoads[file];
+                    var error = new Error(errorMessage);
+                    error.code = errorCode;
                     reject(error);
                 };
                 document.head.appendChild(s);
             });
         }
+        return pageScriptLoads[file];
+    }
+
+    // HuBASIC: the SLANG-compiler bundle (x1pen_slang_wasm.js: hubasic2sl, slangc, Hu-BASIC disks)
+    // and x1pen_hubasic.js, both lazy
+    async function ensureHuBasicToolchain() {
+        await loadPageScriptOnce('x1pen_slang_wasm.js', 'X1PenSlangWasm',
+            'Failed to load the SLANG bundle loader', 'HUBASIC_TOOLCHAIN_UNAVAILABLE');
+        await loadPageScriptOnce('x1pen_hubasic.js', 'X1PenHuBasic',
+            'Failed to load the HuBASIC toolchain', 'HUBASIC_TOOLCHAIN_UNAVAILABLE');
         return window.X1PenHuBasic.load();
     }
 
@@ -1870,8 +1947,60 @@ window.__X1PEN_MODE = true;
         transpile: 'HUBASIC_TRANSPILE_FAILED',
         compile: 'HUBASIC_COMPILE_FAILED',
         assemble: 'HUBASIC_ASSEMBLE_FAILED',
-        layout: 'HUBASIC_TOO_LARGE'
+        layout: 'HUBASIC_TOO_LARGE',
+        disk: 'HUBASIC_DISK_FAILED'
     };
+
+    // The Hu-BASIC disk the last HuBASIC RUN booted: FDD0 holds it while drive0 still has the
+    // generation it had right after that boot (XmilCore.getSlotGeneration goes up on every mount,
+    // eject and temporary disk). null: no such disk.
+    var lastHubasicDisk = null;
+
+    function hubasicDiskError(code, message) {
+        var error = new Error(message);
+        error.code = code;
+        return error;
+    }
+
+    // Whether FDD0 still holds the disk the last HuBASIC RUN booted, and that it is a Hu-BASIC
+    // format disk (programs without file statements boot from an SLFS disk)
+    function checkHuBasicDiskCurrent() {
+        var core = window.XmilCore;
+        if (!lastHubasicDisk || !core || core.getSlotState().drive0 !== '__x1pen_temp__' ||
+            core.getSlotGeneration('drive0') !== lastHubasicDisk.generation) {
+            return { ok: false, code: 'HUBASIC_DISK_NOT_CURRENT',
+                message: 'FDD0 に、いちばん新しい HuBASIC の RUN のディスクが入っていません。' };
+        }
+        if (lastHubasicDisk.environment !== 'x1native_hufs') {
+            return { ok: false, code: 'HUBASIC_DISK_NOT_HUFS',
+                message: 'いちばん新しい RUN はファイルの命令を使わないプログラムだったので、読めるディスクはありません。' };
+        }
+        return { ok: true };
+    }
+
+    // The files on that disk now, with what the program wrote (the drive's track buffer is
+    // written back first). Throws HUBASIC_DISK_NOT_CURRENT / HUBASIC_DISK_NOT_HUFS /
+    // HUBASIC_DISK_UNREADABLE.
+    function readHuBasicDiskFiles() {
+        var current = checkHuBasicDiskCurrent();
+        if (!current.ok) throw hubasicDiskError(current.code, current.message);
+        var path = window.XmilCore.getSlotVfsPath().drive0;
+        var bytes;
+        var flushed = module._js_fdd_flush ? module._js_fdd_flush() : 0;
+        if (flushed !== 0) {
+            throw hubasicDiskError('HUBASIC_DISK_UNREADABLE', 'ドライブの書きかけをディスクに書き戻せなかったので、読みませんでした');
+        }
+        try {
+            bytes = module.FS.readFile(path);
+        } catch (e) {
+            throw hubasicDiskError('HUBASIC_DISK_UNREADABLE', 'ディスクを読めませんでした: ' + (e && e.message || e));
+        }
+        try {
+            return window.X1PenHuBasicFiles.readDiskFiles(bytes);
+        } catch (e) {
+            throw hubasicDiskError('HUBASIC_DISK_UNREADABLE', 'ディスクを読めませんでした: ' + (e && e.message || e));
+        }
+    }
 
     function hubasicWarnings(diagnostics) {
         return (diagnostics || []).filter(function(d) { return d.severity === 'warning'; })
@@ -1894,8 +2023,16 @@ window.__X1PEN_MODE = true;
         var built;
         try {
             await ensureHuBasicToolchain();
+            var store = await currentHuBasicFiles();
+            var unreadable = hubasicFilesUnreadableMessage(store);
+            if (unreadable) {
+                elStatus.textContent = 'HuBASIC: ' + unreadable;
+                lastRunDetails = { code: 'HUBASIC_FILES_UNREADABLE', stage: 'files' };
+                return false;
+            }
+            var files = store.files();
             elStatus.textContent = 'HuBASIC: converting...';
-            built = await window.X1PenHuBasic.build(source, options);
+            built = await window.X1PenHuBasic.build(source, options, files);
         } catch (e) {
             console.error('[x1pen] HuBASIC toolchain failed:', e);
             elStatus.textContent = 'HuBASIC: ' + (e && e.message || e);
@@ -1921,6 +2058,9 @@ window.__X1PEN_MODE = true;
             return false;
         }
         var otherSlots = otherSlotSnapshot();
+        lastHubasicDisk = null;
+        hubasicDiskFiles = null;
+        notifyHuBasicFiles();
         try {
             await window.XmilControls.mountTempDisk(built.d88, 'drive0');
         } catch (e) {
@@ -1962,6 +2102,12 @@ window.__X1PEN_MODE = true;
         lastUsedRuntime = { model: machine.model, coldState: null, bootDisk: null, relocAddrs: null, runMode: 'x1native' };
         lastRunWasShared = isEphemeralShareSession;
         if (isEphemeralShareSession) hubasicShareModel = machine.model;
+        lastHubasicDisk = {
+            generation: window.XmilCore.getSlotGeneration('drive0'),
+            environment: built.environment,
+            mainName: built.diskMainName
+        };
+        notifyHuBasicFiles();
         lastAsmSymbols = {
             symbols: built.symbols,
             predefined: { OS_TYPE: 4, ENV_TYPE: 1 },
@@ -1972,7 +2118,9 @@ window.__X1PEN_MODE = true;
         var warnings = hubasicWarnings(built.diagnostics);
         var hubasicInfo = window.X1PenHuBasic.info();
         elStatus.textContent = 'HuBASIC: booting from disk (' + built.bytes.length + ' bytes' +
-            (warnings.length ? ', ' + warnings.length + ' warning(s)' : '') + ')';
+            (built.filesUsed ? ', ' + built.filesUsed + ' file(s)' : '') +
+            (warnings.length ? ', ' + warnings.length + ' warning(s)' : '') + ')' +
+            (built.filesIgnored ? ' — ファイルの命令が無いので、入れたファイルは使いません' : '');
         lastRunDetails = {
             stage: 'booted',
             runMode: 'x1native',
@@ -1982,6 +2130,9 @@ window.__X1PEN_MODE = true;
             workEnd: built.workEnd,
             layout: built.message,
             warnings: warnings,
+            environment: built.environment,
+            filesUsed: built.filesUsed,
+            filesIgnored: built.filesIgnored,
             runtimeRevision: hubasicInfo ? hubasicInfo.revision : null
         };
         var canvas = document.getElementById('canvas');
@@ -2152,6 +2303,8 @@ window.__X1PEN_MODE = true;
     // ── Share ──
 
     var SHARE_MEDIA_BLOCKED_STATUS = '保存済みメディアが挿入されているためShareできません。メディアを取り出してから再試行してください';
+    // Files added for the HuBASIC disk are not carried by a share; such a program goes out as a disk image
+    var SHARE_HUBASIC_FILES_BLOCKED_STATUS = 'HuBASIC のディスクに入れるファイルがあるためShareできません。配るときは Files の「ディスクイメージを保存」を使ってください';
     var SHARE_MEDIA_UNKNOWN_STATUS = 'メディア状態を確認できないためShareできません。ページを再読み込みしてください';
     var SHARE_MEDIA_SLOTS = [
         'drive0', 'drive1', 'hdd0', 'hdd1', 'cmt',
@@ -2511,7 +2664,10 @@ window.__X1PEN_MODE = true;
         var options = window.X1PenHuBasicOptions.changed(hubasicOptions);
         try {
             await ensureHuBasicToolchain();
-            built = await window.X1PenHuBasic.build(bytes, options);
+            var store = await currentHuBasicFiles();
+            var unreadable = hubasicFilesUnreadableMessage(store);
+            if (unreadable) throw new Error(unreadable);
+            built = await window.X1PenHuBasic.build(bytes, options, store.files());
         } catch (e) {
             diagnostics.push(makeAutomationDiagnostic('hubasic', e.message));
         }
@@ -3083,6 +3239,8 @@ window.__X1PEN_MODE = true;
         if (isAutomationPadAvailable()) features.push('input.pad');
         if (isDebuggerModuleAvailable()) features.push('debugger.cpu');
         if (isDebuggerVramModuleAvailable()) features.push('debugger.vram');
+        // getHuBasicFiles / setHuBasicFiles / readHuBasicDiskFiles are page methods for now; their
+        // feature ID is announced together with the Connector and x1pen-mcp support
         features.push('hubasic.options');
         return features;
     }
@@ -3143,7 +3301,7 @@ window.__X1PEN_MODE = true;
             : (sourceMode === 'basic+asm'
                 ? { language: 'fuzzybasic', id: 'x1pen-fuzzybasic-1.2L' }
                 : (sourceMode === 'hubasic'
-                    ? { language: 'hubasic', id: 'x1pen-hubasic-x1native-slfs' }
+                    ? { language: 'hubasic', id: 'x1pen-hubasic-x1native' }
                     : null));
         return {
             instanceId: automationInstanceId,
@@ -3204,12 +3362,15 @@ window.__X1PEN_MODE = true;
                     defaultOrg: 0x100
                 },
                 hubasic: {
-                    id: 'x1pen-hubasic-x1native-slfs',
-                    environment: 'x1native_slfs',
+                    id: 'x1pen-hubasic-x1native',
+                    // x1native_slfs, or x1native_hufs for a program that uses the file statements
+                    environment: 'x1native',
+                    environments: ['x1native_slfs', 'x1native_hufs'],
                     defaultOrg: 0x1000,
                     // Known after the HuBASIC toolchain has been loaded once
                     runtimeRevision: hubasicInfo ? hubasicInfo.revision : null,
-                    hubasic2slVersion: hubasicInfo ? hubasicInfo.hubasic2slVersion : null
+                    hubasic2slVersion: hubasicInfo ? hubasicInfo.hubasic2slVersion : null,
+                    slangcVersion: hubasicInfo ? hubasicInfo.slangcVersion : null
                 }
             }
         };
@@ -3356,8 +3517,49 @@ window.__X1PEN_MODE = true;
             return queueAutomationOperation(function() {
                 return updateHuBasicOptions(patch);
             });
+        },
+        // Files put on the Hu-BASIC disk of a program that uses the file statements. Contents
+        // travel as base64; kind is 'text', 'raw' or 'bin'.
+        getHuBasicFiles: function() {
+            return currentHuBasicFiles().then(automationHuBasicFiles);
+        },
+        setHuBasicFiles: function(files) {
+            if (isRunSetupPending()) return Promise.reject(createRunPendingError('HuBASIC files update'));
+            return queueAutomationOperation(function() {
+                if (!Array.isArray(files)) throw hubasicDiskError('HUBASIC_FILES_INVALID', 'files must be an array');
+                var next = files.map(function(file) {
+                    var bytes = file && typeof file.base64 === 'string'
+                        ? (file.base64 === '' ? new Uint8Array(0) : base64ToBytes(file.base64)) : null;
+                    if (!bytes) throw hubasicDiskError('HUBASIC_FILES_INVALID', 'each file needs base64 contents: ' + (file && file.name));
+                    return { name: file.name, kind: file.kind, bytes: bytes };
+                });
+                return changeHuBasicFiles(function(store) { return store.replaceAll(next); }).then(automationHuBasicFiles);
+            });
+        },
+        // The files on the disk the last HuBASIC RUN booted, as they are now
+        readHuBasicDiskFiles: function() {
+            return queueAutomationOperation(function() {
+                return {
+                    files: readHuBasicDiskFiles().map(function(file) {
+                        return { name: file.name, kind: file.kind, size: file.size, protected: file.protected,
+                                 base64: file.size ? bytesToBase64(file.bytes) : '' };
+                    })
+                };
+            });
         }
     });
+
+    function automationHuBasicFiles() {
+        return {
+            persistent: hubasicFiles.persistent,
+            unreadable: hubasicFiles.unreadable(),
+            totalSize: hubasicFiles.totalSize(),
+            files: hubasicFiles.files().map(function(file) {
+                return { name: file.name, kind: file.kind, size: file.bytes.length,
+                         base64: file.bytes.length ? bytesToBase64(file.bytes) : '' };
+            })
+        };
+    }
 
     function showShareDialog(url) {
         var dialog = document.getElementById('share-dialog');
@@ -3527,6 +3729,13 @@ window.__X1PEN_MODE = true;
         // HuBASIC first, as for Run (inferSourceMode)
         var hubasicShare = !!(hubasicEditor && hubasicEditor.getValue().trim());
         if (!hubasicShare && !src && !asmSrc && !slangSrc) { elStatus.textContent = 'Nothing to share'; return; }
+        if (hubasicShare) {
+            var shareStore = await currentHuBasicFiles();
+            if (shareStore.count() > 0 || shareStore.unreadable().length > 0) {
+                elStatus.textContent = SHARE_HUBASIC_FILES_BLOCKED_STATUS;
+                return;
+            }
+        }
 
         var shareMediaState = inspectShareMediaState();
         if (!shareMediaState.available) {
@@ -4243,6 +4452,12 @@ window.__X1PEN_MODE = true;
         if (fdd0Save) fdd0Save.addEventListener('click', function() {
             if (!module || !module.FS) return;
             try {
+                // What the running program wrote may still sit in the drive's track buffer; a disk
+                // that could not take it back would be saved without it
+                if (module._js_fdd_flush && module._js_fdd_flush() !== 0) {
+                    elStatus.textContent = 'FDD0: ドライブの書きかけをディスクに書き戻せなかったので、保存しませんでした';
+                    return;
+                }
                 var data = module.FS.readFile('/fdd0.d88');
                 var blob = new Blob([data], { type: 'application/octet-stream' });
                 var url = URL.createObjectURL(blob);
@@ -4415,6 +4630,7 @@ window.__X1PEN_MODE = true;
         var slangImportAction = document.getElementById('btn-slang-import');
         var manualBtn = document.getElementById('btn-basic-manual');
         var hubasicOptionsBtn = document.getElementById('btn-hubasic-options');
+        var hubasicFilesBtn = document.getElementById('btn-hubasic-files');
         var pcgHowtoBtn = document.getElementById('btn-pcg-howto');
 
         // 全エディタコンテナを非表示
@@ -4427,8 +4643,9 @@ window.__X1PEN_MODE = true;
         if (slangImportAction) slangImportAction.classList.add('hidden');
         if (manualBtn) manualBtn.classList.add('hidden');
         if (hubasicOptionsBtn) hubasicOptionsBtn.classList.add('hidden');
+        if (hubasicFilesBtn) hubasicFilesBtn.classList.add('hidden');
         if (pcgHowtoBtn) pcgHowtoBtn.classList.add('hidden');
-        if (target !== 'hubasic') closeHuBasicOptionsPanel(false);
+        if (target !== 'hubasic') { closeHuBasicOptionsPanel(false); closeHuBasicFilesPanel(false); }
         if (target !== 'pcg') closePcgHowtoPanel(false);
 
         // 選択されたタブのコンテナを表示
@@ -4443,6 +4660,7 @@ window.__X1PEN_MODE = true;
             if (slangImportAction) slangImportAction.classList.remove('hidden');
         } else if (target === 'hubasic') {
             if (hubasicContainer) hubasicContainer.classList.remove('hidden');
+            if (hubasicFilesBtn) hubasicFilesBtn.classList.remove('hidden');
             if (hubasicOptionsBtn) hubasicOptionsBtn.classList.remove('hidden');
             hubasicEditor.mount();
         } else if (target === 'pcg') {
@@ -4615,6 +4833,7 @@ window.__X1PEN_MODE = true;
     }
 
     function openHuBasicOptionsPanel() {
+        closeHuBasicFilesPanel(false);
         renderHuBasicOptions();
         hubasicOptionsPanel.classList.remove('hidden');
         hubasicOptionsBtnEl.setAttribute('aria-expanded', 'true');
@@ -4671,6 +4890,364 @@ window.__X1PEN_MODE = true;
         hubasicOptionField('hubasic-opt-reset').addEventListener('click', function() {
             hubasicWaitCounts = { line: 450, frame: 1 };
             applyHuBasicOptionFromPanel(window.X1PenHuBasicOptions.defaults());
+        });
+    }
+    // ── HuBASIC のディスクに入れるファイルの枠 ──
+    // The files of hubasicFiles (added, renamed, kind changed, removed), the disk image of the
+    // program with them, and the files on the disk the last HuBASIC RUN booted (read back with
+    // readHuBasicDiskFiles, the same function the automation API uses).
+    var hubasicFilesBtnEl = document.getElementById('btn-hubasic-files');
+    var hubasicFilesPanel = document.getElementById('hubasic-files-panel');
+    var hubasicDiskFiles = null;     // the last list read from the disk, for the panel
+
+    function hubasicFilesField(id) { return document.getElementById(id); }
+
+    function setHuBasicFilesMessage(text) {
+        var el = hubasicFilesField('hubasic-files-message');
+        if (el) el.textContent = text || '';
+    }
+
+    function downloadBytes(bytes, name) {
+        var url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
+    }
+
+    function formatBytes(n) { return n.toLocaleString('en-US') + ' B'; }
+
+    // A name from the user's computer, fitted to the Hu-BASIC rules when it does not follow them
+    function huBasicFileNameFor(name) {
+        if (!window.X1PenHuBasicFiles.checkName(name)) return name;
+        var clean = String(name).replace(/[^\x21-\x7E]/g, '').replace(/[":=,]/g, '');
+        var dot = clean.lastIndexOf('.');
+        var base = (dot < 0 ? clean : clean.slice(0, dot)).replace(/\./g, '').slice(0, 13);
+        var ext = dot < 0 ? '' : clean.slice(dot + 1).slice(0, 3);
+        var fitted = base + (ext ? '.' + ext : '');
+        return window.X1PenHuBasicFiles.checkName(fitted) ? 'FILE' : fitted;
+    }
+
+    function defaultHuBasicFileKind(name) {
+        return /\.(txt|asc|csv|bas)$/i.test(name) ? 'text' : 'raw';
+    }
+
+    var HUBASIC_FILE_KIND_LABELS = { text: 'テキスト', raw: 'そのまま', bin: 'Bin' };
+
+    function huBasicKindSelect(kind, onChange) {
+        var select = document.createElement('select');
+        select.title = 'テキスト: 改行を CR にして終わりに $1A を付けます（Asc）。そのまま: 中身を変えません（Asc）。Bin: 大きさの決まったバイナリ';
+        ['text', 'raw', 'bin'].forEach(function(value) {
+            var option = document.createElement('option');
+            option.value = value;
+            option.textContent = HUBASIC_FILE_KIND_LABELS[value];
+            select.appendChild(option);
+        });
+        select.value = kind;
+        select.addEventListener('change', function() { onChange(select.value); });
+        return select;
+    }
+
+    async function applyHuBasicFilesChange(change, done) {
+        setHuBasicFilesMessage('');
+        try {
+            await change();
+            if (done) setHuBasicFilesMessage(done);
+        } catch (e) {
+            setHuBasicFilesMessage(e && e.message || String(e));
+            renderHuBasicFiles();
+        }
+    }
+
+    function renderHuBasicFilesList() {
+        var table = hubasicFilesField('hubasic-files-list');
+        table.textContent = '';
+        var files = hubasicFiles.list();
+        var unreadable = hubasicFiles.unreadable();
+        unreadable.forEach(function(name) {
+            var row = table.insertRow();
+            row.insertCell().textContent = name;
+            var cell = row.insertCell();
+            cell.colSpan = 2;
+            cell.className = 'hubasic-files-empty';
+            cell.textContent = '読めません';
+            var drop = document.createElement('button');
+            drop.type = 'button';
+            drop.textContent = '外す';
+            drop.setAttribute('aria-label', name + ' を外す');
+            drop.addEventListener('click', function() {
+                applyHuBasicFilesChange(function() {
+                    return changeHuBasicFiles(function(store) { return store.forget(name); });
+                });
+            });
+            var actions = row.insertCell();
+            actions.className = 'actions';
+            actions.appendChild(drop);
+        });
+        if (files.length === 0 && unreadable.length === 0) {
+            var row = table.insertRow();
+            var cell = row.insertCell();
+            cell.className = 'hubasic-files-empty';
+            cell.textContent = 'まだありません';
+        }
+        files.forEach(function(file) {
+            var row = table.insertRow();
+            var nameCell = row.insertCell();
+            var nameInput = document.createElement('input');
+            nameInput.type = 'text';
+            nameInput.value = file.name;
+            nameInput.setAttribute('aria-label', 'ファイル名');
+            nameInput.addEventListener('change', function() {
+                var next = nameInput.value;
+                if (window.X1PenHuBasicFiles.checkName(next)) {
+                    nameInput.setAttribute('aria-invalid', 'true');
+                    setHuBasicFilesMessage(window.X1PenHuBasicFiles.checkName(next));
+                    return;
+                }
+                applyHuBasicFilesChange(function() {
+                    return changeHuBasicFiles(function(store) { return store.rename(file.name, next); });
+                });
+            });
+            nameCell.appendChild(nameInput);
+            row.insertCell().appendChild(huBasicKindSelect(file.kind, function(kind) {
+                applyHuBasicFilesChange(function() {
+                    return changeHuBasicFiles(function(store) { return store.setKind(file.name, kind); });
+                });
+            }));
+            var sizeCell = row.insertCell();
+            sizeCell.className = 'size';
+            sizeCell.textContent = formatBytes(file.size);
+            var actions = row.insertCell();
+            actions.className = 'actions';
+            var remove = document.createElement('button');
+            remove.type = 'button';
+            remove.textContent = '外す';
+            remove.setAttribute('aria-label', file.name + ' を外す');
+            remove.addEventListener('click', function() {
+                applyHuBasicFilesChange(function() {
+                    return changeHuBasicFiles(function(store) { return store.remove(file.name); });
+                });
+            });
+            actions.appendChild(remove);
+        });
+        hubasicFilesField('hubasic-files-total').textContent = files.length + ' 本・' + formatBytes(hubasicFiles.totalSize()) +
+            '（合計 ' + formatBytes(window.X1PenHuBasicFiles.MAX_TOTAL_BYTES) + '・Bin は 1 本 ' + formatBytes(window.X1PenHuBasicFiles.MAX_FILE_BYTES) + ' まで）';
+    }
+
+    function hubasicDiskStatus() {
+        var current = checkHuBasicDiskCurrent();
+        if (current.ok) return 'FDD0 に、いちばん新しい RUN のディスク（' + (lastHubasicDisk.mainName || '') + '）が入っています。';
+        return current.message;
+    }
+
+    function renderHuBasicDiskList() {
+        var table = hubasicFilesField('hubasic-disk-list');
+        table.textContent = '';
+        var current = checkHuBasicDiskCurrent();
+        hubasicFilesField('hubasic-disk-state').textContent = hubasicDiskStatus();
+        hubasicFilesField('hubasic-disk-read').disabled = !current.ok;
+        if (!current.ok || !hubasicDiskFiles) return;
+        hubasicDiskFiles.forEach(function(file) {
+            var row = table.insertRow();
+            row.insertCell().textContent = file.name + (file.protected ? '（起動するプログラム）' : '');
+            row.insertCell().textContent = HUBASIC_DISK_KIND_LABELS[file.kind] || file.kind;
+            var sizeCell = row.insertCell();
+            sizeCell.className = 'size';
+            sizeCell.textContent = formatBytes(file.size);
+            var actions = row.insertCell();
+            actions.className = 'actions';
+            function button(label, title, onClick) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.textContent = label;
+                b.title = title;
+                b.addEventListener('click', onClick);
+                actions.appendChild(b);
+                return b;
+            }
+            button('保存', 'ディスクの中身のまま保存します', function() { downloadBytes(file.bytes, file.name); });
+            if (file.kind === 'asc') {
+                button('テキスト', 'CR を LF にし、$1A から後ろを除いて保存します', function() {
+                    downloadBytes(window.X1PenHuBasicFiles.textFromHu(file.bytes), file.name);
+                });
+            }
+            if (file.protected) return;
+            // An Asc entry may be text or raw records: put back as it is, or as text
+            button(file.kind === 'asc' ? 'そのまま戻す' : '戻す',
+                '中身を変えずに「ディスクに入れるファイル」に入れます（同じ名前があれば置き換えます）', function() {
+                    restoreHuBasicDiskFile(file, file.kind === 'bin' ? 'bin' : 'raw');
+                });
+            if (file.kind === 'asc') {
+                button('テキストで戻す', '$1A から後ろを除き CR を LF にして、テキストとして入れます', function() {
+                    restoreHuBasicDiskFile(file, 'text');
+                });
+            }
+        });
+    }
+
+    var HUBASIC_DISK_KIND_LABELS = { asc: 'Asc', bin: 'Bin', bas: 'Bas' };
+
+    // A file read from the disk, back into the files to put on the next disk
+    function restoreHuBasicDiskFile(file, kind) {
+        var bytes = kind === 'text' ? window.X1PenHuBasicFiles.textFromHu(file.bytes) : file.bytes;
+        applyHuBasicFilesChange(function() {
+            return changeHuBasicFiles(function(store) { return store.put([{ name: file.name, kind: kind, bytes: bytes }]); });
+        }, file.name + ' を入れるファイルに戻しました');
+    }
+
+    function renderHuBasicFiles() {
+        if (!hubasicFilesPanel) return;
+        if (hubasicFilesBtnEl) {
+            var count = hubasicFiles.count();
+            hubasicFilesBtnEl.textContent = count > 0 ? 'Files (' + count + ')' : 'Files';
+            hubasicFilesBtnEl.classList.toggle('changed', count > 0);
+        }
+        var note = hubasicFilesField('hubasic-files-share-note');
+        note.classList.toggle('hidden', hubasicFiles.persistent);
+        if (hubasicFiles.note) note.textContent = hubasicFiles.note;
+        renderHuBasicFilesList();
+        renderHuBasicDiskList();
+    }
+
+    // A name made for a file whose own name does not follow the rules must not take the place of
+    // another file: add a number until it is free (taken: names as the directory holds them)
+    function freeHuBasicFileName(name, taken) {
+        var diskName = window.X1PenHuBasicFiles.diskName;
+        if (!taken[diskName(name)]) return name;
+        var dot = name.lastIndexOf('.');
+        var base = dot < 0 ? name : name.slice(0, dot);
+        var ext = dot < 0 ? '' : name.slice(dot);
+        for (var n = 2; ; n++) {
+            var suffix = String(n);
+            var candidate = base.slice(0, 13 - suffix.length) + suffix + ext;
+            if (!taken[diskName(candidate)]) return candidate;
+        }
+    }
+
+    // Reads the chosen files first, then adds them to the set saved by then. A file keeps its own
+    // name when that follows the rules (and replaces a file of that name); a made-up name is
+    // always a new one.
+    async function addHuBasicFilesFromInput(fileList) {
+        var chosen = [];
+        for (var i = 0; i < fileList.length; i++) {
+            chosen.push({ original: fileList[i].name, bytes: new Uint8Array(await fileList[i].arrayBuffer()) });
+        }
+        var renamed = [];
+        await changeHuBasicFiles(function(store) {
+            return store.update(function(files) {
+                var diskName = window.X1PenHuBasicFiles.diskName;
+                // Files whose own names follow the rules come first and replace same-named files;
+                // then each made-up name takes a name nothing else has (in any order of the choice)
+                // The kind comes from the file's own name (a .TXT stays text when it is renamed).
+                // Two chosen files with one directory name ("A" and "A.") never replace each other:
+                // the later one is treated like a file whose name does not follow the rules.
+                var taken = {};
+                var kept = [];
+                chosen.forEach(function(c) {
+                    if (huBasicFileNameFor(c.original) !== c.original || taken[diskName(c.original)]) return;
+                    taken[diskName(c.original)] = true;
+                    kept.push(c);
+                });
+                kept.forEach(function(c) {
+                    files = files.filter(function(f) { return diskName(f.name) !== diskName(c.original); })
+                        .concat([{ name: c.original, kind: defaultHuBasicFileKind(c.original), bytes: c.bytes }]);
+                });
+                files.forEach(function(f) { taken[diskName(f.name)] = true; });
+                renamed = [];
+                chosen.forEach(function(c) {
+                    if (kept.indexOf(c) >= 0) return;
+                    var name = freeHuBasicFileName(huBasicFileNameFor(c.original), taken);
+                    renamed.push(c.original + ' → ' + name);
+                    taken[diskName(name)] = true;
+                    files = files.concat([{ name: name, kind: defaultHuBasicFileKind(c.original), bytes: c.bytes }]);
+                });
+                return files;
+            });
+        });
+        return renamed;
+    }
+
+    async function saveHuBasicDiskImage() {
+        setHuBasicFilesMessage('ディスクイメージを作っています...');
+        await ensureHuBasicToolchain();
+        var store = await currentHuBasicFiles();
+        var unreadable = hubasicFilesUnreadableMessage(store);
+        if (unreadable) {
+            setHuBasicFilesMessage('作れませんでした: ' + unreadable);
+            return;
+        }
+        var built = await window.X1PenHuBasic.build(hubasicEditor.getBytes(),
+            window.X1PenHuBasicOptions.changed(hubasicOptions), store.files());
+        if (!built.ok) {
+            setHuBasicFilesMessage('作れませんでした（' + built.stage + '）: ' + built.message);
+            return;
+        }
+        downloadBytes(built.d88, (built.diskMainName || 'PROGRAM') + '.d88');
+        setHuBasicFilesMessage((built.diskMainName || 'PROGRAM') + '.d88 を保存しました' +
+            (built.filesIgnored ? '（ファイルの命令が無いので、入れたファイルは入っていません）' : ''));
+    }
+
+    function openHuBasicFilesPanel() {
+        closeHuBasicOptionsPanel(false);
+        renderHuBasicFiles();
+        currentHuBasicFiles();
+        hubasicFilesPanel.classList.remove('hidden');
+        hubasicFilesBtnEl.setAttribute('aria-expanded', 'true');
+        hubasicFilesField('hubasic-files-add').focus();
+    }
+
+    function closeHuBasicFilesPanel(restoreFocus) {
+        if (!hubasicFilesPanel || hubasicFilesPanel.classList.contains('hidden')) return;
+        var hadFocus = hubasicFilesPanel.contains(document.activeElement);
+        hubasicFilesPanel.classList.add('hidden');
+        hubasicFilesBtnEl.setAttribute('aria-expanded', 'false');
+        if (restoreFocus && hadFocus) hubasicFilesBtnEl.focus();
+    }
+
+    if (hubasicFilesPanel && hubasicFilesBtnEl) {
+        hubasicFilesListeners.push(renderHuBasicFiles);
+        renderHuBasicFiles();
+        hubasicFilesBtnEl.addEventListener('click', function() {
+            if (hubasicFilesPanel.classList.contains('hidden')) openHuBasicFilesPanel();
+            else closeHuBasicFilesPanel(true);
+        });
+        hubasicFilesField('hubasic-files-close').addEventListener('click', function() { closeHuBasicFilesPanel(true); });
+        hubasicFilesPanel.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { e.preventDefault(); closeHuBasicFilesPanel(true); }
+        });
+        document.addEventListener('pointerdown', function(e) {
+            if (!hubasicFilesPanel.contains(e.target) && !hubasicFilesBtnEl.contains(e.target)) {
+                closeHuBasicFilesPanel(false);
+            }
+        }, true);
+        var filesInput = hubasicFilesField('hubasic-files-input');
+        hubasicFilesField('hubasic-files-add').addEventListener('click', function() { filesInput.click(); });
+        filesInput.addEventListener('change', function() {
+            var chosen = Array.prototype.slice.call(filesInput.files || []);
+            filesInput.value = '';
+            if (chosen.length === 0) return;
+            applyHuBasicFilesChange(async function() {
+                var renamed = await addHuBasicFilesFromInput(chosen);
+                if (renamed.length) setHuBasicFilesMessage('Hu-BASIC の名前の決まりに合わせました: ' + renamed.join('、'));
+            });
+        });
+        hubasicFilesField('hubasic-files-save-disk').addEventListener('click', function() {
+            saveHuBasicDiskImage().catch(function(e) {
+                setHuBasicFilesMessage('作れませんでした: ' + (e && e.message || e));
+            });
+        });
+        hubasicFilesField('hubasic-disk-read').addEventListener('click', function() {
+            setHuBasicFilesMessage('');
+            try {
+                hubasicDiskFiles = readHuBasicDiskFiles();
+            } catch (e) {
+                hubasicDiskFiles = null;
+                setHuBasicFilesMessage(e && e.message || String(e));
+            }
+            renderHuBasicDiskList();
         });
     }
     if (editorTabs) {

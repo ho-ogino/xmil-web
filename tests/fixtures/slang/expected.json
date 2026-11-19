@@ -1,0 +1,26 @@
+{
+  "revision": "6e73c0865c28450aa4ecac524faae18be38566f8",
+  "env": "x1",
+  "includePaths": [
+    "include"
+  ],
+  "assembler": {
+    "name": "AILZ80ASM",
+    "version": "1.0.31.0",
+    "sha256": "dbfb597a2b24c94e8abe73052ce11cd029ea7f1d05cf631f7698c4f38451ff04"
+  },
+  "programs": {
+    "SCREEN": {
+      "binLength": 4016,
+      "binSha256": "57eff26557d6056e4085248365f839bbe048d565f7abee12105b7d2f51dc88f8"
+    },
+    "SOUND": {
+      "binLength": 590,
+      "binSha256": "35b5d8bd95b8d92b0711d7aeaefc2fe1da7a5b64234db73e1020132cbf6161ca"
+    },
+    "INPUT": {
+      "binLength": 1049,
+      "binSha256": "6f614cd6fe62e58b44bd2d3c2be87dd87bf2b40aba1475d6c1459d90f2b4be78"
+    }
+  }
+}
