@@ -434,6 +434,12 @@ window.__X1PEN_MODE = true;
         return opened;
     });
 
+    // The error for a saved set with a body that cannot be read (X1PenHuBasicFiles), or null
+    function hubasicFilesUnreadableMessage(store) {
+        var names = store.unreadable();
+        return names.length ? '保存してあるファイルを読めません: ' + names.join(', ') + '（Files で外してください）' : null;
+    }
+
     // The files as saved now: another tab may have changed them since this one read them
     async function currentHuBasicFiles() {
         await hubasicFilesReady;
@@ -2017,7 +2023,14 @@ window.__X1PEN_MODE = true;
         var built;
         try {
             await ensureHuBasicToolchain();
-            var files = (await currentHuBasicFiles()).files();
+            var store = await currentHuBasicFiles();
+            var unreadable = hubasicFilesUnreadableMessage(store);
+            if (unreadable) {
+                elStatus.textContent = 'HuBASIC: ' + unreadable;
+                lastRunDetails = { code: 'HUBASIC_FILES_UNREADABLE', stage: 'files' };
+                return false;
+            }
+            var files = store.files();
             elStatus.textContent = 'HuBASIC: converting...';
             built = await window.X1PenHuBasic.build(source, options, files);
         } catch (e) {
@@ -2651,8 +2664,10 @@ window.__X1PEN_MODE = true;
         var options = window.X1PenHuBasicOptions.changed(hubasicOptions);
         try {
             await ensureHuBasicToolchain();
-            var files = (await currentHuBasicFiles()).files();
-            built = await window.X1PenHuBasic.build(bytes, options, files);
+            var store = await currentHuBasicFiles();
+            var unreadable = hubasicFilesUnreadableMessage(store);
+            if (unreadable) throw new Error(unreadable);
+            built = await window.X1PenHuBasic.build(bytes, options, store.files());
         } catch (e) {
             diagnostics.push(makeAutomationDiagnostic('hubasic', e.message));
         }
@@ -3537,6 +3552,7 @@ window.__X1PEN_MODE = true;
     function automationHuBasicFiles() {
         return {
             persistent: hubasicFiles.persistent,
+            unreadable: hubasicFiles.unreadable(),
             totalSize: hubasicFiles.totalSize(),
             files: hubasicFiles.files().map(function(file) {
                 return { name: file.name, kind: file.kind, size: file.bytes.length,
@@ -3714,7 +3730,8 @@ window.__X1PEN_MODE = true;
         var hubasicShare = !!(hubasicEditor && hubasicEditor.getValue().trim());
         if (!hubasicShare && !src && !asmSrc && !slangSrc) { elStatus.textContent = 'Nothing to share'; return; }
         if (hubasicShare) {
-            if ((await currentHuBasicFiles()).count() > 0) {
+            var shareStore = await currentHuBasicFiles();
+            if (shareStore.count() > 0 || shareStore.unreadable().length > 0) {
                 elStatus.textContent = SHARE_HUBASIC_FILES_BLOCKED_STATUS;
                 return;
             }
@@ -4949,7 +4966,29 @@ window.__X1PEN_MODE = true;
         var table = hubasicFilesField('hubasic-files-list');
         table.textContent = '';
         var files = hubasicFiles.list();
-        if (files.length === 0) {
+        var unreadable = hubasicFiles.unreadable();
+        unreadable.forEach(function(name) {
+            var row = table.insertRow();
+            row.insertCell().textContent = name;
+            var cell = row.insertCell();
+            cell.colSpan = 2;
+            cell.className = 'hubasic-files-empty';
+            cell.textContent = '読めません';
+            var drop = document.createElement('button');
+            drop.type = 'button';
+            drop.textContent = '外す';
+            drop.setAttribute('aria-label', name + ' を外す');
+            drop.addEventListener('click', function() {
+                // Saves the readable files as the whole set, which drops the unreadable ones
+                applyHuBasicFilesChange(function() {
+                    return changeHuBasicFiles(function(store) { return store.replaceAll(store.files()); });
+                });
+            });
+            var actions = row.insertCell();
+            actions.className = 'actions';
+            actions.appendChild(drop);
+        });
+        if (files.length === 0 && unreadable.length === 0) {
             var row = table.insertRow();
             var cell = row.insertCell();
             cell.className = 'hubasic-files-empty';
@@ -5067,7 +5106,9 @@ window.__X1PEN_MODE = true;
             hubasicFilesBtnEl.textContent = count > 0 ? 'Files (' + count + ')' : 'Files';
             hubasicFilesBtnEl.classList.toggle('changed', count > 0);
         }
-        hubasicFilesField('hubasic-files-share-note').classList.toggle('hidden', hubasicFiles.persistent);
+        var note = hubasicFilesField('hubasic-files-share-note');
+        note.classList.toggle('hidden', hubasicFiles.persistent);
+        if (hubasicFiles.note) note.textContent = hubasicFiles.note;
         renderHuBasicFilesList();
         renderHuBasicDiskList();
     }
@@ -5099,22 +5140,23 @@ window.__X1PEN_MODE = true;
         await changeHuBasicFiles(function(store) {
             return store.update(function(files) {
                 var diskName = window.X1PenHuBasicFiles.diskName;
+                // Files whose own names follow the rules come first and replace same-named files;
+                // then each made-up name takes a name nothing else has (in any order of the choice)
                 var taken = {};
                 var kept = chosen.filter(function(c) { return huBasicFileNameFor(c.original) === c.original; });
-                var keptNames = {};
-                kept.forEach(function(c) { keptNames[diskName(c.original)] = true; });
-                files = files.filter(function(f) { return !keptNames[diskName(f.name)]; });
+                kept.forEach(function(c) {
+                    taken[diskName(c.original)] = true;
+                    files = files.filter(function(f) { return diskName(f.name) !== diskName(c.original); })
+                        .concat([{ name: c.original, kind: defaultHuBasicFileKind(c.original), bytes: c.bytes }]);
+                });
                 files.forEach(function(f) { taken[diskName(f.name)] = true; });
                 renamed = [];
                 chosen.forEach(function(c) {
-                    var name = huBasicFileNameFor(c.original);
-                    if (name !== c.original) {
-                        name = freeHuBasicFileName(name, taken);
-                        renamed.push(c.original + ' → ' + name);
-                    }
+                    if (kept.indexOf(c) >= 0) return;
+                    var name = freeHuBasicFileName(huBasicFileNameFor(c.original), taken);
+                    renamed.push(c.original + ' → ' + name);
                     taken[diskName(name)] = true;
-                    files = files.filter(function(f) { return diskName(f.name) !== diskName(name); })
-                        .concat([{ name: name, kind: defaultHuBasicFileKind(name), bytes: c.bytes }]);
+                    files = files.concat([{ name: name, kind: defaultHuBasicFileKind(name), bytes: c.bytes }]);
                 });
                 return files;
             });
@@ -5125,9 +5167,14 @@ window.__X1PEN_MODE = true;
     async function saveHuBasicDiskImage() {
         setHuBasicFilesMessage('ディスクイメージを作っています...');
         await ensureHuBasicToolchain();
-        var files = (await currentHuBasicFiles()).files();
+        var store = await currentHuBasicFiles();
+        var unreadable = hubasicFilesUnreadableMessage(store);
+        if (unreadable) {
+            setHuBasicFilesMessage('作れませんでした: ' + unreadable);
+            return;
+        }
         var built = await window.X1PenHuBasic.build(hubasicEditor.getBytes(),
-            window.X1PenHuBasicOptions.changed(hubasicOptions), files);
+            window.X1PenHuBasicOptions.changed(hubasicOptions), store.files());
         if (!built.ok) {
             setHuBasicFilesMessage('作れませんでした（' + built.stage + '）: ' + built.message);
             return;

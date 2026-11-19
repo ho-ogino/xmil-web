@@ -3961,12 +3961,49 @@ test('HuBASIC files: two first uses share one bundle, and picked names never rep
     assert.equal(byName.FILE, 'KEEP');
     assert.deepEqual([byName.FILE2, byName.FILE3].sort(), ['A\n', 'B\n']);
     assert.match(await first.locator('#hubasic-files-message').textContent(), /売上\.TXT → FILE[23]/);
+    // A file whose own name is FILE keeps it, whichever comes first in the choice
+    for (const order of [['売上.TXT', 'FILE'], ['FILE', '売上.TXT']]) {
+      await setHuBasicFiles([], first);
+      await first.locator('#hubasic-files-input').setInputFiles(order.map((name) =>
+        ({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(name === 'FILE' ? 'OWN' : 'MADE') })));
+      await first.waitForFunction(() => document.getElementById('btn-hubasic-files').textContent === 'Files (2)');
+      const both = await first.evaluate(() => window.X1PenAutomation.getHuBasicFiles());
+      assert.deepEqual(Object.fromEntries(both.files.map((f) => [f.name, Buffer.from(f.base64, 'base64').toString('latin1')])),
+        { FILE: 'OWN', FILE2: 'MADE' }, order.join(','));
+    }
     await first.locator('#hubasic-files-close').click();
 
     await setHuBasicFiles([], first);
   } finally {
     await context.close();
   }
+});
+
+test('a HuBASIC program opens empty and text files the disk editor added to its disk', { timeout: 120_000 }, async () => {
+  await setHuBasicProgram([
+    '10 CLS',
+    '20 OPEN "I",#1,"EMPTY.TXT"',
+    '30 PRINT "EOF";EOF(1)',
+    '40 CLOSE #1',
+    '50 OPEN "I",#1,"NOTE.TXT":LINE INPUT #1,A$:CLOSE #1',
+    '60 PRINT "NOTE:";A$',
+    '70 GOTO 70',
+  ].join('\n') + '\n');
+  const built = await page.evaluate(async () => {
+    await window.X1PenAutomation.validate();
+    const result = await window.X1PenHuBasic.build(window.X1PenAutomation.getProgram().hubasic, {}, []);
+    if (!result.ok) return { error: result.message };
+    const container = window.XmilDiskContainer.openContainer(result.d88.buffer, 'p.d88');
+    const fs = new window.XmilDiskFS.HuBasicFS(container);
+    fs.addFile('EMPTY', 'TXT', new Uint8Array(0));
+    fs.addFile('NOTE', 'TXT', new TextEncoder().encode('HI\r\x1a'));
+    await window.XmilControls.mountTempDisk(container.toArrayBuffer(), 'drive0');
+    window.XmilControls.coldPowerOn(window.Module._js_get_rom_type());
+    return { environment: result.environment };
+  });
+  assert.deepEqual(built, { environment: 'x1native_hufs' });
+  await textVramContains('EOF-1');
+  await textVramContains('NOTE:HI');
 });
 
 test('HuBASIC and the other source modes clear each other and persist', { timeout: 60_000 }, async () => {

@@ -37,6 +37,8 @@ const page = loadPage();
 const Files = page.X1PenHuBasicFiles;
 const json = (value) => JSON.parse(JSON.stringify(value));
 const bytes = (text) => new TextEncoder().encode(text);
+// One lock manager for the whole origin, like navigator.locks (see fakeLocks below)
+const sharedLocks = fakeLocks();
 
 // XmilStorage and localStorage stand-ins that can be told to fail
 function fakeStorage() {
@@ -101,7 +103,7 @@ test('a set is checked as a whole: names, kinds, sizes and the total', () => {
 test('the saved set survives a reload and replaces itself whole', async () => {
   const storage = fakeStorage();
   const ls = fakeLocalStorage();
-  const store = Files.createStore({ storage, localStorage: ls });
+  const store = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
   assert.deepEqual(json((await store.open()).files), []);
   await store.replaceAll([
     { name: 'GREET.TXT', kind: 'text', bytes: bytes('hello\n') },
@@ -111,7 +113,7 @@ test('the saved set survives a reload and replaces itself whole', async () => {
   assert.equal(firstKeys.length, 2);
   assert.ok(firstKeys.every((k) => k.startsWith('x1pen_hufile_')));
 
-  const reloaded = Files.createStore({ storage, localStorage: ls });
+  const reloaded = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
   const opened = await reloaded.open();
   assert.deepEqual(json(opened.files), [{ name: 'GREET.TXT', kind: 'text', size: 6 }, { name: 'DATA.BIN', kind: 'bin', size: 3 }]);
   assert.deepEqual([...reloaded.files()[1].bytes], [1, 2, 3]);
@@ -130,7 +132,7 @@ test('a failed save leaves the previous set and no new keys', async () => {
   for (const failure of ['body', 'list']) {
     const storage = fakeStorage();
     const ls = fakeLocalStorage();
-    const store = Files.createStore({ storage, localStorage: ls });
+    const store = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
     await store.open();
     await store.replaceAll(three('OLD'));
     const before = new Set(storage.map.keys());
@@ -141,7 +143,7 @@ test('a failed save leaves the previous set and no new keys', async () => {
     storage.failWrite = null;
     ls.failSet = false;
     assert.deepEqual(new Set(storage.map.keys()), before, `${failure}: no keys of the new generation are left`);
-    const reloaded = Files.createStore({ storage, localStorage: ls });
+    const reloaded = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
     const opened = await reloaded.open();
     assert.deepEqual(json(opened.files.map((f) => f.name)), ['OLD1.TXT', 'OLD2.TXT', 'OLD3.TXT'], failure);
     assert.equal(new TextDecoder().decode(reloaded.files()[2].bytes), 'OLD3');
@@ -151,26 +153,26 @@ test('a failed save leaves the previous set and no new keys', async () => {
 test('bodies no list points at are removed when the page opens', async () => {
   const storage = fakeStorage();
   const ls = fakeLocalStorage();
-  const store = Files.createStore({ storage, localStorage: ls });
+  const store = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
   await store.open();
   await store.replaceAll([{ name: 'A', bytes: bytes('a') }]);
   // A page closed after switching the list but before removing the old generation
   storage.map.set('x1pen_hufile_old_0', bytes('stale'));
   storage.map.set('lib_other', bytes('library'));
-  const reloaded = Files.createStore({ storage, localStorage: ls });
+  const reloaded = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
   const opened = await reloaded.open();
   assert.deepEqual(json(opened.files.map((f) => f.name)), ['A']);
   assert.ok(!storage.map.has('x1pen_hufile_old_0'));
   assert.ok(storage.map.has('lib_other'), 'other keys are left alone');
   // A broken list is read as empty
   ls.setItem(Files.LIST_KEY, '{not json');
-  assert.deepEqual(json((await Files.createStore({ storage, localStorage: ls }).open()).files), []);
+  assert.deepEqual(json((await Files.createStore({ storage, localStorage: ls, locks: sharedLocks }).open()).files), []);
 });
 
 test('a Share session uses its own set and never touches the saved one', async () => {
   const storage = fakeStorage();
   const ls = fakeLocalStorage();
-  const saved = Files.createStore({ storage, localStorage: ls });
+  const saved = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
   await saved.open();
   await saved.replaceAll([{ name: 'MINE.TXT', kind: 'text', bytes: bytes('mine') }]);
   const snapshot = new Map(storage.map);
@@ -187,13 +189,13 @@ test('a Share session uses its own set and never touches the saved one', async (
 test('changes made one right after another all apply, each to the set saved last', async () => {
   const storage = fakeStorage();
   const ls = fakeLocalStorage();
-  const store = Files.createStore({ storage, localStorage: ls, locks: null });
+  const store = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
   await store.open();
   await store.replaceAll(['A', 'B', 'C'].map((name) => ({ name, bytes: bytes(name) })));
   // Two removals started together: the second must not bring back what the first removed
   await Promise.all([store.remove('A'), store.remove('B'), store.put([{ name: 'D', bytes: bytes('d') }])]);
   assert.deepEqual(json(store.list().map((f) => f.name)), ['C', 'D']);
-  const reloaded = Files.createStore({ storage, localStorage: ls, locks: null });
+  const reloaded = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
   await reloaded.open();
   assert.deepEqual(json(reloaded.list().map((f) => f.name)), ['C', 'D']);
   // A Share session's set behaves the same
@@ -261,34 +263,52 @@ test('a tab that is already open sees the files another tab saved', async () => 
   assert.equal(await second.refresh(), false, 'nothing changed since');
 });
 
-test('without Web Locks, opening a tab still leaves the bodies of a save in progress', async () => {
+test('without Web Locks nothing is saved, and the page says so', async () => {
   const storage = fakeStorage();
   const ls = fakeLocalStorage();
-  const first = Files.createStore({ storage, localStorage: ls, locks: null });
-  await first.open();
-  await first.replaceAll([{ name: 'OLD.TXT', bytes: bytes('old') }]);
-  let release;
-  const held = new Promise((resolve) => { release = resolve; });
-  let written;
-  const wroteBody = new Promise((resolve) => { written = resolve; });
-  const write = storage.write;
-  storage.write = async (key, buffer) => { await write(key, buffer); written(); await held; };
-  const saving = first.put([{ name: 'NEW.TXT', bytes: bytes('new') }]);
-  await wroteBody;
-  storage.write = write;
-  // The second tab cannot wait for the first one; it opens while the save is held
-  const second = Files.createStore({ storage, localStorage: ls, locks: null });
-  await second.open();
-  release();
-  await saving;
-  const reloaded = Files.createStore({ storage, localStorage: ls, locks: null });
-  const opened = await reloaded.open();
-  assert.deepEqual(json(opened.files.map((f) => f.name)), ['OLD.TXT', 'NEW.TXT']);
-  assert.deepEqual(json(opened.missing), []);
-  // An old leftover is still removed
-  storage.map.set(`x1pen_hufile_${(Date.now() - 2 * 3600 * 1000).toString(36)}0000_0`, bytes('stale'));
-  await Files.createStore({ storage, localStorage: ls, locks: null }).open();
-  assert.equal([...storage.map.keys()].filter((k) => k.endsWith('0000_0')).length, 0);
+  const store = Files.createStore({ storage, localStorage: ls, locks: null });
+  assert.equal(store.persistent, false);
+  assert.match(store.note, /保存できません/);
+  await store.open();
+  await store.put([{ name: 'A.TXT', bytes: bytes('a') }]);
+  assert.deepEqual(json(store.list().map((f) => f.name)), ['A.TXT']);
+  assert.equal(storage.map.size, 0);
+  assert.equal(ls.getItem(Files.LIST_KEY), null);
+});
+
+test('a body that cannot be read once stops changes instead of dropping it', async () => {
+  const storage = fakeStorage();
+  const ls = fakeLocalStorage();
+  const saved = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
+  await saved.open();
+  await saved.replaceAll([{ name: 'KEEP.DAT', bytes: bytes('keep') }, { name: 'OTHER.DAT', bytes: bytes('other') }]);
+  const read = storage.read;
+  let failing = true;
+  storage.read = async (key) => {
+    const list = JSON.parse(ls.getItem(Files.LIST_KEY));
+    if (failing && key === list.files[0].key) throw new Error('read failed');
+    return read(key);
+  };
+  const store = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
+  const opened = await store.open();
+  assert.deepEqual(json(opened.missing), ['KEEP.DAT']);
+  assert.deepEqual(json(store.unreadable()), ['KEEP.DAT']);
+  // An unrelated change is refused while KEEP.DAT cannot be read; nothing is lost
+  await assert.rejects(store.remove('OTHER.DAT'), (e) => e.code === 'HUBASIC_FILES_UNREADABLE');
+  failing = false;
+  // Readable again: the next change reads it and keeps it
+  await store.remove('OTHER.DAT');
+  assert.deepEqual(json(store.list().map((f) => f.name)), ['KEEP.DAT']);
+  assert.deepEqual(json(store.unreadable()), []);
+  // Dropping an unreadable file is an explicit replacement of the whole set
+  failing = true;
+  const again = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
+  await again.open();
+  assert.deepEqual(json(again.unreadable()), ['KEEP.DAT']);
+  await again.replaceAll(again.files());
+  storage.read = read;
+  const reloaded = Files.createStore({ storage, localStorage: ls, locks: sharedLocks });
+  assert.deepEqual(json((await reloaded.open()).files), []);
 });
 
 test('Hu-BASIC text comes back as text: up to $1A, CR as LF', () => {
@@ -333,16 +353,35 @@ test('the disk editor adds text files as Hu-BASIC Asc ($04) and reads them back'
   assert.equal(new TextDecoder().decode(fs.readFile(entry)), 'A\rB\r\x1a');
   const read = Files.readDiskFiles(new Uint8Array(container.toArrayBuffer()));
   assert.equal(read.find((f) => f.name === 'NOTE.TXT').kind, 'asc');
-  // An empty file takes no record, and reads back empty after the disk is opened again
-  const freeBefore = fs.getFreeClusters();
+  // An empty text file is an Asc file holding only $1A (Asc has no size; $1A ends the text), and
+  // every entry has a start cluster the Hu-BASIC runtime can open (offsets $1D and $1F are 0)
   fs.addFile('EMPTY', 'TXT', new Uint8Array(0));
+  fs.addFile('ZERO', 'BIN', new Uint8Array(0));
   const reopened = new page.XmilDiskFS.HuBasicFS(page.XmilDiskContainer.openContainer(container.toArrayBuffer(), 'x.d88'));
   const empty = reopened.listDirectory().find((e) => e.name.trim() === 'EMPTY');
   assert.equal(empty.mode, 0x04);
-  assert.equal(reopened.readFile(empty).length, 0);
-  assert.equal(reopened.getFreeClusters(), freeBefore);
-  // The text file added before still reads by its size field
-  assert.equal(reopened.readFile(reopened.listDirectory().find((e) => e.name.trim() === 'NOTE')).length, 5);
+  assert.deepEqual([...reopened.readFile(empty)], [0x1A]);
+  assert.equal(Files.textFromHu(reopened.readFile(empty)).length, 0);
+  const zero = reopened.listDirectory().find((e) => e.name.trim() === 'ZERO');
+  assert.equal(zero.mode, 0x01);
+  assert.equal(reopened.readFile(zero).length, 0);
+  for (const entry of [empty, zero]) {
+    assert.ok(entry.startCluster >= 2 && entry.startCluster < 0x80, entry.name);
+    assert.equal(entry.rawEntry[0x1D], 0);
+    assert.equal(entry.rawEntry[0x1F], 0);
+  }
+  // Changing the kind leaves exactly one type bit; an attribute such as $20 on a typed entry stays
+  reopened.setFileMode(empty, 'M');
+  assert.equal(empty.mode, 0x01);
+  reopened.setFileMode(empty, 'A');
+  assert.equal(empty.mode, 0x04);
+  const legacy = reopened.listDirectory().find((e) => e.name.trim() === 'ZERO');
+  legacy.rawEntry[0] = 0x20;     // what the disk editor wrote for ASCII before
+  reopened.setFileMode(legacy, 'A');
+  assert.equal(legacy.mode, 0x04);
+  legacy.rawEntry[0] = 0x24;
+  reopened.setFileMode(legacy, 'M');
+  assert.equal(legacy.mode, 0x21);
 });
 
 test('a raw file as large as the disk allows keeps its whole records through a read-back and a rebuild', async () => {

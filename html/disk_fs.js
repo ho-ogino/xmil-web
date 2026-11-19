@@ -335,13 +335,15 @@
     HuBasicFS.prototype.setFileMode = function(entry, newMode) {
         if (this.readOnly) throw new Error(this.readOnlyReason || '読み取り専用です');
         // newMode: 'A' (ASCII), 'M' (Machine/Binary), 'B' (BASIC)
-        // 既存の上位ビット (RO, Hidden, Dir 等) は保持し、bit0-1 のみ変更
-        var mode = entry.rawEntry[0] & 0xFC; // bit0,1 をクリア
+        // 既存の上位ビット (RO, Hidden, Dir 等) は保持し、種類の bit0-2 (Bin $01・Bas $02・Asc $04) を
+        // 1 つだけにする (Hu-BASIC は種類のビットがちょうど 1 つの項目しか開かない)。前の版が ASCII の
+        // 印に使った $20 (種類のビットの無い項目の $20) は外す。ほかの $20 は Hu-BASIC の属性なので残す
+        var raw = entry.rawEntry[0];
+        var mode = raw & 0xF8;
+        if ((raw & 0x07) === 0) mode &= ~0x20;
         if (newMode === 'M') mode |= 0x01;
         else if (newMode === 'B') mode |= 0x02;
-        // 'A' は bit0,1 共に 0 だが mode=0x00 は削除マーク
-        // → 上位ビットが全て 0 の場合、bit5 を立てて 0x00 を回避
-        if (mode === 0x00) mode = 0x20;
+        else mode |= 0x04;
         entry.rawEntry[0] = mode;
         entry.mode = mode;
         entry.isBinary = !!(mode & 0x01);
@@ -494,9 +496,15 @@
             throw new Error('ファイルサイズが大きすぎます (最大 65535 バイト)');
         }
 
-        // 必要クラスタ数 (空のファイルはクラスタを取らず、開始クラスタに空の印 $80 を書く。readFile が空として読む)
+        // 空のテキスト (Asc) は Hu-BASIC と同じく $1A だけのファイルにする (Asc には大きさの欄が無く、
+        // 終わりは $1A で表す)。どのファイルもクラスタを 1 つ以上取る (Hu-BASIC は開始クラスタの無い項目を開かない)
+        var fileExtUpper = (ext || '').toUpperCase();
+        if (data.length === 0 && (fileExtUpper === 'TXT' || fileExtUpper === 'ASC')) {
+            data = new Uint8Array([0x1A]);
+            fileSize = 1;
+        }
         var bytesPerCluster = this._clusterSectors * this._sectorSize;
-        var neededClusters = Math.ceil(fileSize / bytesPerCluster);
+        var neededClusters = Math.max(1, Math.ceil(fileSize / bytesPerCluster));
 
         // 空きクラスタ検索
         var freeClusters = [];
@@ -620,7 +628,7 @@
         rawEntry.set(dateBytes, 0x18);
 
         // 開始クラスタ (HIGH, LOW, MIDDLE)
-        var startCl = fileSize === 0 ? 0x80 : freeClusters[0];
+        var startCl = freeClusters[0];
         rawEntry[0x1D] = 0; // HIGH
         rawEntry[0x1E] = startCl & 0x7F; // LOW
         rawEntry[0x1F] = (startCl >> 7) & 0xFF; // MIDDLE

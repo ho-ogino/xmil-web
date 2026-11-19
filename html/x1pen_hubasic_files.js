@@ -12,6 +12,9 @@
 //     setItem, then removes the old generation, so a failure leaves the previous set intact.
 //     Opening (which removes bodies no list points at) and every change hold one Web Lock shared
 //     by all tabs of the origin, and a change starts from the set saved last, also by another tab.
+//     Without the Web Locks API nothing is saved (createStore returns a memory store with a note).
+//     A body that cannot be read leaves the set incomplete: changes and builds stop until it can
+//     be read or replaceAll drops it.
 //   createMemoryStore(): for a page opened from a Share link; never saved.
 // Changes are update(fn): fn gets the current files and returns the next set.
 // window.X1PenHuBasicFiles
@@ -24,9 +27,6 @@
     var MAX_FILE_BYTES = 65535;           // a Hu-BASIC Bin entry (its size field is 16 bits)
     var MAX_TOTAL_BYTES = 300 * 1024;     // a 2D disk has 78 free clusters of 4 KB; text and raw
                                           // (Asc, sized by records) are limited by this only
-    // Without Web Locks another tab cannot be waited for, so only bodies older than this are
-    // taken for leftovers of a closed page
-    var STALE_BODY_MS = 60 * 60 * 1000;
     var MAX_FILES = 64;
     var KINDS = ['text', 'bin', 'raw'];
 
@@ -102,8 +102,9 @@
         return files.reduce(function(sum, f) { return sum + (f.bytes ? f.bytes.length : f.size); }, 0);
     }
 
-    // Runs fn while holding the lock of the saved files. The Web Locks API is shared by every tab
-    // of the origin; without it, calls of this page still run one after another.
+    // Runs fn while holding the lock of the saved files (the Web Locks API, shared by every tab of
+    // the origin); calls of one page also run one after another.
+    var LOCK_NAME = 'x1pen_hubasic_files';
     function makeLock(locks) {
         var chain = Promise.resolve();
         return function(fn) {
@@ -115,28 +116,34 @@
         };
     }
 
-    var LOCK_NAME = 'x1pen_hubasic_files';
-
-    // <time in base 36><4 random base-36 digits>: the time lets a page without Web Locks tell an old
-    // leftover from a save in progress
-    var GENERATION_RANDOM_DIGITS = 4;
+    // <time in base 36><4 random base-36 digits>
     function newGeneration() {
-        var random = Math.floor(Math.random() * Math.pow(36, GENERATION_RANDOM_DIGITS)).toString(36);
-        while (random.length < GENERATION_RANDOM_DIGITS) random = '0' + random;
+        var random = Math.floor(Math.random() * Math.pow(36, 4)).toString(36);
+        while (random.length < 4) random = '0' + random;
         return Date.now().toString(36) + random;
     }
+
+    function unreadableError(names) {
+        return filesError('保存してあるファイルを読めません: ' + names.join(', ') +
+            '（読めるようにならないときは「Files」でそのファイルを外してください）', 'HUBASIC_FILES_UNREADABLE');
+    }
+
+    var NOT_SAVED_NOTE = 'このブラウザでは、ここのファイルを保存できません（このタブを閉じると消えます）。';
 
     // ── kept in the browser ──
     // deps (for tests): { storage: XmilStorage-like, localStorage, locks: LockManager-like or null }
     function createStore(deps) {
         deps = deps || {};
-        var storage = deps.storage || window.XmilStorage;
-        var ls = deps.localStorage || window.localStorage;
         var locks = deps.locks !== undefined ? deps.locks
             : ((typeof navigator !== 'undefined' && navigator.locks) ? navigator.locks : null);
+        // Saving needs a lock all tabs share: without it, two tabs could save over each other
+        if (!locks) return createMemoryStore([], NOT_SAVED_NOTE);
+        var storage = deps.storage || window.XmilStorage;
+        var ls = deps.localStorage || window.localStorage;
         var withLock = makeLock(locks);
-        var cache = [];             // [{ name, kind, bytes }]
+        var cache = [];             // [{ name, kind, bytes }]: the readable files of the saved set
         var cacheGeneration = null;
+        var unreadable = [];        // names in the saved set whose bodies could not be read
 
         function readList() {
             var raw = ls.getItem(LIST_KEY);
@@ -155,7 +162,7 @@
             }
         }
 
-        // Loads the set the list points at; a body that cannot be read is left out
+        // Loads the set the list points at
         async function load(list) {
             var files = [];
             var missing = [];
@@ -168,108 +175,128 @@
             }
             cache = files;
             cacheGeneration = list.generation;
-            return missing;
+            unreadable = missing;
         }
 
-        // Reads the saved set and removes bodies no list points at (left by a closed page). Under
-        // the lock, so it never removes the bodies of a change another tab is making.
+        // The saved set, read again when another tab changed it or a body could not be read before
+        async function sync() {
+            var list = readList();
+            if (list.generation === cacheGeneration && unreadable.length === 0) return { list: list, changed: false };
+            await load(list);
+            return { list: list, changed: true };
+        }
+
+        // Reads the saved set and removes bodies no list points at (left by a closed page), under
+        // the lock, so never the bodies of a change another tab is making.
         function open() {
             return withLock(async function() {
                 var list = readList();
                 var referenced = {};
                 list.files.forEach(function(f) { referenced[f.key] = true; });
-                var now = Date.now();
                 try {
                     var entries = await storage.list();
                     await removeQuietly(entries.map(function(e) { return e.key; }).filter(function(key) {
-                        if (key.indexOf(KEY_PREFIX) !== 0 || referenced[key]) return false;
-                        if (locks) return true;
-                        // A body of a save another tab is making now is recent: leave it
-                        var made = parseInt(key.slice(KEY_PREFIX.length).split('_')[0].slice(0, -GENERATION_RANDOM_DIGITS), 36);
-                        return !(now - made < STALE_BODY_MS);
+                        return key.indexOf(KEY_PREFIX) === 0 && !referenced[key];
                     }));
                 } catch (e) { /* storage unavailable: nothing to clean */ }
-                var missing = await load(list);
-                return { files: summary(cache), missing: missing };
+                await load(list);
+                return { files: summary(cache), missing: unreadable.slice() };
             });
         }
 
-        // fn(files) → the next set, applied to the set saved last (re-read if another tab changed it)
+        // Saves next as a new generation, then switches the list and removes the previous one
+        async function publish(previous, next) {
+            var files = normalize(next);
+            var generation = newGeneration();
+            var written = [];
+            var entries = files.map(function(f, i) {
+                return { name: f.name, kind: f.kind, size: f.bytes.length, key: KEY_PREFIX + generation + '_' + i };
+            });
+            try {
+                if (storage.ensureCapacity) await storage.ensureCapacity(totalSize(files));
+                for (var i = 0; i < files.length; i++) {
+                    var bytes = files[i].bytes;
+                    await storage.write(entries[i].key, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+                    written.push(entries[i].key);
+                }
+            } catch (e) {
+                await removeQuietly(written);
+                throw filesError('ファイルを保存できませんでした: ' + (e && e.message || e), 'HUBASIC_FILES_SAVE_FAILED');
+            }
+            var json = JSON.stringify({ version: 1, generation: generation, files: entries });
+            try {
+                ls.setItem(LIST_KEY, json);
+                if (ls.getItem(LIST_KEY) !== json) throw new Error('the list did not read back');
+            } catch (e) {
+                // Put the previous list back if the failed write changed it
+                try {
+                    if (previous.generation) ls.setItem(LIST_KEY, JSON.stringify(previous));
+                    else ls.removeItem(LIST_KEY);
+                } catch (ignored) {}
+                await removeQuietly(written);
+                throw filesError('ファイルの一覧を保存できませんでした: ' + (e && e.message || e), 'HUBASIC_FILES_SAVE_FAILED');
+            }
+            cache = files;
+            cacheGeneration = generation;
+            unreadable = [];
+            await removeQuietly(previous.files.map(function(f) { return f.key; }));
+            return summary(files);
+        }
+
+        // fn(files) → the next set, applied to the set saved last. Refused while a file of that
+        // set cannot be read: the change would drop it.
         function update(fn) {
             return withLock(async function() {
-                var previous = readList();
-                if (previous.generation !== cacheGeneration) await load(previous);
-                var files = normalize(fn(cache.map(copyFile)));
-                var generation = newGeneration();
-                var written = [];
-                var entries = files.map(function(f, i) {
-                    return { name: f.name, kind: f.kind, size: f.bytes.length, key: KEY_PREFIX + generation + '_' + i };
-                });
-                try {
-                    if (storage.ensureCapacity) await storage.ensureCapacity(totalSize(files));
-                    for (var i = 0; i < files.length; i++) {
-                        var bytes = files[i].bytes;
-                        await storage.write(entries[i].key, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
-                        written.push(entries[i].key);
-                    }
-                } catch (e) {
-                    await removeQuietly(written);
-                    throw filesError('ファイルを保存できませんでした: ' + (e && e.message || e), 'HUBASIC_FILES_SAVE_FAILED');
-                }
-                var json = JSON.stringify({ version: 1, generation: generation, files: entries });
-                try {
-                    ls.setItem(LIST_KEY, json);
-                    if (ls.getItem(LIST_KEY) !== json) throw new Error('the list did not read back');
-                } catch (e) {
-                    // Put the previous list back if the failed write changed it
-                    try {
-                        if (previous.generation) ls.setItem(LIST_KEY, JSON.stringify(previous));
-                        else ls.removeItem(LIST_KEY);
-                    } catch (ignored) {}
-                    await removeQuietly(written);
-                    throw filesError('ファイルの一覧を保存できませんでした: ' + (e && e.message || e), 'HUBASIC_FILES_SAVE_FAILED');
-                }
-                cache = files;
-                cacheGeneration = generation;
-                await removeQuietly(previous.files.map(function(f) { return f.key; }));
-                return summary(files);
+                var state = await sync();
+                if (unreadable.length > 0) throw unreadableError(unreadable);
+                return publish(state.list, fn(cache.map(copyFile)));
             });
         }
 
-        // Reads the saved set again if another tab changed it; true when it did
-        function refresh() {
+        // Replaces the whole set, unreadable files included (what the user asked for)
+        function replaceAll(next) {
             return withLock(async function() {
-                var list = readList();
-                if (list.generation === cacheGeneration) return false;
-                await load(list);
-                return true;
+                return publish(readList(), next);
             });
+        }
+
+        // Reads the saved set again if another tab changed it (or a body was unreadable); true
+        // when the set read now differs
+        function refresh() {
+            return withLock(async function() { return (await sync()).changed; });
         }
 
         return makeApi({
             open: open,
             update: update,
+            replaceAll: replaceAll,
             refresh: refresh,
             current: function() { return cache; },
-            persistent: true
+            unreadable: function() { return unreadable.slice(); },
+            persistent: true,
+            note: null
         });
     }
 
-    // ── a Share session: never saved ──
-    function createMemoryStore(initial) {
+    // ── not saved: a page opened from a Share link, or a browser without Web Locks ──
+    function createMemoryStore(initial, note) {
         var files = normalize(initial || []);
         var withLock = makeLock(null);
+        function update(fn) {
+            return withLock(async function() {
+                files = normalize(fn(files.map(copyFile)));
+                return summary(files);
+            });
+        }
         return makeApi({
             open: async function() { return { files: summary(files), missing: [] }; },
-            update: function(fn) {
-                return withLock(async function() {
-                    files = normalize(fn(files.map(copyFile)));
-                    return summary(files);
-                });
-            },
+            update: update,
+            replaceAll: function(next) { return update(function() { return next; }); },
             refresh: async function() { return false; },
             current: function() { return files; },
-            persistent: false
+            unreadable: function() { return []; },
+            persistent: false,
+            note: note || null
         });
     }
 
@@ -281,10 +308,13 @@
         }
         return {
             persistent: impl.persistent,
+            note: impl.note,
             open: impl.open,
             update: impl.update,
             refresh: impl.refresh,
-            replaceAll: function(next) { return impl.update(function() { return next; }); },
+            replaceAll: impl.replaceAll,
+            // Names of saved files whose bodies could not be read (see createStore)
+            unreadable: impl.unreadable,
             list: function() { return summary(impl.current()); },
             files: function() { return impl.current().map(copyFile); },
             count: function() { return impl.current().length; },

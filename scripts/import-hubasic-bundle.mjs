@@ -19,17 +19,22 @@
 // docs/HUBASIC.md (never the HuBASIC manual), then update runtimeRevision and hubasic2slVersion
 // of its profile in mcp/reference/manifest.json and the revision in its sourceUrls;
 // tests/x1pen_reference_test.mjs fails until then.
+//
+// Tests only: IMPORT_HUBASIC_ROOT puts the bundle and fixtures under another directory instead of
+// this checkout, and IMPORT_HUBASIC_FAIL_AFTER=<n> stops publishing after n steps.
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const assetsDir = join(repoRoot, 'assets', 'hubasic');
-const fixtureDir = join(repoRoot, 'tests', 'fixtures', 'hubasic');
-const slangFixtureDir = join(repoRoot, 'tests', 'fixtures', 'slang');
+// Where the bundle and fixtures go: this checkout, or (tests only) IMPORT_HUBASIC_ROOT
+const destRoot = process.env.IMPORT_HUBASIC_ROOT ? resolve(process.env.IMPORT_HUBASIC_ROOT) : repoRoot;
+const assetsDir = join(destRoot, 'assets', 'hubasic');
+const fixtureDir = join(destRoot, 'tests', 'fixtures', 'hubasic');
+const slangFixtureDir = join(destRoot, 'tests', 'fixtures', 'slang');
 
 const args = process.argv.slice(2);
 const allowDirty = args.includes('--allow-dirty');
@@ -39,7 +44,9 @@ if (!bundleDir) {
   process.exit(2);
 }
 
+let releaseLock = () => {};
 function fail(message) {
+  releaseLock();
   console.error(`import-hubasic-bundle: ${message}`);
   process.exit(1);
 }
@@ -77,16 +84,17 @@ if (!slangTestdata || slangTestdata.env !== 'x1' || !Array.isArray(slangTestdata
 
 // The checks the page makes before it uses a bundle (html/x1pen_slang_wasm.js): a bundle the page
 // would refuse is not imported
-{
+const pageCheck = await (async () => {
   const page = { location: { hostname: 'import.invalid', search: '' }, URLSearchParams };
   page.window = page;
   vm.createContext(page);
   vm.runInContext(await readFile(join(repoRoot, 'html', 'x1pen_slang_wasm.js'), 'utf8'), page, { filename: 'x1pen_slang_wasm.js' });
-  try {
-    page.X1PenSlangWasm._checkManifest(allowDirty ? { ...manifest, dirty: false } : manifest);
-  } catch (e) {
-    fail(`the page would refuse this bundle: ${e.message}`);
-  }
+  return page.X1PenSlangWasm;
+})();
+try {
+  pageCheck._checkManifest(allowDirty ? { ...manifest, dirty: false } : manifest);
+} catch (e) {
+  fail(`the page would refuse this bundle: ${e.message}`);
 }
 
 // Verify every listed file before copying anything
@@ -107,6 +115,19 @@ for (const name of required) {
   if (!bundleFiles.has(name)) fail(`bundle is missing ${name}`);
 }
 if (![...bundleFiles.keys()].some((path) => path.startsWith('include/'))) fail('bundle has no include/');
+
+// The runtime markers the page checks when it loads the bundle (BAS_ABI and BAS_FABI)
+{
+  const runtimeText = {};
+  for (const name of ['x1native_slfs', 'x1native_hufs']) {
+    for (const lib of manifest.envs[name].libraries) runtimeText[lib] = bundleFiles.get(`runtime/${lib}`).toString('utf8');
+  }
+  try {
+    pageCheck._checkBasAbi(manifest, runtimeText, manifest.basAbi);
+  } catch (e) {
+    fail(`the page would refuse this bundle: ${e.message}`);
+  }
+}
 
 // Everything is read and checked first, written into staging directories next, and published
 // last (fixtures, then the bundle directory, then current.json), so a bad bundle changes nothing.
@@ -201,10 +222,19 @@ async function stage(dir, files) {
     await writeFile(join(dir, path), bytes);
   }
 }
-const stagedBundle = join(assetsDir, `.staging-${revision}`);
-const stagedHubasic = join(dirname(fixtureDir), '.staging-hubasic');
-const stagedSlang = join(dirname(slangFixtureDir), '.staging-slang');
+// One import at a time per checkout: the lock file is made exclusively and removed at the end
 await mkdir(assetsDir, { recursive: true });
+const lockFile = join(assetsDir, '.import.lock');
+try {
+  await writeFile(lockFile, `${process.pid}\n`, { flag: 'wx' });
+} catch (e) {
+  fail(`another import is running (or one stopped without cleaning up): remove ${lockFile} if none is`);
+}
+releaseLock = () => { try { rmSync(lockFile, { force: true }); } catch (e) { /* nothing to do */ } };
+const runId = `${process.pid}-${Date.now().toString(36)}`;
+const stagedBundle = join(assetsDir, `.staging-${runId}`);
+const stagedHubasic = join(dirname(fixtureDir), `.staging-hubasic-${runId}`);
+const stagedSlang = join(dirname(slangFixtureDir), `.staging-slang-${runId}`);
 await stage(stagedBundle, bundleOut);
 await stage(stagedHubasic, hubasicOut);
 await stage(stagedSlang, slangOut);
@@ -220,7 +250,7 @@ function step() {
 }
 const swapped = [];   // { final, backup|null }
 async function swap(staged, final) {
-  const backup = `${final}.previous`;
+  const backup = `${final}.previous-${runId}`;
   await rm(backup, { recursive: true, force: true });
   const had = existsSync(final);
   if (had) await rename(final, backup);
@@ -234,8 +264,8 @@ try {
   await swap(stagedHubasic, fixtureDir);
   await swap(stagedSlang, slangFixtureDir);
   await swap(stagedBundle, join(assetsDir, revision));
-  await writeFile(`${currentJson}.next`, `${JSON.stringify({ revision }, null, 2)}\n`);
-  await rename(`${currentJson}.next`, currentJson);
+  await writeFile(`${currentJson}.next-${runId}`, `${JSON.stringify({ revision }, null, 2)}\n`);
+  await rename(`${currentJson}.next-${runId}`, currentJson);
   step();
 } catch (e) {
   for (const { final, backup } of swapped.reverse()) {
@@ -243,7 +273,7 @@ try {
     if (backup) await rename(backup, final);
   }
   if (currentBackup) await writeFile(currentJson, currentBackup);
-  for (const dir of [stagedBundle, stagedHubasic, stagedSlang, `${currentJson}.next`]) await rm(dir, { recursive: true, force: true });
+  for (const dir of [stagedBundle, stagedHubasic, stagedSlang, `${currentJson}.next-${runId}`]) await rm(dir, { recursive: true, force: true });
   fail(`could not publish the bundle, nothing changed: ${e.message}`);
 }
 for (const { backup } of swapped) if (backup) await rm(backup, { recursive: true, force: true });
@@ -253,6 +283,7 @@ for (const entry of await readdir(assetsDir, { withFileTypes: true })) {
     console.log(`import-hubasic-bundle: removed ${entry.name}`);
   }
 }
+releaseLock();
 
 console.log(`import-hubasic-bundle: assets/hubasic/${revision} is current (hubasic2sl ${manifest.hubasic2slVersion}, slangc ${manifest.slangcVersion}, BAS_ABI ${manifest.basAbi}, BAS_FABI ${manifest.basFileAbi}, dirty ${manifest.dirty}); ${hubasicCount} HuBASIC and ${Object.keys(slangExpected.programs).length} SLANG fixtures`);
 console.log('import-hubasic-bundle: now review mcp/reference/hubasic.json for this revision (see the note at the top of this script)');
