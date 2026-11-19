@@ -265,7 +265,6 @@
     // fatal stop as "slangc: error: <message>". file is the in-memory path; show the user's names.
     var DIAGNOSTIC_LINE = /^(.*?):(\d+):(\d+): (error|warning|info|note): (.*)$/;
     function displayFile(path) {
-        if (path.indexOf(WORK_DIR) === 0) return path.slice(WORK_DIR.length);
         var slash = path.lastIndexOf('/');
         return slash >= 0 ? path.slice(slash + 1) : path;
     }
@@ -292,19 +291,17 @@
     // Compiles SLANG text in one of the checked environments. Never throws for program errors.
     // Returns { ok, asm, diagnostics: [{severity, message, file, line, column}], log, error? }.
     // The bundled include files are upper case (GRAPH.LIB); X1Pen's former compiler found them
-    // whatever the case of the name in #INCLUDE, but slangc's file system tells cases apart. Put
-    // each bundled file also under the spelling a program uses (#INCLUDE "graph.lib", #include
-    // Graph.Lib, #CHAIN likewise).
-    var INCLUDE_LINE = /^[ \t]*#(?:INCLUDE|CHAIN)[ \t]+"?([^"\s;]+)"?/gim;
+    // whatever the case of the name, but slangc's file system tells cases apart. Every word of the
+    // source that names a bundled file in another case (graph.lib, Graph.Lib), wherever and
+    // however #INCLUDE or #CHAIN is written, gets that file under its own spelling too.
+    var FILE_WORD = /[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
     function provideIncludeSpellings(s, source) {
         var m;
-        INCLUDE_LINE.lastIndex = 0;
-        while ((m = INCLUDE_LINE.exec(source))) {
-            var spelled = m[1];
+        FILE_WORD.lastIndex = 0;
+        while ((m = FILE_WORD.exec(source))) {
+            var spelled = m[0];
             var bytes = s.includes[spelled.toUpperCase()];
-            if (bytes && /^[A-Za-z0-9_.-]+$/.test(spelled) && !s.includes[spelled]) {
-                s.slang.PutFile(VFS_ROOT + '/include/' + spelled, bytes);
-            }
+            if (bytes && !s.includes[spelled]) s.slang.PutFile(VFS_ROOT + '/include/' + spelled, bytes);
         }
     }
 
@@ -313,7 +310,9 @@
         var s = requireState();
         env(envName);
         var name = (options && options.sourceName) || 'PROGRAM.SL';
-        var path = WORK_DIR + name;
+        // Each environment has its own folder: #INCLUDE looks next to the source, and must not find
+        // what another tab left in the bundle's file system
+        var path = WORK_DIR + envName + '/' + name;
         s.slang.PutFile(path, new TextEncoder().encode(source));
         provideIncludeSpellings(s, source);
         // #INCLUDE looks next to the source, then in the bundle's include/ (as slangc -I)
@@ -358,7 +357,13 @@
         var request = { mainName: options.mainName, add: add };
         if (options.load !== undefined) request.load = options.load;
         if (options.exec !== undefined) request.exec = options.exec;
-        var r = JSON.parse(s.slang.BuildHuDisk(program, JSON.stringify(request)));
+        var r;
+        try {
+            r = JSON.parse(s.slang.BuildHuDisk(program, JSON.stringify(request)));
+        } finally {
+            // The files were for this disk only: leave nothing of them in the bundle's file system
+            (options.files || []).forEach(function(file, i) { s.slang.PutFile(WORK_DIR + 'hufs/' + i, new Uint8Array(0)); });
+        }
         if (!r.ok) return { ok: false, error: r.error || 'hufs: the disk could not be built' };
         return { ok: true, d88: base64ToBytes(r.d88) };
     }

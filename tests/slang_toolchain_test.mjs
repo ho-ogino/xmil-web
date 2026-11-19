@@ -154,9 +154,21 @@ test('#INCLUDE reads the bundle\'s include files', async () => {
 });
 
 test('#INCLUDE finds the bundle\'s files whatever the case of the name, as X1Pen did before', async () => {
-  for (const line of ['#INCLUDE "graph.lib"', '#include Graph.Lib', '#INCLUDE "GRAPH.LIB"']) {
+  for (const line of ['#INCLUDE "graph.lib"', '#include Graph.Lib', '#INCLUDE "GRAPH.LIB"', '#INCLUDE"graph.lib"', 'VAR X; #INCLUDE "graph.lib"']) {
     const compiled = await compile(`${line}\nMAIN()\n{\n}\n`);
     assert.equal(compiled.ok, true, `${line}: ${JSON.stringify(compiled.diagnostics)}`);
+  }
+});
+
+test('a SLANG program cannot include what the HuBASIC tab put on a disk', async () => {
+  await ready;
+  const disk = await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array([0xC9]), {
+    mainName: 'PROG', files: [{ name: 'LEAK.TXT', kind: 'raw', bytes: new TextEncoder().encode('VAR LEAKED;\n') }],
+  });
+  assert.equal(disk.ok, true, disk.error);
+  for (const path of ['../hufs/0', '/work/hufs/0']) {
+    const compiled = await compile(`#INCLUDE "${path}"\nMAIN()\n{\n  LEAKED = 1;\n}\n`);
+    assert.equal(compiled.ok, false, `${path} must not give the attachment back`);
   }
 });
 

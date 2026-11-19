@@ -1447,7 +1447,8 @@ window.__X1PEN_MODE = true;
         }
     }
 
-    function makeRunResult(ok, code, status, retryable, retryAfterMs) {
+    // details: what this Run found out (lastRunDetails), only for the result of the Run itself
+    function makeRunResult(ok, code, status, retryable, retryAfterMs, details) {
         var result = {
             ok: !!ok,
             status: status || (elStatus ? elStatus.textContent : ''),
@@ -1458,7 +1459,7 @@ window.__X1PEN_MODE = true;
         if (retryable !== undefined) result.retryable = !!retryable;
         if (retryAfterMs !== undefined) result.retryAfterMs = retryAfterMs;
         if (!ok && runAdmission) result.activeOrigin = runAdmission.origin;
-        if (lastRunDetails) Object.keys(lastRunDetails).forEach(function(key) { result[key] = lastRunDetails[key]; });
+        if (details) Object.keys(details).forEach(function(key) { result[key] = details[key]; });
         return result;
     }
 
@@ -1477,7 +1478,7 @@ window.__X1PEN_MODE = true;
         try {
             lastRunDetails = null;
             var ok = await performRun(token);
-            return makeRunResult(ok);
+            return makeRunResult(ok, undefined, undefined, undefined, undefined, lastRunDetails);
         } finally {
             releaseRun(token);
         }
@@ -1534,6 +1535,10 @@ window.__X1PEN_MODE = true;
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
         var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
         var hubasicSrc = hubasicEditor ? hubasicEditor.getValue().trim() : '';
+        // The SLANG program as it is now, untrimmed (line numbers match the editor): the compiler
+        // may still have to load, and edits made meanwhile belong to the next Run
+        var slangText = slangEditor ? slangEditor.getValue() : '';
+        var runRevision = automationRevision;
 
         // sourceMode 判定
         var sourceMode;
@@ -1560,6 +1565,7 @@ window.__X1PEN_MODE = true;
 
         // SLANG → コンパイル → ASM に変換
         var slangWarnings = 0;
+        var slangWarningList = [];
         if (sourceMode === 'slang') {
             elStatus.textContent = isSlangToolchainLoaded() ? 'Compiling SLANG...' : 'SLANG: loading compiler...';
             var slangResult;
@@ -1567,15 +1573,14 @@ window.__X1PEN_MODE = true;
                 await ensureSlangToolchain();
                 elStatus.textContent = 'Compiling SLANG...';
                 // x1 環境 (LSX-Dodgers、$100 から。ENV_TYPE 1・OS_TYPE 0)
-                // The editor text as it is (slangSrc is trimmed), so that line numbers match the editor
-                slangResult = await window.X1PenSlangWasm.compile(slangEditor.getValue(), 'x1');
+                slangResult = await window.X1PenSlangWasm.compile(slangText, 'x1');
             } catch(e) {
                 elStatus.textContent = e.message;
                 lastRunDetails = { code: e.code || 'SLANG_TOOLCHAIN_UNAVAILABLE', stage: 'toolchain' };
                 clearSymbols();
                 return false;
             }
-            var slangWarningList = slangResult.diagnostics.filter(function(d) { return d.severity === 'warning'; });
+            slangWarningList = slangResult.diagnostics.filter(function(d) { return d.severity === 'warning'; });
             slangWarnings = slangWarningList.length;
             if (!slangResult.ok) {
                 var firstErr = slangResult.diagnostics.filter(function(d) { return d.severity === 'error'; })[0];
@@ -1586,15 +1591,18 @@ window.__X1PEN_MODE = true;
             }
             // コンパイル結果の ASM を使う
             asmSrc = slangResult.asm;
-            lastRunDetails = { warnings: slangWarningList };
+            lastRunDetails = { warnings: slangWarningList, compilerWarnings: slangWarningList };
+            // The program changed while the compiler loaded: this Run uses the snapshot, but the ASM
+            // tab is left alone (its source is no longer what the editors hold)
+            var programUnchanged = automationRevision === runRevision;
             // ASM タブにユーザーの手書き ASM がある場合は確認
-            if (asmEditor && lastAsmTabOrigin === 'user' && asmEditor.getValue().trim()) {
+            if (programUnchanged && asmEditor && lastAsmTabOrigin === 'user' && asmEditor.getValue().trim()) {
                 if (!confirm('ASM タブの内容が上書きされます。よろしいですか？')) {
                     return false;
                 }
             }
             // ASM タブにコンパイル結果を表示
-            if (asmEditor) {
+            if (programUnchanged && asmEditor) {
                 asmEditor.setValue(asmSrc, { silent: true });
                 lastAsmTabOrigin = 'slang-generated';
                 markProgramChanged();
@@ -1824,7 +1832,8 @@ window.__X1PEN_MODE = true;
                 };
                 lastRunWasShared = isSharedRun;
                 updateAddrReference(actualColdState);
-                elStatus.textContent = 'プロジェクトディスクを起動しました';
+                elStatus.textContent = 'プロジェクトディスクを起動しました' +
+                    (slangWarnings ? ' (SLANG: ' + slangWarnings + ' warning(s))' : '');
                 lastRunDetails = {
                     projectDisk: true,
                     projectDiskName: projectEntry.name,
@@ -1833,7 +1842,8 @@ window.__X1PEN_MODE = true;
                     bootVerified: false,
                     executionVerified: false,
                     verification: 'filesystem-only',
-                    warnings: prepared.warnings
+                    warnings: prepared.warnings,
+                    compilerWarnings: slangWarningList
                 };
                 window.XmilLibrary.finishProjectDiskTransaction(transaction, false);
                 return true;
