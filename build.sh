@@ -105,8 +105,6 @@ cp "${SCRIPT_DIR}/html/x1pen_hubasic_text.js" ./x1pen_hubasic_text.js
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_options.js" ./x1pen_hubasic_options.js
 cp "${SCRIPT_DIR}/html/x1pen_pcg_export.js"  ./x1pen_pcg_export.js
 cp "${SCRIPT_DIR}/html/x1pen_pcg_howto.js"  ./x1pen_pcg_howto.js
-[ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
-    cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ./x1pen_slang_compiler.js
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" ./x1pen_charmap.html
 [ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ./x1pen_editor.bundle.js
@@ -123,13 +121,9 @@ done
 for f in "${SCRIPT_DIR}"/assets/lsxdodgers_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "./"
 done
-# SLANG runtime
-if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
-    mkdir -p ./slang_runtime
-    for f in "${SCRIPT_DIR}"/assets/slang_runtime/*.asm; do
-        [ -f "$f" ] && cp "$f" ./slang_runtime/
-    done
-fi
+# The former JavaScript SLANG compiler and its runtime and include copies: SLANG now compiles with
+# the HuBASIC bundle below, so remove what an earlier build left
+rm -rf ./slang_runtime ./slang_include ./x1pen_slang_compiler.js
 # HuBASIC bundle (wasm + x1native runtime, one SLANG-compiler revision per directory).
 # X1Pen's HuBASIC tab cannot work without it, so a missing bundle stops the build.
 HUBASIC_REVISION="$(sed -n 's/.*"revision": *"\([0-9a-f]\{40\}\)".*/\1/p' "${SCRIPT_DIR}/assets/hubasic/current.json" 2>/dev/null || true)"
@@ -161,12 +155,6 @@ fi
 rm -rf ./defchrtool
 cp -R "${SCRIPT_DIR}/assets/defchrtool" ./defchrtool
 cp "${SCRIPT_DIR}/html/x1pen_defchrtool_host.js" ./defchrtool/x1pen-host.js
-if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
-    mkdir -p ./slang_include
-    for f in "${SCRIPT_DIR}"/assets/slang_include/*; do
-        [ -f "$f" ] && cp "$f" ./slang_include/
-    done
-fi
 # addrmap
 [ -f "${SCRIPT_DIR}/assets/addrmap_versions.json" ] && \
     cp "${SCRIPT_DIR}/assets/addrmap_versions.json" ./addrmap_versions.json
@@ -239,8 +227,6 @@ cp "${SCRIPT_DIR}/html/x1pen_hubasic_text.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_options.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_pcg_export.js"  "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_pcg_howto.js"  "${DIST_DIR}/"
-[ -f "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" ] && \
-    cp "${SCRIPT_DIR}/html/x1pen_slang_compiler.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_charmap.html" "${DIST_DIR}/"
 [ -f "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" ] && \
     cp "${SCRIPT_DIR}/html/x1pen_editor.bundle.js" "${DIST_DIR}/"
@@ -256,13 +242,8 @@ done
 for f in "${SCRIPT_DIR}"/assets/lsxdodgers_boot.*.d88; do
     [ -f "$f" ] && cp "$f" "${DIST_DIR}/"
 done
-# SLANG runtime
-if [ -d "${SCRIPT_DIR}/assets/slang_runtime" ]; then
-    mkdir -p "${DIST_DIR}/slang_runtime"
-    for f in "${SCRIPT_DIR}"/assets/slang_runtime/*.asm; do
-        [ -f "$f" ] && cp "$f" "${DIST_DIR}/slang_runtime/"
-    done
-fi
+# The former JavaScript SLANG compiler and its copies (see above): not published any more
+rm -rf "${DIST_DIR}/slang_runtime" "${DIST_DIR}/slang_include" "${DIST_DIR}/x1pen_slang_compiler.js"
 # Full license texts for the SLANG-compiler code shipped above (licenses.html links to them)
 rm -rf "${DIST_DIR}/third_party"
 cp -R "${SCRIPT_DIR}/assets/third_party" "${DIST_DIR}/third_party"
@@ -274,12 +255,6 @@ cp "${SCRIPT_DIR}/html/x1pen_x1basic_host.js" "${DIST_DIR}/x1basic/src/x1pen-hos
 rm -rf "${DIST_DIR}/defchrtool"
 cp -R "${SCRIPT_DIR}/assets/defchrtool" "${DIST_DIR}/defchrtool"
 cp "${SCRIPT_DIR}/html/x1pen_defchrtool_host.js" "${DIST_DIR}/defchrtool/x1pen-host.js"
-if [ -d "${SCRIPT_DIR}/assets/slang_include" ]; then
-    mkdir -p "${DIST_DIR}/slang_include"
-    for f in "${SCRIPT_DIR}"/assets/slang_include/*; do
-        [ -f "$f" ] && cp "$f" "${DIST_DIR}/slang_include/"
-    done
-fi
 # addrmap
 [ -f "${SCRIPT_DIR}/assets/addrmap_versions.json" ] && \
     cp "${SCRIPT_DIR}/assets/addrmap_versions.json" "${DIST_DIR}/addrmap_versions.json"

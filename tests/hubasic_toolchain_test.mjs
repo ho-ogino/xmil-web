@@ -357,22 +357,25 @@ test('saved HuBASIC options are read field by field and never throw', () => {
     { ...defaults, wait: 'line:450', noLineNumbers: true });
 });
 
-// X1Pen ships SLANG-compiler's code in three places; both license notices must name them,
-// and libfloat.asm (from z80float) is Apache 2.0, not MIT
+// X1Pen ships SLANG-compiler's code as the bundle (hubasic/<revision>/); both license notices must
+// name it and only it, and libfloat.asm (from z80float) is Apache 2.0, not MIT
 test('the license notices cover the SLANG-compiler code X1Pen ships, with libfloat as Apache 2.0', () => {
-  for (const path of [join(repoRoot, 'html', 'x1pen_slang_compiler.js'), join(repoRoot, 'assets', 'slang_runtime', 'libfloat.asm'),
-    join(bundleDir, 'runtime', 'libfloat.asm'), join(bundleDir, '_framework', 'dotnet.js'),
+  for (const path of [join(bundleDir, 'runtime', 'libfloat.asm'), join(bundleDir, '_framework', 'dotnet.js'),
     join(bundleDir, 'LICENSE'), join(bundleDir, 'LICENSE-APACHE-2.0.txt')]) {
     assert.ok(existsSync(path), path);
   }
   for (const file of ['THIRD_PARTY_LICENSES.md', 'html/licenses.html']) {
     const text = readFileSync(join(repoRoot, file), 'utf8');
-    for (const word of ['SLANG-compiler', 'x1pen_slang_compiler.js', 'slang_runtime/', 'slang_include/', 'hubasic/',
+    for (const word of ['SLANG-compiler', 'hubasic/',
       'libfloat.asm', 'z80float', 'Apache License 2.0', 'Copyright 2018 Zeda A.K. Thomas', '_framework/',
       'Copyright (c) .NET Foundation and Contributors',
       'YamlDotNet', 'Antoine Aubry and contributors',
       'third_party/slang-compiler/LICENSE.txt', 'third_party/slang-compiler/LICENSE-APACHE-2.0.txt']) {
       assert.ok(text.includes(word), `${file} names ${word}`);
+    }
+    // The former JavaScript compiler and its runtime and include copies are not shipped any more
+    for (const word of ['x1pen_slang_compiler.js', 'slang_runtime/', 'slang_include/']) {
+      assert.ok(!text.includes(word), `${file} does not name ${word}`);
     }
   }
   // Apache 2.0 wants the full text with the files, not a link: X1Pen ships SLANG-compiler's own copies

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import vm from 'node:vm';
 import {
@@ -30,10 +30,43 @@ function listFiles(dir) {
 const context = { console };
 context.window = context;
 vm.createContext(context);
-for (const file of ['x1pen_pcg_export.js', 'x1pen_pcg_howto.js', 'x1pen_z80asm.js', 'x1pen_slang_compiler.js']) {
+for (const file of ['x1pen_pcg_export.js', 'x1pen_pcg_howto.js', 'x1pen_z80asm.js']) {
   vm.runInContext(readFileSync(join(repoRoot, 'html', file), 'utf8'), context, { filename: file });
 }
 const pcg = context.X1PenPcgExport;
+
+// The SLANG tab's compiler: slangc from the committed bundle (assets/hubasic/<current>/), started
+// by the page's own loader (html/x1pen_slang_wasm.js) the first time a test needs it.
+let slangPage = null;
+function slangCompile(source) {
+  if (!slangPage) {
+    const page = {
+      console, TextEncoder, TextDecoder, URL, URLSearchParams, atob,
+      // The page has one realm; the .NET runtime checks byte arrays with instanceof Uint8Array
+      Uint8Array, ArrayBuffer,
+      location: { hostname: 'x1.example.test', search: '', href: pathToFileURL(join(repoRoot, 'assets', 'x1pen.html')).href },
+      fetch: async (url) => {
+        const path = String(url);
+        const file = join(repoRoot, 'assets', path);
+        if (!path.startsWith('hubasic/') || !existsSync(file)) return { ok: false, status: 404 };
+        const bytes = readFileSync(file);
+        return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+      },
+    };
+    page.window = page;
+    vm.createContext(page);
+    vm.runInContext(readFileSync(join(repoRoot, 'html', 'x1pen_slang_wasm.js'), 'utf8'), page, {
+      filename: 'x1pen_slang_wasm.js',
+      // x1pen_slang_wasm.js imports the bundle's dotnet.js
+      importModuleDynamically: vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER,
+    });
+    slangPage = page.X1PenSlangWasm.load().then(() => page.X1PenSlangWasm);
+  }
+  return slangPage.then((slang) => slang.compile(source, 'x1'));
+}
+const slangErrors = (compiled) => plain(compiled.diagnostics.filter((d) => d.severity === 'error'));
+// The SLANG tab assembles slangc's output with exactly these predefined symbols
+const assembleSlang = (asm) => context.X1PenZ80Asm.assemble(asm, { ENV_TYPE: 1, OS_TYPE: 0 });
 const howto = context.X1PenPcgHowto;
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
@@ -353,11 +386,10 @@ test('the inserted DB lines assemble and the SLANG array compiles to the same by
   assert.deepEqual([...assembled.bytes], rows);
 
   const slang = (await inserted(request({ target: 'slang', format: 'bin3', end: 0x42, blob: blobOf(rows) }))).text;
-  const runtimeDir = join(repoRoot, 'assets', 'slang_runtime');
-  const vfs = Object.fromEntries(readdirSync(runtimeDir).map((name) => [name, readFileSync(join(runtimeDir, name), 'utf8')]));
   const program = `${slang}\nMAIN()\n{\n    PCGDEF($41, PCG41);\n}\n`;
-  const compiled = context.X1PenSlangCompiler.compile(program, vfs, { defaultOrg: 0x100, codeReadonly: false, defines: { ENV_TYPE: 1 } });
-  assert.deepEqual(plain(compiled.errors), []);
+  const compiled = await slangCompile(program);
+  assert.deepEqual(slangErrors(compiled), []);
+  assert.deepEqual(plain(assembleSlang(compiled.asm).errors), []);
   const data = compiled.asm.split('\n').find((line, i, lines) => lines[i - 1] === '_V_PCG41:');
   assert.equal(data, `\tDB\t${rows.map((b) => '$' + b.toString(16).toUpperCase().padStart(2, '0')).join(',')}`);
 });
@@ -507,8 +539,7 @@ test('the SLANG example compiles pasted below the inserted array, whose name it 
   assert.match(array, /^ARRAY BYTE PCG41\[\] = \{$/m, 'the name the example uses');
   assert.match(block.code, /PCGDEFS\(\$41, PCG41, 2\);/);
   assert.equal(pcg.slangArrayName(block.code.split('\n')[0], 0x41), 'PCG41', 'its first line does not take the name');
-  const runtimeDir = join(repoRoot, 'assets', 'slang_runtime');
-  const vfs = Object.fromEntries(readdirSync(runtimeDir).map((name) => [name, readFileSync(join(runtimeDir, name), 'utf8')]));
-  const compiled = context.X1PenSlangCompiler.compile(array + block.code, vfs, { defaultOrg: 0x100, codeReadonly: false, defines: { ENV_TYPE: 1 } });
-  assert.deepEqual(plain(compiled.errors), []);
+  const compiled = await slangCompile(array + block.code);
+  assert.deepEqual(slangErrors(compiled), []);
+  assert.deepEqual(plain(assembleSlang(compiled.asm).errors), []);
 });
