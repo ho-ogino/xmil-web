@@ -331,8 +331,9 @@
     function copyFile(f) { return { name: f.name, kind: f.kind, bytes: new Uint8Array(f.bytes) }; }
 
     function makeApi(impl) {
+        // By the name as the directory holds it ("A" and "A." are one file)
         function withoutName(files, name) {
-            return files.filter(function(f) { return f.name !== name; });
+            return files.filter(function(f) { return diskName(f.name) !== diskName(name); });
         }
         return {
             persistent: impl.persistent,
@@ -406,8 +407,9 @@
             if (!bytes) return;
             var name = entry.name.replace(/\s+$/, '');
             var ext = entry.ext.replace(/\s+$/, '');
+            // "A.B." (a dot in the name, no extension) is not "A.B" (extension B): keep the dot
             out.push({
-                name: ext ? name + '.' + ext : name,
+                name: ext ? name + '.' + ext : (name.indexOf('.') >= 0 ? name + '.' : name),
                 kind: entryKind(entry.mode),
                 size: bytes.length,
                 bytes: new Uint8Array(bytes),

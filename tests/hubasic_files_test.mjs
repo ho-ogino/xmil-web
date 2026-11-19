@@ -435,6 +435,37 @@ test('changing a Hu-BASIC Asc file to Bin in the disk editor keeps its length', 
   assert.equal(big.size, 0);
 });
 
+test('"A.B." and "A.B" stay two files through a disk, a read-back and a restore', async () => {
+  await page.X1PenSlangWasm.load();
+  const disk = await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array([0xC9]), { mainName: 'PROG', files: [
+    { name: 'A.B.', kind: 'raw', bytes: bytes('dotted') },
+    { name: 'A.B', kind: 'raw', bytes: bytes('extension') },
+  ] });
+  assert.equal(disk.ok, true, disk.error);
+  const read = Files.readDiskFiles(disk.d88).filter((f) => !f.protected);
+  assert.deepEqual(json(read.map((f) => f.name).sort()), ['A.B', 'A.B.']);
+  const store = Files.createMemoryStore();
+  for (const f of read) await store.put([{ name: f.name, kind: 'raw', bytes: f.bytes }]);
+  const kept = Object.fromEntries(store.files().map((f) => [f.name, new TextDecoder().decode(f.bytes).replace(/\0+$/, '')]));
+  assert.deepEqual(kept, { 'A.B.': 'dotted', 'A.B': 'extension' });
+  // Putting "A" replaces "A." (one directory name)
+  await store.put([{ name: 'X.', bytes: bytes('1') }]);
+  await store.put([{ name: 'X', bytes: bytes('2') }]);
+  assert.deepEqual(json(store.list().filter((f) => f.name.startsWith('X')).map((f) => f.name)), ['X']);
+});
+
+test('an empty Bin file changed to Asc in the disk editor reads as empty text', async () => {
+  const disk = await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array([0xC9]), { mainName: 'PROG', files: [] });
+  const container = page.XmilDiskContainer.openContainer(disk.d88.buffer, 'x.d88');
+  const fs = new page.XmilDiskFS.HuBasicFS(container);
+  fs.addFile('ZERO', 'BIN', new Uint8Array(0));
+  fs.setFileMode(fs.listDirectory().find((e) => e.name.trim() === 'ZERO'), 'A');
+  const reopened = new page.XmilDiskFS.HuBasicFS(page.XmilDiskContainer.openContainer(container.toArrayBuffer(), 'x.d88'));
+  const zero = reopened.listDirectory().find((e) => e.name.trim() === 'ZERO');
+  assert.equal(zero.mode, 0x04);
+  assert.deepEqual([...reopened.readFile(zero)], [0x1A]);
+});
+
 test('a raw file as large as the disk allows keeps its whole records through a read-back and a rebuild', async () => {
   await page.X1PenSlangWasm.load();
   const raw = new Uint8Array(65535).map((_, i) => (i * 7) & 0xff);

@@ -349,6 +349,16 @@
             entry.rawEntry[0x13] = (length >> 8) & 0xFF;
             entry.size = length;
         }
+        // An empty Bin・Bas becomes an empty text ($1A only, as addFile writes it): an Asc entry with
+        // nothing in its record would read as a record of zeros
+        if (newMode === 'A' && (raw & 0x03) !== 0 && entry.size === 0 && entry.startCluster < 0x80) {
+            var record = new Uint8Array(this._sectorSize);
+            record[0] = 0x1A;
+            this._writeLogicalSector(entry.startCluster * this._clusterSectors + 1, record);
+            entry.rawEntry[0x12] = 1;
+            entry.rawEntry[0x13] = 0;
+            entry.size = 1;
+        }
         var mode = raw & 0xF8;
         if ((raw & 0x07) === 0) mode &= ~0x20;
         if (newMode === 'M') mode |= 0x01;

@@ -281,6 +281,7 @@ const currentJson = join(assetsDir, 'current.json');
 const currentNext = `${currentJson}.next-${runId}`;
 const swapped = [];   // { final, backup|null }
 let currentBefore = null;
+let selectorSwitched = false;
 
 async function stage(dir, files) {
   for (const [path, bytes] of files) {
@@ -326,31 +327,53 @@ try {
   await swap(stagedBundle, join(assetsDir, revision));
   await writeFile(currentNext, `${JSON.stringify({ revision }, null, 2)}\n`);
   await rename(currentNext, currentJson);
+  selectorSwitched = true;
   step();
 } catch (e) {
+  // Each rollback step is tried on its own; the lock is released whatever happens (fail())
+  const problems = [];
+  const attempt = async (what, fn) => { try { await fn(); } catch (err) { problems.push(`${what}: ${err && err.message || err}`); } };
   for (const { final, backup } of swapped.reverse()) {
-    await rm(final, { recursive: true, force: true });
-    if (backup) await rename(backup, final);
+    await attempt(`restore ${final}`, async () => {
+      await rm(final, { recursive: true, force: true });
+      if (backup) await rename(backup, final);
+    });
   }
-  // The selector as it was: written back, or removed when this import made the first one
-  if (currentBefore) {
-    await writeFile(currentNext, currentBefore);
-    await rename(currentNext, currentJson);
-  } else if (swapped.length > 0) {
-    await rm(currentJson, { force: true });
+  // The selector is touched only if this import switched it: written back, or removed when this
+  // import made the first one
+  if (selectorSwitched) {
+    await attempt('restore current.json', async () => {
+      if (currentBefore) {
+        await writeFile(currentNext, currentBefore);
+        await rename(currentNext, currentJson);
+      } else {
+        await rm(currentJson, { force: true });
+      }
+    });
   }
-  for (const path of [stageRoot, stagedHubasic, stagedSlang, currentNext]) await rm(path, { recursive: true, force: true });
-  fail(`nothing changed: ${e && e.message || e}`);
+  for (const path of [stageRoot, stagedHubasic, stagedSlang, currentNext]) {
+    await attempt(`remove ${path}`, () => rm(path, { recursive: true, force: true }));
+  }
+  fail(problems.length === 0 ? `nothing changed: ${e && e.message || e}`
+    : `${e && e.message || e}; putting things back also failed, check by hand: ${problems.join('; ')}`);
 }
-for (const { backup } of swapped) if (backup) await rm(backup, { recursive: true, force: true });
-await rm(stageRoot, { recursive: true, force: true });
-for (const entry of await readdir(assetsDir, { withFileTypes: true })) {
+// Published. Cleaning up after it cannot undo that: report what is left, and release the lock
+const leftovers = [];
+for (const { backup } of swapped) if (backup) await rm(backup, { recursive: true, force: true }).catch(() => leftovers.push(backup));
+await rm(stageRoot, { recursive: true, force: true }).catch(() => leftovers.push(stageRoot));
+for (const entry of await readdir(assetsDir, { withFileTypes: true }).catch(() => [])) {
   if (entry.isDirectory() && entry.name !== revision) {
-    await rm(join(assetsDir, entry.name), { recursive: true, force: true });
-    console.log(`import-hubasic-bundle: removed ${entry.name}`);
+    const old = join(assetsDir, entry.name);
+    try {
+      await rm(old, { recursive: true, force: true });
+      console.log(`import-hubasic-bundle: removed ${entry.name}`);
+    } catch (err) {
+      leftovers.push(old);
+    }
   }
 }
 releaseLock();
+if (leftovers.length) console.warn(`import-hubasic-bundle: imported, but could not remove: ${leftovers.join(', ')}`);
 
 console.log(`import-hubasic-bundle: assets/hubasic/${revision} is current (hubasic2sl ${manifest.hubasic2slVersion}, slangc ${manifest.slangcVersion}, BAS_ABI ${manifest.basAbi}, BAS_FABI ${manifest.basFileAbi}, dirty ${manifest.dirty}); ${hubasicCount} HuBASIC and ${Object.keys(slangExpected.programs).length} SLANG fixtures`);
 console.log('import-hubasic-bundle: now review mcp/reference/hubasic.json for this revision (see the note at the top of this script)');
