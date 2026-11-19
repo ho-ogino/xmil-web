@@ -267,6 +267,7 @@
       "#ENDIF"
     ],
     "notes": [
+      "slangc reads an #INCLUDE file each time it is named, also when another included file already read it. TILESPR.LIB reads TILELIB.LIB and SPRLIB.LIB, so include TILESPR.LIB alone (naming one of the other two as well fails to assemble with duplicate labels). GRAPH.LIB reads SOROBAN.LIB; naming SOROBAN.LIB as well does no harm, as it only declares functions.",
       "In X1Pen, #INCLUDE and #CHAIN read the bundled include files, whatever the case of the name (#INCLUDE \"graph.lib\" finds GRAPH.LIB).",
       "X1Pen sets ENV_TYPE to 1 and OS_TYPE to 0 and uses the x1 environment's default ORG of $0100.",
       "#INCLUDE nesting is limited to 8 levels. #CHAIN filename continues with another file and does not return; anything after #CHAIN in the same file is not read.",
@@ -513,6 +514,7 @@
       "TILE_SYNC_SPR_PAGE()"
     ],
     "notes": [
+      "TILESPR.LIB includes TILELIB.LIB and SPRLIB.LIB itself. Include only TILESPR.LIB: slangc reads an #INCLUDE file every time it is named, so writing #INCLUDE \"SPRLIB.LIB\" or #INCLUDE \"TILELIB.LIB\" next to it puts that library in twice, and the program fails to assemble with duplicate labels.",
       "Initialize each subsystem before setting maps, patterns or positions. Call animation/update functions from the program's frame loop.",
       "TILELIB uses 8x8 PCG glyphs as tiles. Four tile indexes in TL, TR, BL, BR order form one 16x16 super-chip; the map stores one super-chip number per byte.",
       "Recommended setup order: WIDTH(40), PCGDEFS, TILE_INIT, TILE_SET_MAP, TILE_SET_MAPSIZE, optional animation setup, then TILE_FILL_MAP.",
@@ -923,7 +925,7 @@
       "FLOAT-to-integer conversion is not implicit; use FTOI.",
       "Errors slangc reports that are easy to hit: a FLOAT as a condition (IF F THEN ...; compare with F <> 0.0 instead), PRINT of a FLOAT (use FL$), a side effect in the index of a ++/--/+=/-=/*=//= target (T[I++] += 1), using the value of a postfix ++/-- on a FLOAT, EXIT(n) with n not a constant from 1 to the number of enclosing loops, EXIT or CONTINUE outside a loop, a wrong argument count for a user function, MACHINE or built-in function, a function-local CONST that reuses a global name, and TRUE or FALSE as a variable name.",
       "Runtime functions that are not declared to the compiler (VSYNC, STICK, TATTR and most other runtime calls) are not checked for argument count; a wrong count compiles and misbehaves at run time.",
-      "Some mistakes surface only when X1Pen assembles the output: a missing MAIN() or VSYNC without a VSYNC_PROC() function.",
+      "Some mistakes surface only when X1Pen assembles the output: a missing MAIN(), VSYNC without a VSYNC_PROC() function, or a library included twice (SPRLIB.LIB or TILELIB.LIB next to TILESPR.LIB, which already reads them).",
       "Validate frequently because included libraries consume memory and may impose initialization or buffer-address requirements not expressed by the language type system."
     ],
     "relatedIds": ["slang.program.structure", "slang.data.types-declarations", "slang.control.flow", "slang.x1pen.build-profile"],

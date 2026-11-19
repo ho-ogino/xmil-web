@@ -47,6 +47,7 @@ SLANG のプログラムを書くタブです。RUN すると、SLANG-compiler �
 - 初めて SLANG を組むときに、バンドル（約 2.3MB、圧縮後）を読み込みます。SLANG タブを開いた時点で裏で読み始め、読み込み中に RUN するとステータス欄に `SLANG: loading compiler...` と出ます。HuBASIC タブと同じバンドルなので、どちらかで読めば、もう一方では読みません。
 - コンパイルのエラーは、ステータス欄に `SLANG: L<行>:<桁>: <エラー>` と出ます（`#INCLUDE` したファイルの中なら、頭にファイル名）。警告があっても組めたときは、起動のあとのステータス欄に数が出ます（`LSX-Dodgers mode (SLANG: 1 warning(s))`）。自動操作の `validate` は警告も行と桁つきで返し、エラーが無ければ通ります。
 - `#INCLUDE`・`#CHAIN` で読めるのは、バンドルの include のファイルです。名前は大文字でも小文字でも見つかります（`#INCLUDE "graph.lib"` も可）。
+- `TILESPR.LIB` は中で `TILELIB.LIB` と `SPRLIB.LIB` を読むので、`TILESPR.LIB` だけを書きます。`SPRLIB.LIB` や `TILELIB.LIB` も並べて書くと、同じものが 2 度入ってアセンブルで止まります（前の X1Pen は同じファイルを 1 度しか読まなかったので通っていましたが、SLANG compiler は書いた数だけ読みます）。`GRAPH.LIB` も中で `SOROBAN.LIB` を読みますが、こちらは並べて書いても困りません。
 - バンドルを読めないときは `SLANG: compiler unavailable (…)` と出て RUN しません。読めるようになれば、次の RUN で通ります。ただし、.NET の起動の途中で失敗したときは、同じページでは起動し直せないので、ステータス欄に「reload the page to try again」と出ます。ページを読み直してください（HuBASIC タブも同じバンドルなので同じです）。
 
 SLANGタブの **Import** ボタンは、binary fileを現在のcursor位置へ大文字の`$XX`値列として挿入します。16 bytesごとに改行し、値の間だけにカンマを入れます。末尾カンマ、label、`ARRAY`宣言、filename commentは生成しません。周囲のsourceは解析しないため、必要なカンマや括弧は利用者が用意してください。

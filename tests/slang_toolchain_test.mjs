@@ -205,6 +205,20 @@ test('directive-like text in comments, strings and inactive #IF branches is just
   }
 });
 
+test('a library read by another included library must not be named again, as the reference says', async () => {
+  // slangc reads an #INCLUDE file each time it is named; TILESPR.LIB reads TILELIB.LIB and SPRLIB.LIB
+  const assembles = async (libs) => {
+    const compiled = await compile(`${libs.map((lib) => `#INCLUDE "${lib}"`).join('\n')}\nMAIN()\n{\n}\n`);
+    assert.equal(compiled.ok, true, JSON.stringify(compiled.diagnostics));
+    return page.X1PenZ80Asm.assemble(compiled.asm, SLANG_TAB_SYMBOLS).errors.length === 0;
+  };
+  assert.equal(await assembles(['TILESPR.LIB']), true);
+  assert.equal(await assembles(['SPRLIB.LIB', 'TILESPR.LIB']), false);
+  assert.equal(await assembles(['TILELIB.LIB', 'TILESPR.LIB']), false);
+  // GRAPH.LIB reads SOROBAN.LIB, which only declares functions: naming both does no harm
+  assert.equal(await assembles(['SOROBAN.LIB', 'GRAPH.LIB']), true);
+});
+
 test('a warning comes back with its place and does not stop the build', async () => {
   const compiled = await compile('MAIN()\n{\n}\n#CHAIN "SOROBAN.LIB"\nVAR X;\n');
   assert.equal(compiled.ok, true, JSON.stringify(compiled.diagnostics));
