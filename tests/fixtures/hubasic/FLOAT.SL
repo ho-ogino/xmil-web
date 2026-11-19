@@ -9,7 +9,7 @@ ARRAY FLOAT H_FK[] = { 5.0, 2.0, 40000.0, 1.5, 4.0, 0.25, 0.0, 2.5, 6.0, 10.0, 3
 
 MAIN()
 BEGIN
-  BAS_ABI_1();
+  BAS_ABI_4();
   BAS_INIT();
   BAS_LNINIT(&H_LINE);
 L10:

@@ -1,0 +1,205 @@
+; Converted from lib/libdef/libx1_base.yml
+; SLANG Runtime Library (new format)
+
+; @name VSYNC_CHECK
+; @resident shared
+; @works LASTVSYNCFLAG:1,VSYNCCOUNTER:1
+LD A,1AH
+IN A,(01H)
+
+LD HL,LASTVSYNCFLAG
+XOR (HL)
+RET P
+XOR (HL)
+LD (HL),A
+RET M
+; LD HL,VSYNCCOUNTER
+INC HL
+INC (HL)
+
+JP !VSYNC_PROC
+
+
+; @name VSYNC
+; @resident shared
+; @calls VSYNC_CHECK
+; HL = WAIT COUNT
+VSYNC_LOOP:
+LD A,(VSYNCCOUNTER)
+CP L
+JP NC,VSYNC_OVER
+PUSH HL
+CALL VSYNC_CHECK
+POP HL
+JP VSYNC_LOOP
+
+VSYNC_OVER:
+XOR A
+LD (VSYNCCOUNTER),A
+
+RET
+
+
+; @name VSYNC1
+; @resident shared
+; VSYNC
+LD BC,$1a01
+.LP1
+DB $ED,$70  ; IN F,(C)
+JP P,.LP1
+DI
+.LP2
+DB $ED,$70
+JP M,.LP2
+EI
+RET
+
+
+; @name SETUPCTC
+; @resident shared
+; @works CTCADR:2
+PUSH	BC
+LD	DE,04703H
+INICTC1:
+INC	C
+OUT	(C),D
+DB	0EDH,071H	;OUT (C),0	Z80未定義命令
+DEC	E
+JR	NZ,INICTC1
+POP	BC
+
+LD	DE,007FAH
+OUT	(C),D
+OUT	(C),E
+IN	A,(C)
+CP	E
+RET	NZ
+OUT	(C),D
+OUT	(C),D
+IN	A,(C)
+CP	D
+RET	NZ
+; INC	C
+; INC	C
+LD	(CTCADR),BC
+RET
+
+
+; @name X1_CTC_PORT
+; @param_count 0
+; @calls SEARCHCTC
+; CTC port (= _CTC convention、 SEARCHCTC が +2 した値) を return、 unavailable で 0
+; - OS_TYPE == 0 (lsx/x1): LSX-Dodgers 1.62c の _CTC 固定 addr $EE8C
+; - OS_TYPE == 1 (sosx1):  SLANGINIT で SEARCHCTC 済、 _CTC namespace
+; - OS_TYPE == 4 (x1native): 本 helper 内で SEARCHCTC、 _CTC namespace
+; 注: @calls SEARCHCTC は x1native branch 専用、 他 env では未参照 (= ghost dependency)
+#IF NAME_SPACE_DEFAULT.OS_TYPE == 0
+LD HL,($EE8C)
+#ELIF NAME_SPACE_DEFAULT.OS_TYPE == 1
+LD HL,(NAME_SPACE_DEFAULT._CTC)
+#ELIF NAME_SPACE_DEFAULT.OS_TYPE == 4
+CALL NAME_SPACE_DEFAULT.SEARCHCTC
+LD HL,(NAME_SPACE_DEFAULT._CTC)
+#ELSE
+LD HL,0
+#ENDIF
+RET
+
+
+; @name X1_CTC_VEC
+; @param_count 0
+; CTC vector base (= IM2 vector table 先頭 address) を return、 unavailable で 0。
+; 全 OS_TYPE で _CTCVEC work 変数を参照 (= LSX は liblsx_base SLANGINIT、 sosx1 は
+; libsosx1_base SLANGINIT、 x1native は SETUP_ISR_AREA がそれぞれ設定済)。
+; driver Init は base + 2 (= CTC1 slot) に ISR addr を書く (= 既存 libx1_psg.asm と同じ)。
+#IF NAME_SPACE_DEFAULT.OS_TYPE == 0
+LD HL,(NAME_SPACE_DEFAULT._CTCVEC)
+#ELIF NAME_SPACE_DEFAULT.OS_TYPE == 1
+LD HL,(NAME_SPACE_DEFAULT._CTCVEC)
+#ELIF NAME_SPACE_DEFAULT.OS_TYPE == 4
+LD HL,(NAME_SPACE_DEFAULT._CTCVEC)
+#ELSE
+LD HL,0
+#ENDIF
+RET
+
+
+; @name STICK
+; @resident shared
+; @param_count 1
+; HL = ジョイスティックの番号 (0 = 1 つ目、1 = 2 つ目) → HL = そのポートの生の値 (PSG のレジスタ 14・15)。
+; 押したレバーとボタンのビットが 0 になる。範囲外の番号は $00FF。
+; 読む間だけ、PSG のレジスタ 7 のそのポートのビット (6 = ポート A、7 = ポート B) を 0 (入力) にして、読んだら元に戻す
+; (音の部品はポート B を出力にするので、そのままでは出力の値を読んでしまう)。
+; PSG を使う間は割り込みを止め、割り込みの状態は呼ぶ前のまま戻す。
+; 状態は LD A,I (IFF2 を P/V に写す) で知る。NMOS の Z80 は、LD A,I の終わりで割り込みを受けると、許可でも P/V が 0 になる。
+; そこで、スタックのすぐ下に印を置いてから LD A,I し、P/V が 0 なら、そこが割り込みの戻り先で上書きされていないかを見る。
+; 印は、上位も下位も「LD A,I の番地の上位 + $80」のバイト。印を置いてから読み戻すまでに受けた割り込みの戻り先は、
+; LD A,I (.STICK_LDAI) から POP DE までの命令の番地 (7 バイトの中) なので、上位は h か h+1 (h は .STICK_LDAI の上位)。
+; 戻り先の 2 バイトを丸ごと書いても、SP が 1 ずれた所で 1 バイトだけ書いても、印のバイト (h+$80) にはならない。
+; 上書きされていれば、何かの割り込みを受けた (止めていても NMI は入る) ので、もう一度確かめる。
+; (印の式を括弧で始めると、アセンブラが LD DE,(nn) の番地の読み出しと取るので、$0101 * … と書く)
+; P/V が 1 なら許可、P/V が 0 で上書きされていなければ止まっていた。
+; 割り込みの処理 (とくに NMI の処理) の中からは呼ばない。NMI の処理の中では IFF2 が元の許可を残しているので、
+; 許可と読んで EI し、RETN より前に割り込みを入れてしまう
+LD A,H
+OR A
+JR NZ,.STICK_INVALID
+LD A,L
+CP 2
+JR NC,.STICK_INVALID
+.STICK_PROBE
+LD DE,$0101 * (((.STICK_LDAI >> 8) + $80) & $FF)
+PUSH DE
+POP DE
+.STICK_LDAI
+LD A,I
+JP PE,.STICK_ON
+DEC SP
+DEC SP
+POP DE
+PUSH HL
+LD HL,$0101 * (((.STICK_LDAI >> 8) + $80) & $FF)
+OR A
+SBC HL,DE
+POP HL
+JR NZ,.STICK_PROBE
+LD D,0
+JR .STICK_READ
+.STICK_ON
+LD D,1
+.STICK_READ
+DI
+LD BC,$1C00
+LD A,7
+OUT (C),A
+LD B,$1B
+IN E,(C)
+LD A,L
+OR A
+LD A,$BF
+JR Z,.STICK_MASK
+LD A,$7F
+.STICK_MASK
+AND E
+OUT (C),A
+LD B,$1C
+LD A,L
+ADD A,$0E
+OUT (C),A
+LD B,$1B
+IN L,(C)
+LD B,$1C
+LD A,7
+OUT (C),A
+LD B,$1B
+OUT (C),E
+LD H,0
+LD A,D
+OR A
+RET Z
+EI
+RET
+.STICK_INVALID
+LD HL,$00FF
+RET
