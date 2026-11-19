@@ -15,8 +15,16 @@
     var ASSEMBLY = 'hubasic2sl-wasm';
     var VFS_ROOT = '/slang';
     var WORK_DIR = '/work/';
+    var EMPTY = new Uint8Array(0);
+    var HUFS_SLOTS = 64;      // X1PenHuBasicFiles.MAX_FILES
+    function sourcePath(envName) { return WORK_DIR + envName + '/PROGRAM.SL'; }
+    function hufsPath(slot) { return WORK_DIR + 'hufs/' + slot; }
 
     var loadPromise = null;
+    // Set once the .NET runtime of the bundle has been asked to start: it can start only once per
+    // page, so after a failure from then on, only reloading the page can try again
+    var runtimeTried = false;
+    var runtimeFailure = null;
     var state = null;    // { revision, base, manifest, envs, hubasic, slang, runtimeText, versions }
 
     function toolchainError(message, details) {
@@ -196,6 +204,7 @@
         });
 
         var hubasic, slang;
+        runtimeTried = true;
         try {
             var mod = await import(new URL(base + '_framework/dotnet.js', location.href).href);
             var runtime = await mod.dotnet.create();
@@ -204,7 +213,8 @@
             slang = exports.SLANGCompiler.HuBasic.Wasm.SlangWeb;
             if (!hubasic || !slang) throw new Error('the bundle has no HuBasicWeb/SlangWeb exports');
         } catch (e) {
-            throw toolchainError('Failed to start the SLANG bundle: ' + (e && e.message || e));
+            runtimeFailure = 'Failed to start the SLANG bundle: ' + (e && e.message || e);
+            throw toolchainError(runtimeFailure);
         }
         var hubasicVersion = JSON.parse(hubasic.Version());
         var slangVersion = JSON.parse(slang.Version());
@@ -213,6 +223,11 @@
         checkBasAbi(manifest, runtimeText, hubasicVersion.basAbi);
 
         Object.keys(files).forEach(function(path) { slang.PutFile(VFS_ROOT + '/' + path, files[path]); });
+        // Every work file X1Pen ever writes exists from the start, empty, and every operation empties
+        // what it wrote before it returns: the file system looks the same between operations,
+        // whatever ran before, so a SLANG #INCLUDE (of a path, too) gives the same result each time
+        Object.keys(envs).forEach(function(name) { slang.PutFile(sourcePath(name), EMPTY); });
+        for (var slot = 0; slot < HUFS_SLOTS; slot++) slang.PutFile(hufsPath(slot), EMPTY);
         // The include files by upper-case name, for programs that spell them in another case
         var includes = {};
         Object.keys(files).forEach(function(path) {
@@ -228,8 +243,12 @@
 
     function load() {
         if (!loadPromise) {
+            if (runtimeTried && !state) {
+                return Promise.reject(toolchainError((runtimeFailure || 'The SLANG bundle did not start') +
+                    ' (reload the page to try again)', { needsReload: true }));
+            }
             loadPromise = loadOnce().catch(function(e) {
-                loadPromise = null;     // allow a retry after a transient failure
+                loadPromise = null;     // allow a retry after a failure before the .NET runtime starts
                 throw e;
             });
         }
@@ -305,42 +324,21 @@
         }
     }
 
-    // #INCLUDE and #CHAIN may name a file only: the program's own folder holds just the program,
-    // so a plain name reaches only the bundle's include/ (and the program). A path could reach
-    // files other operations put in the bundle's file system (another environment's folder, the
-    // HuBASIC disk's files), and the result would depend on what ran before.
-    var INCLUDE_TARGET = /#(?:INCLUDE|CHAIN)\s*"?([^"\s;]*)/gi;
-    function includePathDiagnostics(source, sourceName) {
-        var out = [];
-        var lines = source.split('\n');
-        for (var i = 0; i < lines.length; i++) {
-            var m;
-            INCLUDE_TARGET.lastIndex = 0;
-            while ((m = INCLUDE_TARGET.exec(lines[i]))) {
-                if (/[\/\\]|\.\./.test(m[1])) {
-                    out.push({ severity: 'error', file: sourceName, line: i + 1, column: m.index + 1,
-                        message: 'X1Pen: #INCLUDE and #CHAIN take a file name of the bundled include files, not a path: ' + m[1] });
-                }
-            }
-        }
-        return out;
-    }
-
-    // options: { sourceName } ('PROGRAM.SL')
-    async function compile(source, envName, options) {
+    async function compile(source, envName) {
         var s = requireState();
         env(envName);
-        var refused = includePathDiagnostics(source, (options && options.sourceName) || 'PROGRAM.SL');
-        if (refused.length > 0) return { ok: false, diagnostics: refused, log: [], error: null };
-        var name = (options && options.sourceName) || 'PROGRAM.SL';
-        // Each environment has its own folder: #INCLUDE looks next to the source, and must not find
-        // what another tab left in the bundle's file system
-        var path = WORK_DIR + envName + '/' + name;
+        // Each environment has its own folder: #INCLUDE looks next to the source (where only the
+        // program is), then in the bundle's include/ (as slangc -I)
+        var path = sourcePath(envName);
+        var r;
         s.slang.PutFile(path, new TextEncoder().encode(source));
-        provideIncludeSpellings(s, source);
-        // #INCLUDE looks next to the source, then in the bundle's include/ (as slangc -I)
-        var request = { env: envName, libPaths: [VFS_ROOT], includePaths: [VFS_ROOT + '/include'] };
-        var r = JSON.parse(s.slang.Compile(path, JSON.stringify(request)));
+        try {
+            provideIncludeSpellings(s, source);
+            var request = { env: envName, libPaths: [VFS_ROOT], includePaths: [VFS_ROOT + '/include'] };
+            r = JSON.parse(s.slang.Compile(path, JSON.stringify(request)));
+        } finally {
+            s.slang.PutFile(path, EMPTY);
+        }
         var diagnostics = parseLog(r.log);
         if (r.ok) return { ok: true, asm: r.asm, diagnostics: diagnostics, log: r.log || [] };
         var errors = diagnostics.filter(function(d) { return d.severity === 'error'; });
@@ -372,8 +370,10 @@
     async function buildHufsDisk(program, options) {
         var s = requireState();
         var add = [];
-        (options.files || []).forEach(function(file, i) {
-            var path = WORK_DIR + 'hufs/' + i;
+        var files = options.files || [];
+        if (files.length > HUFS_SLOTS) return { ok: false, error: 'hufs: too many files (' + files.length + ')' };
+        files.forEach(function(file, i) {
+            var path = hufsPath(i);
             s.slang.PutFile(path, file.bytes);
             add.push(file.name + '=' + path + (file.kind === 'text' ? ',text' : file.kind === 'bin' ? ',bin' : ''));
         });
@@ -385,7 +385,7 @@
             r = JSON.parse(s.slang.BuildHuDisk(program, JSON.stringify(request)));
         } finally {
             // The files were for this disk only: leave nothing of them in the bundle's file system
-            (options.files || []).forEach(function(file, i) { s.slang.PutFile(WORK_DIR + 'hufs/' + i, new Uint8Array(0)); });
+            files.forEach(function(file, i) { s.slang.PutFile(hufsPath(i), EMPTY); });
         }
         if (!r.ok) return { ok: false, error: r.error || 'hufs: the disk could not be built' };
         return { ok: true, d88: base64ToBytes(r.d88) };

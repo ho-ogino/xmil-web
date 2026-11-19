@@ -267,7 +267,7 @@
       "#ENDIF"
     ],
     "notes": [
-      "In X1Pen, #INCLUDE and #CHAIN take a file name only (no '/', '\\' or '..'); it is looked up among the bundled include files, whatever its case (#INCLUDE \"graph.lib\" finds GRAPH.LIB). A path is refused before compiling.",
+      "In X1Pen, #INCLUDE and #CHAIN read the bundled include files, whatever the case of the name (#INCLUDE \"graph.lib\" finds GRAPH.LIB).",
       "X1Pen sets ENV_TYPE to 1 and OS_TYPE to 0 and uses the x1 environment's default ORG of $0100.",
       "#INCLUDE nesting is limited to 8 levels. #CHAIN filename continues with another file and does not return; anything after #CHAIN in the same file is not read.",
       "#IF can use a CONST whose value is already known before it (its right-hand side may be an expression). A later CONST, a label, a FLOAT or an unknown name counts as 0, and a CONST declared inside a function cannot be used in #IF.",

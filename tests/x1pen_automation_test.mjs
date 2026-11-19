@@ -1499,6 +1499,38 @@ test('a SLANG Run without the compiler says so and works again once the bundle c
   }
 });
 
+test('a SLANG compiler that failed to start asks for a reload, and works after one', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext();
+  try {
+    let block = true;
+    // The .NET runtime's own wasm: the runtime has been asked to start when this fails
+    await context.route(/\/_framework\/dotnet\.native\.[^/]*\.wasm(\?.*)?$/, (route) => (block ? route.fulfill({ status: 404, body: '' }) : route.continue()));
+    const slangPage = await context.newPage();
+    await slangPage.goto(`${baseUrl}/x1pen.html`);
+    await slangPage.evaluate(() => window.X1PenAutomation.ready());
+    const runSlang = () => slangPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'slang', basic: '', asm: '', slang: 'MAIN() {\n  LOOP { }\n}\n' }, current.revision, current.revisionEpoch);
+      const run = await api.run();
+      return { ok: run.ok, code: run.code, status: document.getElementById('x1pen-status').textContent };
+    });
+    const failed = await runSlang();
+    assert.equal(failed.ok, false);
+    assert.equal(failed.code, 'SLANG_TOOLCHAIN_UNAVAILABLE');
+    block = false;
+    const again = await runSlang();
+    assert.equal(again.ok, false);
+    assert.match(again.status, /^SLANG: compiler unavailable \(.*reload the page to try again\)\)$/);
+    await slangPage.reload();
+    await slangPage.evaluate(() => window.X1PenAutomation.ready());
+    const reloaded = await runSlang();
+    assert.equal(reloaded.ok, true, JSON.stringify(reloaded));
+  } finally {
+    await context.close();
+  }
+});
+
 test('documented SLANG inline assembly runs with the current calling convention', { timeout: 120_000 }, async () => {
   const probeAddress = 0x7000;
   const readMemory = (offset, length) => page.evaluate(({ address, byteLength }) => (

@@ -161,32 +161,48 @@ test('#INCLUDE finds the bundle\'s files whatever the case of the name, as X1Pen
   }
 });
 
-test('#INCLUDE and #CHAIN take file names only, so nothing other operations left can be reached', async () => {
-  const forms = ['#INCLUDE "../hufs/0"', '#INCLUDE "/work/hufs/0"', '#CHAIN "/work/x1native_hufs/PROGRAM.SL"',
-    '#include ../x1native_slfs/PROGRAM.SL', 'VAR Y; #INCLUDE"..\\\\hufs\\\\0"'];
+test('a SLANG build gives the same result before and after HuBASIC builds and disks', async () => {
+  // Paths into the bundle's file system where other operations write their files
+  const forms = ['#INCLUDE "../hufs/0"', '#INCLUDE "/work/hufs/0"', '#INCLUDE "/work/x1native_hufs/PROGRAM.SL"',
+    '#include ../x1native_slfs/PROGRAM.SL', 'VAR Y; #INCLUDE"../hufs/1"', '#INCLUDE "NOFILE.LIB"'];
   const results = async () => {
     const out = [];
     for (const form of forms) {
-      const compiled = await compile(`${form}\nMAIN()\n{\n}\n`);
-      out.push([form, compiled.ok, compiled.diagnostics.map((d) => d.message).join('|')]);
+      const compiled = await compile(`${form}\nMAIN()\n{\n  LEAKED = 1;\n}\n`);
+      out.push([form, compiled.ok, compiled.diagnostics.map((d) => `${d.severity} ${d.line}:${d.column} ${d.message}`).join('|')]);
     }
     return out;
   };
   const before = await results();
-  for (const [form, ok, messages] of before) {
-    assert.equal(ok, false, form);
-    assert.match(messages, /take a file name of the bundled include files, not a path/, form);
+  // Nothing defines LEAKED: every one of them fails
+  for (const [form, ok] of before) assert.equal(ok, false, form);
+
+  const hubasic = await page.X1PenSlangWasm.compile('VAR LEAKED;\nMAIN()\n{\n}\n', 'x1native_hufs');
+  assert.equal(hubasic.ok, true, JSON.stringify(hubasic.diagnostics));
+  assert.deepEqual(await results(), before, 'after a HuBASIC compile');
+  const leak = [{ name: 'LEAK.TXT', kind: 'raw', bytes: new TextEncoder().encode('VAR LEAKED;\n') },
+    { name: 'MORE.TXT', kind: 'raw', bytes: new TextEncoder().encode('VAR LEAKED;\n') }];
+  const built = await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array([0xC9]), { mainName: 'PROG', files: leak });
+  assert.equal(built.ok, true, built.error);
+  assert.deepEqual(await results(), before, 'after a disk');
+  // A disk that cannot be built, after its files were put in place
+  const failed = await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array(70000), { mainName: 'PROG', files: leak });
+  assert.equal(failed.ok, false);
+  assert.match(failed.error, /65535/);
+  assert.deepEqual(await results(), before, 'after a failed disk');
+});
+
+test('directive-like text in comments, strings and inactive #IF branches is just text', async () => {
+  const sources = [
+    'MAIN()\n{\n  // #INCLUDE "/work/hufs/0"\n}\n',
+    'MAIN()\n{\n  /* #INCLUDE "../x" */\n}\n',
+    'MAIN()\n{\n  PRINT("#INCLUDE \\"/a/b\\"");\n}\n',
+    '#IF 0\n#INCLUDE "/no/such/file"\n#ENDIF\nMAIN()\n{\n}\n',
+  ];
+  for (const source of sources) {
+    const compiled = await compile(source);
+    assert.equal(compiled.ok, true, `${JSON.stringify(source)}: ${JSON.stringify(compiled.diagnostics)}`);
   }
-  // A HuBASIC build and a Hu-BASIC disk (successful and failed) change nothing for SLANG
-  await page.X1PenSlangWasm.compile('MAIN()\n{\n}\n', 'x1native_hufs');
-  await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array([0xC9]), {
-    mainName: 'PROG', files: [{ name: 'LEAK.TXT', kind: 'raw', bytes: new TextEncoder().encode('VAR LEAKED;\n') }],
-  });
-  await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array(70000), { mainName: 'PROG', files: [] });
-  assert.deepEqual(await results(), before);
-  // A plain name finds only the bundle's include files (and fails the same way before and after)
-  const plain = await compile('#INCLUDE "0"\nMAIN()\n{\n}\n');
-  assert.equal(plain.ok, false);
 });
 
 test('a warning comes back with its place and does not stop the build', async () => {
