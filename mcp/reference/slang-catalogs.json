@@ -4,56 +4,58 @@
     "language": "slang",
     "kind": "catalog",
     "title": "Accepted X1Pen SLANG compiler vocabulary",
-    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "profiles": ["x1pen-slang-x1"],
     "symbols": [
-      "AND", "ARRAY", "ASM", "BEGIN", "BYTE", "CASE", "CHR$", "CODE", "CONST", "CONTINUE", "CPL", "CR$", "DECI$", "DO", "DOWNTO", "EF", "ELIF", "ELSE", "ELSEIF", "END", "ENDIF", "EXIT", "FL$", "FLOAT", "FOR", "FORM$", "GOTO", "HEX2$", "HEX4$", "HIGH", "IF", "LOOP", "LOW", "MACHINE", "MOD", "MSG$", "MSX$", "NEXT", "NOT", "OF", "OFFSET", "OR", "ORG", "OTHERS", "PN$", "PRINT", "REPEAT", "RETURN", "SPC$", "STR$", "TAB$", "THEN", "TO", "UNTIL", "VAR", "WEND", "WHILE", "WORD", "WORK", "XOR", "MAIN", "#INCLUDE", "#IF", "#ELSE", "#END", "#ENDIF", "#ASM", "#MODULE"
+      "AND", "ARRAY", "ASM", "BEGIN", "BYTE", "CASE", "CHR$", "CODE", "CONST", "CONTINUE", "CPL", "CR$", "DECI$", "DO", "DOWNTO", "EF", "ELIF", "ELSE", "ELSEIF", "END", "ENDIF", "EXIT", "FALSE", "FL$", "FLOAT", "FOR", "FORM$", "GOTO", "HEX2$", "HEX4$", "HIGH", "IF", "LOOP", "LOW", "MACHINE", "MOD", "MSG$", "MSX$", "NEXT", "NOT", "OF", "OFFSET", "OR", "ORG", "OTHERS", "PN$", "PRINT", "REPEAT", "RESIDENT", "RETURN", "SPC$", "STR$", "TAB$", "THEN", "TO", "TRUE", "UNTIL", "VAR", "WEND", "WHILE", "WORD", "WORK", "XOR", "MAIN", "#INCLUDE", "#CHAIN", "#IF", "#ELSE", "#END", "#ENDIF", "#ASM", "#MODULE"
     ],
     "aliases": ["reserved words", "compiler keywords", "string functions", "予約語", "言語要素", "文字列関数"],
-    "summary": "This catalog records the keywords, string-format functions and preprocessor directives accepted by the exact X1Pen browser compiler snapshot.",
+    "summary": "This catalog records the keywords, predefined constants, string-format functions and preprocessor directives accepted by slangc 0.28.0, the compiler X1Pen uses.",
     "syntax": ["Search an exact compiler word, then fetch the related dedicated entry for its contract."],
     "notes": [
-      "The catalog is generated from concepts represented in html/x1pen_slang_compiler.js and checked against its KEYWORDS and STRING_FUNCS tables.",
+      "The catalog is written from docs/SLANG-spec.md and the keyword and string-function tables of the lexer at the compiler revision. CFUNC and VOID, which only the C output of other environments uses, and the reserved words SELFCONTAIN and AUTO, which are compile errors, are left out.",
       "Prefer dedicated syntax entries; this exhaustive index is intentionally low-detail."
     ],
     "relatedIds": ["slang.program.structure", "slang.data.types-declarations", "slang.control.flow", "slang.preprocessor.includes"],
-    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_slang_compiler.js"]
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md", "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/Lexer/Lexer.cs"]
   },
   {
     "id": "slang.runtime.catalog",
     "language": "slang",
     "kind": "catalog",
     "title": "Bundled X1Pen SLANG runtime symbol catalog",
-    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "profiles": ["x1pen-slang-x1"],
     "symbols": [
-      "ABS", "ADECI", "ANDHLDE", "AT_VRCALC", "BEEP", "BFILL", "BIT", "CALL", "CALLMAGIC", "CPLHL", "CRDISP", "CSR", "CTRL0B", "CTRL0C", "CTRL0D", "DIVHLDE", "DIVHLDE8", "FABS", "FACOS", "FACOSH", "FASIN", "FASINH", "FATAN", "FATANH", "FCLOSE", "FCOS", "FCOSH", "FEXP", "FGETC", "FLOG", "FLOG10", "FLOG2", "FLOGY", "FOPEN", "FPOW", "FPOW10", "FPOW2", "FPUTC", "FRAND", "FREAD", "FREADWRITE", "FSEEK", "FSIN", "FSINH", "FSQRT", "FTAN", "FTANH", "FTOI", "FWORK", "FWRITE", "GETKY_DOINIT", "GETL", "GETLIN", "GETREG", "GRCLS", "GRDISP", "GRPSETUP", "INKEY", "INPUT", "ITOF", "LINE", "LINECOMMON", "LINPUT", "LOCATE", "LSHIFTHLDE", "LSXCALLS", "LSXFILE", "LZEEE_DECODE", "LZEE_DECODE", "LZE_DECODE", "M8ALOAD", "MAGBASE", "MAGICBASE", "MAGLOAD", "MAX", "MEMCPY", "MEMSET", "MIN", "MODHLDE", "MPRNT", "MSGET", "MSINIT", "MULHLDE", "NEGHL", "NOTHL", "OPEQHL", "OPGEHLDE", "OPGTHLDE", "OPLEHLDE", "OPLTHLDE", "OPNEQHL", "OPSGEHLDE", "OPSGTHLDE", "OPSLEHLDE", "OPSLTHLDE", "ORHLDE", "P10", "P10to5", "P10toN", "PAINT", "PAINT1", "PAINT2", "PCGDEF", "PCGDEFS", "PCHR", "PCR", "PCR1", "PCRONE", "PFLOAT", "PHEX", "PHEX2", "PHEX4", "PMSG", "PMSX", "PMSX1", "PRMODE", "PRT", "PSG_BASE", "PSG_END", "PSG_INIT", "PSG_PAUSE", "PSG_PLAY", "PSG_PROC", "PSG_RESUME", "PSG_SFX", "PSG_STOP", "PSIGN", "PSPC", "PSTR", "PSTR2", "PTAB", "RBIT", "RCALL", "RESET", "RND", "RSET", "RSHIFTHLDE", "SASC", "SCREEN", "SDIVHLDE", "SET", "SETUPCTC", "SET_PAINTBUF", "SEX", "SGL_DEFPAT", "SGL_FPSMODE", "SGL_INIT", "SGL_PRINT", "SGL_PRINT2", "SGL_SPRCREATE", "SGL_SPRDESTROY", "SGL_SPRDISP", "SGL_SPRMOVE", "SGL_SPRPAT", "SGL_SPRSET", "SGL_VSYNC", "SGN", "SLANGINIT", "SLSHIFTHLDE", "SMODHLDE", "SOROBAN", "SOROBANWORK", "SRAND", "SRSHIFTHLDE", "STICK", "STOP", "STRLEN", "TATTR", "UTOF", "VSYNC", "VSYNC1", "VSYNC_CHECK", "VTOS", "WIDTH", "X1SGLBASE", "X1SGLINCLUDE", "X1WORK", "XLINE", "XORHLDE", "ZX0_DECODE", "f24_common_str", "f24add", "f24amean", "f24bg", "f24cmp", "f24div", "f24div2", "f24div_pow2", "f24geomean", "f24inv", "f24mod1", "f24mul", "f24mul2", "f24mul3", "f24neg", "f24pow10_LUT", "f24sqr", "f24sub", "f24toa", "formatstr", "i16tof24", "lLOC1", "mul16", "sASC", "sBOOT", "sBRKEY", "sCAP", "sCSR", "sCTRL", "sFGETL", "sFLGET", "sGETKY", "sGETL", "sHEX", "sHLHEX", "sINKBF", "sINKEY", "sKYBFC", "sLOC", "sLPRNT", "sLPTOF", "sLPTON", "sLTNL", "sMPRNT", "sMSG", "sMSX", "sNL", "sPAUSE", "sPCLR", "sPRINT", "sPRINTS", "sPRNT0", "sSCRN", "sSYSTEM", "sWIDCH", "sWORK", "sZPRINT", "sqrt16", "u16tof24", "z80rand"
+      "ABS", "ADECI", "ANDHLDE", "ARKOS_BGM_PAUSE", "ARKOS_BGM_PLAY", "ARKOS_BGM_RESUME", "ARKOS_BGM_STOP", "ARKOS_INIT", "ARKOS_PSG_END", "ARKOS_PSG_PROC", "ARKOS_SET_CTC_PORT", "ARKOS_SFX_INIT", "ARKOS_SFX_PLAY", "ARKOS_SFX_STOP", "AT_VRCALC", "BANJO_END", "BANJO_INIT", "BANJO_PLAY", "BANJO_SET_CTC_PORT", "BANJO_SFX_INIT", "BANJO_SFX_PLAY", "BANJO_SFX_STOP", "BANJO_STOP", "BANJO_UPDATE", "BEEP", "BFILL", "BIT", "CALL", "CALLMAGIC", "CPLHL", "CRDISP", "CSR", "CTRL0B", "CTRL0C", "CTRL0D", "DIVHLDE", "DIVHLDE8", "FABS", "FACOS", "FACOSH", "FASIN", "FASINH", "FATAN", "FATANH", "FCLOSE", "FCOS", "FCOSH", "FEXP", "FGETC", "FLOG", "FLOG10", "FLOG2", "FLOGY", "FOPEN", "FPOW", "FPOW10", "FPOW2", "FPUTC", "FRAND", "FREAD", "FREADWRITE", "FSEEK", "FSIN", "FSINH", "FSQRT", "FTAN", "FTANH", "FTOI", "FWORK", "FWRITE", "GETCGROM", "GETKY_DOINIT", "GETL", "GETLIN", "GETREG", "GRCLS", "GRDISP", "GRPSETUP", "INKEY", "INPUT", "ITOF", "LINE", "LINECOMMON", "LINPUT", "LOCATE", "LSHIFTHLDE", "LSXCALLS", "LSXFILE", "LZEEE_DECODE", "LZEE_DECODE", "LZE_DECODE", "M8ALOAD", "MAGBASE", "MAGICBASE", "MAGLOAD", "MAX", "MEMCPY", "MEMSET", "MIN", "MODHLDE", "MPRNT", "MSGET", "MSINIT", "MULHLDE", "NEGHL", "NOTHL", "OPEQHL", "OPGEHLDE", "OPGTHLDE", "OPLEHLDE", "OPLTHLDE", "OPNEQHL", "OPSGEHLDE", "OPSGTHLDE", "OPSLEHLDE", "OPSLTHLDE", "ORHLDE", "P10", "P10to5", "P10toN", "PAINT", "PAINT1", "PAINT2", "PCGCOMMON", "PCGDEF", "PCGDEFS", "PCHR", "PCR", "PCR1", "PCRONE", "PFLOAT", "PHEX", "PHEX2", "PHEX4", "PMSG", "PMSX", "PMSX1", "PRMODE", "PRT", "PSG_BASE", "PSG_END", "PSG_INIT", "PSG_PAUSE", "PSG_PLAY", "PSG_PROC", "PSG_RESUME", "PSG_SFX", "PSG_STOP", "PSIGN", "PSPC", "PSTR", "PSTR2", "PTAB", "RBIT", "RCALL", "RESET", "RND", "RSET", "RSHIFTHLDE", "SASC", "SCREEN", "SDIVHLDE", "SET", "SETUPCTC", "SET_PAINTBUF", "SEX", "SGL_DEFPAT", "SGL_FPSMODE", "SGL_INIT", "SGL_PRINT", "SGL_PRINT2", "SGL_SPRCREATE", "SGL_SPRDESTROY", "SGL_SPRDISP", "SGL_SPRMOVE", "SGL_SPRPAT", "SGL_SPRSET", "SGL_VSYNC", "SGN", "SLANGINIT", "SLSHIFTHLDE", "SMODHLDE", "SOROBAN", "SOROBANWORK", "SRAND", "SRSHIFTHLDE", "STICK", "STOP", "STRLEN", "TATTR", "UTOF", "VSYNC", "VSYNC1", "VSYNC_CHECK", "VTOS", "WIDTH", "X1SGLBASE", "X1SGLINCLUDE", "X1WORK", "X1_CTC_PORT", "X1_CTC_VEC", "XLINE", "XORHLDE", "ZX0_DECODE", "f24_common_str", "f24add", "f24amean", "f24bg", "f24cmp", "f24div", "f24div2", "f24div_pow2", "f24geomean", "f24inv", "f24mod1", "f24mul", "f24mul2", "f24mul3", "f24neg", "f24pow10_LUT", "f24sqr", "f24sub", "f24toa", "formatstr", "i16tof24", "lLOC1", "mul16", "sASC", "sBOOT", "sBRKEY", "sCAP", "sCSR", "sCTRL", "sFGETL", "sFLGET", "sGETKY", "sGETL", "sHEX", "sHLHEX", "sINKBF", "sINKEY", "sKYBFC", "sLOC", "sLPRNT", "sLPTOF", "sLPTON", "sLTNL", "sMPRNT", "sMSG", "sMSX", "sNL", "sPAUSE", "sPCLR", "sPRINT", "sPRINTS", "sPRNT0", "sSCRN", "sSYSTEM", "sWIDCH", "sWORK", "sZPRINT", "sqrt16", "u16tof24", "z80rand"
     ],
     "aliases": ["runtime functions", "runtime metadata", "internal helpers", "ランタイム関数", "内部関数", "実行時ライブラリ"],
-    "summary": "This catalog mirrors every @name and @alias loaded from the runtime ASM files in the X1Pen VFS, including implementation helpers and user-facing calls.",
+    "summary": "This catalog mirrors every @name and @alias in the runtime libraries of slangc's x1 environment, including implementation helpers and user-facing calls.",
     "syntax": ["Search an exact runtime symbol, then prefer a related user-facing entry when one exists."],
     "notes": [
-      "Presence here means the compiler can resolve the symbol; it does not mean the function is a stable or recommended application API.",
+      "The libraries are the ones the x1 environment lists: runtime.asm, libfloat.asm, liblsx_base.asm, libx1_base.asm, libx1_grp.asm, liblsx_input.asm, libx1_print.asm, liblsx_file.asm, libx1_pcg.asm, libmag.asm, libm8a.asm, libx1_psg.asm, libcompress.asm, libsoroban.asm, libx1_magic.asm, libx1_sgl_lsx.asm, libx1_arkos.asm and libx1_banjo.asm.",
+      "Presence here means the compiler can resolve the symbol; it does not mean the function is a stable or recommended application API. slangc does not check the argument count of runtime functions, except the ones whose arguments the runtime types (the FLOAT functions).",
       "Names such as f24*, s* and support bases are usually implementation dependencies. Generate calls from the dedicated entries instead."
     ],
     "relatedIds": ["slang.machine.system-access", "slang.runtime.float", "slang.runtime.lsx-io-files", "slang.x1.display-graphics", "slang.x1.input", "slang.x1.psg", "slang.x1.sgl", "slang.x1.text-attribute"],
-    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/tree/main/assets/slang_runtime"]
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/tree/6e73c0865c28450aa4ecac524faae18be38566f8/runtime", "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/env/x1.env"]
   },
   {
     "id": "slang.includes.catalog",
     "language": "slang",
     "kind": "catalog",
     "title": "Bundled X1Pen SLANG include API catalog",
-    "profiles": ["x1pen-slang-c9e8f53-lsx"],
+    "profiles": ["x1pen-slang-x1"],
     "symbols": [
       "@ABS", "@ADD", "@ATN", "@BOX", "@BOXC", "@CBOX", "@CFULL", "@CINT", "@CIRCLE", "@CIRCLEC", "@CLINE", "@CLS", "@CMP", "@COLDRAW", "@COLDRAWT", "@COS", "@CPOLY", "@CRTKN", "@CVDBL", "@CVFTI", "@CVFTS", "@CVFTU", "@CVITF", "@CVSNG", "@CVSTF", "@CVUTF", "@DIV", "@DOUBLE", "@EXP", "@FIX", "@FLASH", "@FRAC", "@FUKUGEN", "@FULL", "@FULLC", "@GRAD", "@IATN", "@ICOS", "@IDIV", "@INIT", "@INT", "@ISIN", "@KYU", "@LINE", "@LINEC", "@LOG", "@MAGIC", "@MASK", "@MOD", "@MODE", "@MOVE", "@MUL", "@NEG", "@PAI", "@PALET", "@PLINE", "@PLINIT", "@PLOT", "@POW", "@RAD", "@ROAD", "@SCTL", "@SETOD", "@SETWD", "@SGN", "@SIN", "@SINGLE", "@SPLINE", "@SPLINEC", "@SQR", "@SUB", "@SWAP", "@TAN", "@TLINE", "@TRIANGLE", "@TRIANGLEC", "@WAVE", "@WINDOW", "CHIP_ANIM_TICK", "CHIP_DRAW", "CHIP_DRAW_VVRAM", "CHIP_FILL_MAP", "CHIP_INIT", "CHIP_MASK_DRAW", "CHIP_SET_ANIM", "CHIP_SET_ANIM_RATE", "CHIP_SET_MAP", "CHIP_SET_MAPSIZE", "CHIP_SET_OFS", "CHIP_SET_SCROLL", "CHIP_SET_SIZE", "CHIP_SET_VVRAMSIZE", "CHIP_SPR_ADD", "CHIP_SPR_FLASH", "CHIP_SPR_POS", "CHIP_SPR_START", "SPR_INIT", "SPR_IS_ACTIVE", "SPR_SET_PATTERN", "SPR_SET_POS", "SPR_SET_SHOW", "SPR_UPDATE", "TILE_ANIM_TICK", "TILE_FILL_MAP", "TILE_INIT", "TILE_INVALIDATE", "TILE_SET_ANIM", "TILE_SET_ANIM_RATE", "TILE_SET_MAP", "TILE_SET_MAPSIZE", "TILE_SET_OFS", "TILE_SET_PAGE", "TILE_SET_SCROLL", "TILE_SET_SIZE", "TILE_SYNC_SPR_PAGE", "UI_AT", "UI_BOX", "UI_FILL", "UI_FONT_ADDR", "UI_PUTC", "UI_PUTS", "UI_SET_COLOR", "_LSXCLS"
     ],
     "aliases": ["include APIs", "library functions", "public MACHINE declarations", "同梱ライブラリ", "インクルードAPI", "公開関数"],
-    "summary": "This catalog records function definitions and MACHINE declarations exposed by all eight include files bundled in the X1Pen browser VFS.",
+    "summary": "This catalog records function definitions and MACHINE declarations exposed by the eight include files of the SLANG-compiler bundle that X1Pen uses.",
     "syntax": ["#INCLUDE filename.LIB"],
     "notes": [
+      "The files are CHIPLIB.LIB, GRAPH.LIB, GRAPHF.LIB, SOROBAN.LIB, SPRLIB.LIB, TILELIB.LIB, TILESPR.LIB and UILIB.LIB.",
       "Compile-time switches can remove some GRAPH, GRAPHF or SOROBAN functions from a particular build.",
       "Prefer the dedicated library entries for setup order, argument meaning and lifetime constraints."
     ],
     "relatedIds": ["slang.include.tile-sprite", "slang.include.chiplib", "slang.include.ui", "slang.include.graph-soroban", "slang.include.soroban"],
-    "sourceUrls": ["https://github.com/ho-ogino/xmil-web/tree/main/assets/slang_include"]
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/tree/6e73c0865c28450aa4ecac524faae18be38566f8/include"]
   }
 ]

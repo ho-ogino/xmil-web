@@ -39,6 +39,7 @@ let selectedSessionId;
 let sourceRoot;
 let hubasicOptions;
 let reportedHubasicProfile;
+let reportedSlangProfile;
 // The HuBASIC runtime revision the bundled reference was written for (X1Pen reports it once loaded)
 const HUBASIC_REVISION = getReferenceManifest().profiles
   .find((profile) => profile.id === 'x1pen-hubasic-x1native').runtimeRevision;
@@ -208,7 +209,7 @@ const fakeBridge = {
         activeLanguageProfile: { language: 'fuzzybasic', id: 'x1pen-fuzzybasic-1.2L' },
         languageProfiles: {
           fuzzybasic: { id: 'x1pen-fuzzybasic-1.2L' },
-          slang: { id: 'x1pen-slang-c9e8f53-lsx' },
+          ...(reportedSlangProfile ? { slang: clone(reportedSlangProfile) } : {}),
           ...(reportedHubasicProfile ? { hubasic: clone(reportedHubasicProfile) } : {}),
         },
       };
@@ -305,6 +306,7 @@ beforeEach(() => {
   selectedSessionId = 'tab-a';
   hubasicOptions = { wait: 'none', noLineNumbers: false, assumeDefint: false, stringLen: 255, dataBudget: 24576 };
   reportedHubasicProfile = { id: 'x1pen-hubasic-x1native', runtimeRevision: HUBASIC_REVISION };
+  reportedSlangProfile = { id: 'x1pen-slang-x1', compilerRevision: HUBASIC_REVISION };
 });
 
 after(async () => {
@@ -676,7 +678,8 @@ test('language profile reports bundled data and connected X1Pen compatibility', 
   assert.equal(profile.profiles.length, 5);
   assert.equal(profile.active.id, 'x1pen-fuzzybasic-1.2L');
   assert.equal(profile.profiles[0].environment, 'SHARP X1 / LSX-Dodgers');
-  assert.equal(profile.reportedProfiles.slang.id, 'x1pen-slang-c9e8f53-lsx');
+  assert.equal(profile.reportedProfiles.slang.id, 'x1pen-slang-x1');
+  assert.equal(profile.defaultProfiles.slang, 'x1pen-slang-x1');
   assert.equal(profile.defaultProfiles.x1, 'x1-hardware-xmillennium-web');
   assert.equal(profile.defaultProfiles.z80asm, 'x1pen-z80asm-current');
   assert.equal(profile.defaultProfiles.hubasic, 'x1pen-hubasic-x1native');
@@ -699,6 +702,7 @@ test('language profile compares the HuBASIC runtime revision once X1Pen reports 
   assert.equal(mismatch.compatible, false);
   assert.deepEqual(mismatch.revisionMismatches, [{
     language: 'hubasic',
+    field: 'runtimeRevision',
     reported: '0123456789abcdef0123456789abcdef01234567',
     bundled: HUBASIC_REVISION,
   }]);
@@ -712,6 +716,29 @@ test('language profile compares the HuBASIC runtime revision once X1Pen reports 
   const unknown = await profileFor();
   assert.equal(unknown.compatible, false);
   assert.equal(unknown.revisionMismatches, undefined);
+  reportedHubasicProfile = { id: 'x1pen-hubasic-x1native', runtimeRevision: HUBASIC_REVISION };
+});
+
+test('language profile compares the SLANG compiler revision once X1Pen reports it', async () => {
+  const profileFor = async () => jsonContent(await client.callTool({ name: 'x1pen_get_language_profile', arguments: {} }));
+  try {
+    reportedSlangProfile = { id: 'x1pen-slang-x1', compilerRevision: null };
+    assert.equal((await profileFor()).compatible, true);
+    reportedSlangProfile = { id: 'x1pen-slang-x1', compilerRevision: '0123456789abcdef0123456789abcdef01234567' };
+    const mismatch = await profileFor();
+    assert.equal(mismatch.compatible, false);
+    assert.deepEqual(mismatch.revisionMismatches, [{
+      language: 'slang',
+      field: 'compilerRevision',
+      reported: '0123456789abcdef0123456789abcdef01234567',
+      bundled: HUBASIC_REVISION,
+    }]);
+    // An X1Pen with the JS SLANG compiler reports the former profile: not compatible
+    reportedSlangProfile = { id: 'x1pen-slang-c9e8f53-lsx' };
+    assert.equal((await profileFor()).compatible, false);
+  } finally {
+    reportedSlangProfile = { id: 'x1pen-slang-x1', compilerRevision: HUBASIC_REVISION };
+  }
 });
 
 test('the HuBASIC reference is searchable and the tools describe HuBASIC read-back spelling', async () => {

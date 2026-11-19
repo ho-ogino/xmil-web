@@ -235,6 +235,12 @@ test('the manifest check accepts only the environment values X1Pen boots', () =>
   assert.throws(check((m) => { m.basAbi = 0; }), /basAbi/);
   assert.throws(check((m) => { delete m.envs.x1native_slfs; }), /x1native_slfs/);
   assert.throws(check((m) => { delete m.envs.x1native_hufs; }), /x1native_hufs/);
+  // The SLANG tab's environment: LSX-Dodgers on the X1 from $100, no x1native code
+  assert.throws(check((m) => { m.envs.x1.osType = 4; }), /x1\.osType/);
+  assert.throws(check((m) => { m.envs.x1.defaultOrg = 0x1000; }), /x1\.defaultOrg/);
+  assert.throws(check((m) => { m.envs.x1.defines = { X1NATIVE: 1 }; }), /x1\.defines/);
+  assert.throws(check((m) => { m.envs.x1.libraries.push('libx1native_base.asm'); }), /x1\.libraries/);
+  assert.throws(check((m) => { delete m.envs.x1; }), /no x1 environment/);
   // Local development may use a bundle built from uncommitted sources
   const dev = loadPage({ hostname: '127.0.0.1' });
   const dirty = JSON.parse(JSON.stringify(manifest));

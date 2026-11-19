@@ -512,7 +512,6 @@ window.__X1PEN_MODE = true;
 
     async function reloadAssetsBypassCache() {
         assetCache = {};
-        window._slangRuntimeVFS = null; // SLANG ランタイムも再読み込み
         if (elBtnDevReload) elBtnDevReload.disabled = true;
         elStatus.textContent = 'Reloading assets...';
         try {
@@ -1285,44 +1284,31 @@ window.__X1PEN_MODE = true;
         return 'basic+asm';
     }
 
+    // SLANG: the real SLANG compiler (slangc) of the SLANG-compiler bundle, in its x1 environment
+    // (LSX-Dodgers on the X1, programs from $100), loaded once by x1pen_slang_wasm.js. The
+    // HuBASIC tab uses the same bundle.
     async function ensureSlangToolchain() {
-        if (!window.X1PenSlangCompiler) {
-            await new Promise(function(resolve, reject) {
-                var s = document.createElement('script');
-                s.src = 'x1pen_slang_compiler.js' + ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
-                s.onload = resolve;
-                s.onerror = function() { reject(new Error('Failed to load SLANG compiler')); };
-                document.head.appendChild(s);
-            });
+        try {
+            await loadPageScriptOnce('x1pen_slang_wasm.js', 'X1PenSlangWasm',
+                'Failed to load the SLANG bundle loader', 'SLANG_TOOLCHAIN_UNAVAILABLE');
+            return await window.X1PenSlangWasm.load();
+        } catch (e) {
+            var error = new Error('SLANG: compiler unavailable (' + (e && e.message || e) + ')');
+            error.code = 'SLANG_TOOLCHAIN_UNAVAILABLE';
+            throw error;
         }
-        if (window._slangRuntimeVFS) return;
+    }
 
-        var runtimeFiles = [
-            'runtime.asm', 'core.asm', 'opt.asm', 'libfloat.asm',
-            'liblsx_base.asm', 'libx1_base.asm', 'libx1_grp.asm',
-            'liblsx_input.asm', 'libx1_print.asm', 'liblsx_file.asm',
-            'libx1_pcg.asm', 'libmag.asm', 'libm8a.asm', 'libx1_psg.asm',
-            'libcompress.asm', 'libsoroban.asm', 'libx1_magic.asm', 'libx1_sgl_lsx.asm',
-        ];
-        var includeFiles = [
-            'GRAPH.LIB', 'GRAPHF.LIB', 'SOROBAN.LIB',
-            'CHIPLIB.LIB', 'SPRLIB.LIB', 'TILELIB.LIB', 'TILESPR.LIB', 'UILIB.LIB',
-        ];
-        var vfs = {};
-        var vBust = (XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '';
-        for (var ri = 0; ri < runtimeFiles.length; ri++) {
-            try {
-                var resp = await fetch('slang_runtime/' + runtimeFiles[ri] + vBust);
-                if (resp.ok) vfs[runtimeFiles[ri]] = await resp.text();
-            } catch(e) { /* optional file */ }
-        }
-        for (var ii = 0; ii < includeFiles.length; ii++) {
-            try {
-                var iresp = await fetch('slang_include/' + includeFiles[ii] + vBust);
-                if (iresp.ok) vfs[includeFiles[ii]] = await iresp.text();
-            } catch(e) { /* optional file */ }
-        }
-        window._slangRuntimeVFS = vfs;
+    function isSlangToolchainLoaded() {
+        return !!(window.X1PenSlangWasm && window.X1PenSlangWasm.info());
+    }
+
+    // "L<line>:<col>: <message>", with the file name when it is not the program (an #INCLUDE)
+    function formatSlangDiagnostic(d) {
+        if (!d) return 'SLANG compile failed';
+        var where = d.line ? 'L' + d.line + ':' + d.column + ': ' : '';
+        if (where && d.file && d.file !== 'PROGRAM.SL') where = d.file + ' ' + where;
+        return where + d.message;
     }
 
     // One script tag per file: callers that come while it loads share it; a failed load is
@@ -1574,20 +1560,24 @@ window.__X1PEN_MODE = true;
 
         // SLANG → コンパイル → ASM に変換
         if (sourceMode === 'slang') {
-            elStatus.textContent = 'Compiling SLANG...';
+            elStatus.textContent = isSlangToolchainLoaded() ? 'Compiling SLANG...' : 'SLANG: loading compiler...';
+            var slangResult;
             try {
                 await ensureSlangToolchain();
+                elStatus.textContent = 'Compiling SLANG...';
+                // x1 環境 (LSX-Dodgers、$100 から。ENV_TYPE 1・OS_TYPE 0)
+                slangResult = await window.X1PenSlangWasm.compile(slangSrc, 'x1');
             } catch(e) {
                 elStatus.textContent = e.message;
+                lastRunDetails = { code: e.code || 'SLANG_TOOLCHAIN_UNAVAILABLE', stage: 'toolchain' };
+                clearSymbols();
                 return false;
             }
-
-            // X1 環境固定 (ENV_TYPE: 0=CP/M, 1=LSX-Dodgers, 2=MSX-DOS)
-            var slangEnv = { defaultOrg: 0x100, codeReadonly: false, defines: { ENV_TYPE: 1 } };
-            var slangResult = window.X1PenSlangCompiler.compile(slangSrc, window._slangRuntimeVFS, slangEnv);
-            if (slangResult.errors && slangResult.errors.length > 0) {
-                var firstErr = slangResult.errors[0];
-                elStatus.textContent = 'SLANG: ' + (firstErr.message || firstErr);
+            var slangWarnings = slangResult.diagnostics.filter(function(d) { return d.severity === 'warning'; }).length;
+            if (!slangResult.ok) {
+                var firstErr = slangResult.diagnostics.filter(function(d) { return d.severity === 'error'; })[0];
+                elStatus.textContent = 'SLANG: ' + formatSlangDiagnostic(firstErr);
+                lastRunDetails = { code: 'SLANG_COMPILE_FAILED', stage: 'compile', diagnostics: slangResult.diagnostics };
                 clearSymbols();
                 return false;
             }
@@ -1605,7 +1595,8 @@ window.__X1PEN_MODE = true;
                 lastAsmTabOrigin = 'slang-generated';
                 markProgramChanged();
             }
-            elStatus.textContent = 'SLANG compiled (' + asmSrc.split('\n').length + ' lines)';
+            elStatus.textContent = 'SLANG compiled (' + asmSrc.split('\n').length + ' lines' +
+                (slangWarnings ? ', ' + slangWarnings + ' warning(s)' : '') + ')';
         }
 
         var isSharedRun = isEphemeralShareSession;
@@ -2606,20 +2597,15 @@ window.__X1PEN_MODE = true;
         if (program.sourceMode === 'slang' && diagnostics.length === 0) {
             try {
                 await ensureSlangToolchain();
-                var slangEnv = { defaultOrg: 0x100, codeReadonly: false, defines: { ENV_TYPE: 1 } };
-                var slangResult = window.X1PenSlangCompiler.compile(program.slang.trim(), window._slangRuntimeVFS, slangEnv);
-                var slangErrors = slangResult.errors || [];
-                for (var si = 0; si < slangErrors.length; si++) {
-                    var slangError = slangErrors[si];
-                    var start = slangError.span && slangError.span.start;
-                    diagnostics.push(makeAutomationDiagnostic('slang', slangError.message || slangError, {
-                        severity: String(slangError.severity || 'error').toLowerCase(),
-                        file: start && start.fileName,
-                        line: start && start.line,
-                        column: start && start.column
+                var slangResult = await window.X1PenSlangWasm.compile(program.slang.trim(), 'x1');
+                // Errors only: a warning does not stop a Run, so it does not fail validation either
+                slangResult.diagnostics.forEach(function(d) {
+                    if (d.severity !== 'error') return;
+                    diagnostics.push(makeAutomationDiagnostic('slang', d.message, {
+                        severity: 'error', file: d.file, line: d.line, column: d.column
                     }));
-                }
-                asmSource = slangResult.asm || '';
+                });
+                asmSource = slangResult.ok ? slangResult.asm : '';
                 generatedAsmLines = asmSource ? asmSource.split('\n').length : 0;
             } catch(e) {
                 diagnostics.push(makeAutomationDiagnostic('slang', e.message));
@@ -3296,8 +3282,9 @@ window.__X1PEN_MODE = true;
             hubasicEditor ? hubasicEditor.getValue().trim() : ''
         );
         var hubasicInfo = window.X1PenHuBasic ? window.X1PenHuBasic.info() : null;
+        var slangInfo = window.X1PenSlangWasm ? window.X1PenSlangWasm.info() : null;
         var activeLanguageProfile = sourceMode === 'slang'
-            ? { language: 'slang', id: 'x1pen-slang-c9e8f53-lsx' }
+            ? { language: 'slang', id: 'x1pen-slang-x1' }
             : (sourceMode === 'basic+asm'
                 ? { language: 'fuzzybasic', id: 'x1pen-fuzzybasic-1.2L' }
                 : (sourceMode === 'hubasic'
@@ -3355,11 +3342,14 @@ window.__X1PEN_MODE = true;
                     runtime: COLD_STATE_FILE
                 },
                 slang: {
-                    id: 'x1pen-slang-c9e8f53-lsx',
-                    compilerRevision: 'c9e8f5315d8d44a413368045d78439a4ec8da3fc',
-                    environment: 'lsx-dodgers',
+                    id: 'x1pen-slang-x1',
+                    environment: 'x1',
                     envType: 1,
-                    defaultOrg: 0x100
+                    osType: 0,
+                    defaultOrg: 0x100,
+                    // Known after the SLANG bundle has been loaded once (the SLANG or HuBASIC tab)
+                    compilerRevision: slangInfo ? slangInfo.revision : null,
+                    slangcVersion: slangInfo ? slangInfo.slangcVersion : null
                 },
                 hubasic: {
                     id: 'x1pen-hubasic-x1native',
@@ -4658,6 +4648,8 @@ window.__X1PEN_MODE = true;
         } else if (target === 'slang') {
             if (slangContainer) slangContainer.classList.remove('hidden');
             if (slangImportAction) slangImportAction.classList.remove('hidden');
+            // Start loading the compiler (about 2 MB the first time) while the program is written
+            ensureSlangToolchain().catch(function(e) { console.warn('[x1pen] SLANG compiler preload failed:', e); });
         } else if (target === 'hubasic') {
             if (hubasicContainer) hubasicContainer.classList.remove('hidden');
             if (hubasicFilesBtn) hubasicFilesBtn.classList.remove('hidden');

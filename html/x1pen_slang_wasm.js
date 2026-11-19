@@ -2,9 +2,10 @@
 // One .NET browser-wasm bundle (hubasic/<revision>/, copied in by scripts/import-hubasic-bundle.mjs)
 // carries the HuBASIC converter (hubasic2sl), the SLANG compiler (slangc) and the Hu-BASIC disk
 // builder, all from one SLANG-compiler revision. This file loads it once, checks that its manifest
-// describes the environments X1Pen boots, and wraps the calls:
-//   transpile (hubasic2sl) → compile (slangc, ASM text) → [X1PenZ80Asm in the page] →
-//   checkLayout / checkLayoutClear → buildHufsDisk (x1native_hufs) or X1PenSlfsDisk (x1native_slfs)
+// describes the environments X1Pen uses, and wraps the calls:
+//   HuBASIC tab: transpile (hubasic2sl) → compile (slangc, ASM text) → [X1PenZ80Asm in the page] →
+//     checkLayout / checkLayoutClear → buildHufsDisk (x1native_hufs) or X1PenSlfsDisk (x1native_slfs)
+//   SLANG tab: compile in the x1 environment (LSX-Dodgers on the X1), #INCLUDE from include/
 // Every call returns a Promise, so the bundle can later move into a worker without changing callers.
 // Lazy-loaded: window.X1PenSlangWasm
 
@@ -63,6 +64,20 @@
                 ['diskTool', env.diskTool === 'slfs-pack'],
                 ['diskVolume', typeof env.diskVolume === 'string' && /^[\x20-\x7E]{0,16}$/.test(env.diskVolume)]
             ]);
+        },
+        // The SLANG tab: LSX-Dodgers on the X1, programs from $100
+        x1: function(env) {
+            var defines = env.defines || {};
+            return [
+                ['envType', env.envType === 1],
+                ['osType', env.osType === 0],
+                ['defaultOrg', env.defaultOrg === 0x100],
+                ['defines', Object.keys(defines).length === 0],
+                ['libraries', Array.isArray(env.libraries) && env.libraries.length > 0 &&
+                    env.libraries.every(function(name) {
+                        return typeof name === 'string' && LIBRARY_NAME.test(name) && !/^libx1native/i.test(name);
+                    })]
+            ];
         },
         x1native_hufs: function(env, manifest) {
             var defines = env.defines || {};
@@ -165,12 +180,19 @@
             envs[name].libraries.forEach(function(lib) { libraries[lib] = true; });
         });
         Object.keys(libraries).forEach(function(lib) { files['runtime/' + lib] = null; });
+        // The #INCLUDE files of the x1 environment, as the manifest lists them
+        (Array.isArray(manifest.files) ? manifest.files : []).forEach(function(file) {
+            if (file && typeof file.path === 'string' && /^include\/[A-Za-z0-9_.-]+$/.test(file.path)) files[file.path] = null;
+        });
         await Promise.all(Object.keys(files).map(async function(path) {
             files[path] = await fetchBytes(base + path);
         }));
+        // The HuBASIC runtime markers are in the x1native libraries
         var runtimeText = {};
-        Object.keys(libraries).forEach(function(lib) {
-            runtimeText[lib] = new TextDecoder().decode(files['runtime/' + lib]);
+        ['x1native_slfs', 'x1native_hufs'].forEach(function(name) {
+            envs[name].libraries.forEach(function(lib) {
+                runtimeText[lib] = new TextDecoder().decode(files['runtime/' + lib]);
+            });
         });
 
         var hubasic, slang;
@@ -264,13 +286,15 @@
 
     // Compiles SLANG text in one of the checked environments. Never throws for program errors.
     // Returns { ok, asm, diagnostics: [{severity, message, file, line, column}], log, error? }.
+    // options: { sourceName } ('PROGRAM.SL')
     async function compile(source, envName, options) {
         var s = requireState();
         env(envName);
         var name = (options && options.sourceName) || 'PROGRAM.SL';
         var path = WORK_DIR + name;
         s.slang.PutFile(path, new TextEncoder().encode(source));
-        var request = { env: envName, libPaths: [VFS_ROOT], includePaths: (options && options.includePaths) || [] };
+        // #INCLUDE looks next to the source, then in the bundle's include/ (as slangc -I)
+        var request = { env: envName, libPaths: [VFS_ROOT], includePaths: [VFS_ROOT + '/include'] };
         var r = JSON.parse(s.slang.Compile(path, JSON.stringify(request)));
         var diagnostics = parseLog(r.log);
         if (r.ok) return { ok: true, asm: r.asm, diagnostics: diagnostics, log: r.log || [] };

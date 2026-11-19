@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import { test } from 'node:test';
 import {
@@ -18,25 +18,90 @@ function loadBrowserGlobal(filename, exportName) {
   return context.window[exportName];
 }
 
-function loadSlangVfs() {
-  const x1penSource = readFileSync(join(repoRoot, 'html/x1pen.js'), 'utf8');
-  const vfs = {};
-  for (const [variable, directory] of [
-    ['runtimeFiles', 'assets/slang_runtime'],
-    ['includeFiles', 'assets/slang_include'],
-  ]) {
-    for (const filename of extractVfsFiles(x1penSource, variable)) {
-      vfs[filename] = readFileSync(join(repoRoot, directory, filename), 'utf8');
-    }
-  }
-  return vfs;
+// The SLANG tab compiles with slangc from the SLANG-compiler bundle (assets/hubasic/<current>/)
+// in its x1 environment: the runtime libraries manifest.envs.x1 lists and the include/ files.
+const SLANG_PROFILE = 'x1pen-slang-x1';
+const slangRevision = JSON.parse(readFileSync(join(repoRoot, 'assets/hubasic/current.json'), 'utf8')).revision;
+const slangBundleDir = join(repoRoot, 'assets/hubasic', slangRevision);
+const slangBundleManifest = JSON.parse(readFileSync(join(slangBundleDir, 'manifest.json'), 'utf8'));
+const slangRuntimeFiles = slangBundleManifest.envs.x1.libraries;
+// The include files the page puts into slangc's file system (x1pen_slang_wasm.js)
+const slangIncludeFiles = slangBundleManifest.files
+  .map((file) => file.path)
+  .filter((path) => /^include\/[A-Za-z0-9_.-]+$/.test(path))
+  .map((path) => path.slice('include/'.length));
+const readSlangRuntime = (filename) => readFileSync(join(slangBundleDir, 'runtime', filename), 'utf8');
+const readSlangInclude = (filename) => readFileSync(join(slangBundleDir, 'include', filename), 'utf8');
+
+// The compiler assembly of the bundle; .NET 10 puts a content hash in the file name
+function slangCompilerWasm() {
+  const dir = join(slangBundleDir, '_framework');
+  const names = readdirSync(dir).filter((name) => /^SLANGCompiler\.Core(\.[a-z0-9]+)?\.wasm$/.test(name));
+  assert.equal(names.length, 1, `one SLANGCompiler.Core assembly in ${dir}`);
+  return readFileSync(join(dir, names[0]));
 }
 
-function extractVfsFiles(source, variable) {
-  const block = source.match(new RegExp(`var ${variable} = \\[([\\s\\S]*?)\\n\\s*\\];`));
-  assert.ok(block, `${variable} must be present in x1pen.js`);
-  return [...block[1].matchAll(/'([^']+)'/g)].map((match) => match[1]);
+// The page's own loader (html/x1pen_slang_wasm.js) with the committed bundle, as the SLANG tab
+// runs it: the page fetches hubasic/... next to x1pen.html, served here from assets/hubasic/.
+function loadSlangPage() {
+  const context = {
+    console, TextEncoder, TextDecoder, URL, URLSearchParams, atob,
+    // The page has one realm; the .NET runtime checks byte arrays with instanceof Uint8Array
+    Uint8Array, ArrayBuffer,
+    location: { hostname: 'x1.example.test', search: '', href: pathToFileURL(join(repoRoot, 'assets', 'x1pen.html')).href },
+    fetch: async (url) => {
+      const path = String(url);
+      const file = join(repoRoot, 'assets', path);
+      if (!path.startsWith('hubasic/') || !existsSync(file)) return { ok: false, status: 404 };
+      const bytes = readFileSync(file);
+      return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+    },
+  };
+  context.window = context;
+  vm.createContext(context);
+  vm.runInContext(readFileSync(join(repoRoot, 'html', 'x1pen_slang_wasm.js'), 'utf8'), context, {
+    filename: 'x1pen_slang_wasm.js',
+    // x1pen_slang_wasm.js imports the bundle's dotnet.js
+    importModuleDynamically: vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER,
+  });
+  return context;
 }
+
+// The bundle is started once for this file and shared by every SLANG test
+let slangPagePromise = null;
+function slangBundle() {
+  if (!slangPagePromise) {
+    slangPagePromise = (async () => {
+      const page = loadSlangPage();
+      await page.X1PenSlangWasm.load();
+      return page;
+    })();
+  }
+  return slangPagePromise;
+}
+
+// slangc in the x1 environment, as the SLANG tab calls it: { ok, asm, diagnostics }
+async function compileSlang(source) {
+  const page = await slangBundle();
+  return page.X1PenSlangWasm.compile(source, 'x1');
+}
+
+const slangAssembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
+// The SLANG tab assembles slangc's output with exactly these predefined symbols
+const assembleSlang = (asm) => slangAssembler.assemble(asm, { ENV_TYPE: 1, OS_TYPE: 0 });
+
+const slangErrors = (result) => result.diagnostics.filter((d) => d.severity === 'error');
+
+// A runtime routine: from its "; @name" line up to the next one (or the end of the file)
+function slangRoutine(source, name) {
+  const start = source.indexOf(`; @name ${name}\n`);
+  assert.ok(start >= 0, `${name} must be in the runtime`);
+  const next = source.indexOf('\n; @name ', start + 1);
+  return source.slice(start, next < 0 ? source.length : next);
+}
+
+// The instructions of a routine without its comments (the "; @" metadata included)
+const slangCode = (routine) => routine.split('\n').map((line) => line.replace(/;.*$/, '')).join('\n');
 
 function extractSlangIncludeSymbols(source) {
   const symbols = new Set();
@@ -541,45 +606,91 @@ test('every X1Pen FuzzyBASIC tokenizer keyword is covered by symbols', () => {
   }
 });
 
-test('every X1Pen SLANG compiler keyword is covered by a dedicated entry', () => {
-  const compilerSource = readFileSync(join(repoRoot, 'html/x1pen_slang_compiler.js'), 'utf8');
-  const keywordBlock = compilerSource.match(/var kw = \{([\s\S]*?)\n\s*\};/);
-  const stringBlock = compilerSource.match(/var STRING_FUNCS = new Set\(\[([\s\S]*?)\]\);/);
-  assert.ok(keywordBlock, 'SLANG keyword table must be present');
-  assert.ok(stringBlock, 'SLANG string function table must be present');
-  const keywords = [...keywordBlock[1].matchAll(/\b([A-Z][A-Z0-9]*)\s*:/g)]
-    .map((match) => match[1]);
-  const stringFunctions = [...stringBlock[1].matchAll(/'([^']+)'/g)]
-    .map((match) => match[1]);
-  assert.ok(keywords.length >= 45);
+// The reference describes one slangc bundle. Importing another bundle
+// (scripts/import-hubasic-bundle.mjs) fails here until the SLANG reference is reviewed and re-stamped.
+test('the SLANG reference is stamped with the bundled slangc revision', () => {
+  const { manifest, entries } = validateReferenceData();
+  const profile = manifest.profiles.find((candidate) => candidate.id === SLANG_PROFILE);
+  assert.ok(profile, 'manifest must declare the SLANG profile X1Pen reports');
+  assert.equal(manifest.defaultProfiles.slang, SLANG_PROFILE);
+  assert.equal(profile.compilerRevision, slangRevision,
+    'assets/hubasic changed: review mcp/reference/slang.json and slang-catalogs.json against the new slangc, then update compilerRevision and sourceUrls');
+  assert.equal(profile.compilerRevision, slangBundleManifest.slangCompilerRevision);
+  assert.equal(profile.slangcVersion, slangBundleManifest.slangcVersion);
+  assert.equal(profile.environment.ENV_TYPE, slangBundleManifest.envs.x1.envType);
+  assert.equal(profile.environment.OS_TYPE, slangBundleManifest.envs.x1.osType);
+  assert.equal(profile.environment.defaultOrg, slangBundleManifest.envs.x1.defaultOrg);
 
-  const documented = new Set(validateReferenceData().entries
-    .filter((entry) => entry.language === 'slang' && entry.kind !== 'catalog')
-    .flatMap((entry) => entry.symbols));
-  for (const symbol of new Set([...keywords, ...stringFunctions])) {
-    assert.ok(documented.has(symbol), `${symbol} must be covered by a dedicated SLANG entry`);
+  for (const entry of entries.filter((candidate) => candidate.language === 'slang')) {
+    assert.deepEqual(entry.profiles, [SLANG_PROFILE], entry.id);
+    assert.ok(entry.sourceUrls.length > 0, entry.id);
+    for (const url of entry.sourceUrls) {
+      // The runtime and include files are the bundle's (SLANG-compiler URLs), and the compiler is slangc
+      if (url.includes('/ho-ogino/xmil-web/')) assert.doesNotMatch(url, /\/assets\/|compiler/, `${entry.id}: ${url}`);
+      if (url.includes('/h-o-soft/SLANG-compiler/')) {
+        assert.ok(url.includes(`/${slangRevision}`), `${entry.id}: ${url}`);
+        const path = url.split(`/${slangRevision}`)[1].replace(/^\//, '');
+        if (path) {
+          const [area, ...rest] = path.split('/');
+          if (area === 'runtime' && rest.length === 1) assert.ok(slangRuntimeFiles.includes(rest[0]), `${entry.id}: ${url}`);
+          if (area === 'include' && rest.length === 1) assert.ok(slangIncludeFiles.includes(rest[0]), `${entry.id}: ${url}`);
+        }
+      }
+    }
   }
 });
 
-test('SLANG catalogs cover the exact runtime and include files loaded by X1Pen', () => {
-  const x1penSource = readFileSync(join(repoRoot, 'html/x1pen.js'), 'utf8');
+// The SLANG keywords, predefined constants and string functions of docs/SLANG-spec.md at the
+// compiler revision (there is no compiler table in X1Pen to read them from)
+const SLANG_SPEC_WORDS = [
+  'VAR', 'BYTE', 'WORD', 'FLOAT', 'ARRAY', 'CONST', 'MACHINE', 'CODE', 'ASM',
+  'IF', 'THEN', 'ELSE', 'ELSEIF', 'EF', 'ENDIF', 'FOR', 'TO', 'DOWNTO', 'DO', 'NEXT',
+  'WHILE', 'WEND', 'REPEAT', 'UNTIL', 'LOOP', 'CASE', 'OF', 'OTHERS',
+  'EXIT', 'CONTINUE', 'RETURN', 'GOTO', 'BEGIN', 'END', 'MAIN',
+  'ORG', 'WORK', 'OFFSET', 'PRINT', 'HIGH', 'LOW', 'NOT', 'CPL', 'MOD', 'AND', 'OR', 'XOR',
+  'TRUE', 'FALSE',
+  'FORM$', 'DECI$', 'PN$', 'HEX2$', 'HEX4$', 'MSG$', 'MSX$', 'STR$', 'CHR$', 'SPC$', 'CR$', 'TAB$', 'FL$',
+  '#INCLUDE', '#CHAIN', '#IF', '#ELSE', '#ENDIF', '#ASM', '#MODULE',
+];
+
+test('every SLANG keyword of the specification is covered by a dedicated entry and known to slangc', () => {
+  assert.ok(SLANG_SPEC_WORDS.length >= 45);
+  const documented = new Set(validateReferenceData().entries
+    .filter((entry) => entry.language === 'slang' && entry.kind !== 'catalog')
+    .flatMap((entry) => entry.symbols));
+  // .NET keeps the lexer's keyword, string-function and directive names as UTF-16 string literals
+  // (directives without '#'). Short words can also match inside a longer literal, so this only
+  // catches a word slangc has dropped altogether.
+  const compiler = slangCompilerWasm();
+  for (const word of SLANG_SPEC_WORDS) {
+    assert.ok(documented.has(word), `${word} must be covered by a dedicated SLANG entry`);
+    const literal = word.replace(/^#/, '');
+    assert.ok(compiler.includes(Buffer.from(literal, 'utf16le')), `${literal} is not in SLANGCompiler.Core.wasm`);
+  }
+  const catalog = new Set(validateReferenceData().entries.find((entry) => entry.id === 'slang.compiler.catalog').symbols);
+  for (const word of SLANG_SPEC_WORDS) assert.ok(catalog.has(word), `${word} must be in the compiler catalog`);
+});
+
+test('SLANG catalogs cover the exact runtime and include files of the x1 environment', () => {
   const entries = validateReferenceData().entries;
   const runtimeCatalog = new Set(entries.find((entry) => entry.id === 'slang.runtime.catalog').symbols);
   const includeCatalog = new Set(entries.find((entry) => entry.id === 'slang.includes.catalog').symbols);
   const runtimeImplementation = new Set();
   const includeImplementation = new Set();
 
-  for (const filename of extractVfsFiles(x1penSource, 'runtimeFiles')) {
-    const source = readFileSync(join(repoRoot, 'assets/slang_runtime', filename), 'utf8');
-    for (const match of source.matchAll(/^; @(?:name|alias) (\S+)/gm)) {
+  assert.ok(slangRuntimeFiles.includes('libx1_arkos.asm') && slangRuntimeFiles.includes('libx1_banjo.asm'));
+  assert.deepEqual([...slangIncludeFiles].sort(), readdirSync(join(slangBundleDir, 'include')).sort());
+  assert.equal(slangIncludeFiles.length, 8);
+
+  for (const filename of slangRuntimeFiles) {
+    for (const match of readSlangRuntime(filename).matchAll(/^; @(?:name|alias) (\S+)/gm)) {
       runtimeImplementation.add(match[1]);
       assert.ok(runtimeCatalog.has(match[1]), `${match[1]} from ${filename} must be in the runtime catalog`);
     }
   }
 
-  for (const filename of extractVfsFiles(x1penSource, 'includeFiles')) {
-    const source = readFileSync(join(repoRoot, 'assets/slang_include', filename), 'utf8');
-    for (const symbol of extractSlangIncludeSymbols(source)) {
+  for (const filename of slangIncludeFiles) {
+    for (const symbol of extractSlangIncludeSymbols(readSlangInclude(filename))) {
       includeImplementation.add(symbol);
       assert.ok(includeCatalog.has(symbol), `${symbol} from ${filename} must be in the include catalog`);
     }
@@ -588,249 +699,98 @@ test('SLANG catalogs cover the exact runtime and include files loaded by X1Pen',
   assert.deepEqual(
     [...runtimeCatalog].filter((symbol) => !runtimeImplementation.has(symbol)),
     [],
-    'runtime catalog must not include symbols outside the loaded VFS files',
+    'runtime catalog must not include symbols outside the x1 environment libraries',
   );
   assert.deepEqual(
     [...includeCatalog].filter((symbol) => !includeImplementation.has(symbol)),
     [],
-    'include catalog must not include symbols outside the loaded VFS files',
+    'include catalog must not include symbols outside the bundled include files',
   );
 });
 
-test('SLANG runtime arity metadata matches the reviewed VFS and compiler builtin catalog', () => {
-  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
-  const x1penSource = readFileSync(join(repoRoot, 'html/x1pen.js'), 'utf8');
-  const compilerSource = readFileSync(join(repoRoot, 'html/x1pen_slang_compiler.js'), 'utf8');
-  const runtimeFiles = extractVfsFiles(x1penSource, 'runtimeFiles');
-  const manager = compiler._RuntimeManager();
-  const definitions = new Map();
+test('documented slangc language behavior matches the bundled compiler', async () => {
+  const entries = new Map(validateReferenceData().entries.map((entry) => [entry.id, entry]));
+  const text = (id) => JSON.stringify(entries.get(id));
 
-  for (const filename of runtimeFiles) {
-    const source = readFileSync(join(repoRoot, 'assets/slang_runtime', filename), 'utf8');
-    const functions = compiler._RuntimeParser.parse(source, filename);
-    manager.loadFromString(source, filename);
-    for (const func of functions) {
-      const key = func.name.toLowerCase();
-      if (!definitions.has(key)) definitions.set(key, []);
-      definitions.get(key).push(func);
-    }
-  }
+  // String escapes: \N is $0D and \0 is $00
+  const escapes = await compileSlang('MAIN()\n{\n  PRINT("A\\NB\\0C");\n}');
+  assert.equal(escapes.ok, true, JSON.stringify(escapes.diagnostics));
+  assert.match(escapes.asm, /DB\s+"A",\$0D,"B",\$00,"C",0/);
+  assert.ok(text('slang.output.print-strings').includes('PRINT(\\"A\\\\NB\\\\0C\\")'));
 
-  const nullable = compiler._RuntimeParser.parse([
-    '; @name LEGACY',
-    '; @alias LEGACY_ALIAS',
-    'RET',
-    '; @name EXPLICIT_ZERO',
-    '; @param_count 0',
-    'RET',
-  ].join('\n'), 'arity-probe.asm');
-  assert.equal(nullable[0].paramCount, null);
-  assert.equal(nullable[0].aliases.join(','), 'LEGACY_ALIAS');
-  assert.equal(nullable[1].paramCount, 0);
-
-  const expectedSignatures = new Map([
-    ['ABS', 1],
-    ['ADECI', 0],
-    ['AT_VRCALC', 1],
-    ['BEEP', 0],
-    ['GETKY_DOINIT', 0],
-    ['GETL', 1],
-    ['GETLIN', 2],
-    ['GETREG', 0],
-    ['INKEY', 1],
-    ['INPUT', 0],
-    ['LINPUT', 2],
-    ['lLOC1', 0],
-    ['LOCATE', 2],
-    ['MULHLDE', 2],
-    ['P10', 1],
-    ['P10to5', 1],
-    ['P10toN', 2],
-    ['PCGDEFS', 3],
-    ['PCR', 1],
-    ['PCR1', 1],
-    ['PCRONE', 0],
-    ['PHEX', 1],
-    ['PHEX2', 1],
-    ['PHEX4', 1],
-    ['PRMODE', 1],
-    ['PRT', 1],
-    ['PSIGN', 1],
-    ['PSPC', 1],
-    ['PSTR', 2],
-    ['PSTR2', 2],
-    ['PTAB', 1],
-    ['RBIT', 2],
-    ['RCALL', 1],
-    ['RESET', 2],
-    ['RND', 1],
-    ['RSET', 2],
-    ['sASC', 0],
-    ['sBOOT', 0],
-    ['sBRKEY', 0],
-    ['sCAP', 0],
-    ['SCREEN', 2],
-    ['sCSR', 0],
-    ['sCTRL', 0],
-    ['SEX', 1],
-    ['sFGETL', 0],
-    ['sFLGET', 0],
-    ['sGETKY', 0],
-    ['sGETL', 0],
-    ['SGN', 1],
-    ['sHEX', 0],
-    ['sHLHEX', 0],
-    ['sINKBF', 0],
-    ['sINKEY', 0],
-    ['sKYBFC', 0],
-    ['sLOC', 0],
-    ['sLPRNT', 0],
-    ['sLPTOF', 0],
-    ['sLPTON', 0],
-    ['sLTNL', 0],
-    ['sMPRNT', 0],
-    ['sMSG', 0],
-    ['sMSX', 0],
-    ['sNL', 0],
-    ['sPAUSE', 0],
-    ['sPCLR', 0],
-    ['sPRINT', 0],
-    ['sPRINTS', 0],
-    ['sPRNT0', 0],
-    ['SRAND', 1],
-    ['sSCRN', 0],
-    ['sSYSTEM', 0],
-    ['STICK', 1],
-    ['STOP', 0],
-    ['sWIDCH', 0],
-    ['sWORK', 0],
-    ['sZPRINT', 0],
-    ['TATTR', 1],
-    ['VSYNC', 1],
-    ['VTOS', 2],
-    ['WIDTH', 1],
-  ].map(([name, count]) => [name.toLowerCase(), count]));
-  const actualSignatures = new Map();
-  for (const func of new Set(Object.values(manager.functions))) {
-    if (func.paramCount !== null) actualSignatures.set(func.name.toLowerCase(), func.paramCount);
-  }
-  assert.deepEqual([...actualSignatures].sort(), [...expectedSignatures].sort());
-
-  for (const [name, funcs] of definitions) {
-    const explicitCounts = new Set(funcs
-      .filter((func) => func.paramCount !== null)
-      .map((func) => func.paramCount));
-    assert.ok(explicitCounts.size <= 1,
-      `${name} has conflicting explicit @param_count values across loaded runtime files`);
-  }
-
-  const builtinBlock = compilerSource.match(/var builtinFuncs = \[([\s\S]*?)\n\s*\];/);
-  assert.ok(builtinBlock);
-  const builtins = [...builtinBlock[1].matchAll(/\['([^']+)',(\d+)\]/g)]
-    .map((match) => [match[1], Number(match[2])]);
-  assert.equal(builtins.length, 21);
-  for (const [name, count] of builtins) {
-    const runtime = manager.getFunction(name);
-    assert.ok(runtime, `${name} compiler builtin must resolve through the bundled runtime`);
-    assert.notEqual(runtime.paramCount, null, `${name} runtime must explicitly declare its arity`);
-    assert.equal(runtime.paramCount, count, `${name} compiler/runtime arity must agree`);
-  }
-});
-
-test('SLANG runtime arity validation rejects typed mismatches and preserves legacy calls', () => {
-  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
-  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
-  const vfs = loadSlangVfs();
-  const options = {
-    defaultOrg: 0x100,
-    codeReadonly: false,
-    defines: { ENV_TYPE: 1 },
-  };
-  const compile = (source, customVfs = vfs) => compiler.compile(source, customVfs, options);
-  const assertArityError = (source, expected) => {
-    const result = compile(source);
-    assert.equal(result.asm, '');
-    assert.equal(result.errors.length, 1, JSON.stringify(result.errors));
-    assert.equal(result.errors[0].severity, 'Error');
-    assert.equal(result.errors[0].message, expected);
-    assert.ok(result.errors[0].span.start.line >= 1);
-  };
-
-  assertArityError(
-    'MAIN() BEGIN\n  VSYNC();\nEND;',
-    "Runtime function 'VSYNC' expected 1 argument, got 0",
-  );
-  assertArityError(
-    'MAIN() BEGIN\n  VSYNC(1,2);\nEND;',
-    "Runtime function 'VSYNC' expected 1 argument, got 2",
-  );
-  assertArityError(
-    'MAIN() BEGIN\n  BEEP(1);\nEND;',
-    "Runtime function 'BEEP' expected 0 arguments, got 1",
-  );
-  assertArityError(
-    'MAIN() BEGIN\n  BIT(1);\nEND;',
-    "Runtime function 'BIT' expected 2 arguments, got 1",
-  );
-  assertArityError(
-    'MAIN() BEGIN\n  CALL();\nEND;',
-    "Runtime function 'CALL' expected 1 argument, got 0",
-  );
-
-  const valid = compile([
-    'VSYNC_PROC() BEGIN',
-    'END;',
-    'MAIN() BEGIN',
-    '  MEM[$4000]=$5A;',
-    '  VSYNC(1);',
-    '  MEM[$4001]=$A5;',
-    '  LOOP { }',
-    'END;',
+  // Shift counts use their low 4 bits, and constants fold to the run-time value
+  const folding = await compileSlang([
+    'CONST A = 1 << 16;',
+    'CONST B = $8000 >> 16;',
+    'MAIN()',
+    '{',
+    '  PRINT(A, " ", B, " ", -7 / 2, " ", -2 >> 1, /);',
+    '}',
   ].join('\n'));
-  assert.equal(valid.errors.length, 0, JSON.stringify(valid.errors));
-  const assembled = assembler.assemble(valid.asm, { ENV_TYPE: 1 });
-  assert.equal(assembled.errors.length, 0, JSON.stringify(assembled.errors));
-  assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.SLANG_PROG_END'] < 0x4000);
-  assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.__WORKEND__'] < 0x4000);
-
-  const legacyVfs = {
-    ...vfs,
-    'legacy-untyped.asm': '; @name LEGACY_RUNTIME\nLD HL,$1234\nRET\n',
-  };
-  const legacyRuntime = compile([
-    'MAIN() BEGIN',
-    '  LEGACY_RUNTIME();',
-    '  LEGACY_RUNTIME(1);',
-    '  LEGACY_RUNTIME(1,2);',
-    'END;',
-  ].join('\n'), legacyVfs);
-  assert.equal(legacyRuntime.errors.length, 0, JSON.stringify(legacyRuntime.errors));
-  assert.equal(assembler.assemble(legacyRuntime.asm, { ENV_TYPE: 1 }).errors.length, 0);
-
-  const legacyMachine = compile('MACHINE LEGACY_MACHINE; MAIN() BEGIN LEGACY_MACHINE(1,2); END;');
-  assert.equal(legacyMachine.errors.length, 0, JSON.stringify(legacyMachine.errors));
-
-  const userFunction = [
-    'VSYNC(WORD A, WORD B) BEGIN',
-    '  RETURN(A+B);',
-    'END;',
-  ].join('\n');
-  const userCall = 'MAIN() BEGIN\n  VSYNC(1,2);\nEND;';
-  for (const shadowSource of [
-    `${userFunction}\n${userCall}`,
-    `${userCall}\n${userFunction}`,
-  ]) {
-    const shadow = compile(shadowSource);
-    assert.equal(shadow.errors.length, 0, JSON.stringify(shadow.errors));
-    assert.equal(assembler.assemble(shadow.asm, { ENV_TYPE: 1 }).errors.length, 0);
+  assert.equal(folding.ok, true, JSON.stringify(folding.diagnostics));
+  const main = folding.asm.slice(folding.asm.indexOf('\nMAIN:'), folding.asm.indexOf('_MAIN_EXIT:'));
+  assert.deepEqual([...main.matchAll(/LD\s+HL,(\$[0-9A-F]{4})/g)].map((match) => match[1]),
+    ['$0001', '$8000', '$7FFC', '$7FFF']);
+  for (const fact of ['1 << 16 is 1', '$8000 >> 16 is $8000', 'CONST A = 1 << 16; makes A equal to 1',
+    '-7 / 2 is $7FFC', '-2 >> 1 is $7FFF', 'B = A++ + 10; sets B to 11']) {
+    assert.ok(text('slang.expressions.operators').includes(fact), fact);
   }
 
-  for (const machineShadow of [
-    'MACHINE VSYNC(2);\nMAIN() BEGIN VSYNC(1,2); END;',
-    'MAIN() BEGIN VSYNC(1,2); END;\nMACHINE VSYNC(2);',
-  ]) {
-    const shadow = compile(machineShadow);
-    assert.equal(shadow.errors.length, 0, JSON.stringify(shadow.errors));
+  // A parameter named like a global CONST is the parameter, not the constant
+  const shadow = entries.get('slang.functions.typed').examples
+    .find((example) => example.title.includes('global CONST'));
+  const shadowed = await compileSlang(shadow.source);
+  assert.equal(shadowed.ok, true, JSON.stringify(shadowed.diagnostics));
+  const twice = shadowed.asm.slice(shadowed.asm.indexOf('\nTWICE:'), shadowed.asm.indexOf('_TWICE_EXIT:'));
+  assert.match(twice, /\(IY\+\$6E\)/);
+  assert.doesNotMatch(twice, /\$0005/);
+
+  // CONST inside a function, but not with a global name
+  assert.equal((await compileSlang('MAIN()\n{\n  CONST K = 7;\n  PRINT(K, /);\n}')).ok, true);
+  const clash = await compileSlang('CONST K = 1;\nMAIN()\n{\n  CONST K = 7;\n  PRINT(K, /);\n}');
+  assert.match(slangErrors(clash)[0].message, /CONST 'K' in function 'MAIN' has the same name as a global name/);
+  assert.ok(text('slang.data.types-declarations').includes("CONST 'K' in function 'MAIN' has the same name as a global name"));
+
+  // EXIT(n) leaves n loops; it cannot exceed the enclosing loops
+  assert.equal((await compileSlang(entries.get('slang.control.flow').examples[0].source)).ok, true);
+  const tooDeep = await compileSlang('MAIN()\n{\n  LOOP { EXIT(2); }\n}');
+  assert.match(slangErrors(tooDeep)[0].message, /EXIT\(2\) exceeds the loop nesting/);
+
+  // Errors slangc reports
+  const floatCondition = await compileSlang('MAIN()\n{\n  VAR FLOAT F;\n  F = 1.5;\n  IF F THEN PRINT(1);\n}');
+  assert.match(slangErrors(floatCondition)[0].message, /^A FLOAT value cannot be used as a condition/);
+  assert.ok(text('slang.control.flow').includes('A FLOAT value cannot be used as a condition'));
+  const sideEffect = await compileSlang('ARRAY T[3];\nMAIN()\n{\n  VAR I;\n  I = 0;\n  T[I++] += 1;\n}');
+  assert.match(slangErrors(sideEffect)[0].message, /^Side effects .* are not allowed in the index of the target of \+\+\/--/);
+  assert.ok(text('slang.expressions.operators').includes('T[I++] += 1'));
+  assert.ok(text('slang.limits.gotchas').includes('IF F THEN'));
+});
+
+test('slangc checks MACHINE, built-in and user argument counts but not runtime function counts', async () => {
+  const entries = new Map(validateReferenceData().entries.map((entry) => [entry.id, entry]));
+  const firstError = async (source) => slangErrors(await compileSlang(source))[0]?.message;
+
+  assert.equal(await firstError('MACHINE P():$1234;\nMAIN()\n{\n  P(1);\n}'), "Function 'P' expects 0 arguments, got 1");
+  assert.equal(await firstError('MACHINE P(2):$1234;\nMAIN()\n{\n  P(1);\n}'), "Function 'P' expects 2 arguments, got 1");
+  assert.equal(await firstError('MAIN()\n{\n  BEEP(1);\n}'), "Function 'BEEP' expects 0 arguments, got 1");
+  assert.equal(await firstError('MAIN()\n{\n  WIDTH();\n}'), "Function 'WIDTH' expects 1 arguments, got 0");
+  assert.equal(await firstError('G(X) { RETURN(X); }\nMAIN()\n{\n  PRINT(G(1,2), /);\n}'), "Function 'G' expects 1 arguments, got 2");
+  assert.equal(await firstError('MAIN()\n{\n  VAR FLOAT F;\n  F = FSIN(1.0, 2.0);\n}'), "Function 'FSIN' expects 1 arguments, got 2");
+
+  // Runtime functions are called with the arguments given; their "; @param_count" is not checked
+  const runtime = await compileSlang('VSYNC_PROC() { }\nMAIN()\n{\n  VSYNC();\n  VSYNC(1,2);\n  STICK();\n  TATTR(1,2);\n}');
+  assert.equal(runtime.ok, true, JSON.stringify(runtime.diagnostics));
+  assert.match(readSlangRuntime('libx1_print.asm'), /^; @name TATTR\n; @resident shared\n; @param_count 1$/m);
+
+  const machine = JSON.stringify(entries.get('slang.machine.calling-convention'));
+  assert.ok(machine.includes('passing any argument to it is an error'));
+  assert.ok(machine.includes('does not check how many there are'));
+  for (const id of ['slang.x1.timing', 'slang.x1.input', 'slang.x1.text-attribute', 'slang.limits.gotchas']) {
+    assert.match(JSON.stringify(entries.get(id)), /not check|not checked/, id);
+  }
+  // Nothing claims that runtime argument counts are validated
+  for (const entry of validateReferenceData().entries.filter((candidate) => candidate.language === 'slang')) {
+    assert.doesNotMatch(JSON.stringify(entry), /param_count|arity metadata|Runtime function '/, entry.id);
   }
 });
 
@@ -848,6 +808,7 @@ test('SLANG TATTR reference matches the runtime, editor and PCG contract', () =>
     '0 through 999', '0 through 1999', 'default 80-column width',
     'clobbers A, flags, BC and DE', 'preserves IX, IY, SP',
     'interrupt enable state is unchanged', 'issue TATTR again after a clear',
+    'part of the x1 environment',
   ]) {
     assert.match(details, new RegExp(expected.replace(/[()]/g, '\\$&')));
   }
@@ -870,31 +831,22 @@ test('SLANG TATTR reference matches the runtime, editor and PCG contract', () =>
   assert.ok(builtinBlock);
   assert.match(builtinBlock[1], /'TATTR'/);
 
-  const runtime = readFileSync(join(repoRoot, 'assets/slang_runtime/libx1_print.asm'), 'utf8');
-  const runtimeBlock = runtime.match(/^; @name TATTR\n([\s\S]*?)^; @name AT_VRCALC$/m);
-  assert.ok(runtimeBlock);
-  assert.match(runtimeBlock[1], /^; @param_count 1$/m);
-  assert.match(runtimeBlock[1], /^; @calls sWORK,X1WORK$/m);
-  assert.match(runtimeBlock[1], /LD HL,\(_TXADR\)[\s\S]*LD A,\(AT_WIDTH\)[\s\S]*LD BC,1000[\s\S]*LD BC,2000/);
-  assert.equal((runtimeBlock[1].match(/OUT\s+\(C\),A/g) || []).length, 1);
-  assert.doesNotMatch(runtimeBlock[1], /\bIN\s+|DI|EI|LD\s+\(_TXADR\),/);
+  const routine = slangRoutine(readSlangRuntime('libx1_print.asm'), 'TATTR');
+  assert.match(routine, /^; @calls sWORK,X1WORK$/m);
+  const code = slangCode(routine);
+  assert.match(code, /LD\s+A,H\s+OR\s+A\s+JR\s+NZ,\.tattr_ng/);
+  assert.match(code, /LD\s+A,\(AT_WIDTH\)[\s\S]*LD\s+BC,1000[\s\S]*CP\s+41[\s\S]*LD\s+BC,2000[\s\S]*LD\s+HL,\(_TXADR\)/);
+  assert.match(code, /SET\s+5,B/);
+  assert.equal((code.match(/OUT\s+\(C\),A/g) || []).length, 1);
+  assert.doesNotMatch(code, /\bIN\s+|\bDI\b|\bEI\b|LD\s+\(_TXADR\),/);
 });
 
-test('SLANG TATTR compiles, assembles and stays dependency-pruned', () => {
-  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
-  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
-  const vfs = loadSlangVfs();
-  const options = {
-    defaultOrg: 0x100,
-    codeReadonly: false,
-    defines: { ENV_TYPE: 1 },
-  };
-
-  const unused = compiler.compile('MAIN() { LOOP { } }', vfs, options);
-  assert.equal(unused.errors.length, 0, JSON.stringify(unused.errors));
+test('SLANG TATTR compiles, assembles and stays dependency-pruned', async () => {
+  const unused = await compileSlang('MAIN() { LOOP { } }');
+  assert.equal(unused.ok, true, JSON.stringify(unused.diagnostics));
   assert.doesNotMatch(unused.asm, /^TATTR:$/m);
 
-  const probe = compiler.compile([
+  const probe = await compileSlang([
     'MAIN()',
     '{',
     '  MEM[$4000]=TATTR($27);',
@@ -902,10 +854,10 @@ test('SLANG TATTR compiles, assembles and stays dependency-pruned', () => {
     '  MEM[$4002]=TATTR($100);',
     '  LOOP { }',
     '}',
-  ].join('\n'), vfs, options);
-  assert.equal(probe.errors.length, 0, JSON.stringify(probe.errors));
+  ].join('\n'));
+  assert.equal(probe.ok, true, JSON.stringify(probe.diagnostics));
   assert.match(probe.asm, /^TATTR:$/m);
-  const assembled = assembler.assemble(probe.asm, { ENV_TYPE: 1 });
+  const assembled = assembleSlang(probe.asm);
   assert.equal(assembled.errors.length, 0, JSON.stringify(assembled.errors));
   assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.TATTR'] >= assembled.org);
   assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.SLANG_PROG_END'] < 0x4000);
@@ -921,12 +873,16 @@ test('SLANG STICK reference matches the X1 runtime and editor contract', () => {
   assert.ok(stick.syntax.includes('STICK(1)  // joystick 2, PSG register 15'));
   const details = [stick.summary, ...stick.syntax, ...stick.notes].join(' ');
   for (const expected of [
-    'active-low', '255', 'Up', 'Down', 'Left', 'Right',
+    'active-low', '255 ($00FF)', 'Up', 'Down', 'Left', 'Right',
     'Button 4', 'Button 2 (B)', 'Button 1 (A)', 'Button 3',
-    '(NEW XOR OLD) AND OLD', 'register 7', 'interrupts enabled',
+    '(NEW XOR OLD) AND OLD', 'PSG register 7', 'bit 6 for port A, bit 7 for port B',
+    'writes register 7 back with its previous value',
+    'restores the interrupt state it was called with', "after the caller's DI it returns with interrupts still disabled",
+    'LD A,I', 'NMI handler',
   ]) {
-    assert.match(details, new RegExp(expected.replace(/[()]/g, '\\$&')));
+    assert.ok(details.includes(expected), expected);
   }
+  assert.doesNotMatch(details, /returns with interrupts enabled|does not rewrite register 7/);
   assert.ok(stick.relatedIds.includes('x1.io.psg-joystick'));
   const hardware = entries.find((entry) => entry.id === 'x1.io.psg-joystick');
   assert.ok(hardware.relatedIds.includes('slang.x1.input'));
@@ -936,29 +892,23 @@ test('SLANG STICK reference matches the X1 runtime and editor contract', () => {
   assert.ok(builtinBlock);
   assert.match(builtinBlock[1], /'STICK'/);
 
-  const runtime = readFileSync(join(repoRoot, 'assets/slang_runtime/libx1_base.asm'), 'utf8');
-  const runtimeBlock = runtime.match(/^; @name STICK\n([\s\S]*?)^; @name SETUPCTC$/m);
-  assert.ok(runtimeBlock);
-  assert.match(runtimeBlock[1], /^; @param_count 1$/m);
-  assert.match(runtimeBlock[1], /DI[\s\S]*LD BC,\$1C00[\s\S]*OUT \(C\),A[\s\S]*LD B,\$1B[\s\S]*IN L,\(C\)[\s\S]*LD H,0[\s\S]*EI[\s\S]*RET/);
-  assert.doesNotMatch(runtimeBlock[1], /LD A,I/);
+  const code = slangCode(slangRoutine(readSlangRuntime('libx1_base.asm'), 'STICK'));
+  // 0 or 1 only; anything else is $00FF with no I/O
+  assert.match(code, /LD A,H\s+OR A\s+JR NZ,\.STICK_INVALID\s+LD A,L\s+CP 2\s+JR NC,\.STICK_INVALID/);
+  assert.match(code, /\.STICK_INVALID\s+LD HL,\$00FF\s+RET/);
+  // The interrupt state comes from LD A,I and is restored: EI only when it was enabled
+  assert.match(code, /LD A,I\s+JP PE,\.STICK_ON[\s\S]*LD D,0[\s\S]*\.STICK_ON\s+LD D,1\s+\.STICK_READ\s+DI/);
+  // Register 7 is read, the port's bit cleared for input, the port read, then register 7 restored
+  assert.match(code, /LD BC,\$1C00\s+LD A,7\s+OUT \(C\),A\s+LD B,\$1B\s+IN E,\(C\)[\s\S]*LD A,\$BF[\s\S]*LD A,\$7F[\s\S]*AND E\s+OUT \(C\),A/);
+  assert.match(code, /ADD A,\$0E\s+OUT \(C\),A\s+LD B,\$1B\s+IN L,\(C\)\s+LD B,\$1C\s+LD A,7\s+OUT \(C\),A\s+LD B,\$1B\s+OUT \(C\),E\s+LD H,0\s+LD A,D\s+OR A\s+RET Z\s+EI\s+RET/);
 });
 
-test('SLANG STICK compiles, assembles and stays dependency-pruned', () => {
-  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
-  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
-  const vfs = loadSlangVfs();
-  const options = {
-    defaultOrg: 0x100,
-    codeReadonly: false,
-    defines: { ENV_TYPE: 1 },
-  };
-
-  const unused = compiler.compile('MAIN() { LOOP { } }', vfs, options);
-  assert.equal(unused.errors.length, 0, JSON.stringify(unused.errors));
+test('SLANG STICK compiles, assembles and stays dependency-pruned', async () => {
+  const unused = await compileSlang('MAIN() { LOOP { } }');
+  assert.equal(unused.ok, true, JSON.stringify(unused.diagnostics));
   assert.doesNotMatch(unused.asm, /^STICK:$/m);
 
-  const probe = compiler.compile([
+  const probe = await compileSlang([
     'MAIN()',
     '{',
     '  VAR I, BASE;',
@@ -974,11 +924,11 @@ test('SLANG STICK compiles, assembles and stays dependency-pruned', () => {
     '  MEM[$400A]=STICK($FFFF);',
     '  LOOP { }',
     '}',
-  ].join('\n'), vfs, options);
-  assert.equal(probe.errors.length, 0, JSON.stringify(probe.errors));
+  ].join('\n'));
+  assert.equal(probe.ok, true, JSON.stringify(probe.diagnostics));
   assert.match(probe.asm, /^STICK:$/m);
   assert.doesNotMatch(probe.asm, /\[PSGLIB\]/);
-  const assembled = assembler.assemble(probe.asm, { ENV_TYPE: 1 });
+  const assembled = assembleSlang(probe.asm);
   assert.equal(assembled.errors.length, 0, JSON.stringify(assembled.errors));
   assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.STICK'] >= assembled.org);
   assert.ok(assembled.symbols['NAME_SPACE_DEFAULT.SLANG_PROG_END'] < 0x4000);
@@ -999,6 +949,7 @@ test('SLANG VSYNC, INKEY and inline-assembly references match shipped contracts'
   assert.match(timingDetails, /VSYNC\(frames\).*exactly one argument/);
   assert.match(timingDetails, /must define VSYNC_PROC/);
   assert.match(timingDetails, /once for every counted frame/);
+  assert.match(timingDetails, /undefined VSYNC_PROC and assembly fails/);
   for (const relatedId of ['slang.include.tile-sprite', 'slang.include.chiplib', 'slang.x1.sgl']) {
     assert.ok(timing.relatedIds.includes(relatedId));
   }
@@ -1018,13 +969,14 @@ test('SLANG VSYNC, INKEY and inline-assembly references match shipped contracts'
   const inlineDetails = [inline.summary, ...inline.syntax, ...inline.notes].join(' ');
   for (const details of [machineDetails, inlineDetails]) {
     assert.match(details, /explicit argument count/i);
-    assert.match(details, /unreliable calls/i);
+    assert.match(details, /passing any argument to it is an error/);
+    assert.doesNotMatch(details, /unreliable calls/i);
   }
   for (const expected of [
     'pushed left-to-right', 'argument 4 is at SP+2', 'argument 1 at SP+8',
     'exchanges HL with DE', 'restored to HL after cleanup',
     '2 bytes per argument', 'IX is not a preserved compiler work pointer',
-    'IY must be preserved', 'interrupt-enable state unchanged',
+    'IY must be preserved', 'interrupt-enable state unchanged', '_F_<name>',
   ]) assert.ok(inlineDetails.includes(expected), expected);
   assert.ok(machine.relatedIds.includes('slang.machine.inline-assembly'));
   assert.ok(preprocessor.relatedIds.includes('slang.machine.inline-assembly'));
@@ -1043,10 +995,11 @@ test('SLANG VSYNC, INKEY and inline-assembly references match shipped contracts'
   assert.match(entries.get('slang.include.chiplib').notes.join(' '), /CHIP_ANIM_TICK from the program's VSYNC_PROC/);
   assert.match(entries.get('slang.x1.sgl').notes.join(' '), /invokes the program's VSYNC_PROC hook/);
 
-  const inputRuntime = readFileSync(join(repoRoot, 'assets/slang_runtime/liblsx_input.asm'), 'utf8');
+  assert.match(slangRoutine(readSlangRuntime('libx1_base.asm'), 'VSYNC_CHECK'), /JP !VSYNC_PROC/);
+  const inputRuntime = readSlangRuntime('liblsx_input.asm');
   assert.match(inputRuntime,
     /^; @name INKEY[\s\S]*LD A,L[\s\S]*CP 1[\s\S]*CALL sGETKY[\s\S]*CALL sFLGET[\s\S]*CALL sINKEY/m);
-  const baseRuntime = readFileSync(join(repoRoot, 'assets/slang_runtime/liblsx_base.asm'), 'utf8');
+  const baseRuntime = readSlangRuntime('liblsx_base.asm');
   assert.match(baseRuntime, /^; @name sGETKY[\s\S]*LD\s+E,\$FF[\s\S]*LD\s+C,INPOUT/m);
   assert.match(baseRuntime, /^; @name sFLGET[\s\S]*LD\s+C,DIRIN/m);
   assert.match(baseRuntime, /^; @name sINKEY[\s\S]*CALL\s+sGETKY[\s\S]*JR\s+Z,sINKEY/m);
@@ -1061,18 +1014,14 @@ test('SLANG VSYNC, INKEY and inline-assembly references match shipped contracts'
   assert.match(baseTable[1], /\/\*  Ｏ,  Ｐ,[\s\S]*?0x0d,0x00, 'a', 's'/);
 });
 
-test('documented VSYNC, INKEY and inline-assembly examples compile and assemble', () => {
-  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
-  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
-  const vfs = loadSlangVfs();
+test('documented VSYNC, INKEY and inline-assembly examples compile and assemble', async () => {
   const entries = new Map(validateReferenceData().entries.map((entry) => [entry.id, entry]));
-  const options = { defaultOrg: 0x100, codeReadonly: false, defines: { ENV_TYPE: 1 } };
 
   for (const id of ['slang.x1.timing', 'slang.x1.inkey', 'slang.machine.inline-assembly']) {
     const example = entries.get(id).examples[0];
-    const compiled = compiler.compile(example.source, vfs, options);
-    assert.equal(compiled.errors.length, 0, `${id}: ${JSON.stringify(compiled.errors)}`);
-    const assembled = assembler.assemble(compiled.asm, { ENV_TYPE: 1 });
+    const compiled = await compileSlang(example.source);
+    assert.equal(compiled.ok, true, `${id}: ${JSON.stringify(compiled.diagnostics)}`);
+    const assembled = assembleSlang(compiled.asm);
     assert.equal(assembled.errors.length, 0, `${id}: ${JSON.stringify(assembled.errors)}`);
     assert.ok(assembled.bytes.length > 0, id);
     if (id === 'slang.machine.inline-assembly') {
@@ -1081,16 +1030,22 @@ test('documented VSYNC, INKEY and inline-assembly examples compile and assemble'
     }
   }
 
-  const abiProbe = compiler.compile([
+  // VSYNC without the VSYNC_PROC hook compiles, but its output does not assemble
+  const noHook = await compileSlang('MAIN()\n{\n  VSYNC(1);\n}');
+  assert.equal(noHook.ok, true, JSON.stringify(noHook.diagnostics));
+  assert.ok(assembleSlang(noHook.asm).errors.some((error) => /VSYNC_PROC/.test(error.msg)));
+
+  const abiProbe = await compileSlang([
     'MACHINE ZERO(0):ZERO_ROUTINE;',
     'MACHINE ONE(1):ONE_ROUTINE;',
     'MACHINE TWO(2):TWO_ROUTINE;',
     'MACHINE THREE(3):THREE_ROUTINE;',
     'MACHINE FOUR(4):FOUR_ROUTINE;',
     'MACHINE NUMERIC(0):$1234;',
-    'MAIN() BEGIN',
+    'MAIN()',
+    '{',
     '  ZERO(); ONE(1); TWO(1,2); THREE(1,2,3); FOUR(1,2,3,4); NUMERIC();',
-    'END;',
+    '}',
     '#ASM',
     'ZERO_ROUTINE: RET',
     'ONE_ROUTINE: RET',
@@ -1098,8 +1053,8 @@ test('documented VSYNC, INKEY and inline-assembly examples compile and assemble'
     'THREE_ROUTINE: RET',
     'FOUR_ROUTINE: RET',
     '#END',
-  ].join('\n'), vfs, options);
-  assert.equal(abiProbe.errors.length, 0, JSON.stringify(abiProbe.errors));
+  ].join('\n'));
+  assert.equal(abiProbe.ok, true, JSON.stringify(abiProbe.diagnostics));
   assert.match(abiProbe.asm, /CALL\s+ZERO_ROUTINE/);
   assert.match(abiProbe.asm, /LD\s+HL,\$0001\s+CALL\s+ONE_ROUTINE/);
   assert.match(abiProbe.asm, /LD\s+HL,\$0001\s+LD\s+DE,\$0002\s+CALL\s+TWO_ROUTINE/);
@@ -1109,10 +1064,17 @@ test('documented VSYNC, INKEY and inline-assembly examples compile and assemble'
     /LD\s+HL,\$0001\s+PUSH\s+HL\s+LD\s+HL,\$0002\s+PUSH\s+HL\s+LD\s+HL,\$0003\s+PUSH\s+HL\s+LD\s+HL,\$0004\s+PUSH\s+HL\s+CALL\s+FOUR_ROUTINE\s+EX\s+DE,HL\s+LD\s+HL,8\s+ADD\s+HL,SP\s+LD\s+SP,HL\s+EX\s+DE,HL/);
   assert.match(abiProbe.asm, /CALL\s+\$1234/);
   assert.match(abiProbe.asm, /LD IY,__IYWORK/);
-  assert.doesNotMatch(abiProbe.asm, /\bIX\b/,
+  const program = abiProbe.asm.slice(abiProbe.asm.indexOf('\nMAIN:'), abiProbe.asm.indexOf('_MAIN_EXIT:'));
+  assert.doesNotMatch(program, /\bIX\b/,
     'the compiler must not retain an IX work value across MACHINE calls');
-  const assembledProbe = assembler.assemble(abiProbe.asm, { ENV_TYPE: 1 });
+  const assembledProbe = assembleSlang(abiProbe.asm);
   assert.equal(assembledProbe.errors.length, 0, JSON.stringify(assembledProbe.errors));
+
+  // A function named like a Z80 instruction gets the _F_ entry label
+  const renamed = await compileSlang('ADD(X) { RETURN(X+1); }\nMAIN()\n{\n  PRINT(ADD(1), /);\n}');
+  assert.equal(renamed.ok, true, JSON.stringify(renamed.diagnostics));
+  assert.match(renamed.asm, /^_F_ADD:$/m);
+  assert.match(renamed.asm, /CALL\s+_F_ADD/);
 });
 
 test('LSX-Dodgers-specific file limitations are documented', () => {
@@ -1137,113 +1099,94 @@ test('FuzzyBASIC LOCAL and VSTACK syntax follows the LSX implementation', () => 
   assert.ok(stack.syntax.includes('VSTACK startAddress,endAddress'));
 });
 
-test('bundled SLANG examples compile with the exact X1Pen compiler and VFS', () => {
-  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
-  const vfs = loadSlangVfs();
+test('every SLANG example compiles with the bundled slangc and assembles', async () => {
   const { entries } = validateReferenceData();
   const examples = entries
     .filter((entry) => entry.language === 'slang')
-    .flatMap((entry) => entry.examples || []);
+    .flatMap((entry) => (entry.examples || []).map((example) => [entry.id, example]));
   assert.ok(examples.length >= 6);
-  for (const example of examples) {
-    const result = compiler.compile(example.source, vfs, {
-      defaultOrg: 0x100,
-      codeReadonly: false,
-      defines: { ENV_TYPE: 1 },
-    });
-    assert.equal(result.errors.length, 0, `${example.title}: ${JSON.stringify(result.errors)}`);
-    assert.ok(result.asm.length > 0, `${example.title} must generate ASM`);
+  for (const [id, example] of examples) {
+    const result = await compileSlang(example.source);
+    assert.equal(result.ok, true, `${id}: ${example.title}: ${JSON.stringify(result.diagnostics)}`);
+    assert.equal(result.diagnostics.length, 0, `${id}: ${example.title} must compile without warnings: ${JSON.stringify(result.diagnostics)}`);
+    const assembled = assembleSlang(result.asm);
+    assert.equal(assembled.errors.length, 0, `${id}: ${example.title}: ${JSON.stringify(assembled.errors)}`);
+    assert.ok(assembled.bytes.length > 0, `${id}: ${example.title} must produce bytes`);
   }
 });
 
-test('documented embedded M8A example compiles and assembles with its standalone dependencies', () => {
-  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
-  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
-  const vfs = loadSlangVfs();
+test('documented embedded M8A example compiles and assembles with its dependencies', async () => {
   const entry = validateReferenceData().entries
     .find((candidate) => candidate.id === 'slang.x1.assets-compression');
   const example = entry.examples.find((candidate) => candidate.title.includes('embedded M8A'));
   assert.ok(example, 'the M8ALOAD reference must retain its executable embedded-data example');
+  assert.match(example.source, /WIDTH\(40\);\s+M8ALOAD\(/);
 
-  const compiled = compiler.compile(example.source, vfs, {
-    defaultOrg: 0x100,
-    codeReadonly: false,
-    defines: { ENV_TYPE: 1 },
-  });
-  assert.equal(compiled.errors.length, 0, JSON.stringify(compiled.errors));
+  const compiled = await compileSlang(example.source);
+  assert.equal(compiled.ok, true, JSON.stringify(compiled.diagnostics));
   assert.match(compiled.asm, /CALL\s+M8ALIB\.M8ALOAD/);
   assert.match(compiled.asm, /NAME_SPACE_DEFAULT\.AT_WIDTH/);
 
-  const assembled = assembler.assemble(compiled.asm, { ENV_TYPE: 1 });
+  const assembled = assembleSlang(compiled.asm);
   assert.equal(assembled.errors.length, 0, JSON.stringify(assembled.errors));
   assert.ok(assembled.bytes.length > 0);
   assert.equal(assembled.symbols['M8ALIB.GVRAMADRS_LO'], undefined,
     'the shipped CALCSPEED=0 build must omit dormant address tables');
   assert.equal(assembled.symbols['M8ALIB.GVRAMADRS_HI'], undefined,
     'the shipped CALCSPEED=0 build must omit dormant address tables');
-  assert.ok('NAME_SPACE_DEFAULT.AT_WIDTH' in assembled.symbols,
-    'M8ALOAD must pull X1WORK without requiring the caller to use WIDTH first');
+  assert.ok('NAME_SPACE_DEFAULT.AT_WIDTH' in assembled.symbols);
+
+  // M8ALOAD reads AT_WIDTH but does not link the X1 work area itself
+  assert.doesNotMatch(slangRoutine(readSlangRuntime('libm8a.asm'), 'M8ALOAD'), /^; @calls .*X1WORK/m);
+  assert.match(entry.notes.join(' '), /Call WIDTH first[\s\S]*AT_WIDTH is undefined/);
+  const alone = await compileSlang(example.source.replace(/\n\s*WIDTH\(40\);/, ''));
+  assert.equal(alone.ok, true, JSON.stringify(alone.diagnostics));
+  assert.ok(assembleSlang(alone.asm).errors.some((error) => /AT_WIDTH/.test(error.msg)));
 });
 
-test('M8A runtime conditionals preserve both dormant width tables', () => {
-  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
-  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
-  const vfs = loadSlangVfs();
-  const m8aSource = vfs['libm8a.asm'];
-  const magSource = vfs['libmag.asm'];
-  assert.match(m8aSource, /^; @calls X1WORK$/m);
-  assert.match(m8aSource, /^M8A_WIDTH\s+EQU\s+40$/m);
-  assert.doesNotMatch(m8aSource, /^WIDTH\s+EQU\b/m);
-  assert.doesNotMatch(magSource, /^\s*#(?:IF|ELIF|ELSEIF)\b.*(?:&&|\|\|)/mi);
+test('M8A runtime conditionals preserve both dormant width tables', async () => {
+  const m8aSource = readSlangRuntime('libm8a.asm');
+  assert.match(m8aSource, /^CALCSPEED\s+EQU\s+0\b/m);
+  assert.match(m8aSource, /^WIDTH\s+EQU\s+40\b/m);
+  assert.match(m8aSource, /^#IF CALCSPEED != 0 && WIDTH == 40$/m);
+  assert.match(m8aSource, /^#ELIF CALCSPEED != 0 && WIDTH == 80$/m);
 
-  const minimalSource = [
+  const compiled = await compileSlang([
     'ARRAY BYTE DATA[] = {$4D,$38,$41,$00,$01,$01,$49,$49,$49,$49};',
-    'MAIN() BEGIN',
+    'MAIN()',
+    '{',
+    '  WIDTH(40);',
     '  M8ALOAD(DATA,0,0);',
-    'END;',
-  ].join('\n');
+    '}',
+  ].join('\n'));
+  assert.equal(compiled.ok, true, JSON.stringify(compiled.diagnostics));
+  // The library's switches are in the generated source; X1Pen's assembler must take either table
   for (const width of [40, 80]) {
-    const variantVfs = {
-      ...vfs,
-      'libm8a.asm': m8aSource
-        .replace(/^CALCSPEED\s+EQU\s+0\b/m, 'CALCSPEED\tEQU\t1')
-        .replace(/^M8A_WIDTH\s+EQU\s+40\b/m, `M8A_WIDTH\tEQU\t${width}`),
-    };
-    const compiled = compiler.compile(minimalSource, variantVfs, {
-      defaultOrg: 0x100,
-      codeReadonly: false,
-      defines: { ENV_TYPE: 1 },
-    });
-    assert.equal(compiled.errors.length, 0,
-      `M8A_WIDTH=${width} must compile: ${JSON.stringify(compiled.errors)}`);
-    const assembled = assembler.assemble(compiled.asm, { ENV_TYPE: 1 });
+    const variant = compiled.asm
+      .replace(/^CALCSPEED\s+EQU\s+0\b/m, 'CALCSPEED\tEQU\t1')
+      .replace(/^WIDTH\s+EQU\s+40\b/m, `WIDTH\tEQU\t${width}`);
+    assert.notEqual(variant, compiled.asm);
+    const assembled = assembleSlang(variant);
     assert.equal(assembled.errors.length, 0,
-      `M8A_WIDTH=${width} must assemble: ${JSON.stringify(assembled.errors)}`);
+      `WIDTH=${width} must assemble: ${JSON.stringify(assembled.errors)}`);
     const tableAddress = assembled.symbols['M8ALIB.GVRAMADRS_LO'];
-    assert.ok(Number.isInteger(tableAddress), `M8A_WIDTH=${width} must emit its low table`);
+    assert.ok(Number.isInteger(tableAddress), `WIDTH=${width} must emit its low table`);
     assert.equal(assembled.bytes[tableAddress - assembled.org + 8], width === 40 ? 0x28 : 0x50,
-      `M8A_WIDTH=${width} must select the matching table payload`);
+      `WIDTH=${width} must select the matching table payload`);
   }
 });
 
-test('M8A runtime changes do not affect unused programs or MAGLOAD assembly', () => {
-  const compiler = loadBrowserGlobal('html/x1pen_slang_compiler.js', 'X1PenSlangCompiler');
-  const assembler = loadBrowserGlobal('html/x1pen_z80asm.js', 'X1PenZ80Asm');
-  const vfs = loadSlangVfs();
+test('M8A runtime does not affect unused programs or MAGLOAD assembly', async () => {
   for (const [name, source, expectedRuntime] of [
-    ['unused', 'MAIN() BEGIN END;', null],
-    ['MAGLOAD', 'MAIN() BEGIN MAGLOAD("A:X.MAG",0,0); END;', 'MAGLOAD'],
+    ['unused', 'MAIN() { }', null],
+    ['MAGLOAD', 'MAIN() { MAGLOAD("A:X.MAG",0,0); }', 'MAGLOAD'],
   ]) {
-    const compiled = compiler.compile(source, vfs, {
-      defaultOrg: 0x100,
-      codeReadonly: false,
-      defines: { ENV_TYPE: 1 },
-    });
-    assert.equal(compiled.errors.length, 0,
-      `${name} control must compile: ${JSON.stringify(compiled.errors)}`);
+    const compiled = await compileSlang(source);
+    assert.equal(compiled.ok, true,
+      `${name} control must compile: ${JSON.stringify(compiled.diagnostics)}`);
     assert.equal(compiled.asm.includes('[M8ALIB]'), false, `${name} must not pull M8ALOAD`);
     if (expectedRuntime) assert.ok(compiled.asm.includes(expectedRuntime));
-    const assembled = assembler.assemble(compiled.asm, { ENV_TYPE: 1 });
+    const assembled = assembleSlang(compiled.asm);
     assert.equal(assembled.errors.length, 0,
       `${name} control must assemble: ${JSON.stringify(assembled.errors)}`);
     assert.ok(assembled.bytes.length > 0);
@@ -1273,25 +1216,33 @@ test('documented include API names exist in the bundled libraries', () => {
   }).entries);
 
   for (const [filename, names] of Object.entries(selectedApis)) {
-    const source = readFileSync(join(repoRoot, 'assets/slang_include', filename), 'utf8');
+    const source = readSlangInclude(filename);
     for (const name of names) {
       assert.ok(source.includes(name), `${name} must exist in ${filename}`);
       assert.ok(documented.includes(name), `${name} must be covered by the reference`);
     }
   }
+  // The documented argument counts are the libraries' MACHINE declarations, which slangc checks
+  const tile = getReferenceEntries({ ids: ['slang.include.tile-sprite'] }).entries[0];
+  for (const [name, count] of [['TILE_SET_MAP', 3], ['TILE_SET_SCROLL', 2], ['SPR_SET_POS', 3]]) {
+    const library = name.startsWith('SPR') ? 'SPRLIB.LIB' : 'TILELIB.LIB';
+    assert.match(readSlangInclude(library), new RegExp(`^MACHINE ${name}\\(${count}\\):`, 'm'));
+    assert.ok(tile.syntax.join(' ').includes(`${name}(${count} args)`), name);
+  }
 });
 
 test('PCG reference matches the bundled X1 runtime contract', () => {
-  const runtime = readFileSync(join(repoRoot, 'assets/slang_runtime/libx1_pcg.asm'), 'utf8');
+  const runtime = readSlangRuntime('libx1_pcg.asm');
   const details = JSON.stringify(getReferenceEntries({
     ids: ['fuzzybasic.x1.pcg-definition', 'slang.x1.pcg-definition', 'slang.include.tile-sprite'],
     maxCharacters: 32 * 1024,
   }).entries);
-  for (const name of ['PCGDEF', 'PCGDEFS']) {
+  for (const name of ['PCGDEF', 'PCGDEFS', 'GETCGROM']) {
     assert.match(runtime, new RegExp(`; @name ${name}\\b`));
     assert.ok(details.includes(name));
   }
   assert.match(runtime, /HL = STARTIDX .* DE = ADDR \(24 bytes\/tile\), BC = COUNT/);
+  assert.match(runtime, /HL = CODE \(ANK; 実際は L のみ使用、H は無視\), DE = ADR \(格納先、 8 バイト書込\)/);
   assert.ok(details.includes('24-byte'));
   assert.ok(details.includes('Blue, Red, Green'));
 });

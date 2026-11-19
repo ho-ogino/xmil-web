@@ -41,6 +41,13 @@ ORG 0E000h
 
 ### SLANG タブ
 
+SLANG のプログラムを書くタブです。RUN すると、SLANG-compiler の SLANG コンパイラ（slangc。SLANG-compiler のブラウザ向けバンドルの .NET の wasm で、HuBASIC タブと同じもの）で、`x1` 環境（LSX-Dodgers の上の X1、$100 から。上流の `runtime/env/x1.env` と同じランタイム）のアセンブリにし、X1Pen のアセンブラで組んで、LSX-Dodgers のディスクから起動します。
+
+- 書き方・ランタイムの関数・include（`#INCLUDE "GRAPH.LIB"` など）は、SLANG-compiler の `docs/SLANG-spec.md` と、バンドルに入っている `runtime/`・`include/` のとおりです（x1pen-mcp のリファレンスもこれに合わせてあります）。
+- 初めて SLANG を組むときに、バンドル（約 2.3MB、圧縮後）を読み込みます。SLANG タブを開いた時点で裏で読み始め、読み込み中に RUN するとステータス欄に `SLANG: loading compiler...` と出ます。HuBASIC タブと同じバンドルなので、どちらかで読めば、もう一方では読みません。
+- コンパイルのエラーは、ステータス欄に `SLANG: L<行>:<桁>: <エラー>` と出ます（`#INCLUDE` したファイルの中なら、頭にファイル名）。警告は、組めたときに数だけ出ます。自動操作の `validate` の診断にも、行と桁が付きます。
+- バンドルを読めないときは `SLANG: compiler unavailable (…)` と出て RUN しません。読めるようになれば、次の RUN で通ります。
+
 SLANGタブの **Import** ボタンは、binary fileを現在のcursor位置へ大文字の`$XX`値列として挿入します。16 bytesごとに改行し、値の間だけにカンマを入れます。末尾カンマ、label、`ARRAY`宣言、filename commentは生成しません。周囲のsourceは解析しないため、必要なカンマや括弧は利用者が用意してください。
 
 空fileは拒否します。最大読込sizeはASM Importと同じ128 KiBで、64 KiBを超える場合はshareへの影響を警告します。この上限はimporterがfileを読む上限であり、生成された配列がSLANG compilerやX1のaddress spaceへ収まることを保証しません。大きなassetはDisk Editorでproject diskへ追加し、`MAGLOAD`または`FOPEN`／`FREAD`で読む方法も検討してください。

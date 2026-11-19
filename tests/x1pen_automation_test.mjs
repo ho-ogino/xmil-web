@@ -953,7 +953,7 @@ test('pad input drives guest JOY edges and independent ports in captured screens
   });
 });
 
-test('SLANG STICK reads JoyKey and pad input with defined interrupt behavior', { timeout: 90_000 }, async () => {
+test('SLANG STICK reads JoyKey and pad input and keeps the caller\'s interrupt state', { timeout: 90_000 }, async () => {
   const probeAddress = 0x4000;
   const previousSettings = await page.evaluate(() => window.XmilControls.getSettings());
   const readProbe = (length = 16) => page.evaluate(({ address, byteLength }) => (
@@ -1077,8 +1077,8 @@ test('SLANG STICK reads JoyKey and pad input with defined interrupt behavior', {
     ].join('\n'));
     await waitForProbe([0xFF, 0xA5]);
     const validAfterDi = await page.evaluate(() => window.X1PenAutomation.debugger.pause());
-    assert.equal(validAfterDi.registers.iff1, true,
-      'a valid STICK call must re-enable interrupts even when the caller used DI');
+    assert.equal(validAfterDi.registers.iff1, false,
+      'a valid STICK call leaves interrupts as the caller had them (here: disabled)');
 
     await loadAndRunSlang([
       'FORCE_DI(0) { CODE($F3,$C9); }',
@@ -1248,7 +1248,7 @@ test('SLANG TATTR writes only the current visible text attribute cell', { timeou
   }
 });
 
-test('SLANG runtime arity is rejected by Validate while valid VSYNC still runs', { timeout: 60_000 }, async () => {
+test('SLANG compile errors carry their line and column, and a valid VSYNC program still runs', { timeout: 60_000 }, async () => {
   const probeAddress = 0x4000;
   const setSlang = (source) => page.evaluate(async (slang) => {
     const api = window.X1PenAutomation;
@@ -1260,19 +1260,27 @@ test('SLANG runtime arity is rejected by Validate while valid VSYNC still runs',
 
   try {
     await setSlang([
+      'FLOAT F;',
       'MAIN() BEGIN',
-      '  VSYNC();',
+      '  F = 1.5;',
+      '  IF F THEN F = 2.0;',
       'END;',
     ].join('\n'));
-    const invalid = await page.evaluate(async () => ({
-      validation: await window.X1PenAutomation.validate(),
-      program: window.X1PenAutomation.getProgram(),
-    }));
+    const invalid = await page.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const validation = await api.validate();
+      const run = await api.run();
+      return { validation, run, program: api.getProgram(), status: document.getElementById('x1pen-status').textContent };
+    });
     assert.equal(invalid.validation.ok, false);
     assert.equal(invalid.validation.diagnostics.length, 1);
     assert.equal(invalid.validation.diagnostics[0].kind, 'slang');
-    assert.equal(invalid.validation.diagnostics[0].line, 2);
-    assert.match(invalid.validation.diagnostics[0].message, /expected 1 argument, got 0/);
+    assert.equal(invalid.validation.diagnostics[0].file, 'PROGRAM.SL');
+    assert.equal(invalid.validation.diagnostics[0].line, 4);
+    assert.equal(invalid.validation.diagnostics[0].column, 3);
+    assert.match(invalid.validation.diagnostics[0].message, /FLOAT value cannot be used as a condition/);
+    assert.equal(invalid.run.ok, false);
+    assert.match(invalid.status, /^SLANG: L4:3: A FLOAT value cannot be used as a condition/);
     assert.equal(invalid.program.asm, '');
 
     await setSlang([
@@ -1304,6 +1312,76 @@ test('SLANG runtime arity is rejected by Validate while valid VSYNC still runs',
     }, probeAddress, { timeout: 5000 });
   } finally {
     await page.evaluate(() => window.Module._js_xmil_reset());
+  }
+});
+
+test('the SLANG tab compiles with the bundle\'s slangc, loads it when the tab opens, and reads #INCLUDE from the bundle', { timeout: 120_000 }, async () => {
+  const revision = JSON.parse(readFileSync(join(projectRoot, 'assets', 'hubasic', 'current.json'), 'utf8')).revision;
+  const context = await browser.newContext();
+  try {
+    const slangPage = await context.newPage();
+    const requested = [];
+    slangPage.on('request', (request) => requested.push(new URL(request.url()).pathname));
+    await slangPage.goto(`${baseUrl}/x1pen.html`);
+    await slangPage.evaluate(() => window.X1PenAutomation.ready());
+    assert.equal(await slangPage.evaluate(() => window.X1PenAutomation.getStatus().languageProfiles.slang.compilerRevision), null);
+    // Opening the tab starts loading the compiler
+    await slangPage.evaluate(() => document.querySelector('.editor-tab[data-tab="slang"]').click());
+    await slangPage.waitForFunction(() => !!(window.X1PenSlangWasm && window.X1PenSlangWasm.info()), null, { timeout: 30_000 });
+    const profile = await slangPage.evaluate(() => window.X1PenAutomation.getStatus().languageProfiles.slang);
+    assert.deepEqual(profile, { id: 'x1pen-slang-x1', environment: 'x1', envType: 1, osType: 0, defaultOrg: 0x100,
+      compilerRevision: revision, slangcVersion: '0.28.0' });
+    const result = await slangPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'slang', basic: '', asm: '', slang: [
+        '#INCLUDE "GRAPH.LIB"',
+        'MAIN() {',
+        '  PRINT("INCLUDE OK");',
+        '  LOOP { }',
+        '}',
+      ].join('\n') }, current.revision, current.revisionEpoch);
+      const run = await api.run();
+      return { run, status: document.getElementById('x1pen-status').textContent, active: api.getStatus().activeLanguageProfile };
+    });
+    assert.equal(result.run.ok, true, JSON.stringify(result));
+    assert.deepEqual(result.active, { language: 'slang', id: 'x1pen-slang-x1' });
+    await slangPage.waitForFunction(() => {
+      const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes;
+      return String.fromCharCode(...bytes).includes('INCLUDE OK');
+    }, null, { timeout: 30_000 });
+    // The former JS compiler and its runtime copies are not loaded
+    assert.deepEqual(requested.filter((path) => /x1pen_slang_compiler\.js|\/slang_runtime\/|\/slang_include\//.test(path)), []);
+    assert.ok(requested.some((path) => new RegExp(`/hubasic/${revision}/include/GRAPH\\.LIB$`).test(path)));
+  } finally {
+    await context.close();
+  }
+});
+
+test('a SLANG Run without the compiler says so and works again once the bundle can be loaded', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext();
+  try {
+    let block = true;
+    await context.route('**/hubasic/current.json*', (route) => (block ? route.fulfill({ status: 404, body: '' }) : route.continue()));
+    const slangPage = await context.newPage();
+    await slangPage.goto(`${baseUrl}/x1pen.html`);
+    await slangPage.evaluate(() => window.X1PenAutomation.ready());
+    const runSlang = () => slangPage.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'slang', basic: '', asm: '', slang: 'MAIN() {\n  LOOP { }\n}\n' }, current.revision, current.revisionEpoch);
+      const run = await api.run();
+      return { ok: run.ok, code: run.code, status: document.getElementById('x1pen-status').textContent };
+    });
+    const failed = await runSlang();
+    assert.equal(failed.ok, false);
+    assert.equal(failed.code, 'SLANG_TOOLCHAIN_UNAVAILABLE');
+    assert.match(failed.status, /^SLANG: compiler unavailable \(/);
+    block = false;
+    const again = await runSlang();
+    assert.equal(again.ok, true, JSON.stringify(again));
+  } finally {
+    await context.close();
   }
 });
 
@@ -1577,7 +1655,7 @@ test('connection state and AI interaction lock are visible', async () => {
   assert.equal(locked.status.connected, true);
   assert.equal(locked.status.interactionLocked, true);
   assert.equal(locked.status.languageProfiles.fuzzybasic.id, 'x1pen-fuzzybasic-1.2L');
-  assert.equal(locked.status.languageProfiles.slang.id, 'x1pen-slang-c9e8f53-lsx');
+  assert.equal(locked.status.languageProfiles.slang.id, 'x1pen-slang-x1');
   assert.equal(locked.status.languageProfiles.slang.envType, 1);
   assert.equal(locked.status.sourceMode, 'basic+asm');
   assert.equal(locked.status.activeLanguageProfile.id, 'x1pen-fuzzybasic-1.2L');
@@ -2090,6 +2168,9 @@ test('embedded M8A data assembles and draws into graphics VRAM', { timeout: 60_0
           '};',
           '',
           'MAIN() BEGIN',
+          // M8ALOAD reads the X1 work area (AT_WIDTH) but does not pull it in by itself in this
+          // runtime revision; WIDTH does (the SLANG reference says so)
+          '  WIDTH(40);',
           '  M8ALOAD(M8A_DATA,0,0);',
           '  LOOP VSYNC1();',
           'END;',

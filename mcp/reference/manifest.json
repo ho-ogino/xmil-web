@@ -3,7 +3,7 @@
   "referenceVersion": "2026-11-19",
   "defaultProfiles": {
     "fuzzybasic": "x1pen-fuzzybasic-1.2L",
-    "slang": "x1pen-slang-c9e8f53-lsx",
+    "slang": "x1pen-slang-x1",
     "z80asm": "x1pen-z80asm-current",
     "x1": "x1-hardware-xmillennium-web",
     "hubasic": "x1pen-hubasic-x1native"
@@ -22,18 +22,22 @@
       ]
     },
     {
-      "id": "x1pen-slang-c9e8f53-lsx",
+      "id": "x1pen-slang-x1",
       "language": "slang",
-      "displayName": "X1Pen SLANG c9e8f53 / LSX-Dodgers",
-      "compilerRevision": "c9e8f5315d8d44a413368045d78439a4ec8da3fc",
+      "displayName": "X1Pen SLANG (slangc 0.28.0 / x1)",
+      "slangcVersion": "0.28.0",
+      "compilerRevision": "6e73c0865c28450aa4ecac524faae18be38566f8",
       "environment": {
         "ENV_TYPE": 1,
+        "OS_TYPE": 0,
         "defaultOrg": 256,
-        "runtime": "lsx-dodgers"
+        "runtime": "x1"
       },
-      "notes": "The exact browser compiler snapshot and the runtime/include files loaded by the X1Pen VFS. Schema v2 indexes compiler vocabulary, runtime metadata symbols and bundled include APIs, with dedicated entries for supported application-facing contracts.",
+      "notes": "The SLANG compiler (slangc) of the SLANG-compiler browser bundle at compilerRevision, in its x1 environment (LSX-Dodgers on the X1), with that revision's runtime and include files. Schema v2 indexes compiler vocabulary, runtime metadata symbols and bundled include APIs, with dedicated entries for supported application-facing contracts. It is reviewed whenever X1Pen imports another bundle.",
       "sourceUrls": [
-        "https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"
+        "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md",
+        "https://github.com/h-o-soft/SLANG-compiler/tree/6e73c0865c28450aa4ecac524faae18be38566f8/runtime",
+        "https://github.com/h-o-soft/SLANG-compiler/tree/6e73c0865c28450aa4ecac524faae18be38566f8/include"
       ]
     },
     {
