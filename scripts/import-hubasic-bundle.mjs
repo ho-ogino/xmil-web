@@ -9,6 +9,8 @@
 // LICENSE files and manifest.json. Build it from the SLANG-compiler main revision to import:
 //   git -C <SLANG-compiler> worktree add <tmp> <revision>
 //   AILZ80ASM_PATH=<SLANG-compiler>/tools/AILZ80ASM <tmp>/scripts/build-hubasic-wasm.sh <bundle-dir>
+// Import only bundles you trust (built from SLANG-compiler as above): before publishing, this
+// script starts the bundle's .NET code in a child process with your permissions, to check it.
 // The wasm and the runtime must come from one revision, so a bundle built from uncommitted sources
 // (manifest dirty: true) is refused unless --allow-dirty is given for local experiments. Never
 // commit such a bundle. Every copied file is checked against the manifest's sha256.
@@ -40,11 +42,13 @@ const slangFixtureDir = join(destRoot, 'tests', 'fixtures', 'slang');
 const args = process.argv.slice(2);
 const allowDirty = args.includes('--allow-dirty');
 
-// --load-check <stage-root> <revision>: start <stage-root>/hubasic/<revision>/ the way the page
-// does (html/x1pen_slang_wasm.js: the .NET runtime, both exports, their revision and the runtime
-// markers) and exit 0, or print why not and exit 1. The import runs this in a child process.
+// --load-check <stage-root> <revision> <fixture-dir>: start <stage-root>/hubasic/<revision>/ the
+// way the page does (html/x1pen_slang_wasm.js: the .NET runtime, both exports, their revision and
+// the runtime markers), then build every HuBASIC program of <fixture-dir> with the page's own
+// toolchain (html/x1pen_hubasic.js) and compare it with the bundle's binary; exit 0, or print why
+// not and exit 1. The import runs this in a child process.
 if (args[0] === '--load-check') {
-  const [, stageRoot, revision] = args;
+  const [, stageRoot, revision, checkFixtureDir] = args;
   try {
     const page = {
       console, TextEncoder, TextDecoder, URL, URLSearchParams, atob, Uint8Array, ArrayBuffer,
@@ -61,11 +65,25 @@ if (args[0] === '--load-check') {
     };
     page.window = page;
     vm.createContext(page);
-    vm.runInContext(await readFile(join(repoRoot, 'html', 'x1pen_slang_wasm.js'), 'utf8'), page, {
-      filename: 'x1pen_slang_wasm.js', importModuleDynamically: vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER,
-    });
+    for (const file of ['x1pen_z80asm.js', 'x1pen_slfs_disk.js', 'x1pen_slang_wasm.js', 'x1pen_hubasic.js']) {
+      vm.runInContext(await readFile(join(repoRoot, 'html', file), 'utf8'), page, {
+        filename: file, importModuleDynamically: vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER,
+      });
+    }
     const info = await page.X1PenSlangWasm.load();
     if (!info || info.revision !== revision) throw new Error('the staged bundle reports another revision');
+    // Every environment compiles: the testdata programs build to the bundle's own binaries
+    const expected = JSON.parse(await readFile(join(checkFixtureDir, 'expected.json'), 'utf8'));
+    for (const [name, want] of Object.entries(expected.programs)) {
+      const files = [];
+      for (const f of want.files) files.push({ name: f.name, kind: f.kind, bytes: new Uint8Array(await readFile(join(checkFixtureDir, f.file))) });
+      const source = (await readFile(join(checkFixtureDir, `${name}.BAS`))).toString('utf8');
+      const built = await page.X1PenHuBasic.build(source, want.transpileOptions, files, { sourceName: `${name}.BAS` });
+      if (!built.ok) throw new Error(`${name} does not build (${built.stage}): ${built.message}`);
+      if (built.environment !== want.env) throw new Error(`${name} builds for ${built.environment}, not ${want.env}`);
+      const bin = await readFile(join(checkFixtureDir, `${name}.bin`));
+      if (Buffer.compare(Buffer.from(built.bytes), bin) !== 0) throw new Error(`${name} builds to other bytes than the bundle's binary`);
+    }
   } catch (e) {
     console.error(String(e && e.message || e).split('\n')[0]);
     process.exit(1);
@@ -290,11 +308,12 @@ async function stage(dir, files) {
   }
 }
 
-// Starts the staged bundle in a separate node process, with the page's own loader (see
-// --load-check above): the .NET runtime ends the whole process when a framework file is missing.
+// Starts the staged bundle and builds the testdata programs in a separate node process, with the
+// page's own code (see --load-check above): the .NET runtime ends the whole process when a
+// framework file is missing.
 function loadLikeThePage() {
   const run = spawnSync(process.execPath, ['--no-warnings', fileURLToPath(import.meta.url), '--load-check', stageRoot, revision,
-    ...(allowDirty ? ['--allow-dirty'] : [])], { encoding: 'utf8', timeout: 120_000 });
+    stagedHubasic, ...(allowDirty ? ['--allow-dirty'] : [])], { encoding: 'utf8', timeout: 300_000 });
   if (run.status !== 0) {
     const detail = `${run.stderr || ''}${run.stdout || ''}`.trim().split('\n').filter(Boolean).pop() || `exit ${run.status}`;
     throw new Error(detail);

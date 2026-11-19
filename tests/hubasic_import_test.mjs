@@ -10,7 +10,8 @@ import { test } from 'node:test';
 // scripts/import-hubasic-bundle.mjs checks a whole bundle, and starts it the way the page does,
 // before it changes anything; a failure at any later step puts everything back. It runs here
 // against temporary destinations (IMPORT_HUBASIC_ROOT), never this checkout. The bundles are made
-// from the committed one (its .NET framework, runtime and environments) with small testdata.
+// from the committed one: its .NET framework, runtime and environments, and two of its testdata
+// programs (the import builds them with the page's toolchain and compares the binaries).
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const importer = join(repoRoot, 'scripts', 'import-hubasic-bundle.mjs');
@@ -18,6 +19,8 @@ const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const revision = JSON.parse(readFileSync(join(repoRoot, 'assets', 'hubasic', 'current.json'), 'utf8')).revision;
 const committedDir = join(repoRoot, 'assets', 'hubasic', revision);
 const committed = JSON.parse(readFileSync(join(committedDir, 'manifest.json'), 'utf8'));
+const fixtureDir = join(repoRoot, 'tests', 'fixtures', 'hubasic');
+const fixtures = JSON.parse(readFileSync(join(fixtureDir, 'expected.json'), 'utf8')).programs;
 
 function snapshot(root) {
   const out = {};
@@ -47,9 +50,10 @@ function fakeDestination({ empty = false } = {}) {
   return root;
 }
 
-// The committed bundle's files (linked, not copied) and small testdata that `mutate` can break.
-// skip: bundle files to leave out of the bundle and its file list.
-function fakeBundle(mutate = () => {}, { skip = () => false } = {}) {
+// The committed bundle's files (linked, not copied) and testdata that `mutate` can break.
+// skip: bundle files to leave out of the bundle and its file list; replace: { path: text } to put
+// in place of a bundle file (listed with its own hash, so only the build check can catch it).
+function fakeBundle(mutate = () => {}, { skip = () => false, replace = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'x1pen-bundle-'));
   const files = {};
   const put = (path, text) => {
@@ -62,21 +66,21 @@ function fakeBundle(mutate = () => {}, { skip = () => false } = {}) {
       const path = join(at, entry.name);
       const rel = relative(committedDir, path);
       if (entry.isDirectory()) { walk(path); continue; }
-      if (rel === 'manifest.json' || skip(rel)) continue;
+      if (rel === 'manifest.json' || skip(rel) || rel in replace) continue;
       mkdirSync(dirname(join(dir, rel)), { recursive: true });
       symlinkSync(path, join(dir, rel));
       files[rel] = readFileSync(path);
     }
   };
   walk(committedDir);
+  for (const [path, text] of Object.entries(replace)) put(path, text);
   for (const name of ['HELLO', 'FILEIO']) {
-    put(`testdata/${name}.BAS`, '10 END');
-    put(`testdata/${name}.SL`, 'MAIN() {}');
-    put(`testdata/${name}.bin`, 'BIN');
-    put(`testdata/${name}.LST`, '      3533                     __WORKEND__ EQU (__WORK__ + 4012)\n');
+    for (const ext of ['BAS', 'SL', 'bin']) put(`testdata/${name}.${ext}`, readFileSync(join(fixtureDir, `${name}.${ext}`)));
+    const end = fixtures[name].workEnd.toString(16).toUpperCase().padStart(4, '0');
+    put(`testdata/${name}.LST`, `      ${end}                     __WORKEND__ EQU (__WORK__ + 4012)\n`);
     put(`testdata/${name}.d88`, 'D88');
   }
-  put('testdata/FILEIO.GREET.TXT', 'HELLO\n');
+  put('testdata/FILEIO.GREET.TXT', readFileSync(join(fixtureDir, fixtures.FILEIO.files[0].file)));
   put('testdata/slang/SCREEN.SL', 'MAIN() {}');
   put('testdata/slang/SCREEN.ASM', ' RET');
   put('testdata/slang/SCREEN.bin', 'BIN');
@@ -101,10 +105,10 @@ function runImport(bundle, root, env = {}) {
     { encoding: 'utf8', env: { ...process.env, ...env, IMPORT_HUBASIC_ROOT: root } });
 }
 
-function assertImportChangesNothing({ mutate, skip, env = {}, empty = false }, stderrPattern) {
+function assertImportChangesNothing({ mutate, skip, replace, env = {}, empty = false }, stderrPattern) {
   const root = fakeDestination({ empty });
   const before = snapshot(root);
-  const bundle = fakeBundle(mutate, { skip });
+  const bundle = fakeBundle(mutate, { skip, replace });
   try {
     const run = runImport(bundle, root, env);
     assert.equal(run.status, 1, run.stdout + run.stderr);
@@ -182,6 +186,15 @@ test('a bundle the page would refuse is not imported', () => {
 test('a bundle missing a file its .NET framework needs is not imported', () => {
   assertImportChangesNothing({ skip: (rel) => /^_framework\/dotnet\.native\.[^/]*\.wasm$/.test(rel) },
     /^import-hubasic-bundle: nothing changed: the page could not start this bundle/);
+});
+
+test('a bundle that starts but cannot build the HuBASIC testdata is not imported', () => {
+  // A broken environment file whose hash is listed: only building a program finds it
+  assertImportChangesNothing({ replace: { 'env/x1native_hufs.env': 'libraries: [\n' } },
+    /^import-hubasic-bundle: nothing changed: the page could not start this bundle: FILEIO does not build/);
+  // A testdata binary that the page's toolchain does not reproduce
+  assertImportChangesNothing({ mutate: (m) => { m.testdata.cases[0].bin = 'testdata/FILEIO.bin'; } },
+    /^import-hubasic-bundle: nothing changed: the page could not start this bundle: HELLO builds to other bytes/);
 });
 
 for (const empty of [false, true]) {
