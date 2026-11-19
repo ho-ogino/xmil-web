@@ -3922,6 +3922,53 @@ test('HuBASIC files stay after a reload, stay out of the library, and go with a 
   }
 });
 
+test('HuBASIC files: two first uses share one bundle, and picked names never replace each other', { timeout: 180_000 }, async () => {
+  const context = await browser.newContext();
+  try {
+    const first = await context.newPage();
+    await first.goto(`${baseUrl}/x1pen.html`);
+    await first.evaluate(() => window.X1PenAutomation.ready());
+    await first.evaluate(async () => {
+      const api = window.X1PenAutomation;
+      const current = api.getProgram();
+      await api.setProgram({ sourceMode: 'hubasic', hubasic: '10 PRINT "TWO"\n' }, current.revision, current.revisionEpoch);
+    });
+    // The disk image button and a validation both load the bundle for the first time
+    await first.evaluate(() => document.querySelector('.editor-tab[data-tab="hubasic"]').click());
+    await first.locator('#btn-hubasic-files').click();
+    const [image, overlapping] = await Promise.all([
+      first.waitForEvent('download'),
+      first.evaluate(async () => {
+        document.getElementById('hubasic-files-save-disk').click();
+        const validation = await window.X1PenAutomation.validate();
+        return { ok: validation.ok, scripts: document.querySelectorAll('script[src*="x1pen_slang_wasm.js"]').length };
+      }),
+    ]);
+    assert.equal(image.suggestedFilename(), 'PROGRAM.d88');
+    assert.deepEqual(overlapping, { ok: true, scripts: 1 });
+
+    // Names made for files whose own names do not follow the rules never take another file's place
+    await setHuBasicFiles([{ name: 'FILE', kind: 'raw', base64: latin1Base64('KEEP') }], first);
+    await first.locator('#hubasic-files-input').setInputFiles([
+      { name: '売上.TXT', mimeType: 'text/plain', buffer: Buffer.from('A\n') },
+      { name: '明細.TXT', mimeType: 'text/plain', buffer: Buffer.from('B\n') },
+      { name: 'OK.TXT', mimeType: 'text/plain', buffer: Buffer.from('C\n') },
+    ]);
+    await first.waitForFunction(() => document.getElementById('btn-hubasic-files').textContent === 'Files (4)');
+    const picked = await first.evaluate(() => window.X1PenAutomation.getHuBasicFiles());
+    const byName = Object.fromEntries(picked.files.map((f) => [f.name, Buffer.from(f.base64, 'base64').toString('latin1')]));
+    assert.deepEqual(Object.keys(byName).sort(), ['FILE', 'FILE2', 'FILE3', 'OK.TXT']);
+    assert.equal(byName.FILE, 'KEEP');
+    assert.deepEqual([byName.FILE2, byName.FILE3].sort(), ['A\n', 'B\n']);
+    assert.match(await first.locator('#hubasic-files-message').textContent(), /売上\.TXT → FILE[23]/);
+    await first.locator('#hubasic-files-close').click();
+
+    await setHuBasicFiles([], first);
+  } finally {
+    await context.close();
+  }
+});
+
 test('HuBASIC and the other source modes clear each other and persist', { timeout: 60_000 }, async () => {
   const slangFirst = await page.evaluate(async () => {
     const api = window.X1PenAutomation;

@@ -24,6 +24,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const assetsDir = join(repoRoot, 'assets', 'hubasic');
@@ -72,6 +73,20 @@ if (!hufsTestdata || hufsTestdata.env !== 'x1native_hufs' || !Array.isArray(hufs
 const slangTestdata = manifest.slangTestdata;
 if (!slangTestdata || slangTestdata.env !== 'x1' || !Array.isArray(slangTestdata.cases) || slangTestdata.cases.length === 0) {
   fail('manifest has no x1 testdata (slangTestdata)');
+}
+
+// The checks the page makes before it uses a bundle (html/x1pen_slang_wasm.js): a bundle the page
+// would refuse is not imported
+{
+  const page = { location: { hostname: 'import.invalid', search: '' }, URLSearchParams };
+  page.window = page;
+  vm.createContext(page);
+  vm.runInContext(await readFile(join(repoRoot, 'html', 'x1pen_slang_wasm.js'), 'utf8'), page, { filename: 'x1pen_slang_wasm.js' });
+  try {
+    page.X1PenSlangWasm._checkManifest(allowDirty ? { ...manifest, dirty: false } : manifest);
+  } catch (e) {
+    fail(`the page would refuse this bundle: ${e.message}`);
+  }
 }
 
 // Verify every listed file before copying anything
@@ -194,18 +209,44 @@ await stage(stagedBundle, bundleOut);
 await stage(stagedHubasic, hubasicOut);
 await stage(stagedSlang, slangOut);
 
-// Publish: each directory is swapped by rename; current.json switches the page last
-async function swap(staged, final) {
-  const old = `${final}.old`;
-  await rm(old, { recursive: true, force: true });
-  if (existsSync(final)) await rename(final, old);
-  await rename(staged, final);
-  await rm(old, { recursive: true, force: true });
+// Publish: each directory is swapped by rename and its previous copy is kept until everything is
+// in place; current.json (written next to it, then renamed) switches the page last. On a failure
+// every swapped path is put back. IMPORT_HUBASIC_FAIL_AFTER=<n> (tests only) fails after n steps.
+const failAfter = Number(process.env.IMPORT_HUBASIC_FAIL_AFTER || NaN);
+let steps = 0;
+function step() {
+  steps++;
+  if (steps === failAfter) throw new Error(`stopped after step ${steps} (IMPORT_HUBASIC_FAIL_AFTER)`);
 }
-await swap(stagedHubasic, fixtureDir);
-await swap(stagedSlang, slangFixtureDir);
-await swap(stagedBundle, join(assetsDir, revision));
-await writeFile(join(assetsDir, 'current.json'), `${JSON.stringify({ revision }, null, 2)}\n`);
+const swapped = [];   // { final, backup|null }
+async function swap(staged, final) {
+  const backup = `${final}.previous`;
+  await rm(backup, { recursive: true, force: true });
+  const had = existsSync(final);
+  if (had) await rename(final, backup);
+  swapped.push({ final, backup: had ? backup : null });
+  await rename(staged, final);
+  step();
+}
+const currentJson = join(assetsDir, 'current.json');
+const currentBackup = await readFile(currentJson).catch(() => null);
+try {
+  await swap(stagedHubasic, fixtureDir);
+  await swap(stagedSlang, slangFixtureDir);
+  await swap(stagedBundle, join(assetsDir, revision));
+  await writeFile(`${currentJson}.next`, `${JSON.stringify({ revision }, null, 2)}\n`);
+  await rename(`${currentJson}.next`, currentJson);
+  step();
+} catch (e) {
+  for (const { final, backup } of swapped.reverse()) {
+    await rm(final, { recursive: true, force: true });
+    if (backup) await rename(backup, final);
+  }
+  if (currentBackup) await writeFile(currentJson, currentBackup);
+  for (const dir of [stagedBundle, stagedHubasic, stagedSlang, `${currentJson}.next`]) await rm(dir, { recursive: true, force: true });
+  fail(`could not publish the bundle, nothing changed: ${e.message}`);
+}
+for (const { backup } of swapped) if (backup) await rm(backup, { recursive: true, force: true });
 for (const entry of await readdir(assetsDir, { withFileTypes: true })) {
   if (entry.isDirectory() && entry.name !== revision) {
     await rm(join(assetsDir, entry.name), { recursive: true, force: true });

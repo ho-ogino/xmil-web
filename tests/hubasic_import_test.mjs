@@ -26,6 +26,10 @@ function snapshot(dir) {
   return out;
 }
 
+// The environments of the committed bundle: a fake bundle with them passes the page's checks
+const committed = JSON.parse(readFileSync(join(repoRoot, 'assets', 'hubasic',
+  JSON.parse(readFileSync(join(repoRoot, 'assets', 'hubasic', 'current.json'), 'utf8')).revision, 'manifest.json'), 'utf8'));
+
 // A small bundle with every file the importer asks for, and testdata that `mutate` can break
 function fakeBundle(mutate) {
   const dir = mkdtempSync(join(tmpdir(), 'x1pen-bundle-'));
@@ -35,12 +39,11 @@ function fakeBundle(mutate) {
     writeFileSync(join(dir, path), text);
     files[path] = Buffer.from(text);
   };
-  const envs = {};
-  for (const name of ['x1native_slfs', 'x1native_hufs', 'x1']) {
-    envs[name] = { libraries: ['runtime.asm'] };
+  const envs = JSON.parse(JSON.stringify(committed.envs));
+  for (const [name, env] of Object.entries(envs)) {
     put(`env/${name}.env`, name);
+    for (const lib of env.libraries) if (!files[`runtime/${lib}`]) put(`runtime/${lib}`, `; ${lib}`);
   }
-  put('runtime/runtime.asm', '; runtime');
   put('include/GRAPH.LIB', '// lib');
   put('_framework/dotnet.js', '// dotnet');
   put('LICENSE', 'MIT');
@@ -62,7 +65,8 @@ function fakeBundle(mutate) {
   });
   const manifest = {
     slangCompilerRevision: 'a'.repeat(40), dirty: false, hubasic2slVersion: 'test', slangcVersion: 'test',
-    basAbi: 4, basFileAbi: 1, envs,
+    basAbi: committed.basAbi, basFileAbi: committed.basFileAbi, loadAddress: committed.loadAddress,
+    reservedStart: committed.reservedStart, envs,
     testdata: { env: 'x1native_slfs', cases: [caseOf('HELLO')] },
     hufsTestdata: { env: 'x1native_hufs', cases: [{ ...caseOf('FILEIO'), hufsAdd: [{ name: 'GREET.TXT', file: 'testdata/FILEIO.GREET.TXT', kind: 'text' }] }] },
     slangTestdata: { env: 'x1', includePaths: ['include'], cases: [{ name: 'SCREEN', sl: 'testdata/slang/SCREEN.SL', asm: 'testdata/slang/SCREEN.ASM', bin: 'testdata/slang/SCREEN.bin' }] },
@@ -73,6 +77,25 @@ function fakeBundle(mutate) {
   return dir;
 }
 
+function assertImportChangesNothing(mutate, env = {}, stderrPattern) {
+  const watched = [join(repoRoot, 'assets', 'hubasic'), join(repoRoot, 'tests', 'fixtures', 'hubasic'), join(repoRoot, 'tests', 'fixtures', 'slang')];
+  const before = Object.assign({}, ...watched.map(snapshot));
+  const bundle = fakeBundle(mutate);
+  try {
+    const run = spawnSync(process.execPath, [join(repoRoot, 'scripts', 'import-hubasic-bundle.mjs'), bundle],
+      { encoding: 'utf8', env: { ...process.env, ...env } });
+    assert.equal(run.status, 1, run.stdout + run.stderr);
+    assert.match(run.stderr, stderrPattern);
+    assert.deepEqual(Object.assign({}, ...watched.map(snapshot)), before);
+    for (const dir of watched) assert.ok(statSync(dir).isDirectory());
+    for (const dir of [join(repoRoot, 'tests', 'fixtures'), join(repoRoot, 'assets', 'hubasic')]) {
+      assert.deepEqual(readdirSync(dir).filter((name) => /^\.staging|\.previous$|\.next$/.test(name)), [], `${dir} has leftovers`);
+    }
+  } finally {
+    rmSync(bundle, { recursive: true, force: true });
+  }
+}
+
 for (const [what, mutate] of [
   ['a hufsAdd entry names a file that is not in the bundle', (m) => { m.hufsTestdata.cases[0].hufsAdd[0].file = 'testdata/NONE.TXT'; }],
   ['a hufsAdd entry has an unknown kind', (m) => { m.hufsTestdata.cases[0].hufsAdd[0].kind = 'ascii'; }],
@@ -80,18 +103,19 @@ for (const [what, mutate] of [
   ['a listing has no __WORKEND__', (m) => { m.testdata.cases[0].lst = 'testdata/FILEIO.GREET.TXT'; }],
 ]) {
   test(`a bundle where ${what} changes nothing`, () => {
-    const watched = [join(repoRoot, 'assets', 'hubasic'), join(repoRoot, 'tests', 'fixtures', 'hubasic'), join(repoRoot, 'tests', 'fixtures', 'slang')];
-    const before = Object.assign({}, ...watched.map(snapshot));
-    const bundle = fakeBundle(mutate);
-    try {
-      const run = spawnSync(process.execPath, [join(repoRoot, 'scripts', 'import-hubasic-bundle.mjs'), bundle], { encoding: 'utf8' });
-      assert.equal(run.status, 1, run.stdout + run.stderr);
-      // Stopped at the testdata, not earlier at the bundle's own files
-      assert.match(run.stderr, /^import-hubasic-bundle: .*(testdata|slangTestdata|hufsAdd|__WORKEND__)/);
-      assert.deepEqual(Object.assign({}, ...watched.map(snapshot)), before);
-      for (const dir of watched) assert.ok(statSync(dir).isDirectory());
-    } finally {
-      rmSync(bundle, { recursive: true, force: true });
-    }
+    // Stopped at the testdata, not earlier at the bundle's own files
+    assertImportChangesNothing(mutate, {}, /^import-hubasic-bundle: .*(testdata|slangTestdata|hufsAdd|__WORKEND__)/);
+  });
+}
+
+test('a bundle the page would refuse is not imported', () => {
+  assertImportChangesNothing((m) => { m.envs.x1native_hufs.defaultOrg = 0x2000; }, {},
+    /^import-hubasic-bundle: the page would refuse this bundle: .*x1native_hufs\.defaultOrg/);
+});
+
+for (const failAfter of [1, 2, 3, 4]) {
+  test(`a failure after publishing step ${failAfter} puts everything back`, () => {
+    assertImportChangesNothing(() => {}, { IMPORT_HUBASIC_FAIL_AFTER: String(failAfter) },
+      /^import-hubasic-bundle: could not publish the bundle, nothing changed: stopped after step/);
   });
 }

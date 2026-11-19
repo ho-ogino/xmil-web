@@ -84,8 +84,11 @@ test('a set is checked as a whole: names, kinds, sizes and the total', () => {
   assert.throws(() => Files.normalize(one({ bytes: 'x' })), /中身/);
   assert.throws(() => Files.normalize(one({ name: 'A:B' })), /使えません/);
   assert.throws(() => Files.normalize([...one({}), ...one({})]), /同じ名前/);
-  assert.throws(() => Files.normalize(one({ bytes: new Uint8Array(65536) })), (e) => e.code === 'HUBASIC_FILES_TOO_LARGE');
-  assert.doesNotThrow(() => Files.normalize(one({ bytes: new Uint8Array(65535) })));
+  // Bin has a 16-bit size field; text and raw (Asc, sized by records) are limited by the total only
+  assert.throws(() => Files.normalize(one({ kind: 'bin', bytes: new Uint8Array(65536) })), (e) => e.code === 'HUBASIC_FILES_TOO_LARGE');
+  assert.doesNotThrow(() => Files.normalize(one({ kind: 'bin', bytes: new Uint8Array(65535) })));
+  assert.doesNotThrow(() => Files.normalize(one({ kind: 'raw', bytes: new Uint8Array(65536) })));
+  assert.doesNotThrow(() => Files.normalize(one({ kind: 'text', bytes: new Uint8Array(100000) })));
   const many = Array.from({ length: 5 }, (_, i) => ({ name: `F${i}`, kind: 'bin', bytes: new Uint8Array(65535) }));
   assert.throws(() => Files.normalize(many), (e) => e.code === 'HUBASIC_FILES_TOO_LARGE' && /合計/.test(e.message));
   assert.throws(() => Files.normalize(Array.from({ length: 65 }, (_, i) => ({ name: `F${i}`, bytes: bytes('x') }))), /64/);
@@ -243,6 +246,51 @@ test('a tab that opens while another is saving waits, and keeps the other tab\'s
   assert.deepEqual(json((await third.open()).files.map((f) => f.name)), ['NEW.TXT', 'MORE.TXT']);
 });
 
+test('a tab that is already open sees the files another tab saved', async () => {
+  const storage = fakeStorage();
+  const ls = fakeLocalStorage();
+  const locks = fakeLocks();
+  const first = Files.createStore({ storage, localStorage: ls, locks });
+  const second = Files.createStore({ storage, localStorage: ls, locks });
+  await first.open();
+  await second.open();
+  await first.put([{ name: 'NEW.TXT', bytes: bytes('new') }]);
+  assert.equal(second.count(), 0);
+  assert.equal(await second.refresh(), true);
+  assert.deepEqual(json(second.list().map((f) => f.name)), ['NEW.TXT']);
+  assert.equal(await second.refresh(), false, 'nothing changed since');
+});
+
+test('without Web Locks, opening a tab still leaves the bodies of a save in progress', async () => {
+  const storage = fakeStorage();
+  const ls = fakeLocalStorage();
+  const first = Files.createStore({ storage, localStorage: ls, locks: null });
+  await first.open();
+  await first.replaceAll([{ name: 'OLD.TXT', bytes: bytes('old') }]);
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let written;
+  const wroteBody = new Promise((resolve) => { written = resolve; });
+  const write = storage.write;
+  storage.write = async (key, buffer) => { await write(key, buffer); written(); await held; };
+  const saving = first.put([{ name: 'NEW.TXT', bytes: bytes('new') }]);
+  await wroteBody;
+  storage.write = write;
+  // The second tab cannot wait for the first one; it opens while the save is held
+  const second = Files.createStore({ storage, localStorage: ls, locks: null });
+  await second.open();
+  release();
+  await saving;
+  const reloaded = Files.createStore({ storage, localStorage: ls, locks: null });
+  const opened = await reloaded.open();
+  assert.deepEqual(json(opened.files.map((f) => f.name)), ['OLD.TXT', 'NEW.TXT']);
+  assert.deepEqual(json(opened.missing), []);
+  // An old leftover is still removed
+  storage.map.set(`x1pen_hufile_${(Date.now() - 2 * 3600 * 1000).toString(36)}0000_0`, bytes('stale'));
+  await Files.createStore({ storage, localStorage: ls, locks: null }).open();
+  assert.equal([...storage.map.keys()].filter((k) => k.endsWith('0000_0')).length, 0);
+});
+
 test('Hu-BASIC text comes back as text: up to $1A, CR as LF', () => {
   assert.deepEqual([...Files.textFromHu(new Uint8Array([0x41, 0x0D, 0x42, 0x1A, 0x00, 0x00]))], [0x41, 0x0A, 0x42]);
   assert.deepEqual([...Files.textFromHu(new Uint8Array([0x41]))], [0x41]);
@@ -285,9 +333,29 @@ test('the disk editor adds text files as Hu-BASIC Asc ($04) and reads them back'
   assert.equal(new TextDecoder().decode(fs.readFile(entry)), 'A\rB\r\x1a');
   const read = Files.readDiskFiles(new Uint8Array(container.toArrayBuffer()));
   assert.equal(read.find((f) => f.name === 'NOTE.TXT').kind, 'asc');
-  // An empty text file is one empty Asc record; one written before as $20 still reads as empty
+  // An empty file takes no record, and reads back empty after the disk is opened again
+  const freeBefore = fs.getFreeClusters();
   fs.addFile('EMPTY', 'TXT', new Uint8Array(0));
-  const empty = fs.listDirectory().find((e) => e.name.trim() === 'EMPTY');
-  const legacy = Object.assign({}, empty, { mode: 0x20 });
-  assert.equal(fs.readFile(legacy).length, 0);
+  const reopened = new page.XmilDiskFS.HuBasicFS(page.XmilDiskContainer.openContainer(container.toArrayBuffer(), 'x.d88'));
+  const empty = reopened.listDirectory().find((e) => e.name.trim() === 'EMPTY');
+  assert.equal(empty.mode, 0x04);
+  assert.equal(reopened.readFile(empty).length, 0);
+  assert.equal(reopened.getFreeClusters(), freeBefore);
+  // The text file added before still reads by its size field
+  assert.equal(reopened.readFile(reopened.listDirectory().find((e) => e.name.trim() === 'NOTE')).length, 5);
+});
+
+test('a raw file as large as the disk allows keeps its whole records through a read-back and a rebuild', async () => {
+  await page.X1PenSlangWasm.load();
+  const raw = new Uint8Array(65535).map((_, i) => (i * 7) & 0xff);
+  const first = await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array([0xC9]), { mainName: 'PROG', files: [{ name: 'BIG.DAT', kind: 'raw', bytes: raw }] });
+  assert.equal(first.ok, true, first.error);
+  const read = Files.readDiskFiles(first.d88).find((f) => f.name === 'BIG.DAT');
+  assert.equal(read.bytes.length, 65536);
+  const store = Files.createMemoryStore();
+  await store.put([{ name: read.name, kind: 'raw', bytes: read.bytes }]);
+  const again = await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array([0xC9]), { mainName: 'PROG', files: store.files() });
+  assert.equal(again.ok, true, again.error);
+  const back = Files.readDiskFiles(again.d88).find((f) => f.name === 'BIG.DAT');
+  assert.deepEqual([...back.bytes.slice(0, 65535)], [...raw]);
 });

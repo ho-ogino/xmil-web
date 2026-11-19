@@ -21,8 +21,12 @@
 
     var LIST_KEY = 'x1pen_hubasic_files';
     var KEY_PREFIX = 'x1pen_hufile_';
-    var MAX_FILE_BYTES = 65535;           // a Hu-BASIC Bin entry; text and raw use the same limit
-    var MAX_TOTAL_BYTES = 300 * 1024;     // a 2D disk has 76 free clusters of 4 KB
+    var MAX_FILE_BYTES = 65535;           // a Hu-BASIC Bin entry (its size field is 16 bits)
+    var MAX_TOTAL_BYTES = 300 * 1024;     // a 2D disk has 78 free clusters of 4 KB; text and raw
+                                          // (Asc, sized by records) are limited by this only
+    // Without Web Locks another tab cannot be waited for, so only bodies older than this are
+    // taken for leftovers of a closed page
+    var STALE_BODY_MS = 60 * 60 * 1000;
     var MAX_FILES = 64;
     var KINDS = ['text', 'bin', 'raw'];
 
@@ -79,8 +83,8 @@
             if (KINDS.indexOf(kind) < 0) throw filesError('種類は text・bin・raw のどれかです: ' + file.name);
             var bytes = toBytes(file.bytes);
             if (!bytes) throw filesError('中身がありません: ' + file.name);
-            if (bytes.length > MAX_FILE_BYTES) {
-                throw filesError('1 本は ' + MAX_FILE_BYTES + ' バイトまでです: ' + file.name + ' (' + bytes.length + ' バイト)', 'HUBASIC_FILES_TOO_LARGE');
+            if (kind === 'bin' && bytes.length > MAX_FILE_BYTES) {
+                throw filesError('Bin のファイルは 1 本 ' + MAX_FILE_BYTES + ' バイトまでです: ' + file.name + ' (' + bytes.length + ' バイト)', 'HUBASIC_FILES_TOO_LARGE');
             }
             total += bytes.length;
             if (total > MAX_TOTAL_BYTES) {
@@ -112,6 +116,15 @@
     }
 
     var LOCK_NAME = 'x1pen_hubasic_files';
+
+    // <time in base 36><4 random base-36 digits>: the time lets a page without Web Locks tell an old
+    // leftover from a save in progress
+    var GENERATION_RANDOM_DIGITS = 4;
+    function newGeneration() {
+        var random = Math.floor(Math.random() * Math.pow(36, GENERATION_RANDOM_DIGITS)).toString(36);
+        while (random.length < GENERATION_RANDOM_DIGITS) random = '0' + random;
+        return Date.now().toString(36) + random;
+    }
 
     // ── kept in the browser ──
     // deps (for tests): { storage: XmilStorage-like, localStorage, locks: LockManager-like or null }
@@ -165,10 +178,15 @@
                 var list = readList();
                 var referenced = {};
                 list.files.forEach(function(f) { referenced[f.key] = true; });
+                var now = Date.now();
                 try {
                     var entries = await storage.list();
                     await removeQuietly(entries.map(function(e) { return e.key; }).filter(function(key) {
-                        return key.indexOf(KEY_PREFIX) === 0 && !referenced[key];
+                        if (key.indexOf(KEY_PREFIX) !== 0 || referenced[key]) return false;
+                        if (locks) return true;
+                        // A body of a save another tab is making now is recent: leave it
+                        var made = parseInt(key.slice(KEY_PREFIX.length).split('_')[0].slice(0, -GENERATION_RANDOM_DIGITS), 36);
+                        return !(now - made < STALE_BODY_MS);
                     }));
                 } catch (e) { /* storage unavailable: nothing to clean */ }
                 var missing = await load(list);
@@ -182,7 +200,7 @@
                 var previous = readList();
                 if (previous.generation !== cacheGeneration) await load(previous);
                 var files = normalize(fn(cache.map(copyFile)));
-                var generation = Date.now().toString(36) + Math.floor(Math.random() * 0x10000).toString(36);
+                var generation = newGeneration();
                 var written = [];
                 var entries = files.map(function(f, i) {
                     return { name: f.name, kind: f.kind, size: f.bytes.length, key: KEY_PREFIX + generation + '_' + i };
@@ -218,9 +236,20 @@
             });
         }
 
+        // Reads the saved set again if another tab changed it; true when it did
+        function refresh() {
+            return withLock(async function() {
+                var list = readList();
+                if (list.generation === cacheGeneration) return false;
+                await load(list);
+                return true;
+            });
+        }
+
         return makeApi({
             open: open,
             update: update,
+            refresh: refresh,
             current: function() { return cache; },
             persistent: true
         });
@@ -238,6 +267,7 @@
                     return summary(files);
                 });
             },
+            refresh: async function() { return false; },
             current: function() { return files; },
             persistent: false
         });
@@ -253,6 +283,7 @@
             persistent: impl.persistent,
             open: impl.open,
             update: impl.update,
+            refresh: impl.refresh,
             replaceAll: function(next) { return impl.update(function() { return next; }); },
             list: function() { return summary(impl.current()); },
             files: function() { return impl.current().map(copyFile); },

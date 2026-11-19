@@ -434,6 +434,25 @@ window.__X1PEN_MODE = true;
         return opened;
     });
 
+    // The files as saved now: another tab may have changed them since this one read them
+    async function currentHuBasicFiles() {
+        await hubasicFilesReady;
+        try {
+            if (await hubasicFiles.refresh()) notifyHuBasicFiles();
+        } catch (e) {
+            console.warn('[x1pen] HuBASIC files could not be read again:', e);
+        }
+        return hubasicFiles;
+    }
+
+    // Another tab saved a new set: read it, so the panel and the next Run see it
+    if (hubasicFiles.persistent) {
+        window.addEventListener('storage', function(e) {
+            if (e.key !== null && e.key !== window.X1PenHuBasicFiles.LIST_KEY) return;
+            currentHuBasicFiles();
+        });
+    }
+
     function notifyHuBasicFiles() {
         hubasicFilesListeners.forEach(function(listener) {
             try { listener(); } catch (e) { console.error('[x1pen] HuBASIC files listener failed:', e); }
@@ -1300,20 +1319,27 @@ window.__X1PEN_MODE = true;
         window._slangRuntimeVFS = vfs;
     }
 
+    // One script tag per file: callers that come while it loads share it; a failed load is
+    // forgotten so that a later call can retry
+    var pageScriptLoads = {};
     function loadPageScriptOnce(file, globalName, errorMessage, errorCode) {
         if (window[globalName]) return Promise.resolve();
-        return new Promise(function(resolve, reject) {
-            var s = document.createElement('script');
-            s.src = file + ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
-            s.onload = resolve;
-            s.onerror = function() {
-                s.remove();     // a later call adds a fresh tag and retries
-                var error = new Error(errorMessage);
-                error.code = errorCode;
-                reject(error);
-            };
-            document.head.appendChild(s);
-        });
+        if (!pageScriptLoads[file]) {
+            pageScriptLoads[file] = new Promise(function(resolve, reject) {
+                var s = document.createElement('script');
+                s.src = file + ((XMIL_BUILD_HASH && XMIL_BUILD_HASH.indexOf('@@') < 0) ? '?v=' + XMIL_BUILD_HASH : '');
+                s.onload = resolve;
+                s.onerror = function() {
+                    s.remove();
+                    delete pageScriptLoads[file];
+                    var error = new Error(errorMessage);
+                    error.code = errorCode;
+                    reject(error);
+                };
+                document.head.appendChild(s);
+            });
+        }
+        return pageScriptLoads[file];
     }
 
     // HuBASIC: the SLANG-compiler bundle (x1pen_slang_wasm.js: hubasic2sl, slangc, Hu-BASIC disks)
@@ -1991,8 +2017,7 @@ window.__X1PEN_MODE = true;
         var built;
         try {
             await ensureHuBasicToolchain();
-            await hubasicFilesReady;
-            var files = hubasicFiles.files();
+            var files = (await currentHuBasicFiles()).files();
             elStatus.textContent = 'HuBASIC: converting...';
             built = await window.X1PenHuBasic.build(source, options, files);
         } catch (e) {
@@ -2626,8 +2651,8 @@ window.__X1PEN_MODE = true;
         var options = window.X1PenHuBasicOptions.changed(hubasicOptions);
         try {
             await ensureHuBasicToolchain();
-            await hubasicFilesReady;
-            built = await window.X1PenHuBasic.build(bytes, options, hubasicFiles.files());
+            var files = (await currentHuBasicFiles()).files();
+            built = await window.X1PenHuBasic.build(bytes, options, files);
         } catch (e) {
             diagnostics.push(makeAutomationDiagnostic('hubasic', e.message));
         }
@@ -3481,7 +3506,7 @@ window.__X1PEN_MODE = true;
         // Files put on the Hu-BASIC disk of a program that uses the file statements. Contents
         // travel as base64; kind is 'text', 'raw' or 'bin'.
         getHuBasicFiles: function() {
-            return hubasicFilesReady.then(automationHuBasicFiles);
+            return currentHuBasicFiles().then(automationHuBasicFiles);
         },
         setHuBasicFiles: function(files) {
             if (isRunSetupPending()) return Promise.reject(createRunPendingError('HuBASIC files update'));
@@ -3689,8 +3714,7 @@ window.__X1PEN_MODE = true;
         var hubasicShare = !!(hubasicEditor && hubasicEditor.getValue().trim());
         if (!hubasicShare && !src && !asmSrc && !slangSrc) { elStatus.textContent = 'Nothing to share'; return; }
         if (hubasicShare) {
-            await hubasicFilesReady;
-            if (hubasicFiles.count() > 0) {
+            if ((await currentHuBasicFiles()).count() > 0) {
                 elStatus.textContent = SHARE_HUBASIC_FILES_BLOCKED_STATUS;
                 return;
             }
@@ -4972,7 +4996,7 @@ window.__X1PEN_MODE = true;
             actions.appendChild(remove);
         });
         hubasicFilesField('hubasic-files-total').textContent = files.length + ' 本・' + formatBytes(hubasicFiles.totalSize()) +
-            '（1 本 ' + formatBytes(window.X1PenHuBasicFiles.MAX_FILE_BYTES) + '・合計 ' + formatBytes(window.X1PenHuBasicFiles.MAX_TOTAL_BYTES) + ' まで）';
+            '（合計 ' + formatBytes(window.X1PenHuBasicFiles.MAX_TOTAL_BYTES) + '・Bin は 1 本 ' + formatBytes(window.X1PenHuBasicFiles.MAX_FILE_BYTES) + ' まで）';
     }
 
     function hubasicDiskStatus() {
@@ -5048,26 +5072,62 @@ window.__X1PEN_MODE = true;
         renderHuBasicDiskList();
     }
 
-    // Reads the chosen files first, then adds them to the set saved by then
-    async function addHuBasicFilesFromInput(fileList) {
-        var added = [];
-        var renamed = [];
-        for (var i = 0; i < fileList.length; i++) {
-            var file = fileList[i];
-            var name = huBasicFileNameFor(file.name);
-            if (name !== file.name) renamed.push(file.name + ' → ' + name);
-            added.push({ name: name, kind: defaultHuBasicFileKind(name), bytes: new Uint8Array(await file.arrayBuffer()) });
+    // A name made for a file whose own name does not follow the rules must not take the place of
+    // another file: add a number until it is free (taken: names as the directory holds them)
+    function freeHuBasicFileName(name, taken) {
+        var diskName = window.X1PenHuBasicFiles.diskName;
+        if (!taken[diskName(name)]) return name;
+        var dot = name.lastIndexOf('.');
+        var base = dot < 0 ? name : name.slice(0, dot);
+        var ext = dot < 0 ? '' : name.slice(dot);
+        for (var n = 2; ; n++) {
+            var suffix = String(n);
+            var candidate = base.slice(0, 13 - suffix.length) + suffix + ext;
+            if (!taken[diskName(candidate)]) return candidate;
         }
-        await changeHuBasicFiles(function(store) { return store.put(added); });
+    }
+
+    // Reads the chosen files first, then adds them to the set saved by then. A file keeps its own
+    // name when that follows the rules (and replaces a file of that name); a made-up name is
+    // always a new one.
+    async function addHuBasicFilesFromInput(fileList) {
+        var chosen = [];
+        for (var i = 0; i < fileList.length; i++) {
+            chosen.push({ original: fileList[i].name, bytes: new Uint8Array(await fileList[i].arrayBuffer()) });
+        }
+        var renamed = [];
+        await changeHuBasicFiles(function(store) {
+            return store.update(function(files) {
+                var diskName = window.X1PenHuBasicFiles.diskName;
+                var taken = {};
+                var kept = chosen.filter(function(c) { return huBasicFileNameFor(c.original) === c.original; });
+                var keptNames = {};
+                kept.forEach(function(c) { keptNames[diskName(c.original)] = true; });
+                files = files.filter(function(f) { return !keptNames[diskName(f.name)]; });
+                files.forEach(function(f) { taken[diskName(f.name)] = true; });
+                renamed = [];
+                chosen.forEach(function(c) {
+                    var name = huBasicFileNameFor(c.original);
+                    if (name !== c.original) {
+                        name = freeHuBasicFileName(name, taken);
+                        renamed.push(c.original + ' → ' + name);
+                    }
+                    taken[diskName(name)] = true;
+                    files = files.filter(function(f) { return diskName(f.name) !== diskName(name); })
+                        .concat([{ name: name, kind: defaultHuBasicFileKind(name), bytes: c.bytes }]);
+                });
+                return files;
+            });
+        });
         return renamed;
     }
 
     async function saveHuBasicDiskImage() {
         setHuBasicFilesMessage('ディスクイメージを作っています...');
         await ensureHuBasicToolchain();
-        await hubasicFilesReady;
+        var files = (await currentHuBasicFiles()).files();
         var built = await window.X1PenHuBasic.build(hubasicEditor.getBytes(),
-            window.X1PenHuBasicOptions.changed(hubasicOptions), hubasicFiles.files());
+            window.X1PenHuBasicOptions.changed(hubasicOptions), files);
         if (!built.ok) {
             setHuBasicFilesMessage('作れませんでした（' + built.stage + '）: ' + built.message);
             return;
@@ -5080,6 +5140,7 @@ window.__X1PEN_MODE = true;
     function openHuBasicFilesPanel() {
         closeHuBasicOptionsPanel(false);
         renderHuBasicFiles();
+        currentHuBasicFiles();
         hubasicFilesPanel.classList.remove('hidden');
         hubasicFilesBtnEl.setAttribute('aria-expanded', 'true');
         hubasicFilesField('hubasic-files-add').focus();

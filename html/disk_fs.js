@@ -494,13 +494,13 @@
             throw new Error('ファイルサイズが大きすぎます (最大 65535 バイト)');
         }
 
-        // 必要クラスタ数
+        // 必要クラスタ数 (空のファイルはクラスタを取らず、開始クラスタに空の印 $80 を書く。readFile が空として読む)
         var bytesPerCluster = this._clusterSectors * this._sectorSize;
-        var neededClusters = Math.max(1, Math.ceil(fileSize / bytesPerCluster));
+        var neededClusters = Math.ceil(fileSize / bytesPerCluster);
 
         // 空きクラスタ検索
         var freeClusters = [];
-        for (var i = this._reservedClusters; i < this._maxClusters; i++) {
+        for (var i = this._reservedClusters; i < this._maxClusters && freeClusters.length < neededClusters; i++) {
             if (this._fat[i] === 0x00) {
                 freeClusters.push(i);
                 if (freeClusters.length >= neededClusters) break;
@@ -620,7 +620,7 @@
         rawEntry.set(dateBytes, 0x18);
 
         // 開始クラスタ (HIGH, LOW, MIDDLE)
-        var startCl = freeClusters[0];
+        var startCl = fileSize === 0 ? 0x80 : freeClusters[0];
         rawEntry[0x1D] = 0; // HIGH
         rawEntry[0x1E] = startCl & 0x7F; // LOW
         rawEntry[0x1F] = (startCl >> 7) & 0xFF; // MIDDLE
