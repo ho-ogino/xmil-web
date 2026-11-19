@@ -440,11 +440,13 @@ window.__X1PEN_MODE = true;
         });
     }
 
-    // Replaces the whole set (X1PenHuBasicFiles checks it; a failure keeps the previous set)
-    async function replaceHuBasicFiles(next) {
+    // Changes the set: change(store) calls one store method (put, remove, rename, setKind,
+    // replaceAll). Each applies to the set saved last, one after another (X1PenHuBasicFiles checks
+    // the result; a failure keeps the previous set).
+    async function changeHuBasicFiles(change) {
         await hubasicFilesReady;
         try {
-            return await hubasicFiles.replaceAll(next);
+            return await change(hubasicFiles);
         } finally {
             notifyHuBasicFiles();
         }
@@ -1952,8 +1954,11 @@ window.__X1PEN_MODE = true;
         if (!current.ok) throw hubasicDiskError(current.code, current.message);
         var path = window.XmilCore.getSlotVfsPath().drive0;
         var bytes;
+        var flushed = module._js_fdd_flush ? module._js_fdd_flush() : 0;
+        if (flushed !== 0) {
+            throw hubasicDiskError('HUBASIC_DISK_UNREADABLE', 'ドライブの書きかけをディスクに書き戻せなかったので、読みませんでした');
+        }
         try {
-            if (module._js_fdd_flush) module._js_fdd_flush();
             bytes = module.FS.readFile(path);
         } catch (e) {
             throw hubasicDiskError('HUBASIC_DISK_UNREADABLE', 'ディスクを読めませんでした: ' + (e && e.message || e));
@@ -3488,7 +3493,7 @@ window.__X1PEN_MODE = true;
                     if (!bytes) throw hubasicDiskError('HUBASIC_FILES_INVALID', 'each file needs base64 contents: ' + (file && file.name));
                     return { name: file.name, kind: file.kind, bytes: bytes };
                 });
-                return replaceHuBasicFiles(next).then(automationHuBasicFiles);
+                return changeHuBasicFiles(function(store) { return store.replaceAll(next); }).then(automationHuBasicFiles);
             });
         },
         // The files on the disk the last HuBASIC RUN booted, as they are now
@@ -4406,8 +4411,12 @@ window.__X1PEN_MODE = true;
         if (fdd0Save) fdd0Save.addEventListener('click', function() {
             if (!module || !module.FS) return;
             try {
-                // What the running program wrote may still sit in the drive's track buffer
-                if (module._js_fdd_flush) module._js_fdd_flush();
+                // What the running program wrote may still sit in the drive's track buffer; a disk
+                // that could not take it back would be saved without it
+                if (module._js_fdd_flush && module._js_fdd_flush() !== 0) {
+                    elStatus.textContent = 'FDD0: ドライブの書きかけをディスクに書き戻せなかったので、保存しませんでした';
+                    return;
+                }
                 var data = module.FS.readFile('/fdd0.d88');
                 var blob = new Blob([data], { type: 'application/octet-stream' });
                 var url = URL.createObjectURL(blob);
@@ -4937,17 +4946,13 @@ window.__X1PEN_MODE = true;
                     return;
                 }
                 applyHuBasicFilesChange(function() {
-                    return replaceHuBasicFiles(hubasicFiles.files().map(function(f) {
-                        return f.name === file.name ? { name: next, kind: f.kind, bytes: f.bytes } : f;
-                    }));
+                    return changeHuBasicFiles(function(store) { return store.rename(file.name, next); });
                 });
             });
             nameCell.appendChild(nameInput);
             row.insertCell().appendChild(huBasicKindSelect(file.kind, function(kind) {
                 applyHuBasicFilesChange(function() {
-                    return replaceHuBasicFiles(hubasicFiles.files().map(function(f) {
-                        return f.name === file.name ? { name: f.name, kind: kind, bytes: f.bytes } : f;
-                    }));
+                    return changeHuBasicFiles(function(store) { return store.setKind(file.name, kind); });
                 });
             }));
             var sizeCell = row.insertCell();
@@ -4960,7 +4965,9 @@ window.__X1PEN_MODE = true;
             remove.textContent = '外す';
             remove.setAttribute('aria-label', file.name + ' を外す');
             remove.addEventListener('click', function() {
-                applyHuBasicFilesChange(function() { return replaceHuBasicFiles(hubasicFiles.files().filter(function(f) { return f.name !== file.name; })); });
+                applyHuBasicFilesChange(function() {
+                    return changeHuBasicFiles(function(store) { return store.remove(file.name); });
+                });
             });
             actions.appendChild(remove);
         });
@@ -4984,42 +4991,49 @@ window.__X1PEN_MODE = true;
         hubasicDiskFiles.forEach(function(file) {
             var row = table.insertRow();
             row.insertCell().textContent = file.name + (file.protected ? '（起動するプログラム）' : '');
-            row.insertCell().textContent = HUBASIC_FILE_KIND_LABELS[file.kind] || file.kind;
+            row.insertCell().textContent = HUBASIC_DISK_KIND_LABELS[file.kind] || file.kind;
             var sizeCell = row.insertCell();
             sizeCell.className = 'size';
             sizeCell.textContent = formatBytes(file.size);
             var actions = row.insertCell();
             actions.className = 'actions';
-            var save = document.createElement('button');
-            save.type = 'button';
-            save.textContent = '保存';
-            save.title = 'ディスクの中身のまま保存します';
-            save.addEventListener('click', function() { downloadBytes(file.bytes, file.name); });
-            actions.appendChild(save);
-            if (file.kind === 'text') {
-                var saveText = document.createElement('button');
-                saveText.type = 'button';
-                saveText.textContent = 'テキスト';
-                saveText.title = 'CR を LF にし、$1A から後ろを除いて保存します';
-                saveText.addEventListener('click', function() {
+            function button(label, title, onClick) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.textContent = label;
+                b.title = title;
+                b.addEventListener('click', onClick);
+                actions.appendChild(b);
+                return b;
+            }
+            button('保存', 'ディスクの中身のまま保存します', function() { downloadBytes(file.bytes, file.name); });
+            if (file.kind === 'asc') {
+                button('テキスト', 'CR を LF にし、$1A から後ろを除いて保存します', function() {
                     downloadBytes(window.X1PenHuBasicFiles.textFromHu(file.bytes), file.name);
                 });
-                actions.appendChild(saveText);
             }
-            var back = document.createElement('button');
-            back.type = 'button';
-            back.textContent = '戻す';
-            back.title = '「ディスクに入れるファイル」に入れます（同じ名前があれば置き換えます）';
-            back.disabled = file.protected;
-            back.addEventListener('click', function() {
-                applyHuBasicFilesChange(function() {
-                    var fromDisk = huBasicFileFromDisk(file);
-                    return replaceHuBasicFiles(hubasicFiles.files().filter(function(f) { return f.name !== fromDisk.name; })
-                        .concat([fromDisk]));
-                }, file.name + ' を入れるファイルに戻しました');
-            });
-            actions.appendChild(back);
+            if (file.protected) return;
+            // An Asc entry may be text or raw records: put back as it is, or as text
+            button(file.kind === 'asc' ? 'そのまま戻す' : '戻す',
+                '中身を変えずに「ディスクに入れるファイル」に入れます（同じ名前があれば置き換えます）', function() {
+                    restoreHuBasicDiskFile(file, file.kind === 'bin' ? 'bin' : 'raw');
+                });
+            if (file.kind === 'asc') {
+                button('テキストで戻す', '$1A から後ろを除き CR を LF にして、テキストとして入れます', function() {
+                    restoreHuBasicDiskFile(file, 'text');
+                });
+            }
         });
+    }
+
+    var HUBASIC_DISK_KIND_LABELS = { asc: 'Asc', bin: 'Bin', bas: 'Bas' };
+
+    // A file read from the disk, back into the files to put on the next disk
+    function restoreHuBasicDiskFile(file, kind) {
+        var bytes = kind === 'text' ? window.X1PenHuBasicFiles.textFromHu(file.bytes) : file.bytes;
+        applyHuBasicFilesChange(function() {
+            return changeHuBasicFiles(function(store) { return store.put([{ name: file.name, kind: kind, bytes: bytes }]); });
+        }, file.name + ' を入れるファイルに戻しました');
     }
 
     function renderHuBasicFiles() {
@@ -5034,24 +5048,17 @@ window.__X1PEN_MODE = true;
         renderHuBasicDiskList();
     }
 
-    // A file read from the disk, as a file to put on the next disk: text back as text
-    function huBasicFileFromDisk(file) {
-        if (file.kind === 'text') return { name: file.name, kind: 'text', bytes: window.X1PenHuBasicFiles.textFromHu(file.bytes) };
-        return { name: file.name, kind: file.kind, bytes: file.bytes };
-    }
-
+    // Reads the chosen files first, then adds them to the set saved by then
     async function addHuBasicFilesFromInput(fileList) {
-        var next = hubasicFiles.files();
+        var added = [];
         var renamed = [];
         for (var i = 0; i < fileList.length; i++) {
             var file = fileList[i];
             var name = huBasicFileNameFor(file.name);
             if (name !== file.name) renamed.push(file.name + ' → ' + name);
-            var bytes = new Uint8Array(await file.arrayBuffer());
-            next = next.filter(function(f) { return f.name !== name; });
-            next.push({ name: name, kind: defaultHuBasicFileKind(name), bytes: bytes });
+            added.push({ name: name, kind: defaultHuBasicFileKind(name), bytes: new Uint8Array(await file.arrayBuffer()) });
         }
-        await replaceHuBasicFiles(next);
+        await changeHuBasicFiles(function(store) { return store.put(added); });
         return renamed;
     }
 

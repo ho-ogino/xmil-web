@@ -21,7 +21,7 @@
 // tests/x1pen_reference_test.mjs fails until then.
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -93,23 +93,17 @@ for (const name of required) {
 }
 if (![...bundleFiles.keys()].some((path) => path.startsWith('include/'))) fail('bundle has no include/');
 
+// Everything is read and checked first, written into staging directories next, and published
+// last (fixtures, then the bundle directory, then current.json), so a bad bundle changes nothing.
+
 // assets/hubasic/<revision>/: what the page serves
-const target = join(assetsDir, revision);
-await rm(target, { recursive: true, force: true });
+const bundleOut = new Map();
 for (const [path, bytes] of bundleFiles) {
   // LICENSE and LICENSE-APACHE-2.0.txt at the root go with it
   if (!/^((_framework|runtime|env|include)\/|LICENSE[^/]*$)/.test(path) || /\.(br|gz)$/.test(path)) continue;
-  await mkdir(dirname(join(target, path)), { recursive: true });
-  await writeFile(join(target, path), bytes);
+  bundleOut.set(path, bytes);
 }
-await copyFile(join(bundleDir, 'manifest.json'), join(target, 'manifest.json'));
-for (const entry of await readdir(assetsDir, { withFileTypes: true })) {
-  if (entry.isDirectory() && entry.name !== revision) {
-    await rm(join(assetsDir, entry.name), { recursive: true, force: true });
-    console.log(`import-hubasic-bundle: removed ${entry.name}`);
-  }
-}
-await writeFile(join(assetsDir, 'current.json'), `${JSON.stringify({ revision }, null, 2)}\n`);
+bundleOut.set('manifest.json', await readFile(join(bundleDir, 'manifest.json')));
 
 // tests/fixtures/hubasic/: what the real tools produced for the testdata programs. Disk images
 // are kept as sha256 only, never copied into the repository.
@@ -128,12 +122,10 @@ function caseFile(testCase, key) {
   return bytes;
 }
 
-await rm(fixtureDir, { recursive: true, force: true });
-await mkdir(fixtureDir, { recursive: true });
+const hubasicOut = new Map();
 const expected = {
   revision, basAbi: manifest.basAbi, basFileAbi: manifest.basFileAbi, assembler: manifest.assembler || null, programs: {},
 };
-let hubasicCount = 0;
 for (const [set, envName] of [[testdata, 'x1native_slfs'], [hufsTestdata, 'x1native_hufs']]) {
   for (const testCase of set.cases) {
     if (!/^[A-Z0-9_]+$/.test(testCase.name) || expected.programs[testCase.name]) fail(`testdata has a bad or repeated name: ${testCase.name}`);
@@ -141,18 +133,19 @@ for (const [set, envName] of [[testdata, 'x1native_slfs'], [hufsTestdata, 'x1nat
     const bin = get('bin');
     const end = workEnd(get('lst').toString('utf8'));
     if (end === undefined) fail(`testdata ${testCase.name} listing has no __WORKEND__`);
-    await writeFile(join(fixtureDir, `${testCase.name}.BAS`), get('bas'));
-    await writeFile(join(fixtureDir, `${testCase.name}.SL`), get('sl'));
-    await writeFile(join(fixtureDir, `${testCase.name}.bin`), bin);
+    hubasicOut.set(`${testCase.name}.BAS`, get('bas'));
+    hubasicOut.set(`${testCase.name}.SL`, get('sl'));
+    hubasicOut.set(`${testCase.name}.bin`, bin);
+    if (testCase.hufsAdd !== undefined && !Array.isArray(testCase.hufsAdd)) fail(`testdata ${testCase.name} has a bad hufsAdd`);
     const files = [];
     for (const add of testCase.hufsAdd || []) {
       if (envName !== 'x1native_hufs') fail(`testdata ${testCase.name} adds files to an ${envName} disk`);
-      const bytes = bundleFiles.get(add.file);
+      const bytes = add && bundleFiles.get(add.file);
       if (!bytes || typeof add.name !== 'string' || !['text', 'bin', 'raw', undefined].includes(add.kind)) {
         fail(`testdata ${testCase.name} has a bad hufsAdd entry`);
       }
       const fixtureName = `${testCase.name}.ADD.${files.length}`;
-      await writeFile(join(fixtureDir, fixtureName), bytes);
+      hubasicOut.set(fixtureName, bytes);
       files.push({ name: add.name, kind: add.kind || 'raw', file: fixtureName });
     }
     expected.programs[testCase.name] = {
@@ -164,27 +157,61 @@ for (const [set, envName] of [[testdata, 'x1native_slfs'], [hufsTestdata, 'x1nat
       d88Sha256: sha256(get('d88')),
       files,
     };
-    hubasicCount++;
   }
 }
-await writeFile(join(fixtureDir, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);
+hubasicOut.set('expected.json', Buffer.from(`${JSON.stringify(expected, null, 2)}\n`));
+const hubasicCount = Object.keys(expected.programs).length;
 
 // tests/fixtures/slang/: the SLANG tab environment (x1), compiled by slangbuild + AILZ80ASM
-await rm(slangFixtureDir, { recursive: true, force: true });
-await mkdir(slangFixtureDir, { recursive: true });
+const slangOut = new Map();
 const slangExpected = {
   revision, env: 'x1', includePaths: slangTestdata.includePaths || [], assembler: manifest.assembler || null, programs: {},
 };
 for (const testCase of slangTestdata.cases) {
   if (!/^[A-Z0-9_]+$/.test(testCase.name) || slangExpected.programs[testCase.name]) fail(`slangTestdata has a bad or repeated name: ${testCase.name}`);
   const get = (key) => caseFile(testCase, key);
-  await writeFile(join(slangFixtureDir, `${testCase.name}.SL`), get('sl'));
-  await writeFile(join(slangFixtureDir, `${testCase.name}.ASM`), get('asm'));
-  await writeFile(join(slangFixtureDir, `${testCase.name}.bin`), get('bin'));
+  slangOut.set(`${testCase.name}.SL`, get('sl'));
+  slangOut.set(`${testCase.name}.ASM`, get('asm'));
+  slangOut.set(`${testCase.name}.bin`, get('bin'));
   slangExpected.programs[testCase.name] = { binLength: get('bin').length, binSha256: sha256(get('bin')) };
 }
 if (Object.keys(slangExpected.programs).length === 0) fail('no x1 testdata to import');
-await writeFile(join(slangFixtureDir, 'expected.json'), `${JSON.stringify(slangExpected, null, 2)}\n`);
+slangOut.set('expected.json', Buffer.from(`${JSON.stringify(slangExpected, null, 2)}\n`));
+
+// Stage
+async function stage(dir, files) {
+  await rm(dir, { recursive: true, force: true });
+  for (const [path, bytes] of files) {
+    await mkdir(dirname(join(dir, path)), { recursive: true });
+    await writeFile(join(dir, path), bytes);
+  }
+}
+const stagedBundle = join(assetsDir, `.staging-${revision}`);
+const stagedHubasic = join(dirname(fixtureDir), '.staging-hubasic');
+const stagedSlang = join(dirname(slangFixtureDir), '.staging-slang');
+await mkdir(assetsDir, { recursive: true });
+await stage(stagedBundle, bundleOut);
+await stage(stagedHubasic, hubasicOut);
+await stage(stagedSlang, slangOut);
+
+// Publish: each directory is swapped by rename; current.json switches the page last
+async function swap(staged, final) {
+  const old = `${final}.old`;
+  await rm(old, { recursive: true, force: true });
+  if (existsSync(final)) await rename(final, old);
+  await rename(staged, final);
+  await rm(old, { recursive: true, force: true });
+}
+await swap(stagedHubasic, fixtureDir);
+await swap(stagedSlang, slangFixtureDir);
+await swap(stagedBundle, join(assetsDir, revision));
+await writeFile(join(assetsDir, 'current.json'), `${JSON.stringify({ revision }, null, 2)}\n`);
+for (const entry of await readdir(assetsDir, { withFileTypes: true })) {
+  if (entry.isDirectory() && entry.name !== revision) {
+    await rm(join(assetsDir, entry.name), { recursive: true, force: true });
+    console.log(`import-hubasic-bundle: removed ${entry.name}`);
+  }
+}
 
 console.log(`import-hubasic-bundle: assets/hubasic/${revision} is current (hubasic2sl ${manifest.hubasic2slVersion}, slangc ${manifest.slangcVersion}, BAS_ABI ${manifest.basAbi}, BAS_FABI ${manifest.basFileAbi}, dirty ${manifest.dirty}); ${hubasicCount} HuBASIC and ${Object.keys(slangExpected.programs).length} SLANG fixtures`);
 console.log('import-hubasic-bundle: now review mcp/reference/hubasic.json for this revision (see the note at the top of this script)');

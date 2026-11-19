@@ -71,7 +71,7 @@ test('file names follow the Hu-BASIC directory rules', () => {
   for (const ok of ['GREET.TXT', 'A', 'ABCDEFGHIJKLM.TXT', 'data.bin', 'MY FILE.DAT', "IT'S.TXT", 'X.']) {
     assert.equal(Files.checkName(ok), null, ok);
   }
-  for (const bad of ['', 'ABCDEFGHIJKLMN', 'A.TEXT', '.TXT', 'A:B', 'A"B', 'A=B', 'A,B', ' A', 'A ', 'ほ.TXT', 'A\tB']) {
+  for (const bad of ['', 'ABCDEFGHIJKLMN', 'A.TEXT', '.TXT', 'A:B', 'A"B', 'A=B', 'A,B', ' A', 'A ', 'ほ.TXT', 'A\tB', 'A .BIN', 'A.B ']) {
     assert.notEqual(Files.checkName(bad), null, bad);
   }
 });
@@ -91,6 +91,8 @@ test('a set is checked as a whole: names, kinds, sizes and the total', () => {
   assert.throws(() => Files.normalize(Array.from({ length: 65 }, (_, i) => ({ name: `F${i}`, bytes: bytes('x') }))), /64/);
   // Case is kept: A.TXT and a.txt are two files
   assert.equal(Files.normalize([...one({}), { name: 'a.txt', bytes: bytes('y') }]).length, 2);
+  // The directory holds "A" and "A." as one entry
+  assert.throws(() => Files.normalize([{ name: 'A', bytes: bytes('x') }, { name: 'A.', bytes: bytes('y') }]), /同じ名前/);
 });
 
 test('the saved set survives a reload and replaces itself whole', async () => {
@@ -112,7 +114,7 @@ test('the saved set survives a reload and replaces itself whole', async () => {
   assert.deepEqual([...reloaded.files()[1].bytes], [1, 2, 3]);
 
   await reloaded.remove('GREET.TXT');
-  await reloaded.add({ name: 'NEW.TXT', kind: 'raw', bytes: bytes('n') });
+  await reloaded.put([{ name: 'NEW.TXT', kind: 'raw', bytes: bytes('n') }]);
   await reloaded.setKind('NEW.TXT', 'text');
   assert.deepEqual(json(reloaded.list()), [{ name: 'DATA.BIN', kind: 'bin', size: 3 }, { name: 'NEW.TXT', kind: 'text', size: 1 }]);
   // Only the current generation is kept
@@ -173,10 +175,72 @@ test('a Share session uses its own set and never touches the saved one', async (
   const share = Files.createMemoryStore();
   assert.equal(share.persistent, false);
   assert.deepEqual(json((await share.open()).files), []);
-  await share.add({ name: 'SHARE.TXT', kind: 'text', bytes: bytes('s') });
+  await share.put([{ name: 'SHARE.TXT', kind: 'text', bytes: bytes('s') }]);
   assert.deepEqual(json(share.list().map((f) => f.name)), ['SHARE.TXT']);
   assert.deepEqual(storage.map, snapshot);
   assert.equal(ls.getItem(Files.LIST_KEY), listBefore);
+});
+
+test('changes made one right after another all apply, each to the set saved last', async () => {
+  const storage = fakeStorage();
+  const ls = fakeLocalStorage();
+  const store = Files.createStore({ storage, localStorage: ls, locks: null });
+  await store.open();
+  await store.replaceAll(['A', 'B', 'C'].map((name) => ({ name, bytes: bytes(name) })));
+  // Two removals started together: the second must not bring back what the first removed
+  await Promise.all([store.remove('A'), store.remove('B'), store.put([{ name: 'D', bytes: bytes('d') }])]);
+  assert.deepEqual(json(store.list().map((f) => f.name)), ['C', 'D']);
+  const reloaded = Files.createStore({ storage, localStorage: ls, locks: null });
+  await reloaded.open();
+  assert.deepEqual(json(reloaded.list().map((f) => f.name)), ['C', 'D']);
+  // A Share session's set behaves the same
+  const share = Files.createMemoryStore([{ name: 'A', bytes: bytes('a') }, { name: 'B', bytes: bytes('b') }]);
+  await Promise.all([share.remove('A'), share.remove('B')]);
+  assert.deepEqual(json(share.list()), []);
+});
+
+// One lock manager for two "tabs" of the same origin, like navigator.locks
+function fakeLocks() {
+  const queues = new Map();
+  return {
+    request(name, callback) {
+      const previous = queues.get(name) || Promise.resolve();
+      const run = previous.then(() => callback());
+      queues.set(name, run.catch(() => {}));
+      return run;
+    },
+  };
+}
+
+test('a tab that opens while another is saving waits, and keeps the other tab\'s new files', async () => {
+  const storage = fakeStorage();
+  const ls = fakeLocalStorage();
+  const locks = fakeLocks();
+  const first = Files.createStore({ storage, localStorage: ls, locks });
+  await first.open();
+  await first.replaceAll([{ name: 'OLD.TXT', bytes: bytes('old') }]);
+  // Hold the first tab's save after its new body is written, before the list is switched
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let written;
+  const wroteBody = new Promise((resolve) => { written = resolve; });
+  const write = storage.write;
+  storage.write = async (key, buffer) => { await write(key, buffer); written(); await held; };
+  const saving = first.put([{ name: 'NEW.TXT', bytes: bytes('new') }]);
+  await wroteBody;
+  storage.write = write;
+  const second = Files.createStore({ storage, localStorage: ls, locks });
+  const opening = second.open();
+  release();
+  await saving;
+  const opened = await opening;
+  assert.deepEqual(json(opened.files.map((f) => f.name)), ['OLD.TXT', 'NEW.TXT']);
+  assert.deepEqual(json(opened.missing), []);
+  // A change in the second tab starts from what the first saved
+  await first.remove('OLD.TXT');
+  await second.put([{ name: 'MORE.TXT', bytes: bytes('more') }]);
+  const third = Files.createStore({ storage, localStorage: ls, locks });
+  assert.deepEqual(json((await third.open()).files.map((f) => f.name)), ['NEW.TXT', 'MORE.TXT']);
 });
 
 test('Hu-BASIC text comes back as text: up to $1A, CR as LF', () => {
@@ -189,7 +253,7 @@ test('files put on a disk by the SLANG bundle read back through HuBasicFS', asyn
   const files = [
     { name: 'GREET.TXT', kind: 'text', bytes: bytes('HELLO\r\nWORLD\n') },
     { name: 'DATA.BIN', kind: 'bin', bytes: new Uint8Array([9, 8, 7, 6]) },
-    { name: 'raw.dat', kind: 'raw', bytes: bytes('RAW') },
+    { name: 'raw.dat', kind: 'raw', bytes: new Uint8Array([0x41, 0x1A, 0x0D, 0x2A]) },
   ];
   const disk = await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array([0xC9]), { mainName: 'PROG', files });
   assert.equal(disk.ok, true, disk.error);
@@ -197,11 +261,14 @@ test('files put on a disk by the SLANG bundle read back through HuBasicFS', asyn
   const byName = Object.fromEntries(read.map((f) => [f.name, f]));
   assert.deepEqual(json(read.map((f) => f.name)), ['PROG.Sys', 'DATA.BIN', 'GREET.TXT', 'raw.dat']);
   assert.equal(byName['PROG.Sys'].protected, true);
-  assert.equal(byName['GREET.TXT'].kind, 'text');
+  assert.equal(byName['GREET.TXT'].kind, 'asc');
   assert.equal(new TextDecoder().decode(Files.textFromHu(byName['GREET.TXT'].bytes)), 'HELLO\nWORLD\n');
   assert.equal(byName['DATA.BIN'].kind, 'bin');
   assert.deepEqual([...byName['DATA.BIN'].bytes], [9, 8, 7, 6]);
-  assert.equal(new TextDecoder().decode(byName['raw.dat'].bytes.slice(0, 3)), 'RAW');
+  // Raw and text are both Asc on the disk; the bytes come back whole records, $1A and CR included
+  assert.equal(byName['raw.dat'].kind, 'asc');
+  assert.deepEqual([...byName['raw.dat'].bytes.slice(0, 4)], [0x41, 0x1A, 0x0D, 0x2A]);
+  assert.equal(byName['raw.dat'].bytes.length, 256);
   // The disk image of the FILEIO fixture holds its text file too
   const expected = JSON.parse(readFileSync(join(fixtureDir, 'expected.json'), 'utf8'));
   assert.ok(expected.programs.FILEIO.files.length > 0);
@@ -217,5 +284,10 @@ test('the disk editor adds text files as Hu-BASIC Asc ($04) and reads them back'
   assert.equal(entry.modeStr, 'A');
   assert.equal(new TextDecoder().decode(fs.readFile(entry)), 'A\rB\r\x1a');
   const read = Files.readDiskFiles(new Uint8Array(container.toArrayBuffer()));
-  assert.equal(read.find((f) => f.name === 'NOTE.TXT').kind, 'text');
+  assert.equal(read.find((f) => f.name === 'NOTE.TXT').kind, 'asc');
+  // An empty text file is one empty Asc record; one written before as $20 still reads as empty
+  fs.addFile('EMPTY', 'TXT', new Uint8Array(0));
+  const empty = fs.listDirectory().find((e) => e.name.trim() === 'EMPTY');
+  const legacy = Object.assign({}, empty, { mode: 0x20 });
+  assert.equal(fs.readFile(legacy).length, 0);
 });

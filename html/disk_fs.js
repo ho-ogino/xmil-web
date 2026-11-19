@@ -419,10 +419,11 @@
         }
 
         // データ読み出し
-        // An ASCII entry may leave the size field 0 (Hu-BASIC text files end at $1A, and the
-        // SLANG Hu-BASIC disk builder writes 0): its length is then the records of its chain.
+        // A Hu-BASIC Asc entry ($04) may leave the size field 0 (text ends at $1A; Hu-BASIC and
+        // the SLANG Hu-BASIC disk builder write 0): its length is then the records of its chain.
+        // Entries the disk editor wrote before as $20 keep their size field, empty included.
         var length = entry.size;
-        if (length === 0 && (entry.mode & 0x03) === 0) {
+        if (length === 0 && (entry.mode & 0x07) === 0x04) {
             length = ((clusters.length - 1) * this._clusterSectors + lastUsedSectors) * this._sectorSize;
         }
         var result = new Uint8Array(length);

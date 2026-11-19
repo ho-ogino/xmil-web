@@ -10,7 +10,10 @@
 //     x1pen_hufile_<generation>_<index>; the list (names, kinds, keys) in localStorage
 //     x1pen_hubasic_files. A change writes a whole new generation, then switches the list with one
 //     setItem, then removes the old generation, so a failure leaves the previous set intact.
+//     Opening (which removes bodies no list points at) and every change hold one Web Lock shared
+//     by all tabs of the origin, and a change starts from the set saved last, also by another tab.
 //   createMemoryStore(): for a page opened from a Share link; never saved.
+// Changes are update(fn): fn gets the current files and returns the next set.
 // window.X1PenHuBasicFiles
 
 (function() {
@@ -42,7 +45,15 @@
         var ext = dot < 0 ? '' : name.slice(dot + 1);
         if (base.length < 1 || base.length > 13) return 'ファイル名は「.」の前が 1〜13 文字です: ' + name;
         if (ext.length > 3) return '拡張子は 3 文字までです: ' + name;
+        // The directory pads both parts with spaces, so a space at their end would be lost
+        if (/ $/.test(base) || / $/.test(ext)) return '「.」の前後に空白は置けません: ' + name;
         return null;
+    }
+
+    // The name as the directory holds it: "A" and "A." are the same entry
+    function diskName(name) {
+        var dot = name.lastIndexOf('.');
+        return dot < 0 ? name + '.' : name;
     }
 
     function toBytes(value) {
@@ -62,8 +73,8 @@
             if (!file || typeof file !== 'object') throw filesError('a file must be an object');
             var problem = checkName(file.name);
             if (problem) throw filesError(problem);
-            if (seen[file.name]) throw filesError('同じ名前のファイルがあります: ' + file.name);
-            seen[file.name] = true;
+            if (seen[diskName(file.name)]) throw filesError('同じ名前のファイルがあります: ' + file.name);
+            seen[diskName(file.name)] = true;
             var kind = file.kind === undefined ? 'raw' : file.kind;
             if (KINDS.indexOf(kind) < 0) throw filesError('種類は text・bin・raw のどれかです: ' + file.name);
             var bytes = toBytes(file.bytes);
@@ -87,13 +98,32 @@
         return files.reduce(function(sum, f) { return sum + (f.bytes ? f.bytes.length : f.size); }, 0);
     }
 
+    // Runs fn while holding the lock of the saved files. The Web Locks API is shared by every tab
+    // of the origin; without it, calls of this page still run one after another.
+    function makeLock(locks) {
+        var chain = Promise.resolve();
+        return function(fn) {
+            var run = chain.then(function() {
+                return locks ? locks.request(LOCK_NAME, function() { return fn(); }) : fn();
+            });
+            chain = run.catch(function() {});
+            return run;
+        };
+    }
+
+    var LOCK_NAME = 'x1pen_hubasic_files';
+
     // ── kept in the browser ──
-    // deps (for tests): { storage: XmilStorage-like, localStorage }
+    // deps (for tests): { storage: XmilStorage-like, localStorage, locks: LockManager-like or null }
     function createStore(deps) {
         deps = deps || {};
         var storage = deps.storage || window.XmilStorage;
         var ls = deps.localStorage || window.localStorage;
-        var cache = null;     // [{ name, kind, bytes }] after open()
+        var locks = deps.locks !== undefined ? deps.locks
+            : ((typeof navigator !== 'undefined' && navigator.locks) ? navigator.locks : null);
+        var withLock = makeLock(locks);
+        var cache = [];             // [{ name, kind, bytes }]
+        var cacheGeneration = null;
 
         function readList() {
             var raw = ls.getItem(LIST_KEY);
@@ -112,17 +142,8 @@
             }
         }
 
-        // Reads the saved set and removes bodies no list points at (left by a closed page).
-        async function open() {
-            var list = readList();
-            var referenced = {};
-            list.files.forEach(function(f) { referenced[f.key] = true; });
-            try {
-                var entries = await storage.list();
-                await removeQuietly(entries.map(function(e) { return e.key; }).filter(function(key) {
-                    return key.indexOf(KEY_PREFIX) === 0 && !referenced[key];
-                }));
-            } catch (e) { /* storage unavailable: nothing to clean */ }
+        // Loads the set the list points at; a body that cannot be read is left out
+        async function load(list) {
             var files = [];
             var missing = [];
             for (var i = 0; i < list.files.length; i++) {
@@ -133,50 +154,74 @@
                 files.push({ name: entry.name, kind: entry.kind, bytes: new Uint8Array(body) });
             }
             cache = files;
-            return { files: summary(files), missing: missing };
+            cacheGeneration = list.generation;
+            return missing;
         }
 
-        async function replaceAll(next) {
-            var files = normalize(next);
-            var previous = readList();
-            var generation = Date.now().toString(36) + Math.floor(Math.random() * 0x10000).toString(36);
-            var written = [];
-            var entries = files.map(function(f, i) {
-                return { name: f.name, kind: f.kind, size: f.bytes.length, key: KEY_PREFIX + generation + '_' + i };
-            });
-            try {
-                if (storage.ensureCapacity) await storage.ensureCapacity(totalSize(files));
-                for (var i = 0; i < files.length; i++) {
-                    var bytes = files[i].bytes;
-                    await storage.write(entries[i].key, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
-                    written.push(entries[i].key);
-                }
-            } catch (e) {
-                await removeQuietly(written);
-                throw filesError('ファイルを保存できませんでした: ' + (e && e.message || e), 'HUBASIC_FILES_SAVE_FAILED');
-            }
-            var json = JSON.stringify({ version: 1, generation: generation, files: entries });
-            try {
-                ls.setItem(LIST_KEY, json);
-                if (ls.getItem(LIST_KEY) !== json) throw new Error('the list did not read back');
-            } catch (e) {
-                // Put the previous list back if the failed write changed it
+        // Reads the saved set and removes bodies no list points at (left by a closed page). Under
+        // the lock, so it never removes the bodies of a change another tab is making.
+        function open() {
+            return withLock(async function() {
+                var list = readList();
+                var referenced = {};
+                list.files.forEach(function(f) { referenced[f.key] = true; });
                 try {
-                    if (previous.generation) ls.setItem(LIST_KEY, JSON.stringify(previous));
-                    else ls.removeItem(LIST_KEY);
-                } catch (ignored) {}
-                await removeQuietly(written);
-                throw filesError('ファイルの一覧を保存できませんでした: ' + (e && e.message || e), 'HUBASIC_FILES_SAVE_FAILED');
-            }
-            cache = files;
-            await removeQuietly(previous.files.map(function(f) { return f.key; }));
-            return summary(files);
+                    var entries = await storage.list();
+                    await removeQuietly(entries.map(function(e) { return e.key; }).filter(function(key) {
+                        return key.indexOf(KEY_PREFIX) === 0 && !referenced[key];
+                    }));
+                } catch (e) { /* storage unavailable: nothing to clean */ }
+                var missing = await load(list);
+                return { files: summary(cache), missing: missing };
+            });
+        }
+
+        // fn(files) → the next set, applied to the set saved last (re-read if another tab changed it)
+        function update(fn) {
+            return withLock(async function() {
+                var previous = readList();
+                if (previous.generation !== cacheGeneration) await load(previous);
+                var files = normalize(fn(cache.map(copyFile)));
+                var generation = Date.now().toString(36) + Math.floor(Math.random() * 0x10000).toString(36);
+                var written = [];
+                var entries = files.map(function(f, i) {
+                    return { name: f.name, kind: f.kind, size: f.bytes.length, key: KEY_PREFIX + generation + '_' + i };
+                });
+                try {
+                    if (storage.ensureCapacity) await storage.ensureCapacity(totalSize(files));
+                    for (var i = 0; i < files.length; i++) {
+                        var bytes = files[i].bytes;
+                        await storage.write(entries[i].key, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+                        written.push(entries[i].key);
+                    }
+                } catch (e) {
+                    await removeQuietly(written);
+                    throw filesError('ファイルを保存できませんでした: ' + (e && e.message || e), 'HUBASIC_FILES_SAVE_FAILED');
+                }
+                var json = JSON.stringify({ version: 1, generation: generation, files: entries });
+                try {
+                    ls.setItem(LIST_KEY, json);
+                    if (ls.getItem(LIST_KEY) !== json) throw new Error('the list did not read back');
+                } catch (e) {
+                    // Put the previous list back if the failed write changed it
+                    try {
+                        if (previous.generation) ls.setItem(LIST_KEY, JSON.stringify(previous));
+                        else ls.removeItem(LIST_KEY);
+                    } catch (ignored) {}
+                    await removeQuietly(written);
+                    throw filesError('ファイルの一覧を保存できませんでした: ' + (e && e.message || e), 'HUBASIC_FILES_SAVE_FAILED');
+                }
+                cache = files;
+                cacheGeneration = generation;
+                await removeQuietly(previous.files.map(function(f) { return f.key; }));
+                return summary(files);
+            });
         }
 
         return makeApi({
             open: open,
-            replaceAll: replaceAll,
-            current: function() { return cache || []; },
+            update: update,
+            current: function() { return cache; },
             persistent: true
         });
     }
@@ -184,45 +229,65 @@
     // ── a Share session: never saved ──
     function createMemoryStore(initial) {
         var files = normalize(initial || []);
+        var withLock = makeLock(null);
         return makeApi({
             open: async function() { return { files: summary(files), missing: [] }; },
-            replaceAll: async function(next) { files = normalize(next); return summary(files); },
+            update: function(fn) {
+                return withLock(async function() {
+                    files = normalize(fn(files.map(copyFile)));
+                    return summary(files);
+                });
+            },
             current: function() { return files; },
             persistent: false
         });
     }
 
+    function copyFile(f) { return { name: f.name, kind: f.kind, bytes: new Uint8Array(f.bytes) }; }
+
     function makeApi(impl) {
-        function copy(f) { return { name: f.name, kind: f.kind, bytes: new Uint8Array(f.bytes) }; }
+        function withoutName(files, name) {
+            return files.filter(function(f) { return f.name !== name; });
+        }
         return {
             persistent: impl.persistent,
             open: impl.open,
-            replaceAll: impl.replaceAll,
+            update: impl.update,
+            replaceAll: function(next) { return impl.update(function() { return next; }); },
             list: function() { return summary(impl.current()); },
-            files: function() { return impl.current().map(copy); },
+            files: function() { return impl.current().map(copyFile); },
             count: function() { return impl.current().length; },
             totalSize: function() { return totalSize(impl.current()); },
-            add: function(file) {
-                var rest = impl.current().filter(function(f) { return f.name !== file.name; });
-                return impl.replaceAll(rest.concat([file]));
+            // Adds or replaces files by name
+            put: function(added) {
+                return impl.update(function(files) {
+                    added.forEach(function(file) { files = withoutName(files, file.name).concat([file]); });
+                    return files;
+                });
             },
             remove: function(name) {
-                return impl.replaceAll(impl.current().filter(function(f) { return f.name !== name; }));
+                return impl.update(function(files) { return withoutName(files, name); });
+            },
+            rename: function(name, next) {
+                return impl.update(function(files) {
+                    return files.map(function(f) { return f.name === name ? { name: next, kind: f.kind, bytes: f.bytes } : f; });
+                });
             },
             setKind: function(name, kind) {
-                return impl.replaceAll(impl.current().map(function(f) {
-                    return f.name === name ? { name: f.name, kind: kind, bytes: f.bytes } : f;
-                }));
+                return impl.update(function(files) {
+                    return files.map(function(f) { return f.name === name ? { name: f.name, kind: kind, bytes: f.bytes } : f; });
+                });
             }
         };
     }
 
     // ── reading a disk after a run ──
-    // Hu-BASIC directory type bits: Bin $01, Bas $02, Asc $04
+    // Hu-BASIC directory types: Bin ($01), Bas ($02), Asc (the others). An Asc entry may hold text
+    // or raw records; the directory does not say which, so it is read back as 'asc'.
     function entryKind(mode) {
         if (mode & 0x01) return 'bin';
-        if (mode & 0x04) return 'text';
-        return 'raw';
+        if (mode & 0x02) return 'bas';
+        return 'asc';
     }
 
     // An Asc file as text: up to the first $1A, CR as LF
@@ -235,7 +300,8 @@
     }
 
     // The files on a Hu-BASIC format D88 (XmilDiskContainer/XmilDiskFS), without directories.
-    // Returns [{ name, kind, size, bytes, protected }]; throws when the image cannot be read.
+    // Returns [{ name, kind: 'bin'|'bas'|'asc', size, bytes, protected }]; throws when the image
+    // cannot be read. An Asc file is whole records (it ends at its first $1A when it is text).
     function readDiskFiles(d88) {
         var buffer = d88.buffer.slice(d88.byteOffset, d88.byteOffset + d88.byteLength);
         var container = window.XmilDiskContainer.openContainer(buffer, 'hubasic.d88');
@@ -267,6 +333,7 @@
         MAX_TOTAL_BYTES: MAX_TOTAL_BYTES,
         MAX_FILES: MAX_FILES,
         checkName: checkName,
+        diskName: diskName,
         normalize: normalize,
         createStore: createStore,
         createMemoryStore: createMemoryStore,

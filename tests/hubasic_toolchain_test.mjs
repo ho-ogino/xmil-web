@@ -270,8 +270,14 @@ test('a program from another converter version does not build', async () => {
 });
 
 test('a bundle that does not match its directory, or is missing, is refused and can be retried', async () => {
-  const wrong = loadPage({ fetchOverrides: { 'hubasic/current.json': JSON.stringify({ revision: 'f'.repeat(40) }) } });
-  await assert.rejects(wrong.X1PenHuBasic.load(), (e) => e.code === 'HUBASIC_TOOLCHAIN_UNAVAILABLE');
+  // current.json names a directory whose manifest belongs to another revision
+  const other = 'f'.repeat(40);
+  const wrong = loadPage({ fetchOverrides: {
+    'hubasic/current.json': JSON.stringify({ revision: other }),
+    [`hubasic/${other}/manifest.json`]: JSON.stringify(manifest),
+  } });
+  await assert.rejects(wrong.X1PenHuBasic.load(),
+    (e) => e.code === 'HUBASIC_TOOLCHAIN_UNAVAILABLE' && /manifest revision does not match its directory/.test(e.message));
   const overrides = { 'hubasic/current.json': 404 };
   const missing = loadPage({ fetchOverrides: overrides });
   await assert.rejects(missing.X1PenHuBasic.load(), /current\.json/);

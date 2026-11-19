@@ -3733,13 +3733,17 @@ test('a HuBASIC program reads the files put on its disk and writes new ones that
     await textVramContains('READ:HELLO FILE');
     await textVramContains('FILES DONE');
 
+    // FDD0 Save, before anything else reads the disk, carries what the program just wrote
+    const saved = await downloadFrom(page, () => page.evaluate(() => document.getElementById('ec-fdd0-save').click()));
+    assert.ok((await readD88InPage(saved.bytes)).some((f) => f.name === 'OUT.TXT' && /^WRITTEN HELLO FILE/.test(f.text)));
+
     // What the program wrote, straight after it wrote it (the drive's track buffer is written back first)
     const disk = await page.evaluate(() => window.X1PenAutomation.readHuBasicDiskFiles());
     const byName = Object.fromEntries(disk.files.map((f) => [f.name, f]));
     assert.ok(byName['OUT.TXT'], JSON.stringify(disk.files.map((f) => f.name)));
-    assert.equal(byName['OUT.TXT'].kind, 'text');
+    assert.equal(byName['OUT.TXT'].kind, 'asc');
     assert.match(Buffer.from(byName['OUT.TXT'].base64, 'base64').toString('latin1'), /^WRITTEN HELLO FILE\r\x1a/);
-    assert.equal(byName['GREET.TXT'].kind, 'text');
+    assert.equal(byName['GREET.TXT'].kind, 'asc');
     assert.equal(Object.values(byName).filter((f) => f.protected).length, 1, 'the program itself is write-protected');
 
     // The Files panel lists the same disk and puts a file back into the list
@@ -3749,17 +3753,33 @@ test('a HuBASIC program reads the files put on its disk and writes new ones that
     assert.equal(await page.locator('#hubasic-disk-read').isDisabled(), false);
     await page.locator('#hubasic-disk-read').click();
     const row = page.locator('#hubasic-disk-list tr', { hasText: 'OUT.TXT' });
-    await row.getByRole('button', { name: '戻す' }).click();
+    await row.getByRole('button', { name: 'テキストで戻す' }).click();
     await page.waitForFunction(() => document.getElementById('btn-hubasic-files').textContent === 'Files (2)');
     const files = await page.evaluate(() => window.X1PenAutomation.getHuBasicFiles());
     const out = files.files.find((f) => f.name === 'OUT.TXT');
     assert.equal(out.kind, 'text');
     assert.equal(Buffer.from(out.base64, 'base64').toString('latin1'), 'WRITTEN HELLO FILE\n');
 
-    // FDD0 Save also carries what the program wrote
-    const saved = await downloadFrom(page, () => page.evaluate(() => document.getElementById('ec-fdd0-save').click()));
-    assert.ok((await readD88InPage(saved.bytes)).some((f) => f.name === 'OUT.TXT' && /^WRITTEN HELLO FILE/.test(f.text)));
     await page.locator('#hubasic-files-close').click();
+
+    // A track that cannot be written back stops both the read-back and FDD0 Save
+    const failed = await page.evaluate(async () => {
+      const flush = window.Module._js_fdd_flush;
+      window.Module._js_fdd_flush = () => -1;
+      let downloads = 0;
+      const click = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function() { if (this.download) downloads++; else click.call(this); };
+      try {
+        const read = await window.X1PenAutomation.readHuBasicDiskFiles().then(() => 'read', (e) => e.code);
+        document.getElementById('ec-fdd0-save').click();
+        return { read, downloads, status: document.getElementById('x1pen-status').textContent };
+      } finally {
+        window.Module._js_fdd_flush = flush;
+        HTMLAnchorElement.prototype.click = click;
+      }
+    });
+    assert.deepEqual(failed, { read: 'HUBASIC_DISK_UNREADABLE', downloads: 0,
+      status: 'FDD0: ドライブの書きかけをディスクに書き戻せなかったので、保存しませんでした' });
   } finally {
     await setHuBasicFiles([]);
   }
