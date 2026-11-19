@@ -419,15 +419,21 @@
         }
 
         // データ読み出し
-        var result = new Uint8Array(entry.size);
+        // An ASCII entry may leave the size field 0 (Hu-BASIC text files end at $1A, and the
+        // SLANG Hu-BASIC disk builder writes 0): its length is then the records of its chain.
+        var length = entry.size;
+        if (length === 0 && (entry.mode & 0x03) === 0) {
+            length = ((clusters.length - 1) * this._clusterSectors + lastUsedSectors) * this._sectorSize;
+        }
+        var result = new Uint8Array(length);
         var pos = 0;
         for (var ci = 0; ci < clusters.length; ci++) {
             var sectorsToRead = (ci === clusters.length - 1) ? lastUsedSectors : this._clusterSectors;
             var baseSector = clusters[ci] * this._clusterSectors + 1;
-            for (var s = 0; s < sectorsToRead && pos < entry.size; s++) {
+            for (var s = 0; s < sectorsToRead && pos < length; s++) {
                 var sectorData = this._readLogicalSector(baseSector + s);
                 if (!sectorData) break;
-                var copyLen = Math.min(this._sectorSize, entry.size - pos);
+                var copyLen = Math.min(this._sectorSize, length - pos);
                 result.set(sectorData.subarray(0, copyLen), pos);
                 pos += copyLen;
             }
@@ -575,14 +581,12 @@
         var rawEntry = new Uint8Array(32);
         // モード: HuBASIC ディレクトリエントリの mode byte
         //   0x00 = 削除済み, 0xFF = 終端
-        //   bit0 = Binary, bit1 = BASIC
-        //   bit0,1 共に 0 = ASCII だが mode=0x00 は削除マークと衝突
-        //   → ASCII は bit5 (0x20) を立てて 0x20 とする (mode!=0 かつ bit0,1=0)
+        //   bit0 = Binary ($01), bit1 = BASIC ($02), bit2 = ASCII ($04)
         var fileExt = (ext || '').toUpperCase();
         if (fileExt === 'BAS') {
             rawEntry[0] = 0x02; // BASIC
         } else if (fileExt === 'TXT' || fileExt === 'ASC') {
-            rawEntry[0] = 0x20; // ASCII (bit5 を立てて削除マーク 0x00 と区別)
+            rawEntry[0] = 0x04; // ASCII (Hu-BASIC の Asc)
         } else {
             rawEntry[0] = 0x01; // Binary
         }

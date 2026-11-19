@@ -41,7 +41,7 @@ let hubasicOptions;
 let reportedHubasicProfile;
 // The HuBASIC runtime revision the bundled reference was written for (X1Pen reports it once loaded)
 const HUBASIC_REVISION = getReferenceManifest().profiles
-  .find((profile) => profile.id === 'x1pen-hubasic-x1native-slfs').runtimeRevision;
+  .find((profile) => profile.id === 'x1pen-hubasic-x1native').runtimeRevision;
 
 const FULL_FEATURES = [
   'automation.core', 'automation.run-recovery', 'automation.source-sync',
@@ -304,7 +304,7 @@ beforeEach(() => {
   beforeGetProgram = null;
   selectedSessionId = 'tab-a';
   hubasicOptions = { wait: 'none', noLineNumbers: false, assumeDefint: false, stringLen: 255, dataBudget: 24576 };
-  reportedHubasicProfile = { id: 'x1pen-hubasic-x1native-slfs', runtimeRevision: HUBASIC_REVISION };
+  reportedHubasicProfile = { id: 'x1pen-hubasic-x1native', runtimeRevision: HUBASIC_REVISION };
 });
 
 after(async () => {
@@ -679,8 +679,8 @@ test('language profile reports bundled data and connected X1Pen compatibility', 
   assert.equal(profile.reportedProfiles.slang.id, 'x1pen-slang-c9e8f53-lsx');
   assert.equal(profile.defaultProfiles.x1, 'x1-hardware-xmillennium-web');
   assert.equal(profile.defaultProfiles.z80asm, 'x1pen-z80asm-current');
-  assert.equal(profile.defaultProfiles.hubasic, 'x1pen-hubasic-x1native-slfs');
-  assert.equal(profile.reportedProfiles.hubasic.id, 'x1pen-hubasic-x1native-slfs');
+  assert.equal(profile.defaultProfiles.hubasic, 'x1pen-hubasic-x1native');
+  assert.equal(profile.reportedProfiles.hubasic.id, 'x1pen-hubasic-x1native');
   assert.equal(profile.compatible, true);
   assert.equal(profile.revisionMismatches, undefined);
   assert.equal(calls.at(-1).method, 'getStatus');
@@ -690,11 +690,11 @@ test('language profile compares the HuBASIC runtime revision once X1Pen reports 
   const profileFor = async () => jsonContent(await client.callTool({ name: 'x1pen_get_language_profile', arguments: {} }));
 
   // Not loaded yet: the ID alone decides
-  reportedHubasicProfile = { id: 'x1pen-hubasic-x1native-slfs', runtimeRevision: null };
+  reportedHubasicProfile = { id: 'x1pen-hubasic-x1native', runtimeRevision: null };
   assert.equal((await profileFor()).compatible, true);
 
   // Another hubasic2sl bundle: the reference may be stale
-  reportedHubasicProfile = { id: 'x1pen-hubasic-x1native-slfs', runtimeRevision: '0123456789abcdef0123456789abcdef01234567' };
+  reportedHubasicProfile = { id: 'x1pen-hubasic-x1native', runtimeRevision: '0123456789abcdef0123456789abcdef01234567' };
   const mismatch = await profileFor();
   assert.equal(mismatch.compatible, false);
   assert.deepEqual(mismatch.revisionMismatches, [{

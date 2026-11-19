@@ -212,8 +212,9 @@
         }
         .editor-tab-action:hover { background: #0d2244; color: #88bbff; }
         #btn-hubasic-options.changed { color: #e9c46a; border-color: #8a6d1f; }
+        #btn-hubasic-files.changed { color: #e9c46a; border-color: #8a6d1f; }
 
-        #hubasic-options-panel {
+        #hubasic-options-panel, #hubasic-files-panel {
             position: absolute;
             top: 30px;
             right: 8px;
@@ -231,7 +232,36 @@
             color: #c8d0e0;
             font-size: 0.8em;
         }
-        #hubasic-options-panel p { margin: 0 0 6px; }
+        #hubasic-options-panel p, #hubasic-files-panel p { margin: 0 0 6px; }
+        #hubasic-files-panel { width: 400px; }
+        #hubasic-files-panel h3 { margin: 12px 0 4px; font-size: 1.05em; color: #e0e6f0; }
+        .hubasic-files-table { width: 100%; border-collapse: collapse; margin: 4px 0 6px; }
+        .hubasic-files-table td { padding: 2px 3px; border-bottom: 1px solid #1a3358; vertical-align: middle; }
+        .hubasic-files-table td.size { text-align: right; color: #8899bb; white-space: nowrap; }
+        .hubasic-files-table td.actions { text-align: right; white-space: nowrap; }
+        .hubasic-files-table input[type="text"] { width: 10em; }
+        .hubasic-files-table input[aria-invalid="true"] { border-color: #e94560; }
+        .hubasic-files-empty { color: #7f8aa3; }
+        #hubasic-files-panel select,
+        #hubasic-files-panel input[type="text"] {
+            background: #0d1117;
+            color: #c8d0e0;
+            border: 1px solid #1a4a88;
+            border-radius: 3px;
+            padding: 2px 4px;
+            font: inherit;
+        }
+        #hubasic-files-panel button {
+            background: #0d1e36;
+            border: 1px solid #1a4a88;
+            border-radius: 3px;
+            color: #5599ee;
+            padding: 2px 8px;
+            cursor: pointer;
+            font: inherit;
+        }
+        #hubasic-files-panel button:disabled { opacity: 0.45; cursor: default; }
+        #hubasic-files-message { color: #e9c46a; min-height: 1em; }
         .hubasic-options-note { color: #8899bb; }
         .hubasic-options-help { color: #7f8aa3; font-size: 0.9em; }
         .hubasic-options-row {
@@ -751,7 +781,8 @@
                 <button class="editor-tab-action hidden" id="btn-slang-import" title="Insert binary array values at the SLANG cursor">Import</button>
                 <input type="file" id="slang-import-file" style="display:none">
                 <a href="http://retropc.net/ohishi/s-os/fubasic.htm" class="editor-tab-action" id="btn-basic-manual" style="text-decoration:none; margin-left:auto;" title="FuzzyBASIC Manual" target="_blank" rel="noopener">Manual</a>
-                <button class="editor-tab-action hidden" id="btn-hubasic-options" title="HuBASIC conversion options (all HuBASIC programs)" aria-expanded="false" aria-controls="hubasic-options-panel">Options</button>
+                <button class="editor-tab-action hidden" id="btn-hubasic-files" title="Files put on the disk of a program that uses the file statements (OPEN, INPUT#, PRINT#, ...)" aria-expanded="false" aria-controls="hubasic-files-panel">Files</button>
+                <button class="editor-tab-action hidden" id="btn-hubasic-options" style="margin-left:4px;" title="HuBASIC conversion options (all HuBASIC programs)" aria-expanded="false" aria-controls="hubasic-options-panel">Options</button>
                 <button class="editor-tab-action hidden" id="btn-pcg-howto" title="How FuzzyBASIC and SLANG define PCG characters from the inserted data" aria-expanded="false" aria-controls="pcg-howto-panel">使い方</button>
                 <a href="x1pen_charmap.html" class="editor-tab-action" style="text-decoration:none; margin-left:4px;" title="Character code reference" target="_blank">Charmap</a>
             </div>
@@ -782,6 +813,28 @@
                 <div class="hubasic-options-actions">
                     <button type="button" id="hubasic-opt-reset">既定に戻す</button>
                     <button type="button" id="hubasic-opt-close">閉じる</button>
+                </div>
+            </div>
+            <div id="hubasic-files-panel" class="hidden" role="group" aria-label="HuBASIC のディスクに入れるファイル">
+                <p class="hubasic-options-note">ファイルの命令（OPEN・INPUT#・PRINT# など）を使うプログラムは、Hu-BASIC と同じ形のディスクから起動します。ここのファイルもそのディスクに入ります。</p>
+                <p class="hubasic-options-note hidden" id="hubasic-files-share-note">Share から開いているあいだは、ここのファイルは保存されません（このタブを閉じると消えます）。</p>
+                <table class="hubasic-files-table" id="hubasic-files-list"></table>
+                <p class="hubasic-options-help" id="hubasic-files-total"></p>
+                <div class="hubasic-options-actions">
+                    <button type="button" id="hubasic-files-add">ファイルを足す…</button>
+                    <input type="file" id="hubasic-files-input" multiple style="display:none">
+                    <button type="button" id="hubasic-files-save-disk" title="いまのプログラムと上のファイルで、起動するディスクイメージ（D88）を作って保存します">ディスクイメージを保存</button>
+                </div>
+                <p class="hubasic-options-help">ファイルが入っているあいだは Share できません。配るときは「ディスクイメージを保存」の D88 を渡してください（X millennium Web や実機の FDD0 に入れて起動します）。</p>
+                <h3>RUN したあとのディスク</h3>
+                <p class="hubasic-options-help" id="hubasic-disk-state"></p>
+                <div class="hubasic-options-actions">
+                    <button type="button" id="hubasic-disk-read">ディスクの中を見る</button>
+                </div>
+                <table class="hubasic-files-table" id="hubasic-disk-list"></table>
+                <p id="hubasic-files-message" role="status"></p>
+                <div class="hubasic-options-actions">
+                    <button type="button" id="hubasic-files-close">閉じる</button>
                 </div>
             </div>
             <div id="pcg-howto-panel" class="hidden" role="group" aria-label="PCG の定義のお手本">
@@ -992,6 +1045,7 @@
     <script src="x1basic/src/codec.js"></script>
     <script src="x1pen_hubasic_text.js"></script>
     <script src="x1pen_hubasic_options.js"></script>
+    <script src="x1pen_hubasic_files.js"></script>
     <script src="x1pen_pcg_export.js"></script>
     <script src="x1pen_pcg_howto.js"></script>
     <script src="x1pen-version.js"></script>

@@ -98,7 +98,9 @@ cp "${SCRIPT_DIR}/html/x1pen.js"             ./x1pen.js
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   ./x1pen_tokenizer.js
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     ./x1pen_z80asm.js
 cp "${SCRIPT_DIR}/html/x1pen_slfs_disk.js"   ./x1pen_slfs_disk.js
+cp "${SCRIPT_DIR}/html/x1pen_slang_wasm.js"  ./x1pen_slang_wasm.js
 cp "${SCRIPT_DIR}/html/x1pen_hubasic.js"     ./x1pen_hubasic.js
+cp "${SCRIPT_DIR}/html/x1pen_hubasic_files.js" ./x1pen_hubasic_files.js
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_text.js" ./x1pen_hubasic_text.js
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_options.js" ./x1pen_hubasic_options.js
 cp "${SCRIPT_DIR}/html/x1pen_pcg_export.js"  ./x1pen_pcg_export.js
@@ -230,7 +232,9 @@ cp "${SCRIPT_DIR}/html/x1pen.js"             "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_tokenizer.js"   "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_z80asm.js"     "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_slfs_disk.js"   "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_slang_wasm.js"  "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_hubasic.js"     "${DIST_DIR}/"
+cp "${SCRIPT_DIR}/html/x1pen_hubasic_files.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_text.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_hubasic_options.js" "${DIST_DIR}/"
 cp "${SCRIPT_DIR}/html/x1pen_pcg_export.js"  "${DIST_DIR}/"
