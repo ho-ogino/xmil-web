@@ -1542,6 +1542,9 @@ window.__X1PEN_MODE = true;
         // 0. sourceMode / runMode 判定
         var basicSrc = basicEditor.getValue().trim();
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
+        // What the assembler reads: the ASM tab as it is, so error lines are the editor's lines
+        // (and the first line keeps its indentation); SLANG's output when SLANG compiles
+        var asmText = asmEditor ? asmEditor.getValue() : '';
         var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
         var hubasicSrc = hubasicEditor ? hubasicEditor.getValue().trim() : '';
         // The SLANG program as it is now, untrimmed (line numbers match the editor): the compiler
@@ -1601,6 +1604,7 @@ window.__X1PEN_MODE = true;
             }
             // コンパイル結果の ASM を使う
             asmSrc = slangResult.asm;
+            asmText = asmSrc;
             lastRunDetails = { warnings: slangWarningList, compilerWarnings: slangWarningList };
             // The program changed while the compiler loaded: this Run uses the snapshot, but the ASM
             // tab is left alone (its source is no longer what the editors hold)
@@ -1712,7 +1716,7 @@ window.__X1PEN_MODE = true;
 
         var asmResult = null;
         if (asmSrc) {
-            asmResult = window.X1PenZ80Asm.assemble(asmSrc, predefined);
+            asmResult = window.X1PenZ80Asm.assemble(asmText, predefined);
             if (asmResult.errors.length > 0) {
                 elStatus.textContent = 'ASM error (L' + asmResult.errors[0].line + '): ' +
                                        asmResult.errors[0].msg;
@@ -2642,7 +2646,8 @@ window.__X1PEN_MODE = true;
         if (asmSource.trim() && !hasErrors()) {
             var coldState = program.sourceMode === 'basic+asm' ? COLD_STATE_FILE : LSX_COLD_STATE;
             var predefined = await getPredefinedSymbols(coldState);
-            var asmResult = window.X1PenZ80Asm.assemble(asmSource.trim(), predefined);
+            // As it is (not trimmed), so the lines of its errors are the editor's lines
+            var asmResult = window.X1PenZ80Asm.assemble(asmSource, predefined);
             asmBytes = asmResult.bytes.length;
             for (var ai = 0; ai < asmResult.errors.length; ai++) {
                 var asmError = asmResult.errors[ai];

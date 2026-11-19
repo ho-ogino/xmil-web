@@ -894,9 +894,11 @@
         // ── Preprocess: #IF / #ELSE / #ENDIF ──
         // 1回の走査で active 状態を見ながら EQU 収集と条件評価を同時処理
         var ppSymbols = {};
+        var ppPredefined = {};
         if (predefinedSymbols) {
             for (var k in predefinedSymbols) {
                 var ku = k.toUpperCase();
+                ppPredefined[ku] = true;
                 ppSymbols[ku] = predefinedSymbols[k];
                 // NAME_SPACE_DEFAULT.KEY でも参照可能に
                 if (ku.indexOf('.') < 0) {
@@ -908,8 +910,11 @@
         // (AILZ80ASM order: a later #IF can use a label an earlier branch defined).
         var ppLabels = {};
         var ppNamespace = '';
-        // Names the source has defined so far, by namespace
+        // EQU names the source has defined so far, with the namespace and the global label of a
+        // local name, as in the passes; #IF and EQU read them as the passes do
         var ppDefined = {};
+        var ppGlobal = '';
+        function ppNs() { return ppNamespace || 'NAME_SPACE_DEFAULT'; }
         var ifStack = [];
         function ppIsActive() {
             if (ifStack.length === 0) return true;
@@ -927,7 +932,7 @@
                     var condActive = false;
                     if (parentActive) {
                         var exprStr = (directive[2] || '').replace(/;.*$/, '').trim();
-                        var condVal = evalExpr(exprStr, ppSymbols, 0, '', '', { undefinedIsZero: true, definedLabels: ppLabels });
+                        var condVal = evalExpr(exprStr, ppSymbols, 0, ppGlobal, ppNs(), { undefinedIsZero: true, definedLabels: ppLabels });
                         if (condVal === null) {
                             errors.push({ line: pi + 1, msg: 'Invalid #IF expression' });
                             condVal = 0;
@@ -947,7 +952,7 @@
                             top.condTrue = false;
                         } else {
                             var exprStr = (directive[2] || '').replace(/;.*$/, '').trim();
-                            var condVal = evalExpr(exprStr, ppSymbols, 0, '', '', { undefinedIsZero: true, definedLabels: ppLabels });
+                            var condVal = evalExpr(exprStr, ppSymbols, 0, ppGlobal, ppNs(), { undefinedIsZero: true, definedLabels: ppLabels });
                             if (condVal === null) {
                                 errors.push({ line: pi + 1, msg: 'Invalid #ELIF expression' });
                                 condVal = 0;
@@ -995,16 +1000,27 @@
                 ppLabels[ppLabel] = true;
                 if (ppNamespace) ppLabels[ppNamespace + '.' + ppLabel] = true;
             }
-            // Only the first definition of a name gives it a value here (a later one is a duplicate,
-            // reported by pass 1), so a duplicate EQU cannot change which #IF branch is taken
-            var ppKey = ppParsed.label && ppParsed.label[0] !== '.'
-                ? (ppNamespace || 'NAME_SPACE_DEFAULT') + '.' + ppParsed.label.toUpperCase() : null;
-            var ppFirst = ppKey !== null && !ppDefined[ppKey];
-            if (ppKey) ppDefined[ppKey] = true;
-            if (ppFirst && ppParsed.mnemonic === 'EQU') {
-                var ppVal = evalExpr(ppParsed.operands, ppSymbols, 0, '');
-                if (ppVal !== null && ppVal !== undefined) {
-                    ppSymbols[ppParsed.label.toUpperCase()] = ppVal;
+            // EQU names, scoped as the passes scope them. Only the first EQU of a name gives it a
+            // value (a later one is a duplicate, which pass 1 reports), so a duplicate cannot change
+            // which #IF branch is taken. Before macro expansion a macro call reads like a label, so
+            // labels only set the scope of local names here.
+            if (ppParsed.label && ppParsed.mnemonic !== 'MACRO') {
+                var ppKey;
+                if (ppParsed.label[0] === '.') {
+                    ppKey = ppGlobal ? ppGlobal + ppParsed.label.toUpperCase() : ppNs() + '.' + ppParsed.label.toUpperCase();
+                } else {
+                    ppKey = ppNs() + '.' + ppParsed.label.toUpperCase();
+                    ppGlobal = ppKey;
+                }
+                if (ppParsed.mnemonic === 'EQU' && !ppDefined[ppKey]) {
+                    ppDefined[ppKey] = true;
+                    var ppVal = evalExpr(ppParsed.operands, ppSymbols, 0, ppGlobal, ppNs());
+                    if (ppVal !== null && ppVal !== undefined) {
+                        ppSymbols[ppKey] = ppVal;
+                        // A program's EQU of a predefined name overrides it in #IF, as before
+                        var ppBare = ppParsed.label.toUpperCase();
+                        if (ppParsed.label[0] !== '.' && Object.prototype.hasOwnProperty.call(ppPredefined, ppBare)) ppSymbols[ppBare] = ppVal;
+                    }
                 }
             }
         }

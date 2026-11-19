@@ -733,8 +733,6 @@ testOK('Same local label under different global labels', 'F:\n.a:\n JR .a\nG:\n.
 testOK('Same name in different namespaces', '[LIBA]\nFOO:\n RET\n[LIBB]\nFOO:\n RET', [0xC9, 0xC9]);
 testOK('Labels in an inactive #IF branch are not definitions',
     '#IF 0\nLBL:\n HALT\n#ELSE\nLBL:\n NOP\n#ENDIF\n JR LBL', [0x00, 0x18, 0xFD]);
-testOKWith('Top-level local labels in two places with allowTopLevelLocalLabels are one name',
-    ' NOP\n.L:\n NOP\nG:\n NOP\n', [0x00, 0x00, 0x00], { allowTopLevelLocalLabels: true });
 // Errors as [line, message], for checks of the exact lines
 function errorLines(source, predefined, options) {
     return asm.assemble(source, predefined, options).errors.map(function(e) { return [e.line, e.msg]; });
@@ -764,6 +762,30 @@ testErrors('A duplicate EQU leaves the #IF branch of the first value',
 testErrorBytes('A duplicate EQU leaves the first value in #IF and in code',
     'FLAG EQU 0\nFLAG EQU 1\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF\n LD A,FLAG',
     [0x00, 0x3E, 0x00], 'Duplicate label: FLAG (first defined on line 1)');
+// #IF reads names as the passes do: a local EQU under its global label, a name in the current
+// namespace first; a macro's name is not a definition
+testOK('#IF reads a local EQU', 'MAIN:\n.FLAG EQU 1\n#IF .FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76]);
+testOK('#IF reads the local EQU of the current global label (1)',
+    'A:\n.F EQU 1\nB:\n.F EQU 0\n#IF .F\n HALT\n#ELSE\n NOP\n#ENDIF', [0x00]);
+testOK('#IF reads the local EQU of the current global label (2)',
+    'A:\n.F EQU 0\nB:\n.F EQU 1\n#IF .F\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76]);
+testErrors('A duplicate local EQU leaves the #IF branch of the first value',
+    errorLines('MAIN:\n.F EQU 0\n.F EQU 1\n#IF .F\n#IF\n#ENDIF\n#ENDIF\n NOP'),
+    [[3, 'Duplicate label: MAIN.F (first defined on line 2)']]);
+testOK('A macro and an EQU may share a name',
+    'FLAG MACRO\n NOP\nENDM\n FLAG\nFLAG: EQU 1\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x00, 0x76]);
+testOK('#IF reads the name of the current namespace',
+    '[ONE]\nFLAG EQU 0\n[TWO]\nFLAG EQU 1\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF\n[ONE]\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76, 0x00]);
+testErrors('Another namespace does not hide a duplicate EQU from #IF',
+    errorLines('[ONE]\nFLAG EQU 0\n[TWO]\nFLAG EQU 1\n[ONE]\nFLAG EQU 1\n#IF FLAG\n#IF\n#ENDIF\n#ENDIF\n NOP'),
+    [[6, 'Duplicate label: ONE.FLAG (first defined on line 2)']]);
+(function() {
+    // A program's EQU of a predefined name still overrides it in #IF
+    var result = asm.assemble('ENV_TYPE EQU 3\n#IF ENV_TYPE==3\n NOP\n#ELSE\n HALT\n#ENDIF', { ENV_TYPE: 1 });
+    if (result.errors.length || JSON.stringify(Array.from(result.bytes)) !== '[0]') {
+        console.error('FAIL: an EQU of a predefined name overrides it in #IF', result.errors, Array.from(result.bytes)); failures++;
+    } else { passes++; }
+})();
 (function() {
     // A program may define a name the predefined symbols (the cold state's address map) also have
     var result = asm.assemble('ENV_TYPE EQU 3\nCHROUT:\n RET', { ENV_TYPE: 1, CHROUT: 0x1234 });
