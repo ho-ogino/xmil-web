@@ -755,6 +755,13 @@ testErrors('Other errors after a macro call are on their source lines too',
 testErrors('An error inside a macro body is on the line that calls it',
     errorLines('BAD MACRO\n NOP\n JP NOWHERE\nENDM\n NOP\n BAD'),
     [[6, 'Failed to encode: JP NOWHERE']]);
+// A macro call that fails is not a label: two of them are two macro errors, not a duplicate
+testErrors('Failed macro calls are macro errors on their lines',
+    errorLines('PUT MACRO X\n DB X\nENDM\n PUT\n PUT'),
+    [[4, 'PUT: argument count mismatch (expected 1, got 0)'], [5, 'PUT: argument count mismatch (expected 1, got 0)']]);
+testErrors('A failed macro call keeps its own label',
+    errorLines('PUT MACRO X\n DB X\nENDM\nL1: PUT\n JP L1\nL1:'),
+    [[6, 'Duplicate label: L1 (first defined on line 4)'], [4, 'PUT: argument count mismatch (expected 1, got 0)']]);
 // A duplicate is the first error: #IF may have taken a branch by the later value (it reads names
 // as before, the latest value), and any error there would otherwise come first
 testErrors('A duplicate EQU comes before an error in the #IF branch it opened',

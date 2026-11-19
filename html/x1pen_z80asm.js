@@ -1101,24 +1101,30 @@
             function expandMacros(mlines, mlineNums, expandStack) {
                 var newLines = [];
                 var newLineNums = [];
+                // A call that cannot be expanded has its error; only its own label goes on (the
+                // call itself would read as a label, and two such calls as a duplicate one)
+                function keepCallLabel(call, eli) {
+                    newLines.push(call.label ? call.label + ':' : '');
+                    newLineNums.push(mlineNums[eli]);
+                }
                 for (var eli = 0; eli < mlines.length; eli++) {
                     var call = detectMacroCall(mlines[eli]);
                     if (call) {
                         var macName = call.macroName;
                         if (expandStack.indexOf(macName) >= 0) {
                             errors.push({ line: mlineNums[eli], msg: 'Recursive macro expansion: ' + macName });
-                            newLines.push(mlines[eli]); newLineNums.push(mlineNums[eli]); continue;
+                            keepCallLabel(call, eli); continue;
                         }
                         totalExpansions++;
                         if (totalExpansions > maxExpansions) {
                             errors.push({ line: mlineNums[eli], msg: 'Macro expansion limit exceeded' });
-                            newLines.push(mlines[eli]); newLineNums.push(mlineNums[eli]); continue;
+                            keepCallLabel(call, eli); continue;
                         }
                         var mac = macros[macName];
                         var callArgs = call.args ? splitMacroArgs(call.args) : [];
                         if (callArgs.length !== mac.args.length) {
                             errors.push({ line: mlineNums[eli], msg: macName + ': argument count mismatch (expected ' + mac.args.length + ', got ' + callArgs.length + ')' });
-                            newLines.push(mlines[eli]); newLineNums.push(mlineNums[eli]); continue;
+                            keepCallLabel(call, eli); continue;
                         }
                         if (call.label) { newLines.push(call.label + ':'); newLineNums.push(mlineNums[eli]); }
                         var bodyLines = [];
