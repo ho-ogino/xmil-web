@@ -887,7 +887,7 @@ export function createX1PenMcpServer(options = {}) {
   )));
 
   server.registerTool('x1pen_get_language_profile', {
-    description: 'Call before generating nontrivial code. Lists the bundled FuzzyBASIC, SLANG, HuBASIC, built-in Z80 assembler and X1 hardware profiles and, when connected, compares language profiles with those reported by X1Pen (including the HuBASIC runtime revision once X1Pen has loaded it).',
+    description: 'Call before generating nontrivial code. Lists the bundled FuzzyBASIC, SLANG, HuBASIC, built-in Z80 assembler and X1 hardware profiles and, when connected, compares language profiles with those reported by X1Pen (including the HuBASIC runtime revision and the SLANG compiler revision once X1Pen has loaded them).',
     inputSchema: {
       sessionId: sessionInput.sessionId,
       includeActive: z.boolean().default(true)
@@ -917,14 +917,17 @@ export function createX1PenMcpServer(options = {}) {
       .map((profile) => profile && profile.id)
       .filter(Boolean);
     result.compatible = activeIds.every((id) => bundledIds.has(id));
-    // A profile ID that does not name a revision (HuBASIC) is checked against the revision X1Pen
-    // reports once it has loaded that runtime; null means not loaded yet and is not a mismatch.
+    // Profile IDs do not name a revision (HuBASIC, SLANG): each is checked against the revision X1Pen
+    // reports once it has loaded that bundle (runtimeRevision, compilerRevision); null means not
+    // loaded yet and is not a mismatch.
     const revisionMismatches = [];
     for (const [language, reported] of Object.entries(status.languageProfiles)) {
       const bundled = reported && manifest.profiles.find((profile) => profile.id === reported.id);
-      if (bundled && bundled.runtimeRevision && typeof reported.runtimeRevision === 'string'
-          && reported.runtimeRevision !== bundled.runtimeRevision) {
-        revisionMismatches.push({ language, reported: reported.runtimeRevision, bundled: bundled.runtimeRevision });
+      if (!bundled) continue;
+      for (const field of ['runtimeRevision', 'compilerRevision']) {
+        if (bundled[field] && typeof reported[field] === 'string' && reported[field] !== bundled[field]) {
+          revisionMismatches.push({ language, field, reported: reported[field], bundled: bundled[field] });
+        }
       }
     }
     if (revisionMismatches.length > 0) {

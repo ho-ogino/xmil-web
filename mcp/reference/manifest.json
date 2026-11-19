@@ -3,7 +3,7 @@
   "referenceVersion": "2026-11-19",
   "defaultProfiles": {
     "fuzzybasic": "x1pen-fuzzybasic-1.2L",
-    "slang": "x1pen-slang-c9e8f53-lsx",
+    "slang": "x1pen-slang-x1",
     "z80asm": "x1pen-z80asm-current",
     "x1": "x1-hardware-xmillennium-web",
     "hubasic": "x1pen-hubasic-x1native"
@@ -22,18 +22,22 @@
       ]
     },
     {
-      "id": "x1pen-slang-c9e8f53-lsx",
+      "id": "x1pen-slang-x1",
       "language": "slang",
-      "displayName": "X1Pen SLANG c9e8f53 / LSX-Dodgers",
-      "compilerRevision": "c9e8f5315d8d44a413368045d78439a4ec8da3fc",
+      "displayName": "X1Pen SLANG (slangc 0.28.0 / x1)",
+      "slangcVersion": "0.28.0",
+      "compilerRevision": "a667528bcc61ca6915955054c794da6fec8a7c3b",
       "environment": {
         "ENV_TYPE": 1,
+        "OS_TYPE": 0,
         "defaultOrg": 256,
-        "runtime": "lsx-dodgers"
+        "runtime": "x1"
       },
-      "notes": "The exact browser compiler snapshot and the runtime/include files loaded by the X1Pen VFS. Schema v2 indexes compiler vocabulary, runtime metadata symbols and bundled include APIs, with dedicated entries for supported application-facing contracts.",
+      "notes": "The SLANG compiler (slangc) of the SLANG-compiler browser bundle at compilerRevision, in its x1 environment (LSX-Dodgers on the X1), with that revision's runtime and include files. Schema v2 indexes compiler vocabulary, runtime metadata symbols and bundled include APIs, with dedicated entries for supported application-facing contracts. It is reviewed whenever X1Pen imports another bundle.",
       "sourceUrls": [
-        "https://github.com/h-o-soft/SLANG-compiler/blob/c9e8f5315d8d44a413368045d78439a4ec8da3fc/docs/SLANG-spec.md"
+        "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md",
+        "https://github.com/h-o-soft/SLANG-compiler/tree/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime",
+        "https://github.com/h-o-soft/SLANG-compiler/tree/a667528bcc61ca6915955054c794da6fec8a7c3b/include"
       ]
     },
     {
@@ -64,7 +68,7 @@
       "language": "hubasic",
       "displayName": "X1Pen HuBASIC (hubasic2sl 0.1.0-alpha / x1native)",
       "hubasic2slVersion": "0.1.0-alpha",
-      "runtimeRevision": "6e73c0865c28450aa4ecac524faae18be38566f8",
+      "runtimeRevision": "a667528bcc61ca6915955054c794da6fec8a7c3b",
       "environment": {
         "runtime": "x1native",
         "environments": [
@@ -75,8 +79,8 @@
       },
       "notes": "What the hubasic2sl converter and x1native runtime bundled in X1Pen accept, written only from the SLANG-compiler sources and docs/HUBASIC.md at runtimeRevision and from X1Pen's own code; it is not taken from the HuBASIC manual. It is reviewed whenever X1Pen imports another hubasic2sl bundle.",
       "sourceUrls": [
-        "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-        "https://github.com/h-o-soft/SLANG-compiler/tree/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic"
+        "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+        "https://github.com/h-o-soft/SLANG-compiler/tree/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic"
       ]
     }
   ]

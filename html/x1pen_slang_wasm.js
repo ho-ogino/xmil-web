@@ -2,9 +2,10 @@
 // One .NET browser-wasm bundle (hubasic/<revision>/, copied in by scripts/import-hubasic-bundle.mjs)
 // carries the HuBASIC converter (hubasic2sl), the SLANG compiler (slangc) and the Hu-BASIC disk
 // builder, all from one SLANG-compiler revision. This file loads it once, checks that its manifest
-// describes the environments X1Pen boots, and wraps the calls:
-//   transpile (hubasic2sl) → compile (slangc, ASM text) → [X1PenZ80Asm in the page] →
-//   checkLayout / checkLayoutClear → buildHufsDisk (x1native_hufs) or X1PenSlfsDisk (x1native_slfs)
+// describes the environments X1Pen uses, and wraps the calls:
+//   HuBASIC tab: transpile (hubasic2sl) → compile (slangc, ASM text) → [X1PenZ80Asm in the page] →
+//     checkLayout / checkLayoutClear → buildHufsDisk (x1native_hufs) or X1PenSlfsDisk (x1native_slfs)
+//   SLANG tab: compile in the x1 environment (LSX-Dodgers on the X1), #INCLUDE from include/
 // Every call returns a Promise, so the bundle can later move into a worker without changing callers.
 // Lazy-loaded: window.X1PenSlangWasm
 
@@ -14,8 +15,16 @@
     var ASSEMBLY = 'hubasic2sl-wasm';
     var VFS_ROOT = '/slang';
     var WORK_DIR = '/work/';
+    var EMPTY = new Uint8Array(0);
+    var HUFS_SLOTS = 64;      // X1PenHuBasicFiles.MAX_FILES
+    function sourcePath(envName) { return WORK_DIR + envName + '/PROGRAM.SL'; }
+    function hufsPath(slot) { return WORK_DIR + 'hufs/' + slot; }
 
     var loadPromise = null;
+    // Set once the .NET runtime of the bundle has been asked to start: it can start only once per
+    // page, so after a failure from then on, only reloading the page can try again
+    var runtimeTried = false;
+    var runtimeFailure = null;
     var state = null;    // { revision, base, manifest, envs, hubasic, slang, runtimeText, versions }
 
     function toolchainError(message, details) {
@@ -63,6 +72,20 @@
                 ['diskTool', env.diskTool === 'slfs-pack'],
                 ['diskVolume', typeof env.diskVolume === 'string' && /^[\x20-\x7E]{0,16}$/.test(env.diskVolume)]
             ]);
+        },
+        // The SLANG tab: LSX-Dodgers on the X1, programs from $100
+        x1: function(env) {
+            var defines = env.defines || {};
+            return [
+                ['envType', env.envType === 1],
+                ['osType', env.osType === 0],
+                ['defaultOrg', env.defaultOrg === 0x100],
+                ['defines', Object.keys(defines).length === 0],
+                ['libraries', Array.isArray(env.libraries) && env.libraries.length > 0 &&
+                    env.libraries.every(function(name) {
+                        return typeof name === 'string' && LIBRARY_NAME.test(name) && !/^libx1native/i.test(name);
+                    })]
+            ];
         },
         x1native_hufs: function(env, manifest) {
             var defines = env.defines || {};
@@ -165,15 +188,23 @@
             envs[name].libraries.forEach(function(lib) { libraries[lib] = true; });
         });
         Object.keys(libraries).forEach(function(lib) { files['runtime/' + lib] = null; });
+        // The #INCLUDE files of the x1 environment, as the manifest lists them
+        (Array.isArray(manifest.files) ? manifest.files : []).forEach(function(file) {
+            if (file && typeof file.path === 'string' && /^include\/[A-Za-z0-9_.-]+$/.test(file.path)) files[file.path] = null;
+        });
         await Promise.all(Object.keys(files).map(async function(path) {
             files[path] = await fetchBytes(base + path);
         }));
+        // The HuBASIC runtime markers are in the x1native libraries
         var runtimeText = {};
-        Object.keys(libraries).forEach(function(lib) {
-            runtimeText[lib] = new TextDecoder().decode(files['runtime/' + lib]);
+        ['x1native_slfs', 'x1native_hufs'].forEach(function(name) {
+            envs[name].libraries.forEach(function(lib) {
+                runtimeText[lib] = new TextDecoder().decode(files['runtime/' + lib]);
+            });
         });
 
         var hubasic, slang;
+        runtimeTried = true;
         try {
             var mod = await import(new URL(base + '_framework/dotnet.js', location.href).href);
             var runtime = await mod.dotnet.create();
@@ -182,7 +213,9 @@
             slang = exports.SLANGCompiler.HuBasic.Wasm.SlangWeb;
             if (!hubasic || !slang) throw new Error('the bundle has no HuBasicWeb/SlangWeb exports');
         } catch (e) {
-            throw toolchainError('Failed to start the SLANG bundle: ' + (e && e.message || e));
+            runtimeFailure = 'Failed to start the SLANG bundle: ' + (e && e.message || e);
+            // The runtime cannot start again in this page: say so already the first time
+            throw toolchainError(runtimeFailure + ' (reload the page to try again)', { needsReload: true });
         }
         var hubasicVersion = JSON.parse(hubasic.Version());
         var slangVersion = JSON.parse(slang.Version());
@@ -191,9 +224,19 @@
         checkBasAbi(manifest, runtimeText, hubasicVersion.basAbi);
 
         Object.keys(files).forEach(function(path) { slang.PutFile(VFS_ROOT + '/' + path, files[path]); });
+        // Every work file X1Pen ever writes exists from the start, empty, and every operation empties
+        // what it wrote before it returns: the file system looks the same between operations,
+        // whatever ran before, so a SLANG #INCLUDE (of a path, too) gives the same result each time
+        Object.keys(envs).forEach(function(name) { slang.PutFile(sourcePath(name), EMPTY); });
+        for (var slot = 0; slot < HUFS_SLOTS; slot++) slang.PutFile(hufsPath(slot), EMPTY);
+        // The include files by upper-case name, for programs that spell them in another case
+        var includes = {};
+        Object.keys(files).forEach(function(path) {
+            if (path.indexOf('include/') === 0) includes[path.slice(8).toUpperCase()] = files[path];
+        });
         state = {
             revision: current.revision, base: base, manifest: manifest, envs: envs,
-            hubasic: hubasic, slang: slang,
+            hubasic: hubasic, slang: slang, includes: includes,
             versions: { hubasic2sl: hubasicVersion.version, slangc: slangVersion.slangc }
         };
         return info();
@@ -201,8 +244,12 @@
 
     function load() {
         if (!loadPromise) {
+            if (runtimeTried && !state) {
+                return Promise.reject(toolchainError((runtimeFailure || 'The SLANG bundle did not start') +
+                    ' (reload the page to try again)', { needsReload: true }));
+            }
             loadPromise = loadOnce().catch(function(e) {
-                loadPromise = null;     // allow a retry after a transient failure
+                loadPromise = null;     // allow a retry after a failure before the .NET runtime starts
                 throw e;
             });
         }
@@ -238,7 +285,6 @@
     // fatal stop as "slangc: error: <message>". file is the in-memory path; show the user's names.
     var DIAGNOSTIC_LINE = /^(.*?):(\d+):(\d+): (error|warning|info|note): (.*)$/;
     function displayFile(path) {
-        if (path.indexOf(WORK_DIR) === 0) return path.slice(WORK_DIR.length);
         var slash = path.lastIndexOf('/');
         return slash >= 0 ? path.slice(slash + 1) : path;
     }
@@ -264,14 +310,36 @@
 
     // Compiles SLANG text in one of the checked environments. Never throws for program errors.
     // Returns { ok, asm, diagnostics: [{severity, message, file, line, column}], log, error? }.
-    async function compile(source, envName, options) {
+    // The bundled include files are upper case (GRAPH.LIB); X1Pen's former compiler found them
+    // whatever the case of the name, but slangc's file system tells cases apart. Every word of the
+    // source that names a bundled file in another case (graph.lib, Graph.Lib), wherever and
+    // however #INCLUDE or #CHAIN is written, gets that file under its own spelling too.
+    var FILE_WORD = /[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
+    function provideIncludeSpellings(s, source) {
+        var m;
+        FILE_WORD.lastIndex = 0;
+        while ((m = FILE_WORD.exec(source))) {
+            var spelled = m[0];
+            var bytes = s.includes[spelled.toUpperCase()];
+            if (bytes && !s.includes[spelled]) s.slang.PutFile(VFS_ROOT + '/include/' + spelled, bytes);
+        }
+    }
+
+    async function compile(source, envName) {
         var s = requireState();
         env(envName);
-        var name = (options && options.sourceName) || 'PROGRAM.SL';
-        var path = WORK_DIR + name;
+        // Each environment has its own folder: #INCLUDE looks next to the source (where only the
+        // program is), then in the bundle's include/ (as slangc -I)
+        var path = sourcePath(envName);
+        var r;
         s.slang.PutFile(path, new TextEncoder().encode(source));
-        var request = { env: envName, libPaths: [VFS_ROOT], includePaths: (options && options.includePaths) || [] };
-        var r = JSON.parse(s.slang.Compile(path, JSON.stringify(request)));
+        try {
+            provideIncludeSpellings(s, source);
+            var request = { env: envName, libPaths: [VFS_ROOT], includePaths: [VFS_ROOT + '/include'] };
+            r = JSON.parse(s.slang.Compile(path, JSON.stringify(request)));
+        } finally {
+            s.slang.PutFile(path, EMPTY);
+        }
         var diagnostics = parseLog(r.log);
         if (r.ok) return { ok: true, asm: r.asm, diagnostics: diagnostics, log: r.log || [] };
         var errors = diagnostics.filter(function(d) { return d.severity === 'error'; });
@@ -303,15 +371,23 @@
     async function buildHufsDisk(program, options) {
         var s = requireState();
         var add = [];
-        (options.files || []).forEach(function(file, i) {
-            var path = WORK_DIR + 'hufs/' + i;
+        var files = options.files || [];
+        if (files.length > HUFS_SLOTS) return { ok: false, error: 'hufs: too many files (' + files.length + ')' };
+        files.forEach(function(file, i) {
+            var path = hufsPath(i);
             s.slang.PutFile(path, file.bytes);
             add.push(file.name + '=' + path + (file.kind === 'text' ? ',text' : file.kind === 'bin' ? ',bin' : ''));
         });
         var request = { mainName: options.mainName, add: add };
         if (options.load !== undefined) request.load = options.load;
         if (options.exec !== undefined) request.exec = options.exec;
-        var r = JSON.parse(s.slang.BuildHuDisk(program, JSON.stringify(request)));
+        var r;
+        try {
+            r = JSON.parse(s.slang.BuildHuDisk(program, JSON.stringify(request)));
+        } finally {
+            // The files were for this disk only: leave nothing of them in the bundle's file system
+            files.forEach(function(file, i) { s.slang.PutFile(hufsPath(i), EMPTY); });
+        }
         if (!r.ok) return { ok: false, error: r.error || 'hufs: the disk could not be built' };
         return { ok: true, d88: base64ToBytes(r.d88) };
     }
