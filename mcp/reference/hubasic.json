@@ -57,7 +57,7 @@
     ],
     "sourceUrls": [
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_text.js",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md"
     ]
   },
   {
@@ -115,9 +115,9 @@
       "hubasic.keywords.catalog"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs"
     ]
   },
   {
@@ -180,8 +180,8 @@
       "hubasic.x1pen.run"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -255,8 +255,8 @@
       "hubasic.functions.math"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -338,10 +338,10 @@
       "hubasic.machine.memory-io"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Emit/Slang/SlangBackend.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Emit/Slang/SlangBackend.cs"
     ]
   },
   {
@@ -395,8 +395,8 @@
       "hubasic.data.read"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -441,8 +441,8 @@
       "hubasic.values.numbers-operators"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -495,8 +495,8 @@
       "hubasic.values.types"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -543,8 +543,8 @@
       "hubasic.x1pen.run"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -588,8 +588,8 @@
       "hubasic.x1pen.run"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -669,9 +669,9 @@
       "hubasic.files.statements"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -758,10 +758,10 @@
       "hubasic.pcg.defchr"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -827,10 +827,10 @@
       "hubasic.differences"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Lowering/HuLowerer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Lowering/HuLowerer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -905,10 +905,10 @@
       "hubasic.files.statements"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -990,9 +990,9 @@
       "hubasic.differences"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1054,9 +1054,9 @@
       "x1.video.pcg-palette"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1126,9 +1126,9 @@
       "hubasic.machine.memory-io"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1196,9 +1196,9 @@
       "hubasic.sound.play"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Lowering/HuLowerer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Lowering/HuLowerer.cs",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_options.js"
     ]
   },
@@ -1274,10 +1274,10 @@
       "hubasic.values.arrays"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/HuLayout.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/HuLayout.cs"
     ]
   },
   {
@@ -1346,9 +1346,9 @@
       "hubasic.differences"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs"
     ]
   },
   {
@@ -1434,10 +1434,10 @@
       "hubasic.unsupported"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1503,9 +1503,9 @@
       "hubasic.differences"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Emit/Slang/SlangBackend.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Emit/Slang/SlangBackend.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1562,9 +1562,9 @@
       "hubasic.functions.string"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Text/HuSource.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Text/HuSource.cs",
       "https://github.com/ho-ogino/xmil-web/blob/main/assets/x1basic/src/pcg.js"
     ]
   },
@@ -1613,9 +1613,9 @@
       "hubasic.unsupported"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic.asm"
     ]
   },
   {
@@ -1711,11 +1711,11 @@
       "hubasic.diagnostics"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUFS.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic_file.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUFS.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic_file.asm",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic.js",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_files.js"
     ]
@@ -1785,11 +1785,11 @@
       "hubasic.functions.string"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUFS.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic_file.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUFS.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic_file.asm"
     ]
   },
   {
@@ -1849,11 +1849,11 @@
       "hubasic.files.random"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUFS.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_basic_file.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUFS.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_basic_file.asm"
     ]
   },
   {
@@ -1912,8 +1912,8 @@
       "hubasic.files.statements"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   },
   {
@@ -1968,7 +1968,7 @@
       "hubasic.machine.memory-io"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md"
     ]
   },
   {
@@ -2043,10 +2043,10 @@
       "hubasic.files.statements"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/HuLayout.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Analysis/HuAnalyzer.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/HuLayout.cs",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic.js"
     ]
   },
@@ -2128,7 +2128,7 @@
       "hubasic.files.statements"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/HUBASIC.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/HUBASIC.md",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_options.js",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic.js",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_hubasic_files.js"
@@ -2371,8 +2371,8 @@
       "hubasic.files.statements"
     ],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Lexing/HuKeywords.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.HuBasic/Parsing/HuParser.cs"
     ]
   }
 ]

@@ -1120,7 +1120,7 @@ test('documented embedded M8A example compiles and assembles with its dependenci
     .find((candidate) => candidate.id === 'slang.x1.assets-compression');
   const example = entry.examples.find((candidate) => candidate.title.includes('embedded M8A'));
   assert.ok(example, 'the M8ALOAD reference must retain its executable embedded-data example');
-  assert.match(example.source, /WIDTH\(40\);\s+M8ALOAD\(/);
+  assert.match(example.source, /MAIN\(\)\s*\{\s*M8ALOAD\(/, 'M8ALOAD is the only X1 call of the example');
 
   const compiled = await compileSlang(example.source);
   assert.equal(compiled.ok, true, JSON.stringify(compiled.diagnostics));
@@ -1136,12 +1136,9 @@ test('documented embedded M8A example compiles and assembles with its dependenci
     'the shipped CALCSPEED=0 build must omit dormant address tables');
   assert.ok('NAME_SPACE_DEFAULT.AT_WIDTH' in assembled.symbols);
 
-  // M8ALOAD reads AT_WIDTH but does not link the X1 work area itself
-  assert.doesNotMatch(slangRoutine(readSlangRuntime('libm8a.asm'), 'M8ALOAD'), /^; @calls .*X1WORK/m);
-  assert.match(entry.notes.join(' '), /Call WIDTH first[\s\S]*AT_WIDTH is undefined/);
-  const alone = await compileSlang(example.source.replace(/\n\s*WIDTH\(40\);/, ''));
-  assert.equal(alone.ok, true, JSON.stringify(alone.diagnostics));
-  assert.ok(assembleSlang(alone.asm).errors.some((error) => /AT_WIDTH/.test(error.msg)));
+  // M8ALOAD reads AT_WIDTH and links the X1 work area itself
+  assert.match(slangRoutine(readSlangRuntime('libm8a.asm'), 'M8ALOAD'), /^; @calls .*X1WORK/m);
+  assert.match(entry.notes.join(' '), /links that area itself/);
 });
 
 test('M8A runtime conditionals preserve both dormant width tables', async () => {

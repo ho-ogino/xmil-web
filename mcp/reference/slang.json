@@ -26,7 +26,7 @@
       }
     ],
     "relatedIds": ["slang.functions.typed", "slang.control.flow", "slang.compiler.catalog", "slang.x1pen.build-profile"],
-    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md"]
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md"]
   },
   {
     "id": "slang.data.types-declarations",
@@ -64,8 +64,8 @@
     ],
     "relatedIds": ["slang.functions.typed", "slang.machine.system-access", "slang.runtime.float", "slang.compiler.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/Semantics/SemanticAnalyzer.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.Core/Semantics/SemanticAnalyzer.cs"
     ]
   },
   {
@@ -104,8 +104,8 @@
     ],
     "relatedIds": ["slang.program.structure", "slang.data.types-declarations", "slang.machine.calling-convention", "slang.runtime.float"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/IR/IrGenerator.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.Core/IR/IrGenerator.cs"
     ]
   },
   {
@@ -130,9 +130,9 @@
     ],
     "relatedIds": ["slang.functions.typed", "slang.machine.system-access", "slang.machine.inline-assembly", "slang.preprocessor.includes", "slang.runtime.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/IR/IrGenerator.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/Semantics/SemanticAnalyzer.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.Core/IR/IrGenerator.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.Core/Semantics/SemanticAnalyzer.cs"
     ]
   },
   {
@@ -164,9 +164,9 @@
     ],
     "relatedIds": ["slang.machine.calling-convention", "slang.machine.system-access", "slang.preprocessor.includes", "z80asm.syntax.source"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/IR/IrGenerator.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/CodeGen/CodeGenerator.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.Core/IR/IrGenerator.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.Core/CodeGen/CodeGenerator.cs"
     ]
   },
   {
@@ -204,8 +204,8 @@
     ],
     "relatedIds": ["slang.program.structure", "slang.expressions.operators", "slang.limits.gotchas", "slang.compiler.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/IR/IrGenerator.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.Core/IR/IrGenerator.cs"
     ]
   },
   {
@@ -244,9 +244,9 @@
     ],
     "relatedIds": ["slang.control.flow", "slang.data.types-declarations", "slang.machine.system-access", "slang.compiler.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/Semantics/ConstEvaluator.cs",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/runtime.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.Core/Semantics/ConstEvaluator.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/runtime.asm"
     ]
   },
   {
@@ -275,8 +275,8 @@
     ],
     "relatedIds": ["slang.x1pen.build-profile", "slang.includes.catalog", "slang.machine.calling-convention", "slang.machine.inline-assembly", "slang.compiler.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/Lexer/Preprocessor.cs",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.Core/Lexer/Preprocessor.cs",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_slang_wasm.js"
     ]
   },
@@ -310,8 +310,8 @@
     ],
     "relatedIds": ["slang.x1.display-graphics", "slang.include.ui", "slang.data.types-declarations", "slang.compiler.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/Lexer/Lexer.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.Core/Lexer/Lexer.cs"
     ]
   },
   {
@@ -341,8 +341,8 @@
     ],
     "relatedIds": ["slang.machine.calling-convention", "slang.data.types-declarations", "slang.runtime.lsx-io-files", "slang.runtime.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/runtime.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/runtime.asm"
     ]
   },
   {
@@ -378,8 +378,8 @@
     ],
     "relatedIds": ["slang.machine.system-access", "slang.x1.inkey", "slang.x1.assets-compression", "slang.x1.display-graphics", "slang.runtime.catalog", "x1.io.psg-joystick"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/liblsx_input.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/liblsx_file.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/liblsx_input.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/liblsx_file.asm"
     ]
   },
   {
@@ -407,8 +407,8 @@
     ],
     "relatedIds": ["slang.runtime.lsx-io-files", "slang.x1.timing", "slang.x1.input", "x1.io.ppi-subcpu"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/liblsx_input.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/liblsx_base.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/liblsx_input.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/liblsx_base.asm",
       "https://github.com/ho-ogino/xmil-web/blob/main/src/Input.cpp"
     ]
   },
@@ -450,8 +450,8 @@
     ],
     "relatedIds": ["slang.include.tile-sprite", "slang.x1.display-graphics", "slang.x1.sgl", "slang.x1.text-attribute", "slang.runtime.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_pcg.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/examples/tile/README.md"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_pcg.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/examples/tile/README.md"
     ]
   },
   {
@@ -489,7 +489,7 @@
     ],
     "relatedIds": ["slang.x1.pcg-definition", "slang.output.print-strings", "slang.runtime.catalog", "x1.video.text-vram", "x1.video.pcg-palette"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_print.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_print.asm"
     ]
   },
   {
@@ -522,9 +522,9 @@
     ],
     "relatedIds": ["slang.x1.pcg-definition", "slang.include.chiplib", "slang.x1.timing", "slang.includes.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/include/TILELIB.LIB",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/include/SPRLIB.LIB",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/include/TILESPR.LIB"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/include/TILELIB.LIB",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/include/SPRLIB.LIB",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/include/TILESPR.LIB"
     ]
   },
   {
@@ -553,8 +553,8 @@
     ],
     "relatedIds": ["slang.include.tile-sprite", "slang.x1.pcg-definition", "slang.x1.timing", "slang.includes.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/include/CHIPLIB.LIB",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/include/CHIPLIB.LIB",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md"
     ]
   },
   {
@@ -582,7 +582,7 @@
       "UI_SET_COLOR masks its argument to three bits and selects graphics-VRAM planes for UILIB's rasterizer. It does not write X1 text attribute VRAM; use TATTR for a hardware text cell attribute."
     ],
     "relatedIds": ["slang.output.print-strings", "slang.x1.display-graphics", "slang.x1.text-attribute", "slang.includes.catalog"],
-    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/include/UILIB.LIB"]
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/include/UILIB.LIB"]
   },
   {
     "id": "slang.include.graph-soroban",
@@ -606,8 +606,8 @@
     ],
     "relatedIds": ["slang.x1.display-graphics", "slang.runtime.float", "slang.include.soroban", "slang.includes.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/include/GRAPH.LIB",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/include/GRAPHF.LIB"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/include/GRAPH.LIB",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/include/GRAPHF.LIB"
     ]
   },
   {
@@ -642,8 +642,8 @@
     ],
     "relatedIds": ["slang.data.types-declarations", "slang.functions.typed", "slang.include.graph-soroban", "slang.include.soroban", "slang.runtime.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libfloat.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libfloat.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md"
     ]
   },
   {
@@ -670,8 +670,8 @@
     ],
     "relatedIds": ["slang.output.print-strings", "slang.x1.pcg-definition", "slang.include.graph-soroban", "slang.x1.sgl", "slang.runtime.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_print.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_grp.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_print.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_grp.asm"
     ]
   },
   {
@@ -704,9 +704,9 @@
     ],
     "relatedIds": ["slang.x1.timing", "slang.machine.system-access", "slang.x1pen.build-profile", "slang.runtime.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_psg.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_arkos.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_banjo.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_psg.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_arkos.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_banjo.asm"
     ]
   },
   {
@@ -750,8 +750,8 @@
     ],
     "relatedIds": ["slang.machine.system-access", "slang.runtime.catalog", "slang.x1.psg", "x1.io.psg-joystick"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_base.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/X1.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_base.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/X1.md",
       "https://github.com/ho-ogino/xmil-web/blob/main/src/X1_SOUND.CPP"
     ]
   },
@@ -779,7 +779,7 @@
       }
     ],
     "relatedIds": ["slang.x1.inkey", "slang.x1.psg", "slang.include.tile-sprite", "slang.include.chiplib", "slang.x1.sgl", "slang.runtime.catalog"],
-    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_base.asm"]
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_base.asm"]
   },
   {
     "id": "slang.x1.assets-compression",
@@ -802,21 +802,21 @@
       "The decompressors operate on encoded byte streams and write directly to the destination address; allocate enough writable memory for the decoded result.",
       "MAGLOAD uses LSX file operations and receives a filename address, X and Y. Choose it for an M8A-independent MAG file on mounted disk media; it is intended for 200-line X1 images and reserves substantial work buffers.",
       "M8ALOAD receives the address of an M8A byte stream already in memory plus its X and Y graphics-VRAM origin. Keep the complete encoded data valid until the call returns; it performs no disk I/O.",
-      "M8ALOAD reads the current screen width from the X1 work area but does not link that area by itself. Call WIDTH first (PRINT and LOCATE also link it); a program whose only X1 call is M8ALOAD fails to assemble because AT_WIDTH is undefined.",
+      "M8ALOAD reads the current screen width from the X1 work area and links that area itself, so it can be the only X1 call of a program.",
       "M8ALOAD writes the current X1 graphics VRAM but does not select or enable a visible graphics mode. For visible output, choose WIDTH(40) or WIDTH(80), initialize graphics for that layout, and enable graphics display before the call.",
       "The compact example contains one 8-pixel group and one row. Its four $49 encoded pairs draw eight blue pixels at the graphics-VRAM origin."
     ],
     "examples": [
       {
         "title": "Draw an embedded M8A strip from memory",
-        "source": "ARRAY BYTE M8A_DATA[] = {\n  $4D,$38,$41,$00,$01,$01,$49,$49,$49,$49\n};\n\nMAIN()\n{\n  WIDTH(40);\n  M8ALOAD(M8A_DATA,0,0);\n  LOOP VSYNC1();\n}"
+        "source": "ARRAY BYTE M8A_DATA[] = {\n  $4D,$38,$41,$00,$01,$01,$49,$49,$49,$49\n};\n\nMAIN()\n{\n  M8ALOAD(M8A_DATA,0,0);\n  LOOP VSYNC1();\n}"
       }
     ],
     "relatedIds": ["slang.runtime.lsx-io-files", "slang.machine.system-access", "slang.x1.display-graphics", "slang.runtime.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libcompress.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libmag.asm",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libm8a.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libcompress.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libmag.asm",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libm8a.asm"
     ]
   },
   {
@@ -843,7 +843,7 @@
       "The x1 environment loads libx1_sgl_lsx.asm, not the separate non-LSX libx1_sgl.asm that the SLANG-compiler runtime also contains."
     ],
     "relatedIds": ["slang.x1.pcg-definition", "slang.x1.display-graphics", "slang.x1.timing", "slang.runtime.catalog"],
-    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libx1_sgl_lsx.asm"]
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libx1_sgl_lsx.asm"]
   },
   {
     "id": "slang.include.soroban",
@@ -866,8 +866,8 @@
     ],
     "relatedIds": ["slang.runtime.float", "slang.include.graph-soroban", "slang.preprocessor.includes", "slang.includes.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/include/SOROBAN.LIB",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/libsoroban.asm"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/include/SOROBAN.LIB",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/libsoroban.asm"
     ]
   },
   {
@@ -877,8 +877,8 @@
     "title": "X1Pen compiler and x1 (LSX-Dodgers) build profile",
     "profiles": ["x1pen-slang-x1"],
     "symbols": ["ENV_TYPE", "OS_TYPE", "ORG", "PROGRAM.BIN"],
-    "aliases": ["compiler revision", "slangc", "slangc 0.28.0", "6e73c08", "x1 environment", "ENV_TYPE 1", "OS_TYPE 0", "ORG 0100", "generated ASM", "LSX", "LSX-Dodgers", "ビルド環境", "コンパイラ版", "生成ASM", "実行環境"],
-    "summary": "X1Pen compiles SLANG with slangc 0.28.0 from the SLANG-compiler browser bundle at revision 6e73c08, in its x1 environment (ENV_TYPE=1, OS_TYPE=0, default ORG=$0100), assembles the generated Z80 source with its own assembler, then runs it under LSX-Dodgers.",
+    "aliases": ["compiler revision", "slangc", "slangc 0.28.0", "a667528", "x1 environment", "ENV_TYPE 1", "OS_TYPE 0", "ORG 0100", "generated ASM", "LSX", "LSX-Dodgers", "ビルド環境", "コンパイラ版", "生成ASM", "実行環境"],
+    "summary": "X1Pen compiles SLANG with slangc 0.28.0 from the SLANG-compiler browser bundle at revision a667528, in its x1 environment (ENV_TYPE=1, OS_TYPE=0, default ORG=$0100), assembles the generated Z80 source with its own assembler, then runs it under LSX-Dodgers.",
     "syntax": [
       "environment = x1",
       "ENV_TYPE = 1, OS_TYPE = 0",
@@ -891,13 +891,13 @@
       "X1Pen assembles the generated source with ENV_TYPE=1 and OS_TYPE=0 defined. Compile errors and warnings are reported with line and column, and with the file name when the problem is in an included library.",
       "The ASM editor content is generated output in SLANG mode. Edit the SLANG source, not the generated ASM.",
       "x1pen_validate compiles SLANG and assembles its generated output without running it.",
-      "The MCP reference profile x1pen-slang-x1 is tied to compiler revision 6e73c0865c28450aa4ecac524faae18be38566f8 and is reviewed whenever X1Pen imports another bundle."
+      "The MCP reference profile x1pen-slang-x1 is tied to compiler revision a667528bcc61ca6915955054c794da6fec8a7c3b and is reviewed whenever X1Pen imports another bundle."
     ],
     "relatedIds": ["slang.preprocessor.includes", "slang.program.structure", "slang.compiler.catalog", "slang.runtime.catalog", "slang.includes.catalog"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/tree/6e73c0865c28450aa4ecac524faae18be38566f8",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/runtime/env/x1.env",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/X1.md",
+      "https://github.com/h-o-soft/SLANG-compiler/tree/a667528bcc61ca6915955054c794da6fec8a7c3b",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/runtime/env/x1.env",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/X1.md",
       "https://github.com/ho-ogino/xmil-web/blob/main/html/x1pen_slang_wasm.js"
     ]
   },
@@ -922,13 +922,13 @@
       "FLOAT-to-integer conversion is not implicit; use FTOI.",
       "Errors slangc reports that are easy to hit: a FLOAT as a condition (IF F THEN ...; compare with F <> 0.0 instead), PRINT of a FLOAT (use FL$), a side effect in the index of a ++/--/+=/-=/*=//= target (T[I++] += 1), using the value of a postfix ++/-- on a FLOAT, EXIT(n) with n not a constant from 1 to the number of enclosing loops, EXIT or CONTINUE outside a loop, a wrong argument count for a user function, MACHINE or built-in function, a function-local CONST that reuses a global name, and TRUE or FALSE as a variable name.",
       "Runtime functions that are not declared to the compiler (VSYNC, STICK, TATTR and most other runtime calls) are not checked for argument count; a wrong count compiles and misbehaves at run time.",
-      "Some mistakes surface only when X1Pen assembles the output: a missing MAIN(), VSYNC without a VSYNC_PROC() function, or M8ALOAD in a program that never links the X1 work area (call WIDTH first).",
+      "Some mistakes surface only when X1Pen assembles the output: a missing MAIN() or VSYNC without a VSYNC_PROC() function.",
       "Validate frequently because included libraries consume memory and may impose initialization or buffer-address requirements not expressed by the language type system."
     ],
     "relatedIds": ["slang.program.structure", "slang.data.types-declarations", "slang.control.flow", "slang.x1pen.build-profile"],
     "sourceUrls": [
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/docs/SLANG-spec.md",
-      "https://github.com/h-o-soft/SLANG-compiler/blob/6e73c0865c28450aa4ecac524faae18be38566f8/src/SLANGCompiler.Core/IR/IrGenerator.cs"
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/docs/SLANG-spec.md",
+      "https://github.com/h-o-soft/SLANG-compiler/blob/a667528bcc61ca6915955054c794da6fec8a7c3b/src/SLANGCompiler.Core/IR/IrGenerator.cs"
     ]
   }
 ]

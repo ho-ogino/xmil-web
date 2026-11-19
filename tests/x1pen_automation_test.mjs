@@ -2200,9 +2200,6 @@ test('embedded M8A data assembles and draws into graphics VRAM', { timeout: 60_0
           '};',
           '',
           'MAIN() BEGIN',
-          // M8ALOAD reads the X1 work area (AT_WIDTH) but does not pull it in by itself in this
-          // runtime revision; WIDTH does (the SLANG reference says so)
-          '  WIDTH(40);',
           '  M8ALOAD(M8A_DATA,0,0);',
           '  LOOP VSYNC1();',
           'END;',
