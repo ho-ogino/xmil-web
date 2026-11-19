@@ -205,18 +205,32 @@ test('directive-like text in comments, strings and inactive #IF branches is just
   }
 });
 
-test('a library read by another included library must not be named again, as the reference says', async () => {
-  // slangc reads an #INCLUDE file each time it is named; TILESPR.LIB reads TILELIB.LIB and SPRLIB.LIB
-  const assembles = async (libs) => {
-    const compiled = await compile(`${libs.map((lib) => `#INCLUDE "${lib}"`).join('\n')}\nMAIN()\n{\n}\n`);
+test('an included library read twice stops at its duplicate labels, as the reference says', async () => {
+  // slangc reads an #INCLUDE file each time it is named, also inside another include; X1Pen's
+  // assembler then stops at the first label made twice. The first error, or 'ok'.
+  const firstError = async (source) => {
+    const compiled = await compile(source);
     assert.equal(compiled.ok, true, JSON.stringify(compiled.diagnostics));
-    return page.X1PenZ80Asm.assemble(compiled.asm, SLANG_TAB_SYMBOLS).errors.length === 0;
+    const errors = page.X1PenZ80Asm.assemble(compiled.asm, SLANG_TAB_SYMBOLS).errors;
+    return errors.length ? errors[0].msg : 'ok';
   };
-  assert.equal(await assembles(['TILESPR.LIB']), true);
-  assert.equal(await assembles(['SPRLIB.LIB', 'TILESPR.LIB']), false);
-  assert.equal(await assembles(['TILELIB.LIB', 'TILESPR.LIB']), false);
-  // GRAPH.LIB reads SOROBAN.LIB, which only declares functions: naming both does no harm
-  assert.equal(await assembles(['SOROBAN.LIB', 'GRAPH.LIB']), true);
+  const program = (libs, head = '') => `${head}${libs.map((lib) => `#INCLUDE "${lib}"\n`).join('')}MAIN()\n{\n}\n`;
+  const duplicate = /^Duplicate label: /;
+  // Every bundled library makes labels (CHIPLIB.LIB is left out: on its own it needs MULHLDE,
+  // which nothing asks the runtime for)
+  for (const lib of ['GRAPH.LIB', 'GRAPHF.LIB', 'SOROBAN.LIB', 'SPRLIB.LIB', 'TILELIB.LIB', 'TILESPR.LIB', 'UILIB.LIB']) {
+    assert.equal(await firstError(program([lib])), 'ok', lib);
+    assert.match(await firstError(program([lib, lib])), duplicate, `${lib} twice`);
+  }
+  // TILESPR.LIB reads TILELIB.LIB and SPRLIB.LIB: the duplicate is found before any JR goes out of range
+  assert.match(await firstError(program(['SPRLIB.LIB', 'TILESPR.LIB'])), /^Duplicate label: SPR_GVRAM /);
+  assert.match(await firstError(program(['TILELIB.LIB', 'TILESPR.LIB'])), /^Duplicate label: TILE_TVRAM /);
+  // GRAPH.LIB reads SOROBAN.LIB only with _FLOAT=1
+  assert.equal(await firstError(program(['SOROBAN.LIB', 'GRAPH.LIB'])), 'ok');
+  assert.equal(await firstError(program(['GRAPH.LIB'], 'CONST _FLOAT=1;\n')), 'ok');
+  assert.match(await firstError(program(['GRAPH.LIB', 'SOROBAN.LIB'], 'CONST _FLOAT=1;\n')), duplicate);
+  // GRAPHF.LIB is GRAPH.LIB's FLOAT and color version, not an addition to it
+  assert.match(await firstError(program(['GRAPH.LIB', 'GRAPHF.LIB'])), duplicate);
 });
 
 test('a warning comes back with its place and does not stop the build', async () => {

@@ -36,6 +36,8 @@ ORG 0E000h
 
 対応する疑似命令: `ORG`, `DB`, `DW`, `DS`, `EQU`
 
+同じ名前のラベル（`EQU` の名前も。大文字・小文字は区別しません。ローカルラベルは同じグローバルラベルの下で）を 2 度書くと、`ASM error (L<行>): Duplicate label: <名前> (first defined on line <行>)` と出て RUN しません。`#IF` で外れた側のラベルは数えません。
+
 **Import ボタン**: バイナリファイルを読み込んで、`DB $xx,$xx,...` 形式でカーソル位置に挿入します。
 画像データや音楽データの取り込みに便利です。
 
@@ -47,7 +49,12 @@ SLANG のプログラムを書くタブです。RUN すると、SLANG-compiler �
 - 初めて SLANG を組むときに、バンドル（約 2.3MB、圧縮後）を読み込みます。SLANG タブを開いた時点で裏で読み始め、読み込み中に RUN するとステータス欄に `SLANG: loading compiler...` と出ます。HuBASIC タブと同じバンドルなので、どちらかで読めば、もう一方では読みません。
 - コンパイルのエラーは、ステータス欄に `SLANG: L<行>:<桁>: <エラー>` と出ます（`#INCLUDE` したファイルの中なら、頭にファイル名）。警告があっても組めたときは、起動のあとのステータス欄に数が出ます（`LSX-Dodgers mode (SLANG: 1 warning(s))`）。自動操作の `validate` は警告も行と桁つきで返し、エラーが無ければ通ります。
 - `#INCLUDE`・`#CHAIN` で読めるのは、バンドルの include のファイルです。名前は大文字でも小文字でも見つかります（`#INCLUDE "graph.lib"` も可）。
-- `TILESPR.LIB` は中で `TILELIB.LIB` と `SPRLIB.LIB` を読むので、`TILESPR.LIB` だけを書きます。`SPRLIB.LIB` や `TILELIB.LIB` も並べて書くと、同じものが 2 度入ってアセンブルで止まります（前の X1Pen は同じファイルを 1 度しか読まなかったので通っていましたが、SLANG compiler は書いた数だけ読みます）。`GRAPH.LIB` も中で `SOROBAN.LIB` を読みますが、こちらは並べて書いても困りません。
+- `#INCLUDE` したファイルは、書いた数だけ読まれます。ほかの include の中で読まれたファイルも数えます（前の X1Pen は同じファイルを 1 度しか読みませんでしたが、SLANG compiler は書いた数だけ読みます）。
+  - ラベルを作るもの（関数・`ARRAY`・機械語の表を持つ `CONST`）を含むファイルが 2 度入ると、同じラベルが 2 度でき、アセンブルで `Duplicate label` のエラーになって止まります。`CONST` の値だけ・`MACHINE` の宣言だけ・文の並びだけのファイルなら、2 度入っても通ります。
+  - 同梱の 8 本は、どれもラベルを作ります。どれも 1 度だけ入るように書いてください。
+  - `TILESPR.LIB` は中で `TILELIB.LIB` と `SPRLIB.LIB` を読むので、`TILESPR.LIB` だけを書きます。
+  - `GRAPH.LIB` は、`CONST _FLOAT=1;` のときに中で `SOROBAN.LIB` を読みます。そのときは `SOROBAN.LIB` を書きません。
+  - `GRAPHF.LIB` は `GRAPH.LIB` の FLOAT・カラー対応版で、同じラベルを作ります。どちらか 1 本だけを書きます。
 - バンドルを読めないときは `SLANG: compiler unavailable (…)` と出て RUN しません。読めるようになれば、次の RUN で通ります。ただし、.NET の起動の途中で失敗したときは、同じページでは起動し直せないので、ステータス欄に「reload the page to try again」と出ます。ページを読み直してください（HuBASIC タブも同じバンドルなので同じです）。
 
 SLANGタブの **Import** ボタンは、binary fileを現在のcursor位置へ大文字の`$XX`値列として挿入します。16 bytesごとに改行し、値の間だけにカンマを入れます。末尾カンマ、label、`ARRAY`宣言、filename commentは生成しません。周囲のsourceは解析しないため、必要なカンマや括弧は利用者が用意してください。

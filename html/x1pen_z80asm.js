@@ -1179,6 +1179,12 @@
         var pass1BaseOrg = -1;
         var currentNamespace = 'NAME_SPACE_DEFAULT';
         var unresolvedEqUs = null;
+        // A label (or EQU name) the source defines twice is an error, as in AILZ80ASM: the line
+        // of its first definition, and the lines of the later ones (skipped by both passes, so
+        // the first definition keeps its value). Predefined symbols may still be redefined.
+        var definedAt = {};
+        var duplicateLines = {};
+        var lastGlobalName = '';
 
         for (var i = 0; i < lines.length; i++) {
             var parsed = parseLine(lines[i]);
@@ -1191,14 +1197,28 @@
 
             if (parsed.label) {
                 var lbl;
+                var shownName;
                 if (parsed.label[0] === '.') {
                     lbl = resolveLocalLabel(parsed.label.toUpperCase(), i + 1);
+                    shownName = lastGlobalName + parsed.label;
                 } else {
                     lbl = currentNamespace + '.' + parsed.label.toUpperCase();
                     lastGlobalLabel = lbl;
+                    lastGlobalName = (currentNamespace === 'NAME_SPACE_DEFAULT' ? '' : currentNamespace + '.') + parsed.label;
+                    shownName = lastGlobalName;
                 }
 
-                if (parsed.mnemonic === 'EQU') {
+                if (Object.prototype.hasOwnProperty.call(definedAt, lbl)) {
+                    errors.push({ line: i + 1, msg: 'Duplicate label: ' + shownName + ' (first defined on line ' + definedAt[lbl] + ')' });
+                    duplicateLines[i] = true;
+                    if (parsed.mnemonic === 'EQU') continue;
+                } else {
+                    definedAt[lbl] = i + 1;
+                }
+
+                if (duplicateLines[i]) {
+                    // the first definition keeps its address
+                } else if (parsed.mnemonic === 'EQU') {
                     var eqVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel, currentNamespace);
                     if (eqVal === null || eqVal === undefined) {
                         // 前方参照: Pass 1 後に再解決する
@@ -1209,8 +1229,9 @@
                         symbols[lbl] = eqVal;
                     }
                     continue;
+                } else {
+                    symbols[lbl] = pass1Addr;
                 }
-                symbols[lbl] = pass1Addr;
             }
 
             if (!parsed.mnemonic) continue;
@@ -1277,6 +1298,7 @@
                     lastGlobalLabel = lbl2ns;
                 }
                 if (parsed2.mnemonic === 'EQU') {
+                    if (duplicateLines[j]) continue;
                     var lbl2;
                     if (parsed2.label[0] === '.') {
                         lbl2 = resolveLocalLabel(parsed2.label.toUpperCase(), j + 1);

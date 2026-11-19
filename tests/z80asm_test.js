@@ -706,6 +706,44 @@ testOKWith('Top-level local label with allowTopLevelLocalLabels',
     ' JR .L\n NOP\n.L:\n RET\nG:\n.L:\n JR .L',
     [0x18, 0x01, 0x00, 0xC9, 0x18, 0xFE], { allowTopLevelLocalLabels: true });
 
+// A label or EQU name defined twice is an error (as in AILZ80ASM), naming the label and the line
+// of its first definition; the first definition keeps its value
+testErrorBytes('Label defined twice', 'L1:\n NOP\nL1:\n RET\n JP L1',
+    [0x00, 0xC9, 0xC3, 0x00, 0x00], 'Duplicate label: L1 (first defined on line 1)');
+testErrorBytes('EQU defined twice', 'X EQU 1\nX EQU 2\n LD A,X',
+    [0x3E, 0x01], 'Duplicate label: X (first defined on line 1)');
+testErrorBytes('A label and an EQU of the same name', 'X:\n NOP\nX EQU 5\n LD A,X',
+    [0x00, 0x3E, 0x00], 'Duplicate label: X (first defined on line 1)');
+testErrorBytes('Label names are the same in any case', 'Loop:\n NOP\nLOOP:\n JR Loop',
+    [0x00, 0x18, 0xFD], 'Duplicate label: LOOP (first defined on line 1)');
+testErrorBytes('Local label defined twice under one global label', 'F:\n.a:\n NOP\n.a:\n JR .a',
+    [0x00, 0x18, 0xFD], 'Duplicate label: F.a (first defined on line 2)');
+testErrorBytes('Namespaced label defined twice', '[LIBA]\nFOO:\n RET\nFOO:\n RET',
+    [0xC9, 0xC9], 'Duplicate label: LIBA.FOO (first defined on line 2)');
+(function() {
+    // Every later definition is reported, and the first error is the first duplicate
+    var result = asm.assemble('A:\nB:\n NOP\nA:\n NOP\nB:\n NOP');
+    var messages = result.errors.map(function(e) { return 'L' + e.line + ': ' + e.msg; });
+    var expected = ['L4: Duplicate label: A (first defined on line 1)', 'L6: Duplicate label: B (first defined on line 2)'];
+    if (JSON.stringify(messages) !== JSON.stringify(expected)) {
+        console.error('FAIL: duplicate labels are each reported', messages); failures++;
+    } else { passes++; }
+})();
+testOK('Same local label under different global labels', 'F:\n.a:\n JR .a\nG:\n.a:\n JR .a', [0x18, 0xFE, 0x18, 0xFE]);
+testOK('Same name in different namespaces', '[LIBA]\nFOO:\n RET\n[LIBB]\nFOO:\n RET', [0xC9, 0xC9]);
+testOK('Labels in an inactive #IF branch are not definitions',
+    '#IF 0\nLBL:\n HALT\n#ELSE\nLBL:\n NOP\n#ENDIF\n JR LBL', [0x00, 0x18, 0xFD]);
+testOKWith('Top-level local labels in two places with allowTopLevelLocalLabels are one name',
+    ' NOP\n.L:\n NOP\nG:\n NOP\n', [0x00, 0x00, 0x00], { allowTopLevelLocalLabels: true });
+testFail('Top-level local label defined twice with allowTopLevelLocalLabels', '.L:\n NOP\n.L:\n NOP');
+(function() {
+    // A program may define a name the predefined symbols (the cold state's address map) also have
+    var result = asm.assemble('ENV_TYPE EQU 3\nCHROUT:\n RET', { ENV_TYPE: 1, CHROUT: 0x1234 });
+    if (result.errors.length) {
+        console.error('FAIL: a predefined name can be defined by the program', result.errors); failures++;
+    } else { passes++; }
+})();
+
 console.log('\n' + '='.repeat(40));
 console.log('Results: ' + passes + ' passed, ' + failures + ' failed');
 console.log('='.repeat(40));
