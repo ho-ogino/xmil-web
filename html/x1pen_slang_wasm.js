@@ -305,10 +305,33 @@
         }
     }
 
+    // #INCLUDE and #CHAIN may name a file only: the program's own folder holds just the program,
+    // so a plain name reaches only the bundle's include/ (and the program). A path could reach
+    // files other operations put in the bundle's file system (another environment's folder, the
+    // HuBASIC disk's files), and the result would depend on what ran before.
+    var INCLUDE_TARGET = /#(?:INCLUDE|CHAIN)\s*"?([^"\s;]*)/gi;
+    function includePathDiagnostics(source, sourceName) {
+        var out = [];
+        var lines = source.split('\n');
+        for (var i = 0; i < lines.length; i++) {
+            var m;
+            INCLUDE_TARGET.lastIndex = 0;
+            while ((m = INCLUDE_TARGET.exec(lines[i]))) {
+                if (/[\/\\]|\.\./.test(m[1])) {
+                    out.push({ severity: 'error', file: sourceName, line: i + 1, column: m.index + 1,
+                        message: 'X1Pen: #INCLUDE and #CHAIN take a file name of the bundled include files, not a path: ' + m[1] });
+                }
+            }
+        }
+        return out;
+    }
+
     // options: { sourceName } ('PROGRAM.SL')
     async function compile(source, envName, options) {
         var s = requireState();
         env(envName);
+        var refused = includePathDiagnostics(source, (options && options.sourceName) || 'PROGRAM.SL');
+        if (refused.length > 0) return { ok: false, diagnostics: refused, log: [], error: null };
         var name = (options && options.sourceName) || 'PROGRAM.SL';
         // Each environment has its own folder: #INCLUDE looks next to the source, and must not find
         // what another tab left in the bundle's file system

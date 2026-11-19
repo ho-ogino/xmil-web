@@ -1390,48 +1390,83 @@ test('SLANG errors point at the editor line, and warnings are kept by Validate a
   assert.equal(warned.status, 'LSX-Dodgers mode (SLANG: 1 warning(s))');
 });
 
-test('a SLANG Run compiles the program as it was when the Run started, and a busy Run says so after a failure', { timeout: 120_000 }, async () => {
+test('SLANG Validate and Run describe the program as it was when they started, and a busy Run says so after a failure', { timeout: 180_000 }, async () => {
   const context = await browser.newContext();
   try {
-    let release;
-    const held = new Promise((resolve) => { release = resolve; });
-    await context.route('**/hubasic/current.json*', async (route) => { await held; await route.continue(); });
-    const slangPage = await context.newPage();
-    await slangPage.goto(`${baseUrl}/x1pen.html`);
-    await slangPage.evaluate(() => window.X1PenAutomation.ready());
-    const setSlang = (slang) => slangPage.evaluate(async (source) => {
+    // Each new page waits for the compiler until the test lets it load
+    let gate = null;
+    await context.route('**/hubasic/current.json*', async (route) => { if (gate) await gate.promise; await route.continue(); });
+    const holdCompiler = () => { let release; gate = { promise: new Promise((resolve) => { release = resolve; }) }; gate.release = release; return gate; };
+    const openPage = async (slang) => {
+      const target = await context.newPage();
+      await target.goto(`${baseUrl}/x1pen.html`);
+      await target.evaluate(() => window.X1PenAutomation.ready());
+      await target.evaluate(async (source) => {
+        const api = window.X1PenAutomation;
+        const current = api.getProgram();
+        await api.setProgram({ sourceMode: 'slang', basic: '', asm: '', slang: source }, current.revision, current.revisionEpoch);
+        document.querySelector('.editor-tab[data-tab="slang"]').click();
+      }, slang);
+      return target;
+    };
+    const typeProgram = async (target, text) => {
+      await target.locator('#slang-editor-container .cm-content').click();
+      await target.keyboard.press('Control+A');
+      await target.keyboard.type(text);
+    };
+
+    // Validate: an error in the first program, an edit while the compiler loads
+    let held = holdCompiler();
+    const validatePage = await openPage('FLOAT F;\nMAIN() {\n  IF F THEN F = 1.0;\n}\n');
+    const validateStart = await validatePage.evaluate(() => window.X1PenAutomation.getProgram().revision);
+    await validatePage.evaluate(() => { window.__validation = window.X1PenAutomation.validate(); });
+    await typeProgram(validatePage, 'MAIN() {\n}\n');
+    held.release();
+    const validation = await validatePage.evaluate(async () => ({
+      result: await window.__validation, now: window.X1PenAutomation.getProgram().revision,
+    }));
+    assert.equal(validation.result.ok, false, 'the first program was validated');
+    assert.equal(validation.result.revision, validateStart);
+    assert.ok(validation.now > validateStart);
+    await validatePage.close();
+
+    // Run: the first program runs, the edit is kept for the next Run, the result names the first
+    held = holdCompiler();
+    const runPage = await openPage('MAIN() {\n  PRINT("FIRST");\n  LOOP { }\n}\n');
+    const runStart = await runPage.evaluate(() => window.X1PenAutomation.getProgram().revision);
+    await runPage.evaluate(() => { window.__run = window.X1PenAutomation.run(); });
+    await runPage.waitForFunction(() => document.getElementById('x1pen-status').textContent === 'SLANG: loading compiler...');
+    await typeProgram(runPage, 'MAIN() {\n  PRINT("SECOND");\n  LOOP { }\n}\n');
+    held.release();
+    gate = null;
+    const run = await runPage.evaluate(() => window.__run);
+    assert.equal(run.ok, true, JSON.stringify(run));
+    assert.equal(run.sourceMode, 'slang');
+    assert.equal(run.revision, runStart, 'the Run result names the program it ran');
+    await runPage.waitForFunction(() => {
+      const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes;
+      return String.fromCharCode(...bytes).includes('FIRST');
+    }, null, { timeout: 30_000 });
+    assert.match(await runPage.evaluate(() => window.X1PenAutomation.getProgram().slang), /SECOND/);
+
+    // A failed compile, then two Runs at once: the second is told that a Run is in progress,
+    // with nothing of the failed one
+    const settle = () => runPage.waitForFunction(() => !window.X1PenAutomation.getStatus().runAdmission.pending);
+    const setSlang = (slang) => runPage.evaluate(async (source) => {
       const api = window.X1PenAutomation;
       const current = api.getProgram();
       await api.setProgram({ sourceMode: 'slang', basic: '', asm: '', slang: source }, current.revision, current.revisionEpoch);
     }, slang);
-    await setSlang('MAIN() {\n  PRINT("FIRST");\n  LOOP { }\n}\n');
-    await slangPage.evaluate(() => document.querySelector('.editor-tab[data-tab="slang"]').click());
-    // Run with the button; the compiler is still loading when the program is edited in the editor
-    await slangPage.evaluate(() => { document.getElementById('btn-run').click(); });
-    await slangPage.waitForFunction(() => document.getElementById('x1pen-status').textContent === 'SLANG: loading compiler...');
-    await slangPage.locator('#slang-editor-container .cm-content').click();
-    await slangPage.keyboard.press('Control+A');
-    await slangPage.keyboard.type('MAIN() {\n  PRINT("SECOND");\n  LOOP { }\n}\n');
-    release();
-    await slangPage.waitForFunction(() => {
-      const bytes = window.X1PenAutomation.debugger.readVram({ region: 'text', offset: 0, length: 2000 }).bytes;
-      return String.fromCharCode(...bytes).includes('FIRST');
-    }, null, { timeout: 30_000 });
-    const after = await slangPage.evaluate(() => ({ program: window.X1PenAutomation.getProgram() }));
-    assert.match(after.program.slang, /SECOND/, 'the edit is kept for the next Run');
-
-    // A failed compile, then two Runs at once: the second one is told that a Run is in progress
+    await settle();
     await setSlang('FLOAT F;\nMAIN() {\n  IF F THEN F = 1.0;\n}\n');
-    const failed = await slangPage.evaluate(() => window.X1PenAutomation.run());
-    assert.equal(failed.code, 'SLANG_COMPILE_FAILED');
+    assert.equal((await runPage.evaluate(() => window.X1PenAutomation.run())).code, 'SLANG_COMPILE_FAILED');
+    await settle();
     await setSlang('MAIN() {\n  LOOP { }\n}\n');
-    const both = await slangPage.evaluate(() => Promise.all([window.X1PenAutomation.run(), window.X1PenAutomation.run()]));
-    const busy = both.find((result) => !result.ok);
-    if (busy) {
-      assert.equal(busy.code, 'RUN_IN_PROGRESS');
-      assert.equal(busy.diagnostics, undefined, 'a busy result carries no details of an earlier Run');
-    }
-    assert.ok(both.some((result) => result.ok), JSON.stringify(both));
+    const [first, second] = await runPage.evaluate(() => Promise.all([window.X1PenAutomation.run(), window.X1PenAutomation.run()]));
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(second.ok, false);
+    assert.equal(second.code, 'RUN_IN_PROGRESS');
+    assert.equal(second.diagnostics, undefined);
   } finally {
     await context.close();
   }

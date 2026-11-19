@@ -44,6 +44,9 @@ window.__X1PEN_MODE = true;
     window.__X1PEN_SYNTHETIC_INPUT_LOCKED = false;
     var runAdmission = null;
     var lastRunDetails = null;
+    // The program the current Run took: { sourceMode, revision } (the revision after the Run's own
+    // generated ASM, if it wrote one), so its result describes that program and not a later edit
+    var lastRunProgram = null;
     var RUN_QUEUE_TIMEOUT_MS = 20000;
     var RUN_STALL_WARNING_MS = 30000;
     var automationRevision = 0;
@@ -1477,8 +1480,14 @@ window.__X1PEN_MODE = true;
         if (!transitionRunToExecuting(token)) return makeRunBusyResult();
         try {
             lastRunDetails = null;
+            lastRunProgram = null;
             var ok = await performRun(token);
-            return makeRunResult(ok, undefined, undefined, undefined, undefined, lastRunDetails);
+            var result = makeRunResult(ok, undefined, undefined, undefined, undefined, lastRunDetails);
+            if (lastRunProgram) {
+                result.sourceMode = lastRunProgram.sourceMode;
+                result.revision = lastRunProgram.revision;
+            }
+            return result;
         } finally {
             releaseRun(token);
         }
@@ -1552,6 +1561,7 @@ window.__X1PEN_MODE = true;
             elStatus.textContent = 'Nothing to run';
             return false;
         }
+        lastRunProgram = { sourceMode: sourceMode, revision: runRevision };
 
         // HuBASIC: 変換 → コンパイル → アセンブル → ディスクを作って IPL から起動
         // The program and the conversion options as they are now: the toolchain may still have
@@ -1606,6 +1616,8 @@ window.__X1PEN_MODE = true;
                 asmEditor.setValue(asmSrc, { silent: true });
                 lastAsmTabOrigin = 'slang-generated';
                 markProgramChanged();
+                // The Run's own change: its result describes the program with this ASM
+                lastRunProgram.revision = automationRevision;
             }
             elStatus.textContent = 'SLANG compiled (' + asmSrc.split('\n').length + ' lines' +
                 (slangWarnings ? ', ' + slangWarnings + ' warning(s)' : '') + ')';
@@ -2648,7 +2660,8 @@ window.__X1PEN_MODE = true;
         return {
             ok: !hasErrors(),
             sourceMode: program.sourceMode,
-            revision: automationRevision,
+            // The revision of the program validated (the compiler may have loaded meanwhile)
+            revision: program.revision,
             diagnostics: diagnostics,
             output: {
                 basicBytes: basicBytes,

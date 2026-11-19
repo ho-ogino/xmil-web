@@ -154,22 +154,39 @@ test('#INCLUDE reads the bundle\'s include files', async () => {
 });
 
 test('#INCLUDE finds the bundle\'s files whatever the case of the name, as X1Pen did before', async () => {
-  for (const line of ['#INCLUDE "graph.lib"', '#include Graph.Lib', '#INCLUDE "GRAPH.LIB"', '#INCLUDE"graph.lib"', 'VAR X; #INCLUDE "graph.lib"']) {
+  // A spelling of its own for each form, so that each one depends on this compile finding it
+  for (const line of ['#INCLUDE "graph.lib"', '#include Graph.Lib', '#INCLUDE "GRAPH.LIB"', '#INCLUDE"gRaph.lib"', 'VAR X; #INCLUDE "graPH.lib"']) {
     const compiled = await compile(`${line}\nMAIN()\n{\n}\n`);
     assert.equal(compiled.ok, true, `${line}: ${JSON.stringify(compiled.diagnostics)}`);
   }
 });
 
-test('a SLANG program cannot include what the HuBASIC tab put on a disk', async () => {
-  await ready;
-  const disk = await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array([0xC9]), {
+test('#INCLUDE and #CHAIN take file names only, so nothing other operations left can be reached', async () => {
+  const forms = ['#INCLUDE "../hufs/0"', '#INCLUDE "/work/hufs/0"', '#CHAIN "/work/x1native_hufs/PROGRAM.SL"',
+    '#include ../x1native_slfs/PROGRAM.SL', 'VAR Y; #INCLUDE"..\\\\hufs\\\\0"'];
+  const results = async () => {
+    const out = [];
+    for (const form of forms) {
+      const compiled = await compile(`${form}\nMAIN()\n{\n}\n`);
+      out.push([form, compiled.ok, compiled.diagnostics.map((d) => d.message).join('|')]);
+    }
+    return out;
+  };
+  const before = await results();
+  for (const [form, ok, messages] of before) {
+    assert.equal(ok, false, form);
+    assert.match(messages, /take a file name of the bundled include files, not a path/, form);
+  }
+  // A HuBASIC build and a Hu-BASIC disk (successful and failed) change nothing for SLANG
+  await page.X1PenSlangWasm.compile('MAIN()\n{\n}\n', 'x1native_hufs');
+  await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array([0xC9]), {
     mainName: 'PROG', files: [{ name: 'LEAK.TXT', kind: 'raw', bytes: new TextEncoder().encode('VAR LEAKED;\n') }],
   });
-  assert.equal(disk.ok, true, disk.error);
-  for (const path of ['../hufs/0', '/work/hufs/0']) {
-    const compiled = await compile(`#INCLUDE "${path}"\nMAIN()\n{\n  LEAKED = 1;\n}\n`);
-    assert.equal(compiled.ok, false, `${path} must not give the attachment back`);
-  }
+  await page.X1PenSlangWasm.buildHufsDisk(new Uint8Array(70000), { mainName: 'PROG', files: [] });
+  assert.deepEqual(await results(), before);
+  // A plain name finds only the bundle's include files (and fails the same way before and after)
+  const plain = await compile('#INCLUDE "0"\nMAIN()\n{\n}\n');
+  assert.equal(plain.ok, false);
 });
 
 test('a warning comes back with its place and does not stop the build', async () => {
