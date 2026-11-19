@@ -908,6 +908,8 @@
         // (AILZ80ASM order: a later #IF can use a label an earlier branch defined).
         var ppLabels = {};
         var ppNamespace = '';
+        // Names the source has defined so far, by namespace
+        var ppDefined = {};
         var ifStack = [];
         function ppIsActive() {
             if (ifStack.length === 0) return true;
@@ -993,7 +995,13 @@
                 ppLabels[ppLabel] = true;
                 if (ppNamespace) ppLabels[ppNamespace + '.' + ppLabel] = true;
             }
-            if (ppParsed.label && ppParsed.mnemonic === 'EQU') {
+            // Only the first definition of a name gives it a value here (a later one is a duplicate,
+            // reported by pass 1), so a duplicate EQU cannot change which #IF branch is taken
+            var ppKey = ppParsed.label && ppParsed.label[0] !== '.'
+                ? (ppNamespace || 'NAME_SPACE_DEFAULT') + '.' + ppParsed.label.toUpperCase() : null;
+            var ppFirst = ppKey !== null && !ppDefined[ppKey];
+            if (ppKey) ppDefined[ppKey] = true;
+            if (ppFirst && ppParsed.mnemonic === 'EQU') {
                 var ppVal = evalExpr(ppParsed.operands, ppSymbols, 0, '');
                 if (ppVal !== null && ppVal !== undefined) {
                     ppSymbols[ppParsed.label.toUpperCase()] = ppVal;
@@ -1029,6 +1037,7 @@
 
         // Macro collection
         var macros = {};
+        var sourceLineNums = null;
         for (var mi = 0; mi < lines.length; mi++) {
             var mline = stripComment(lines[mi].trim());
             var macroMatch = mline.match(/^([a-zA-Z_][a-zA-Z0-9_()]*)\s+MACRO\b\s*(.*)?$/i);
@@ -1095,28 +1104,31 @@
                 return null;
             }
 
-            function expandMacros(mlines, expandStack) {
+            // Each expanded line keeps the source line it came from: a macro body's lines are
+            // reported on the line that calls the macro
+            function expandMacros(mlines, mlineNums, expandStack) {
                 var newLines = [];
+                var newLineNums = [];
                 for (var eli = 0; eli < mlines.length; eli++) {
                     var call = detectMacroCall(mlines[eli]);
                     if (call) {
                         var macName = call.macroName;
                         if (expandStack.indexOf(macName) >= 0) {
-                            errors.push({ line: eli + 1, msg: 'Recursive macro expansion: ' + macName });
-                            newLines.push(mlines[eli]); continue;
+                            errors.push({ line: mlineNums[eli], msg: 'Recursive macro expansion: ' + macName });
+                            newLines.push(mlines[eli]); newLineNums.push(mlineNums[eli]); continue;
                         }
                         totalExpansions++;
                         if (totalExpansions > maxExpansions) {
-                            errors.push({ line: eli + 1, msg: 'Macro expansion limit exceeded' });
-                            newLines.push(mlines[eli]); continue;
+                            errors.push({ line: mlineNums[eli], msg: 'Macro expansion limit exceeded' });
+                            newLines.push(mlines[eli]); newLineNums.push(mlineNums[eli]); continue;
                         }
                         var mac = macros[macName];
                         var callArgs = call.args ? splitMacroArgs(call.args) : [];
                         if (callArgs.length !== mac.args.length) {
-                            errors.push({ line: eli + 1, msg: macName + ': argument count mismatch (expected ' + mac.args.length + ', got ' + callArgs.length + ')' });
-                            newLines.push(mlines[eli]); continue;
+                            errors.push({ line: mlineNums[eli], msg: macName + ': argument count mismatch (expected ' + mac.args.length + ', got ' + callArgs.length + ')' });
+                            newLines.push(mlines[eli]); newLineNums.push(mlineNums[eli]); continue;
                         }
-                        if (call.label) newLines.push(call.label + ':');
+                        if (call.label) { newLines.push(call.label + ':'); newLineNums.push(mlineNums[eli]); }
                         var bodyLines = [];
                         for (var bi = 0; bi < mac.body.length; bi++) {
                             var bline = mac.body[bi];
@@ -1126,17 +1138,28 @@
                             bodyLines.push(bline);
                         }
                         expandStack.push(macName);
-                        var expandedBody = expandMacros(bodyLines, expandStack);
+                        var expandedBody = expandMacros(bodyLines, bodyLines.map(function() { return mlineNums[eli]; }), expandStack);
                         expandStack.pop();
-                        for (var ei = 0; ei < expandedBody.length; ei++) newLines.push(expandedBody[ei]);
+                        for (var ei = 0; ei < expandedBody.lines.length; ei++) {
+                            newLines.push(expandedBody.lines[ei]);
+                            newLineNums.push(expandedBody.lineNums[ei]);
+                        }
                     } else {
                         newLines.push(mlines[eli]);
+                        newLineNums.push(mlineNums[eli]);
                     }
                 }
-                return newLines;
+                return { lines: newLines, lineNums: newLineNums };
             }
 
-            lines = expandMacros(lines, []);
+            var expanded = expandMacros(lines, lines.map(function(_, li) { return li + 1; }), []);
+            lines = expanded.lines;
+            sourceLineNums = expanded.lineNums;
+        }
+
+        // The source line of a line of the (macro-expanded) program, for messages
+        function sourceLine(index) {
+            return sourceLineNums ? sourceLineNums[index] : index + 1;
         }
 
         var baseOrg = -1;  // first ORG (returned as .org)
@@ -1199,7 +1222,7 @@
                 var lbl;
                 var shownName;
                 if (parsed.label[0] === '.') {
-                    lbl = resolveLocalLabel(parsed.label.toUpperCase(), i + 1);
+                    lbl = resolveLocalLabel(parsed.label.toUpperCase(), sourceLine(i));
                     shownName = lastGlobalName + parsed.label;
                 } else {
                     lbl = currentNamespace + '.' + parsed.label.toUpperCase();
@@ -1209,11 +1232,11 @@
                 }
 
                 if (Object.prototype.hasOwnProperty.call(definedAt, lbl)) {
-                    errors.push({ line: i + 1, msg: 'Duplicate label: ' + shownName + ' (first defined on line ' + definedAt[lbl] + ')' });
+                    errors.push({ line: sourceLine(i), msg: 'Duplicate label: ' + shownName + ' (first defined on line ' + definedAt[lbl] + ')' });
                     duplicateLines[i] = true;
                     if (parsed.mnemonic === 'EQU') continue;
                 } else {
-                    definedAt[lbl] = i + 1;
+                    definedAt[lbl] = sourceLine(i);
                 }
 
                 if (duplicateLines[i]) {
@@ -1256,7 +1279,7 @@
 
             var size = getInstructionSize(parsed, symbols, pass1Addr, 1, lastGlobalLabel, currentNamespace);
             if (size < 0) {
-                errors.push({ line: i + 1, msg: 'Unknown instruction: ' + parsed.mnemonic + ' ' + parsed.operands });
+                errors.push({ line: sourceLine(i), msg: 'Unknown instruction: ' + parsed.mnemonic + ' ' + parsed.operands });
                 continue;
             }
             pass1Addr += size;
@@ -1301,7 +1324,7 @@
                     if (duplicateLines[j]) continue;
                     var lbl2;
                     if (parsed2.label[0] === '.') {
-                        lbl2 = resolveLocalLabel(parsed2.label.toUpperCase(), j + 1);
+                        lbl2 = resolveLocalLabel(parsed2.label.toUpperCase(), sourceLine(j));
                     } else {
                         lbl2 = currentNamespace + '.' + parsed2.label.toUpperCase();
                     }
@@ -1316,7 +1339,7 @@
             if (parsed2.mnemonic === 'ORG') {
                 var orgVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel, currentNamespace);
                 if (orgVal2 !== null && orgVal2 !== undefined) {
-                    handleOrg(orgVal2, j + 1);
+                    handleOrg(orgVal2, sourceLine(j));
                 }
                 continue;
             }
@@ -1336,7 +1359,7 @@
 
             var bytes = emitInstruction(parsed2, symbols, curAddr, 2, lastGlobalLabel, currentNamespace);
             if (bytes === null) {
-                errors.push({ line: j + 1, msg: 'Failed to encode: ' + parsed2.mnemonic + ' ' + parsed2.operands });
+                errors.push({ line: sourceLine(j), msg: 'Failed to encode: ' + parsed2.mnemonic + ' ' + parsed2.operands });
                 continue;
             }
             for (var k = 0; k < bytes.length; k++) {

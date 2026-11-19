@@ -735,7 +735,35 @@ testOK('Labels in an inactive #IF branch are not definitions',
     '#IF 0\nLBL:\n HALT\n#ELSE\nLBL:\n NOP\n#ENDIF\n JR LBL', [0x00, 0x18, 0xFD]);
 testOKWith('Top-level local labels in two places with allowTopLevelLocalLabels are one name',
     ' NOP\n.L:\n NOP\nG:\n NOP\n', [0x00, 0x00, 0x00], { allowTopLevelLocalLabels: true });
-testFail('Top-level local label defined twice with allowTopLevelLocalLabels', '.L:\n NOP\n.L:\n NOP');
+// Errors as [line, message], for checks of the exact lines
+function errorLines(source, predefined, options) {
+    return asm.assemble(source, predefined, options).errors.map(function(e) { return [e.line, e.msg]; });
+}
+function testErrors(name, actual, expected) {
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+        console.error('FAIL:', name); console.error('  expected:', expected); console.error('  actual:  ', actual); failures++;
+    } else { passes++; }
+}
+testErrors('Top-level local label defined twice with allowTopLevelLocalLabels',
+    errorLines(' NOP\n.L:\n NOP\n.L:\n NOP', null, { allowTopLevelLocalLabels: true }),
+    [[4, 'Duplicate label: .L (first defined on line 2)']]);
+// Lines after a macro call are the source lines: the call's lines are all on the call's line
+testErrors('Duplicate label lines after a macro call',
+    errorLines('TWO MACRO\n NOP\n NOP\nENDM\n TWO\nFIRST:\nFIRST:\n RET'),
+    [[7, 'Duplicate label: FIRST (first defined on line 6)']]);
+testErrors('Other errors after a macro call are on their source lines too',
+    errorLines('TWO MACRO\n NOP\n NOP\nENDM\n TWO\n JP NOWHERE'),
+    [[6, 'Failed to encode: JP NOWHERE']]);
+testErrors('An error inside a macro body is on the line that calls it',
+    errorLines('BAD MACRO\n NOP\n JP NOWHERE\nENDM\n NOP\n BAD'),
+    [[6, 'Failed to encode: JP NOWHERE']]);
+// A duplicate EQU does not change which #IF branch is taken: the first value stays
+testErrors('A duplicate EQU leaves the #IF branch of the first value',
+    errorLines('FLAG EQU 0\nFLAG EQU 1\n#IF FLAG\n#IF\n#ENDIF\n#ENDIF\n NOP'),
+    [[2, 'Duplicate label: FLAG (first defined on line 1)']]);
+testErrorBytes('A duplicate EQU leaves the first value in #IF and in code',
+    'FLAG EQU 0\nFLAG EQU 1\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF\n LD A,FLAG',
+    [0x00, 0x3E, 0x00], 'Duplicate label: FLAG (first defined on line 1)');
 (function() {
     // A program may define a name the predefined symbols (the cold state's address map) also have
     var result = asm.assemble('ENV_TYPE EQU 3\nCHROUT:\n RET', { ENV_TYPE: 1, CHROUT: 0x1234 });
