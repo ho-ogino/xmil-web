@@ -8,6 +8,7 @@ X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のま
 - **同じ名前のラベル（`EQU` の名前も）がある ASM のプログラムは、直さないと RUN できません。** 今までは黙って通り、あとの値で上書きされていました。
 - **`TILESPR.LIB` と一緒に `SPRLIB.LIB` か `TILELIB.LIB` を `#INCLUDE` していた SLANG のプログラムは、組めません。** `TILESPR.LIB` だけを書いてください。ほかのライブラリも、2 度入ると同じ名前のラベルで止まります。
 - SLANG で、今まで通っていた書き方がエラーになることがあります（FLOAT を `IF` の条件に使う、添字に副作用のある複合代入 `T[I++] += 1` など）。
+- **`TILELIB.LIB`・`TILESPR.LIB`・`CHIPLIB.LIB` を取り込む SLANG のプログラムは、`MULHLDE` という名前の関数を持てません**（`; @calls MULHLDE: MULHLDE is a user function, …` のエラーになります）。これらのライブラリがランタイムの `MULHLDE` を使うようになったためです。関数の名前を変えてください。
 
 ### X1Pen Web 0.15.0
 

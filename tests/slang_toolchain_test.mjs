@@ -249,6 +249,20 @@ test('CHIPLIB.LIB and TILELIB.LIB multiply with the runtime MULHLDE, once with t
   }
 });
 
+test('a program that includes CHIPLIB.LIB, TILELIB.LIB or TILESPR.LIB cannot name a function MULHLDE', async () => {
+  // The libraries call the runtime MULHLDE; slangc stops rather than let their CALL reach the program's function
+  const own = 'MULHLDE(A, B)\n{\n    RETURN A;\n}\nMAIN()\n{\n    PRINT(MULHLDE(2, 3));\n}\n';
+  for (const lib of ['CHIPLIB.LIB', 'TILELIB.LIB', 'TILESPR.LIB']) {
+    const compiled = await compile(`#INCLUDE "${lib}"\n${own}`);
+    assert.equal(compiled.ok, false, lib);
+    assert.match(compiled.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message).join('\n'),
+      /@calls MULHLDE: MULHLDE is a user function/, lib);
+  }
+  // Without them the name is the program's own
+  const alone = await compile(own);
+  assert.equal(alone.ok, true, JSON.stringify(alone.diagnostics));
+});
+
 test('a top-level #ASM asks for a runtime routine with ; @calls', async () => {
   const asm = '#ASM\n; @calls MULHLDE\nTIMES3:\n\tld de,3\n\tcall MULHLDE\n\tret\n#END\n';
   const asked = await compile(`MACHINE T3(1):TIMES3;\nMAIN()\n{\n    PRINT(T3(5));\n}\n${asm}`);
