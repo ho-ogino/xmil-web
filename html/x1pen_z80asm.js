@@ -988,7 +988,9 @@
             // 注: 前処理段階の EQU は定数式のみ保証（$ やローカルラベルは不正確）
             var ppParsed = parseLine(lines[pi]);
             if (ppParsed.mnemonic === '_NAMESPACE') ppNamespace = ppParsed.operands;
-            if (ppParsed.label && ppParsed.label[0] !== '.') {
+            // A MACRO line names a macro, not a label: `exists` does not see it.
+            var ppIsMacro = /^[a-zA-Z_][a-zA-Z0-9_()]*\s+MACRO\b/i.test(stripComment(trimmed));
+            if (ppParsed.label && ppParsed.label[0] !== '.' && !ppIsMacro) {
                 var ppLabel = ppParsed.label.toUpperCase();
                 ppLabels[ppLabel] = true;
                 if (ppNamespace) ppLabels[ppNamespace + '.' + ppLabel] = true;
@@ -1372,7 +1374,8 @@
         return {
             bytes: new Uint8Array(output),
             org: baseOrg >= 0 ? baseOrg : 0,
-            errors: duplicateErrors.concat(errors),
+            // In source order, so the line that caused an error comes before what follows from it.
+            errors: duplicateErrors.concat(errors).sort(function(a, b) { return a.line - b.line; }),
             symbols: symbols
         };
     }

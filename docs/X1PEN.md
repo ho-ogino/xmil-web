@@ -50,7 +50,7 @@ SLANG のプログラムを書くタブです。RUN すると、SLANG-compiler �
 - コンパイルのエラーは、ステータス欄に `SLANG: L<行>:<桁>: <エラー>` と出ます（`#INCLUDE` したファイルの中なら、頭にファイル名）。警告があっても組めたときは、起動のあとのステータス欄に数が出ます（`LSX-Dodgers mode (SLANG: 1 warning(s))`）。自動操作の `validate` は警告も行と桁つきで返し、エラーが無ければ通ります。
 - `#INCLUDE`・`#CHAIN` で読めるのは、バンドルの include のファイルです。名前は大文字でも小文字でも見つかります（`#INCLUDE "graph.lib"` も可）。
 - `#INCLUDE` したファイルは、書いた数だけ読まれます。ほかの include の中で読まれたファイルも数えます（前の X1Pen は同じファイルを 1 度しか読みませんでしたが、SLANG compiler は書いた数だけ読みます）。
-  - ラベルを作るもの（関数・`ARRAY`・機械語の表を持つ `CONST`・`CONST ASM`）を含むファイルが 2 度入ると、同じラベルが 2 度でき、アセンブルで `Duplicate label` のエラーになって止まります。`CONST` の値だけ（`CONST ASM` でないもの）・`MACHINE` の宣言だけ・文の並びだけのファイルなら、2 度入っても通ります。
+  - ラベルを作るもの（関数・`ARRAY`・機械語の表を持つ `CONST`・`CONST ASM`・`#ASM` の中のラベル）を含むファイルが 2 度入ると、同じラベルが 2 度でき、アセンブルで `Duplicate label` のエラーになって止まります。`CONST` の値だけ（`CONST ASM` でないもの）・`MACHINE` の宣言だけ・文の並びだけのファイルなら、2 度入っても通ります。
   - 同梱の 8 本は、どれもラベルを作ります。どれも 1 度だけ入るように書いてください。
   - `TILESPR.LIB` は中で `TILELIB.LIB` と `SPRLIB.LIB` を読むので、`TILESPR.LIB` だけを書きます。
   - `GRAPH.LIB` は、`CONST _FLOAT=1;` のときに中で `SOROBAN.LIB` を読みます。そのときは `SOROBAN.LIB` を書きません。

@@ -761,9 +761,10 @@ testErrors('Failed macro calls are macro errors on their lines',
     [[4, 'PUT: argument count mismatch (expected 1, got 0)'], [5, 'PUT: argument count mismatch (expected 1, got 0)']]);
 testErrors('A failed macro call keeps its own label',
     errorLines('PUT MACRO X\n DB X\nENDM\nL1: PUT\n JP L1\nL1:'),
-    [[6, 'Duplicate label: L1 (first defined on line 4)'], [4, 'PUT: argument count mismatch (expected 1, got 0)']]);
-// A duplicate is the first error: #IF may have taken a branch by the later value (it reads names
-// as before, the latest value), and any error there would otherwise come first
+    [[4, 'PUT: argument count mismatch (expected 1, got 0)'], [6, 'Duplicate label: L1 (first defined on line 4)']]);
+// Errors are in source order: a duplicate EQU before an #IF comes before an error in the branch
+// it opened (#IF reads names as before, the latest value), and an error that comes before a
+// duplicate (say, an #IF that took the wrong branch) is listed before it
 testErrors('A duplicate EQU comes before an error in the #IF branch it opened',
     errorLines('FLAG EQU 0\nFLAG EQU 1\n#IF FLAG\n#IF\n#ENDIF\n#ENDIF\n NOP'),
     [[2, 'Duplicate label: FLAG (first defined on line 1)'], [4, 'Invalid #IF expression']]);
@@ -776,6 +777,19 @@ testErrors('An EQU of an address label\'s name comes first too',
 testErrors('A duplicate after another namespace\'s name comes first too',
     errorLines('[ONE]\nFLAG EQU 0\n[TWO]\nFLAG EQU 1\n[ONE]\nFLAG EQU 1\n#IF FLAG\n#IF\n#ENDIF\n#ENDIF\n NOP'),
     [[6, 'Duplicate label: ONE.FLAG (first defined on line 2)'], [8, 'Invalid #IF expression']]);
+testErrors('An error before a duplicate is listed first',
+    errorLines('X:\n#IF\n#ENDIF\nX:\n NOP'),
+    [[2, 'Invalid #IF expression'], [4, 'Duplicate label: X (first defined on line 1)']]);
+testErrors('A macro error before a duplicate is listed first',
+    errorLines('PUT MACRO X\n DB X\nENDM\nL1:\n PUT\nL1:'),
+    [[5, 'PUT: argument count mismatch (expected 1, got 0)'], [6, 'Duplicate label: L1 (first defined on line 4)']]);
+// exists sees labels, not macro names
+testOK('#IF exists does not see a macro name',
+    'FOO MACRO\n NOP\nENDM\n#IF exists FOO\n HALT\n#ELSE\n RET\n#ENDIF', [0xC9]);
+testOK('#IF exists does not see a macro name, so the guarded label is defined once',
+    'FOO MACRO\n NOP\nENDM\n#IF !exists FOO\nFOO:\n#ENDIF\n FOO\n JP FOO', [0x00, 0xC3, 0x00, 0x00]);
+testOK('#IF exists still sees a label after a macro',
+    'FOO MACRO\n NOP\nENDM\nBAR:\n#IF exists BAR\n HALT\n#ELSE\n RET\n#ENDIF', [0x76]);
 // #IF reads names as it always has (no duplicates here)
 testOK('#IF reads a local EQU', 'MAIN:\n.FLAG EQU 1\n#IF .FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76]);
 testOK('#IF exists sees a local EQU', 'MAIN:\n.FLAG EQU 1\n#IF exists .FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76]);
