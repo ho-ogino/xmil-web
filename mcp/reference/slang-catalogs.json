@@ -9,14 +9,14 @@
       "AND", "ARRAY", "ASM", "BEGIN", "BYTE", "CASE", "CHR$", "CODE", "CONST", "CONTINUE", "CPL", "CR$", "DECI$", "DO", "DOWNTO", "EF", "ELIF", "ELSE", "ELSEIF", "END", "ENDIF", "EXIT", "FALSE", "FL$", "FLOAT", "FOR", "FORM$", "GOTO", "HEX2$", "HEX4$", "HIGH", "IF", "LOOP", "LOW", "MACHINE", "MOD", "MSG$", "MSX$", "NEXT", "NOT", "OF", "OFFSET", "OR", "ORG", "OTHERS", "PN$", "PRINT", "REPEAT", "RESIDENT", "RETURN", "SPC$", "STR$", "TAB$", "THEN", "TO", "TRUE", "UNTIL", "VAR", "WEND", "WHILE", "WORD", "WORK", "XOR", "MAIN", "#INCLUDE", "#CHAIN", "#IF", "#ELSE", "#END", "#ENDIF", "#ASM", "#MODULE"
     ],
     "aliases": ["reserved words", "compiler keywords", "string functions", "予約語", "言語要素", "文字列関数"],
-    "summary": "This catalog records the keywords, predefined constants, string-format functions and preprocessor directives accepted by slangc 0.28.0, the compiler X1Pen uses.",
+    "summary": "This catalog records the keywords, predefined constants, string-format functions and preprocessor directives accepted by slangc 0.29.0, the compiler X1Pen uses.",
     "syntax": ["Search an exact compiler word, then fetch the related dedicated entry for its contract."],
     "notes": [
       "The catalog is written from docs/SLANG-spec.md and the keyword and string-function tables of the lexer at the compiler revision. CFUNC and VOID, which only the C output of other environments uses, and the reserved words SELFCONTAIN and AUTO, which are compile errors, are left out.",
       "Prefer dedicated syntax entries; this exhaustive index is intentionally low-detail."
     ],
     "relatedIds": ["slang.program.structure", "slang.data.types-declarations", "slang.control.flow", "slang.preprocessor.includes"],
-    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/3fb6f7fc17b54614e48e421a1a35e856c47a7ebc/docs/SLANG-spec.md", "https://github.com/h-o-soft/SLANG-compiler/blob/3fb6f7fc17b54614e48e421a1a35e856c47a7ebc/src/SLANGCompiler.Core/Lexer/Lexer.cs"]
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/blob/2eb76f619e21e0f8c20b1202f0febe26e40212e9/docs/SLANG-spec.md", "https://github.com/h-o-soft/SLANG-compiler/blob/2eb76f619e21e0f8c20b1202f0febe26e40212e9/src/SLANGCompiler.Core/Lexer/Lexer.cs"]
   },
   {
     "id": "slang.runtime.catalog",
@@ -36,7 +36,7 @@
       "Names such as f24*, s* and support bases are usually implementation dependencies. Generate calls from the dedicated entries instead."
     ],
     "relatedIds": ["slang.machine.system-access", "slang.runtime.float", "slang.runtime.lsx-io-files", "slang.x1.display-graphics", "slang.x1.input", "slang.x1.psg", "slang.x1.sgl", "slang.x1.text-attribute"],
-    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/tree/3fb6f7fc17b54614e48e421a1a35e856c47a7ebc/runtime", "https://github.com/h-o-soft/SLANG-compiler/blob/3fb6f7fc17b54614e48e421a1a35e856c47a7ebc/runtime/env/x1.env"]
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/tree/2eb76f619e21e0f8c20b1202f0febe26e40212e9/runtime", "https://github.com/h-o-soft/SLANG-compiler/blob/2eb76f619e21e0f8c20b1202f0febe26e40212e9/runtime/env/x1.env"]
   },
   {
     "id": "slang.includes.catalog",
@@ -56,6 +56,6 @@
       "Prefer the dedicated library entries for setup order, argument meaning and lifetime constraints."
     ],
     "relatedIds": ["slang.include.tile-sprite", "slang.include.chiplib", "slang.include.ui", "slang.include.graph-soroban", "slang.include.soroban"],
-    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/tree/3fb6f7fc17b54614e48e421a1a35e856c47a7ebc/include"]
+    "sourceUrls": ["https://github.com/h-o-soft/SLANG-compiler/tree/2eb76f619e21e0f8c20b1202f0febe26e40212e9/include"]
   }
 ]

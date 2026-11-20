@@ -1317,6 +1317,8 @@ test('SLANG compile errors carry their line and column, and a valid VSYNC progra
 
 test('the SLANG tab compiles with the bundle\'s slangc, loads it when the tab opens, and reads #INCLUDE from the bundle', { timeout: 120_000 }, async () => {
   const revision = JSON.parse(readFileSync(join(projectRoot, 'assets', 'hubasic', 'current.json'), 'utf8')).revision;
+  const { slangcVersion } = JSON.parse(readFileSync(join(projectRoot, 'assets', 'hubasic', revision, 'manifest.json'), 'utf8'));
+  assert.match(slangcVersion, /^\d+\.\d+\.\d+$/);
   const context = await browser.newContext();
   try {
     const slangPage = await context.newPage();
@@ -1330,7 +1332,7 @@ test('the SLANG tab compiles with the bundle\'s slangc, loads it when the tab op
     await slangPage.waitForFunction(() => !!(window.X1PenSlangWasm && window.X1PenSlangWasm.info()), null, { timeout: 30_000 });
     const profile = await slangPage.evaluate(() => window.X1PenAutomation.getStatus().languageProfiles.slang);
     assert.deepEqual(profile, { id: 'x1pen-slang-x1', environment: 'x1', envType: 1, osType: 0, defaultOrg: 0x100,
-      compilerRevision: revision, slangcVersion: '0.28.0' });
+      compilerRevision: revision, slangcVersion });
     const result = await slangPage.evaluate(async () => {
       const api = window.X1PenAutomation;
       const current = api.getProgram();

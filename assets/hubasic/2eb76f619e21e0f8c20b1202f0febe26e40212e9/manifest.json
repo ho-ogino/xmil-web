@@ -1,8 +1,8 @@
 {
-  "slangCompilerRevision": "3fb6f7fc17b54614e48e421a1a35e856c47a7ebc",
+  "slangCompilerRevision": "2eb76f619e21e0f8c20b1202f0febe26e40212e9",
   "dirty": false,
   "hubasic2slVersion": "0.1.0-alpha",
-  "slangcVersion": "0.28.0",
+  "slangcVersion": "0.29.0",
   "basAbi": 4,
   "basFileAbi": 1,
   "loadAddress": 4096,
@@ -246,19 +246,19 @@
       "size": 11358
     },
     {
-      "path": "_framework/SLANGCompiler.Core.mhuassgud7.wasm",
-      "sha256": "263b8be4aad0cba2a7a42c1c6165051bb676efac7c791479792e22e97ec1f4fa",
+      "path": "_framework/SLANGCompiler.Core.l96g5s8pop.wasm",
+      "sha256": "b9581e5928a8a41c277bd40453a0f0f1c54ee52fffd16d0dbc9b7897396b98fa",
       "size": 389397
     },
     {
-      "path": "_framework/SLANGCompiler.Core.mhuassgud7.wasm.br",
-      "sha256": "094b0bc5eb2ae32df0f624750993f91ebc2b6dfc090bf464490dcb375ab4e4d4",
-      "size": 128489
+      "path": "_framework/SLANGCompiler.Core.l96g5s8pop.wasm.br",
+      "sha256": "81a3f6e4c89dafab6505395ed6544d7bf9098c87477b63817336bd6b5c79aae3",
+      "size": 128697
     },
     {
-      "path": "_framework/SLANGCompiler.Core.mhuassgud7.wasm.gz",
-      "sha256": "d58880f03e6ac86b062c2ebda0bd1d9cf03bcf64e29118c4c3049f37eae5cda0",
-      "size": 156680
+      "path": "_framework/SLANGCompiler.Core.l96g5s8pop.wasm.gz",
+      "sha256": "7e742c6e0ddf0b038f765d528765a4d25a73346a7e3c11b46ad6634ac6b03b2c",
+      "size": 156671
     },
     {
       "path": "_framework/System.Collections.358xga0trv.wasm",
@@ -652,18 +652,18 @@
     },
     {
       "path": "_framework/dotnet.js",
-      "sha256": "5e1cc12e50784ebd1e3ae53dced9179a938e75abf1aa4355231a32def74790e5",
+      "sha256": "7503e95f960059775d92cf6bdeabc17c686eb1a48dab2e3e81c37cc692ffbde9",
       "size": 47181
     },
     {
       "path": "_framework/dotnet.js.br",
-      "sha256": "4a74b71515abb5e4296f7934048932c795926776f83a11bf76ccc79f1e576ff9",
-      "size": 12820
+      "sha256": "f36f8b46c36b796d8a78e374eed6fd015a1b03c71e688c4df6d64d7b3a4c40cc",
+      "size": 12832
     },
     {
       "path": "_framework/dotnet.js.gz",
-      "sha256": "e756c0dbbed6543aa99e38875a906adc7cbceb6a80151bf9408fe3a9c32115a0",
-      "size": 14514
+      "sha256": "78d41fa6c7b0e76e8350f9d993df0ece0021adfbae2479bb850c7ae63d17f787",
+      "size": 14510
     },
     {
       "path": "_framework/dotnet.native.3bptkeu1pi.wasm",
@@ -711,19 +711,19 @@
       "size": 57094
     },
     {
-      "path": "_framework/hubasic2sl-wasm.g1folmabsz.wasm",
-      "sha256": "240f011a35ff6fa4034ec81a4e692376add608794be6904333821bc6d4b35e5e",
+      "path": "_framework/hubasic2sl-wasm.qk4ebmvj5k.wasm",
+      "sha256": "563e1bb98545b1e6b05d0b27fc503b81dc24f102543f3ef5a263aae05f18a86e",
       "size": 271637
     },
     {
-      "path": "_framework/hubasic2sl-wasm.g1folmabsz.wasm.br",
-      "sha256": "86a60e9fab6d50c8ec6497d2aee7fb4acec847d454da69c02c616f2cb151858d",
-      "size": 87612
+      "path": "_framework/hubasic2sl-wasm.qk4ebmvj5k.wasm.br",
+      "sha256": "86c002014c94d2866badc10f62db461d4cbf13be11e45cde050dad1d63212563",
+      "size": 87752
     },
     {
-      "path": "_framework/hubasic2sl-wasm.g1folmabsz.wasm.gz",
-      "sha256": "43ea183d6fe8eef05e24f76000ffcb51b9e97cad25f5f242a9a57f1d0836f0a3",
-      "size": 109207
+      "path": "_framework/hubasic2sl-wasm.qk4ebmvj5k.wasm.gz",
+      "sha256": "2edc89ac6aef4c784c6693b71a5b1490da70efff9065ed4c3e9e8d5954f67544",
+      "size": 109190
     },
     {
       "path": "env/x1.env",
