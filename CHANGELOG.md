@@ -2,7 +2,7 @@
 
 ## X1Pen Web 0.15.0 / x1pen-mcp 2.13.0
 
-X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のままです（変えていません）。SLANG タブと HuBASIC タブが、どちらも本物の SLANG コンパイラ（SLANG-compiler 3fb6f7f のブラウザ向けバンドル、slangc 0.28.0）で組まれるようになります。x1pen-mcp の言語のプロファイルの名前が変わるので、X1Pen Web と x1pen-mcp は一緒に新しくしてください（下の「版の組み合わせ」）。
+X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のままです（変えていません）。SLANG タブと HuBASIC タブが、どちらも本物の SLANG コンパイラ（SLANG-compiler 0.29.0 のブラウザ向けバンドル、2eb76f6）で組まれるようになります。x1pen-mcp の言語のプロファイルの名前が変わるので、X1Pen Web と x1pen-mcp は一緒に新しくしてください（下の「版の組み合わせ」）。
 
 **今まで動いていたプログラムが、組めなく・RUN できなくなることがあります。**
 - **同じ名前のラベル（`EQU` の名前も）がある ASM のプログラムは、直さないと RUN できません。** 今までは黙って通り、あとの値で上書きされていました。
@@ -12,7 +12,7 @@ X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のま
 
 ### X1Pen Web 0.15.0
 
-- **SLANG タブのコンパイラが、本物の SLANG compiler（slangc 0.28.0）になりました。** 次のことが、本物どおりになります。
+- **SLANG タブのコンパイラが、本物の SLANG compiler（slangc 0.29.0）になりました。** 次のことが、本物どおりになります。
   - 文字列の `\N`（CR）・`\0`（NUL）
   - 定数のシフト（`1 << 16` は 1、`$8000 >> 16` は `$8000`）
   - `EXIT(n)`、`A++` の値、CONST と同じ名前の引数、関数の中の CONST
@@ -39,15 +39,15 @@ X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のま
 
 - 言語のプロファイルの名前が変わりました。SLANG は `x1pen-slang-x1`、HuBASIC は `x1pen-hubasic-x1native` です。
 - `x1pen_get_language_profile` は、X1Pen がバンドルを読み込んだあと、SLANG のコンパイラの版（`compilerRevision`）も比べます。
-- SLANG のリファレンスを、本物の slangc（3fb6f7f）に合わせて書き直しました。`#INCLUDE` は名前が出るたびに読むこと、ラベルを作るライブラリは 2 度入ると止まること、`TILESPR.LIB` だけを書くこと、トップレベルの `#ASM` の `; @calls` などを書いています。
-- HuBASIC のリファレンスを 3fb6f7f に合わせて見直しました（ファイルの命令・`CLEAR`・`DIM` の上限の変数・`PSET`/`PRESET`/`POINT`・`LINE -(x,y)`・`THEN` の省略）。
+- SLANG のリファレンスを、本物の slangc（2eb76f6）に合わせて書き直しました。`#INCLUDE` は名前が出るたびに読むこと、ラベルを作るライブラリは 2 度入ると止まること、`TILESPR.LIB` だけを書くこと、トップレベルの `#ASM` の `; @calls` などを書いています。
+- HuBASIC のリファレンスを 2eb76f6 に合わせて見直しました（ファイルの命令・`CLEAR`・`DIM` の上限の変数・`PSET`/`PRESET`/`POINT`・`LINE -(x,y)`・`THEN` の省略）。
 - アセンブラのリファレンスに、同じ名前のラベルがエラーになることを書きました。
 - README の同梱リファレンスの一覧に HuBASIC（hubasic2sl）を足しました。
 - HuBASIC の「Files」に入れるファイルを x1pen-mcp から扱うのは、次の版です。
 
 ### 版の組み合わせ
 
-- x1pen-mcp 2.13.0 は、X1Pen Web 0.15.0 のプロファイルとバンドル（3fb6f7f）を前提にしています。
+- x1pen-mcp 2.13.0 は、X1Pen Web 0.15.0 のプロファイルとバンドル（2eb76f6）を前提にしています。
   - x1pen-mcp 2.12.0 と X1Pen Web 0.15.0、x1pen-mcp 2.13.0 と X1Pen Web 0.14.0 の組み合わせでは、`x1pen_get_language_profile` が `compatible: false` を返します。
   - ほかの道具はそのまま使えます。両方を新しくすれば `compatible: true` に戻ります。
 - X1Pen Connector 1.4.0 のまま、どちらの組み合わせでも使えます（feature は増えていません）。
