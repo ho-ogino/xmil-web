@@ -1,5 +1,5 @@
 {
-  "slangCompilerRevision": "a667528bcc61ca6915955054c794da6fec8a7c3b",
+  "slangCompilerRevision": "3fb6f7fc17b54614e48e421a1a35e856c47a7ebc",
   "dirty": false,
   "hubasic2slVersion": "0.1.0-alpha",
   "slangcVersion": "0.28.0",
@@ -246,19 +246,19 @@
       "size": 11358
     },
     {
-      "path": "_framework/SLANGCompiler.Core.zd96f4mcbe.wasm",
-      "sha256": "07d468f9bcd2a52122e7631211179b27ee3a7c60241225b0273e5b9e2b56ad2b",
-      "size": 385301
+      "path": "_framework/SLANGCompiler.Core.mhuassgud7.wasm",
+      "sha256": "263b8be4aad0cba2a7a42c1c6165051bb676efac7c791479792e22e97ec1f4fa",
+      "size": 389397
     },
     {
-      "path": "_framework/SLANGCompiler.Core.zd96f4mcbe.wasm.br",
-      "sha256": "0af4457df5f644d7cb23d1a9b9cbb8df404d1e9aac95647df29c7574a4a31ff2",
-      "size": 127329
+      "path": "_framework/SLANGCompiler.Core.mhuassgud7.wasm.br",
+      "sha256": "094b0bc5eb2ae32df0f624750993f91ebc2b6dfc090bf464490dcb375ab4e4d4",
+      "size": 128489
     },
     {
-      "path": "_framework/SLANGCompiler.Core.zd96f4mcbe.wasm.gz",
-      "sha256": "9b3984d63d410743acccccafdb69f7a82e5f9c578edc6a862c60cac035393421",
-      "size": 155321
+      "path": "_framework/SLANGCompiler.Core.mhuassgud7.wasm.gz",
+      "sha256": "d58880f03e6ac86b062c2ebda0bd1d9cf03bcf64e29118c4c3049f37eae5cda0",
+      "size": 156680
     },
     {
       "path": "_framework/System.Collections.358xga0trv.wasm",
@@ -441,19 +441,19 @@
       "size": 4668
     },
     {
-      "path": "_framework/System.Private.CoreLib.nvmnfgafm5.wasm",
-      "sha256": "6d1dcef90c8ffe0380eaa255bda436ddd797d4ed037b663fbcdb005563c435e9",
-      "size": 1495317
+      "path": "_framework/System.Private.CoreLib.kqtopufimp.wasm",
+      "sha256": "74f251a197a8da33a7dfb8f19fa74919ecca87cdd49581b12c9dbf85fff0b5e2",
+      "size": 1496341
     },
     {
-      "path": "_framework/System.Private.CoreLib.nvmnfgafm5.wasm.br",
-      "sha256": "69088108e2d654adb7473bfbc938d10d7304ded3fff5914bd66074b77637f6ee",
-      "size": 456131
+      "path": "_framework/System.Private.CoreLib.kqtopufimp.wasm.br",
+      "sha256": "723192a07f374a01a04d891e996a13193f4095d7f33245a77d7e159fb95b05f8",
+      "size": 455353
     },
     {
-      "path": "_framework/System.Private.CoreLib.nvmnfgafm5.wasm.gz",
-      "sha256": "2b236538ec42a34da00b0eba08db3442686d5fbe46ea1bd0d2aa774a8a5fc40a",
-      "size": 567766
+      "path": "_framework/System.Private.CoreLib.kqtopufimp.wasm.gz",
+      "sha256": "a2e3b9cca0dc7896054f0d474a600d161aeaddfda1e419f073dcf1adeb5b15f2",
+      "size": 568163
     },
     {
       "path": "_framework/System.Private.Uri.uf11wdn0zw.wasm",
@@ -652,17 +652,17 @@
     },
     {
       "path": "_framework/dotnet.js",
-      "sha256": "8cde18cd02b3d81666b847bbf7d6f593d5075c95c9805041bcfbdcebe2b37461",
+      "sha256": "5e1cc12e50784ebd1e3ae53dced9179a938e75abf1aa4355231a32def74790e5",
       "size": 47181
     },
     {
       "path": "_framework/dotnet.js.br",
-      "sha256": "5040fd1aeaee280089a792b22622a1f2e2c878a1c9a690f5748f79dff99fc8b7",
-      "size": 12807
+      "sha256": "4a74b71515abb5e4296f7934048932c795926776f83a11bf76ccc79f1e576ff9",
+      "size": 12820
     },
     {
       "path": "_framework/dotnet.js.gz",
-      "sha256": "d99c141c209c67e800956d7a0d3dbc74bb142638a9e197babd3335220d4ec264",
+      "sha256": "e756c0dbbed6543aa99e38875a906adc7cbceb6a80151bf9408fe3a9c32115a0",
       "size": 14514
     },
     {
@@ -711,19 +711,19 @@
       "size": 57094
     },
     {
-      "path": "_framework/hubasic2sl-wasm.5cvjt49ihx.wasm",
-      "sha256": "9bfd029b7dc397e3f2799d567101055c38006b4ea321d56b5ebeef1c265a9636",
+      "path": "_framework/hubasic2sl-wasm.g1folmabsz.wasm",
+      "sha256": "240f011a35ff6fa4034ec81a4e692376add608794be6904333821bc6d4b35e5e",
       "size": 271637
     },
     {
-      "path": "_framework/hubasic2sl-wasm.5cvjt49ihx.wasm.br",
-      "sha256": "76b6301dce2a7f6b5a317f2fc07fb56ba1dae34e672a33c841251be245a0c403",
-      "size": 87563
+      "path": "_framework/hubasic2sl-wasm.g1folmabsz.wasm.br",
+      "sha256": "86a60e9fab6d50c8ec6497d2aee7fb4acec847d454da69c02c616f2cb151858d",
+      "size": 87612
     },
     {
-      "path": "_framework/hubasic2sl-wasm.5cvjt49ihx.wasm.gz",
-      "sha256": "b2addd476559ba43f4607441624974c9796cdfe20b8869b9a3e1556ac192404d",
-      "size": 109208
+      "path": "_framework/hubasic2sl-wasm.g1folmabsz.wasm.gz",
+      "sha256": "43ea183d6fe8eef05e24f76000ffcb51b9e97cad25f5f242a9a57f1d0836f0a3",
+      "size": 109207
     },
     {
       "path": "env/x1.env",
@@ -747,8 +747,8 @@
     },
     {
       "path": "include/CHIPLIB.LIB",
-      "sha256": "c7c5107b7f52f6d8b3654b5bdbd9a255c76230e3720785f4a4ed1236e83c4271",
-      "size": 32701
+      "sha256": "ee646b07db7ccec48eb3ab68f75cb7e67c9f4597391a15703be1791bf21395aa",
+      "size": 32856
     },
     {
       "path": "include/GRAPH.LIB",
@@ -772,8 +772,8 @@
     },
     {
       "path": "include/TILELIB.LIB",
-      "sha256": "be35fb53ba32177fa968eb8a87f050acfdb23a7c371aa3dc045ae02d7bb74ad0",
-      "size": 12601
+      "sha256": "0198c733940875868378c47c3e968509da46d39b028c950ef309c50ea9d485f6",
+      "size": 12438
     },
     {
       "path": "include/TILESPR.LIB",

@@ -72,6 +72,8 @@ CONST ASM _CHIP_VVRAMH_MAX = 28;
 #ENDIF
 
 #ASM
+; ランタイムの掛け算を使う (関数の外の #ASM の CALL ではランタイムが入らないので、次の行で求める)
+; @calls MULHLDE
 ; 初期値 (CHIP_SET_VVRAMSIZE で動的変更可)
 VVRAMWIDTH	EQU	42
 VVRAMHEIGHT	EQU	27
