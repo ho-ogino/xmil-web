@@ -20,7 +20,8 @@
       "Indent instructions when a leading unknown word must not be interpreted as a colonless label.",
       "A local name such as .loop is qualified by the most recent global label. It cannot be used before any global label establishes its scope.",
       "Namespaces are emitted as NAME.SYMBOL. An unqualified reference searches the current namespace, NAME_SPACE_DEFAULT and then matching imported namespace suffixes.",
-      "X1Pen injects cold-state address-map symbols before assembly. User labels and EQU definitions may override those predefined values."
+      "X1Pen injects cold-state address-map symbols before assembly. User labels and EQU definitions may override those predefined values.",
+      "A label or EQU name defined twice in the source is an error, Duplicate label: NAME (first defined on line N): names match in any case, within one namespace, and a local label within the same global label. Labels on inactive #IF lines do not count."
     ],
     "examples": [{
       "title": "Global and local labels in the default namespace",

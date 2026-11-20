@@ -988,7 +988,9 @@
             // 注: 前処理段階の EQU は定数式のみ保証（$ やローカルラベルは不正確）
             var ppParsed = parseLine(lines[pi]);
             if (ppParsed.mnemonic === '_NAMESPACE') ppNamespace = ppParsed.operands;
-            if (ppParsed.label && ppParsed.label[0] !== '.') {
+            // A MACRO line names a macro, not a label: `exists` does not see it.
+            var ppIsMacro = /^[a-zA-Z_][a-zA-Z0-9_()]*\s+MACRO\b/i.test(stripComment(trimmed));
+            if (ppParsed.label && ppParsed.label[0] !== '.' && !ppIsMacro) {
                 var ppLabel = ppParsed.label.toUpperCase();
                 ppLabels[ppLabel] = true;
                 if (ppNamespace) ppLabels[ppNamespace + '.' + ppLabel] = true;
@@ -1029,6 +1031,7 @@
 
         // Macro collection
         var macros = {};
+        var sourceLineNums = null;
         for (var mi = 0; mi < lines.length; mi++) {
             var mline = stripComment(lines[mi].trim());
             var macroMatch = mline.match(/^([a-zA-Z_][a-zA-Z0-9_()]*)\s+MACRO\b\s*(.*)?$/i);
@@ -1095,28 +1098,37 @@
                 return null;
             }
 
-            function expandMacros(mlines, expandStack) {
+            // Each expanded line keeps the source line it came from: a macro body's lines are
+            // reported on the line that calls the macro
+            function expandMacros(mlines, mlineNums, expandStack) {
                 var newLines = [];
+                var newLineNums = [];
+                // A call that cannot be expanded has its error; only its own label goes on (the
+                // call itself would read as a label, and two such calls as a duplicate one)
+                function keepCallLabel(call, eli) {
+                    newLines.push(call.label ? call.label + ':' : '');
+                    newLineNums.push(mlineNums[eli]);
+                }
                 for (var eli = 0; eli < mlines.length; eli++) {
                     var call = detectMacroCall(mlines[eli]);
                     if (call) {
                         var macName = call.macroName;
                         if (expandStack.indexOf(macName) >= 0) {
-                            errors.push({ line: eli + 1, msg: 'Recursive macro expansion: ' + macName });
-                            newLines.push(mlines[eli]); continue;
+                            errors.push({ line: mlineNums[eli], msg: 'Recursive macro expansion: ' + macName });
+                            keepCallLabel(call, eli); continue;
                         }
                         totalExpansions++;
                         if (totalExpansions > maxExpansions) {
-                            errors.push({ line: eli + 1, msg: 'Macro expansion limit exceeded' });
-                            newLines.push(mlines[eli]); continue;
+                            errors.push({ line: mlineNums[eli], msg: 'Macro expansion limit exceeded' });
+                            keepCallLabel(call, eli); continue;
                         }
                         var mac = macros[macName];
                         var callArgs = call.args ? splitMacroArgs(call.args) : [];
                         if (callArgs.length !== mac.args.length) {
-                            errors.push({ line: eli + 1, msg: macName + ': argument count mismatch (expected ' + mac.args.length + ', got ' + callArgs.length + ')' });
-                            newLines.push(mlines[eli]); continue;
+                            errors.push({ line: mlineNums[eli], msg: macName + ': argument count mismatch (expected ' + mac.args.length + ', got ' + callArgs.length + ')' });
+                            keepCallLabel(call, eli); continue;
                         }
-                        if (call.label) newLines.push(call.label + ':');
+                        if (call.label) { newLines.push(call.label + ':'); newLineNums.push(mlineNums[eli]); }
                         var bodyLines = [];
                         for (var bi = 0; bi < mac.body.length; bi++) {
                             var bline = mac.body[bi];
@@ -1126,17 +1138,28 @@
                             bodyLines.push(bline);
                         }
                         expandStack.push(macName);
-                        var expandedBody = expandMacros(bodyLines, expandStack);
+                        var expandedBody = expandMacros(bodyLines, bodyLines.map(function() { return mlineNums[eli]; }), expandStack);
                         expandStack.pop();
-                        for (var ei = 0; ei < expandedBody.length; ei++) newLines.push(expandedBody[ei]);
+                        for (var ei = 0; ei < expandedBody.lines.length; ei++) {
+                            newLines.push(expandedBody.lines[ei]);
+                            newLineNums.push(expandedBody.lineNums[ei]);
+                        }
                     } else {
                         newLines.push(mlines[eli]);
+                        newLineNums.push(mlineNums[eli]);
                     }
                 }
-                return newLines;
+                return { lines: newLines, lineNums: newLineNums };
             }
 
-            lines = expandMacros(lines, []);
+            var expanded = expandMacros(lines, lines.map(function(_, li) { return li + 1; }), []);
+            lines = expanded.lines;
+            sourceLineNums = expanded.lineNums;
+        }
+
+        // The source line of a line of the (macro-expanded) program, for messages
+        function sourceLine(index) {
+            return sourceLineNums ? sourceLineNums[index] : index + 1;
         }
 
         var baseOrg = -1;  // first ORG (returned as .org)
@@ -1179,6 +1202,15 @@
         var pass1BaseOrg = -1;
         var currentNamespace = 'NAME_SPACE_DEFAULT';
         var unresolvedEqUs = null;
+        // A label (or EQU name) the source defines twice is an error, as in AILZ80ASM: the line
+        // of its first definition, and the lines of the later ones (skipped by both passes, so
+        // the first definition keeps its value). Predefined symbols may still be redefined.
+        // These errors come first: a duplicate may have changed what came out of #IF or of a
+        // later instruction, so any other error may be its consequence.
+        var duplicateErrors = [];
+        var definedAt = {};
+        var duplicateLines = {};
+        var lastGlobalName = '';
 
         for (var i = 0; i < lines.length; i++) {
             var parsed = parseLine(lines[i]);
@@ -1191,14 +1223,28 @@
 
             if (parsed.label) {
                 var lbl;
+                var shownName;
                 if (parsed.label[0] === '.') {
-                    lbl = resolveLocalLabel(parsed.label.toUpperCase(), i + 1);
+                    lbl = resolveLocalLabel(parsed.label.toUpperCase(), sourceLine(i));
+                    shownName = lastGlobalName + parsed.label;
                 } else {
                     lbl = currentNamespace + '.' + parsed.label.toUpperCase();
                     lastGlobalLabel = lbl;
+                    lastGlobalName = (currentNamespace === 'NAME_SPACE_DEFAULT' ? '' : currentNamespace + '.') + parsed.label;
+                    shownName = lastGlobalName;
                 }
 
-                if (parsed.mnemonic === 'EQU') {
+                if (Object.prototype.hasOwnProperty.call(definedAt, lbl)) {
+                    duplicateErrors.push({ line: sourceLine(i), msg: 'Duplicate label: ' + shownName + ' (first defined on line ' + definedAt[lbl] + ')' });
+                    duplicateLines[i] = true;
+                    if (parsed.mnemonic === 'EQU') continue;
+                } else {
+                    definedAt[lbl] = sourceLine(i);
+                }
+
+                if (duplicateLines[i]) {
+                    // the first definition keeps its address
+                } else if (parsed.mnemonic === 'EQU') {
                     var eqVal = evalExpr(parsed.operands, symbols, pass1Addr, lastGlobalLabel, currentNamespace);
                     if (eqVal === null || eqVal === undefined) {
                         // 前方参照: Pass 1 後に再解決する
@@ -1209,8 +1255,9 @@
                         symbols[lbl] = eqVal;
                     }
                     continue;
+                } else {
+                    symbols[lbl] = pass1Addr;
                 }
-                symbols[lbl] = pass1Addr;
             }
 
             if (!parsed.mnemonic) continue;
@@ -1235,7 +1282,7 @@
 
             var size = getInstructionSize(parsed, symbols, pass1Addr, 1, lastGlobalLabel, currentNamespace);
             if (size < 0) {
-                errors.push({ line: i + 1, msg: 'Unknown instruction: ' + parsed.mnemonic + ' ' + parsed.operands });
+                errors.push({ line: sourceLine(i), msg: 'Unknown instruction: ' + parsed.mnemonic + ' ' + parsed.operands });
                 continue;
             }
             pass1Addr += size;
@@ -1277,9 +1324,10 @@
                     lastGlobalLabel = lbl2ns;
                 }
                 if (parsed2.mnemonic === 'EQU') {
+                    if (duplicateLines[j]) continue;
                     var lbl2;
                     if (parsed2.label[0] === '.') {
-                        lbl2 = resolveLocalLabel(parsed2.label.toUpperCase(), j + 1);
+                        lbl2 = resolveLocalLabel(parsed2.label.toUpperCase(), sourceLine(j));
                     } else {
                         lbl2 = currentNamespace + '.' + parsed2.label.toUpperCase();
                     }
@@ -1294,7 +1342,7 @@
             if (parsed2.mnemonic === 'ORG') {
                 var orgVal2 = evalExpr(parsed2.operands, symbols, curAddr, lastGlobalLabel, currentNamespace);
                 if (orgVal2 !== null && orgVal2 !== undefined) {
-                    handleOrg(orgVal2, j + 1);
+                    handleOrg(orgVal2, sourceLine(j));
                 }
                 continue;
             }
@@ -1314,7 +1362,7 @@
 
             var bytes = emitInstruction(parsed2, symbols, curAddr, 2, lastGlobalLabel, currentNamespace);
             if (bytes === null) {
-                errors.push({ line: j + 1, msg: 'Failed to encode: ' + parsed2.mnemonic + ' ' + parsed2.operands });
+                errors.push({ line: sourceLine(j), msg: 'Failed to encode: ' + parsed2.mnemonic + ' ' + parsed2.operands });
                 continue;
             }
             for (var k = 0; k < bytes.length; k++) {
@@ -1326,7 +1374,8 @@
         return {
             bytes: new Uint8Array(output),
             org: baseOrg >= 0 ? baseOrg : 0,
-            errors: errors,
+            // In source order, so the line that caused an error comes before what follows from it.
+            errors: duplicateErrors.concat(errors).sort(function(a, b) { return a.line - b.line; }),
             symbols: symbols
         };
     }

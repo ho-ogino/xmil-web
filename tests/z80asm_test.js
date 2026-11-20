@@ -706,6 +706,113 @@ testOKWith('Top-level local label with allowTopLevelLocalLabels',
     ' JR .L\n NOP\n.L:\n RET\nG:\n.L:\n JR .L',
     [0x18, 0x01, 0x00, 0xC9, 0x18, 0xFE], { allowTopLevelLocalLabels: true });
 
+// A label or EQU name defined twice is an error (as in AILZ80ASM), naming the label and the line
+// of its first definition; the first definition keeps its value
+testErrorBytes('Label defined twice', 'L1:\n NOP\nL1:\n RET\n JP L1',
+    [0x00, 0xC9, 0xC3, 0x00, 0x00], 'Duplicate label: L1 (first defined on line 1)');
+testErrorBytes('EQU defined twice', 'X EQU 1\nX EQU 2\n LD A,X',
+    [0x3E, 0x01], 'Duplicate label: X (first defined on line 1)');
+testErrorBytes('A label and an EQU of the same name', 'X:\n NOP\nX EQU 5\n LD A,X',
+    [0x00, 0x3E, 0x00], 'Duplicate label: X (first defined on line 1)');
+testErrorBytes('Label names are the same in any case', 'Loop:\n NOP\nLOOP:\n JR Loop',
+    [0x00, 0x18, 0xFD], 'Duplicate label: LOOP (first defined on line 1)');
+testErrorBytes('Local label defined twice under one global label', 'F:\n.a:\n NOP\n.a:\n JR .a',
+    [0x00, 0x18, 0xFD], 'Duplicate label: F.a (first defined on line 2)');
+testErrorBytes('Namespaced label defined twice', '[LIBA]\nFOO:\n RET\nFOO:\n RET',
+    [0xC9, 0xC9], 'Duplicate label: LIBA.FOO (first defined on line 2)');
+(function() {
+    // Every later definition is reported, and the first error is the first duplicate
+    var result = asm.assemble('A:\nB:\n NOP\nA:\n NOP\nB:\n NOP');
+    var messages = result.errors.map(function(e) { return 'L' + e.line + ': ' + e.msg; });
+    var expected = ['L4: Duplicate label: A (first defined on line 1)', 'L6: Duplicate label: B (first defined on line 2)'];
+    if (JSON.stringify(messages) !== JSON.stringify(expected)) {
+        console.error('FAIL: duplicate labels are each reported', messages); failures++;
+    } else { passes++; }
+})();
+testOK('Same local label under different global labels', 'F:\n.a:\n JR .a\nG:\n.a:\n JR .a', [0x18, 0xFE, 0x18, 0xFE]);
+testOK('Same name in different namespaces', '[LIBA]\nFOO:\n RET\n[LIBB]\nFOO:\n RET', [0xC9, 0xC9]);
+testOK('Labels in an inactive #IF branch are not definitions',
+    '#IF 0\nLBL:\n HALT\n#ELSE\nLBL:\n NOP\n#ENDIF\n JR LBL', [0x00, 0x18, 0xFD]);
+// Errors as [line, message], for checks of the exact lines
+function errorLines(source, predefined, options) {
+    return asm.assemble(source, predefined, options).errors.map(function(e) { return [e.line, e.msg]; });
+}
+function testErrors(name, actual, expected) {
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+        console.error('FAIL:', name); console.error('  expected:', expected); console.error('  actual:  ', actual); failures++;
+    } else { passes++; }
+}
+testErrors('Top-level local label defined twice with allowTopLevelLocalLabels',
+    errorLines(' NOP\n.L:\n NOP\n.L:\n NOP', null, { allowTopLevelLocalLabels: true }),
+    [[4, 'Duplicate label: .L (first defined on line 2)']]);
+// Lines after a macro call are the source lines: the call's lines are all on the call's line
+testErrors('Duplicate label lines after a macro call',
+    errorLines('TWO MACRO\n NOP\n NOP\nENDM\n TWO\nFIRST:\nFIRST:\n RET'),
+    [[7, 'Duplicate label: FIRST (first defined on line 6)']]);
+testErrors('Other errors after a macro call are on their source lines too',
+    errorLines('TWO MACRO\n NOP\n NOP\nENDM\n TWO\n JP NOWHERE'),
+    [[6, 'Failed to encode: JP NOWHERE']]);
+testErrors('An error inside a macro body is on the line that calls it',
+    errorLines('BAD MACRO\n NOP\n JP NOWHERE\nENDM\n NOP\n BAD'),
+    [[6, 'Failed to encode: JP NOWHERE']]);
+// A macro call that fails is not a label: two of them are two macro errors, not a duplicate
+testErrors('Failed macro calls are macro errors on their lines',
+    errorLines('PUT MACRO X\n DB X\nENDM\n PUT\n PUT'),
+    [[4, 'PUT: argument count mismatch (expected 1, got 0)'], [5, 'PUT: argument count mismatch (expected 1, got 0)']]);
+testErrors('A failed macro call keeps its own label',
+    errorLines('PUT MACRO X\n DB X\nENDM\nL1: PUT\n JP L1\nL1:'),
+    [[4, 'PUT: argument count mismatch (expected 1, got 0)'], [6, 'Duplicate label: L1 (first defined on line 4)']]);
+// Errors are in source order: a duplicate EQU before an #IF comes before an error in the branch
+// it opened (#IF reads names as before, the latest value), and an error that comes before a
+// duplicate (say, an #IF that took the wrong branch) is listed before it
+testErrors('A duplicate EQU comes before an error in the #IF branch it opened',
+    errorLines('FLAG EQU 0\nFLAG EQU 1\n#IF FLAG\n#IF\n#ENDIF\n#ENDIF\n NOP'),
+    [[2, 'Duplicate label: FLAG (first defined on line 1)'], [4, 'Invalid #IF expression']]);
+testErrors('A duplicate local EQU comes first too',
+    errorLines('MAIN:\n.F EQU 0\n.F EQU 1\n#IF .F\n#IF\n#ENDIF\n#ENDIF\n NOP'),
+    [[3, 'Duplicate label: MAIN.F (first defined on line 2)'], [5, 'Invalid #IF expression']]);
+testErrors('An EQU of an address label\'s name comes first too',
+    errorLines('FLAG:\nFLAG EQU 1\n#IF FLAG\n#IF\n#ENDIF\n#ENDIF\n NOP'),
+    [[2, 'Duplicate label: FLAG (first defined on line 1)'], [4, 'Invalid #IF expression']]);
+testErrors('A duplicate after another namespace\'s name comes first too',
+    errorLines('[ONE]\nFLAG EQU 0\n[TWO]\nFLAG EQU 1\n[ONE]\nFLAG EQU 1\n#IF FLAG\n#IF\n#ENDIF\n#ENDIF\n NOP'),
+    [[6, 'Duplicate label: ONE.FLAG (first defined on line 2)'], [8, 'Invalid #IF expression']]);
+testErrors('An error before a duplicate is listed first',
+    errorLines('X:\n#IF\n#ENDIF\nX:\n NOP'),
+    [[2, 'Invalid #IF expression'], [4, 'Duplicate label: X (first defined on line 1)']]);
+testErrors('A macro error before a duplicate is listed first',
+    errorLines('PUT MACRO X\n DB X\nENDM\nL1:\n PUT\nL1:'),
+    [[5, 'PUT: argument count mismatch (expected 1, got 0)'], [6, 'Duplicate label: L1 (first defined on line 4)']]);
+// exists sees labels, not macro names
+testOK('#IF exists does not see a macro name',
+    'FOO MACRO\n NOP\nENDM\n#IF exists FOO\n HALT\n#ELSE\n RET\n#ENDIF', [0xC9]);
+testOK('#IF exists does not see a macro name, so the guarded label is defined once',
+    'FOO MACRO\n NOP\nENDM\n#IF !exists FOO\nFOO:\n#ENDIF\n FOO\n JP FOO', [0x00, 0xC3, 0x00, 0x00]);
+testOK('#IF exists still sees a label after a macro',
+    'FOO MACRO\n NOP\nENDM\nBAR:\n#IF exists BAR\n HALT\n#ELSE\n RET\n#ENDIF', [0x76]);
+// #IF reads names as it always has (no duplicates here)
+testOK('#IF reads a local EQU', 'MAIN:\n.FLAG EQU 1\n#IF .FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76]);
+testOK('#IF exists sees a local EQU', 'MAIN:\n.FLAG EQU 1\n#IF exists .FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x76]);
+testOK('A macro call between a local EQU and #IF', 'TWO MACRO\n NOP\nENDM\nMAIN:\n.FLAG EQU 1\n TWO\n#IF .FLAG\n HALT\n#ELSE\n NOP\n#ENDIF',
+    [0x00, 0x76]);
+testOK('A local EQU is not a global name in #IF', 'MAIN:\n.FLAG EQU 1\nOTHER:\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x00]);
+testOK('A macro and an EQU may share a name',
+    'FLAG MACRO\n NOP\nENDM\n FLAG\nFLAG: EQU 1\n#IF FLAG\n HALT\n#ELSE\n NOP\n#ENDIF', [0x00, 0x76]);
+(function() {
+    // A program's EQU of a predefined name still overrides it in #IF
+    var result = asm.assemble('ENV_TYPE EQU 3\n#IF ENV_TYPE==3\n NOP\n#ELSE\n HALT\n#ENDIF', { ENV_TYPE: 1 });
+    if (result.errors.length || JSON.stringify(Array.from(result.bytes)) !== '[0]') {
+        console.error('FAIL: an EQU of a predefined name overrides it in #IF', result.errors, Array.from(result.bytes)); failures++;
+    } else { passes++; }
+})();
+(function() {
+    // A program may define a name the predefined symbols (the cold state's address map) also have
+    var result = asm.assemble('ENV_TYPE EQU 3\nCHROUT:\n RET', { ENV_TYPE: 1, CHROUT: 0x1234 });
+    if (result.errors.length) {
+        console.error('FAIL: a predefined name can be defined by the program', result.errors); failures++;
+    } else { passes++; }
+})();
+
 console.log('\n' + '='.repeat(40));
 console.log('Results: ' + passes + ' passed, ' + failures + ' failed');
 console.log('='.repeat(40));

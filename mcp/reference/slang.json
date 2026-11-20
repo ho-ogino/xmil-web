@@ -267,7 +267,7 @@
       "#ENDIF"
     ],
     "notes": [
-      "slangc reads an #INCLUDE file each time it is named, also when another included file already read it. TILESPR.LIB reads TILELIB.LIB and SPRLIB.LIB, so include TILESPR.LIB alone (naming one of the other two as well fails to assemble with duplicate labels). GRAPH.LIB reads SOROBAN.LIB; naming SOROBAN.LIB as well does no harm, as it only declares functions.",
+      "slangc reads an #INCLUDE file each time it is named, also when another included file already read it. A file that makes labels (a function, an ARRAY, a CONST holding a machine-code table, a CONST ASM, which becomes an EQU, or a label inside an #ASM block) then makes them twice, and the program fails to assemble with Duplicate label errors; a file of plain CONST values, MACHINE declarations or statements only can be read twice. All eight bundled libraries make labels, so each must be read once: TILESPR.LIB reads TILELIB.LIB and SPRLIB.LIB, so include TILESPR.LIB alone; with CONST _FLOAT=1; GRAPH.LIB reads SOROBAN.LIB, so do not include SOROBAN.LIB as well. GRAPH.LIB and GRAPHF.LIB make the same labels, so include one of them.",
       "In X1Pen, #INCLUDE and #CHAIN read the bundled include files, whatever the case of the name (#INCLUDE \"graph.lib\" finds GRAPH.LIB).",
       "X1Pen sets ENV_TYPE to 1 and OS_TYPE to 0 and uses the x1 environment's default ORG of $0100.",
       "#INCLUDE nesting is limited to 8 levels. #CHAIN filename continues with another file and does not return; anything after #CHAIN in the same file is not read.",
@@ -514,7 +514,7 @@
       "TILE_SYNC_SPR_PAGE()"
     ],
     "notes": [
-      "TILESPR.LIB includes TILELIB.LIB and SPRLIB.LIB itself. Include only TILESPR.LIB: slangc reads an #INCLUDE file every time it is named, so writing #INCLUDE \"SPRLIB.LIB\" or #INCLUDE \"TILELIB.LIB\" next to it puts that library in twice, and the program fails to assemble with duplicate labels.",
+      "TILESPR.LIB includes TILELIB.LIB and SPRLIB.LIB itself. Include only TILESPR.LIB: slangc reads an #INCLUDE file every time it is named, so writing #INCLUDE \"SPRLIB.LIB\" or #INCLUDE \"TILELIB.LIB\" next to it puts that library in twice, and the program fails to assemble with Duplicate label errors.",
       "Initialize each subsystem before setting maps, patterns or positions. Call animation/update functions from the program's frame loop.",
       "TILELIB uses 8x8 PCG glyphs as tiles. Four tile indexes in TL, TR, BL, BR order form one 16x16 super-chip; the map stores one super-chip number per byte.",
       "Recommended setup order: WIDTH(40), PCGDEFS, TILE_INIT, TILE_SET_MAP, TILE_SET_MAPSIZE, optional animation setup, then TILE_FILL_MAP.",
@@ -595,7 +595,7 @@
     "profiles": ["x1pen-slang-x1"],
     "symbols": ["@INIT", "@CLS", "@MODE", "@PALET", "@WINDOW", "@LINE", "@SPLINE", "@BOX", "@TRIANGLE", "@FULL", "@CIRCLE", "@LINEC", "@SPLINEC", "@BOXC", "@TRIANGLEC", "@FULLC", "@CIRCLEC", "@PLOT", "@MOVE", "@PLINIT", "@PLINE", "@TLINE", "@CLINE", "@CBOX", "@CFULL", "@CPOLY", "@WAVE", "@ROAD", "@COLDRAW", "@COLDRAWT"],
     "aliases": ["3D graphics", "floating point graphics", "LINEC", "CIRCLEC", "geometry", "グラフィック", "図形描画", "線を描く", "円を描く", "三角形", "座標変換"],
-    "summary": "GRAPH provides the historical geometry package and GRAPHF adds native FLOAT and color variants for X1 graphics.",
+    "summary": "GRAPH provides the historical geometry package; GRAPHF is its version with native FLOAT and color variants for X1 graphics.",
     "syntax": [
       "#INCLUDE GRAPH.LIB",
       "@INIT(...) @CLS(...) @MODE(...) @PALET(...) @WINDOW(...) @LINE(...) @SPLINE(...) @BOX(...) @TRIANGLE(...) @FULL(...) @CIRCLE(...) ",
@@ -605,6 +605,7 @@
     "notes": [
       "GRAPH and GRAPHF are substantial packages with shared global buffers and compile-time feature switches; start from their headers and initialization routines rather than mixing calls blindly.",
       "Prefer GRAPHF and native FLOAT for new X1Pen programs that need floating-point calculations.",
+      "GRAPHF.LIB replaces GRAPH.LIB rather than adding to it: both make the same labels, so include one of them only. With CONST _FLOAT=1; GRAPH.LIB includes SOROBAN.LIB itself, so do not include SOROBAN.LIB as well.",
       "Some functions are conditional on constants in the include file. Validate the exact set used by the program."
     ],
     "relatedIds": ["slang.x1.display-graphics", "slang.runtime.float", "slang.include.soroban", "slang.includes.catalog"],
@@ -925,7 +926,7 @@
       "FLOAT-to-integer conversion is not implicit; use FTOI.",
       "Errors slangc reports that are easy to hit: a FLOAT as a condition (IF F THEN ...; compare with F <> 0.0 instead), PRINT of a FLOAT (use FL$), a side effect in the index of a ++/--/+=/-=/*=//= target (T[I++] += 1), using the value of a postfix ++/-- on a FLOAT, EXIT(n) with n not a constant from 1 to the number of enclosing loops, EXIT or CONTINUE outside a loop, a wrong argument count for a user function, MACHINE or built-in function, a function-local CONST that reuses a global name, and TRUE or FALSE as a variable name.",
       "Runtime functions that are not declared to the compiler (VSYNC, STICK, TATTR and most other runtime calls) are not checked for argument count; a wrong count compiles and misbehaves at run time.",
-      "Some mistakes surface only when X1Pen assembles the output: a missing MAIN(), VSYNC without a VSYNC_PROC() function, or a library included twice (SPRLIB.LIB or TILELIB.LIB next to TILESPR.LIB, which already reads them).",
+      "Some mistakes surface only when X1Pen assembles the output: a missing MAIN(), VSYNC without a VSYNC_PROC() function, or a library included twice (Duplicate label: SPRLIB.LIB or TILELIB.LIB next to TILESPR.LIB, which already reads them, or SOROBAN.LIB next to GRAPH.LIB with CONST _FLOAT=1;).",
       "Validate frequently because included libraries consume memory and may impose initialization or buffer-address requirements not expressed by the language type system."
     ],
     "relatedIds": ["slang.program.structure", "slang.data.types-declarations", "slang.control.flow", "slang.x1pen.build-profile"],

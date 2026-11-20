@@ -1850,6 +1850,30 @@ test('automation validation and capture return structured results', async () => 
   assert.equal(png.readUInt32BE(20), 400);
 });
 
+test('a label defined twice is reported on the editor lines, also after a blank first line', { timeout: 60_000 }, async () => {
+  const result = await page.evaluate(async () => {
+    const api = window.X1PenAutomation;
+    await api.setProgram({ sourceMode: 'asm', asm: '\nORG $100\nX:\nX:\n RET' });
+    const validation = await api.validate();
+    const run = await api.run();
+    return { validation, run: run.ok, status: document.getElementById('x1pen-status').textContent };
+  });
+  assert.equal(result.validation.ok, false);
+  assert.deepEqual(result.validation.diagnostics.map((d) => [d.kind, d.line, d.message]),
+    [['asm', 4, 'Duplicate label: X (first defined on line 3)']]);
+  assert.equal(result.run, false);
+  assert.equal(result.status, 'ASM error (L4): Duplicate label: X (first defined on line 3)');
+  // The first line still loses its indentation and a BOM, as before: its label is a label
+  for (const asm of ['  START: NOP\n JP START', '\uFEFFSTART: NOP\n JP START', '\n\n  START: NOP\n JP START']) {
+    const validation = await page.evaluate(async (source) => {
+      await window.X1PenAutomation.setProgram({ sourceMode: 'asm', asm: source });
+      return window.X1PenAutomation.validate();
+    }, asm);
+    assert.deepEqual(validation.diagnostics, [], JSON.stringify(asm));
+    assert.equal(validation.output.asmBytes, 4, JSON.stringify(asm));
+  }
+});
+
 test('focus loss releases physical keys before automation command injection', { timeout: 60_000 }, async () => {
   const markerAddress = 0x4000;
   const marker = [0x12, 0x34, 0x56, 0x78];

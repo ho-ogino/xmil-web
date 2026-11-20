@@ -1532,6 +1532,12 @@ window.__X1PEN_MODE = true;
         };
     }
 
+    // The ASM source as the assembler reads it: trimmed (the first line loses its indentation and a
+    // leading BOM, as before), but the blank lines before it stay, so error lines are the editor's
+    function asmForAssembler(text) {
+        return text.replace(/^\s+/, function(lead) { return lead.replace(/[^\n]/g, ''); }).trimEnd();
+    }
+
     async function performRun(token) {
         if (!runAdmission || runAdmission.token !== token) {
             console.warn('[x1pen] performRun called without the active Run token');
@@ -1542,6 +1548,9 @@ window.__X1PEN_MODE = true;
         // 0. sourceMode / runMode 判定
         var basicSrc = basicEditor.getValue().trim();
         var asmSrc = asmEditor ? asmEditor.getValue().trim() : '';
+        // What the assembler reads: the ASM tab (SLANG's output when SLANG compiles), with its
+        // error lines on the editor's lines
+        var asmText = asmEditor ? asmForAssembler(asmEditor.getValue()) : '';
         var slangSrc = slangEditor ? slangEditor.getValue().trim() : '';
         var hubasicSrc = hubasicEditor ? hubasicEditor.getValue().trim() : '';
         // The SLANG program as it is now, untrimmed (line numbers match the editor): the compiler
@@ -1601,6 +1610,7 @@ window.__X1PEN_MODE = true;
             }
             // コンパイル結果の ASM を使う
             asmSrc = slangResult.asm;
+            asmText = asmSrc;
             lastRunDetails = { warnings: slangWarningList, compilerWarnings: slangWarningList };
             // The program changed while the compiler loaded: this Run uses the snapshot, but the ASM
             // tab is left alone (its source is no longer what the editors hold)
@@ -1712,7 +1722,7 @@ window.__X1PEN_MODE = true;
 
         var asmResult = null;
         if (asmSrc) {
-            asmResult = window.X1PenZ80Asm.assemble(asmSrc, predefined);
+            asmResult = window.X1PenZ80Asm.assemble(asmText, predefined);
             if (asmResult.errors.length > 0) {
                 elStatus.textContent = 'ASM error (L' + asmResult.errors[0].line + '): ' +
                                        asmResult.errors[0].msg;
@@ -2642,7 +2652,7 @@ window.__X1PEN_MODE = true;
         if (asmSource.trim() && !hasErrors()) {
             var coldState = program.sourceMode === 'basic+asm' ? COLD_STATE_FILE : LSX_COLD_STATE;
             var predefined = await getPredefinedSymbols(coldState);
-            var asmResult = window.X1PenZ80Asm.assemble(asmSource.trim(), predefined);
+            var asmResult = window.X1PenZ80Asm.assemble(asmForAssembler(asmSource), predefined);
             asmBytes = asmResult.bytes.length;
             for (var ai = 0; ai < asmResult.errors.length; ai++) {
                 var asmError = asmResult.errors[ai];
