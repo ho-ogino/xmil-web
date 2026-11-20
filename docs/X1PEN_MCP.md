@@ -212,9 +212,9 @@ port 1と2の状態は独立し、物理gamepad／JoyKey入力とはAND合成さ
 
 ### 言語・X1ハードウェアリファレンス
 
-MCPパッケージには、X1Pen FuzzyBASIC 1.2L（X1 / LSX-Dodgers版）、X1Pen内蔵SLANGコンパイラ、内蔵Z80アセンブラ、X millennium Webが実装するX1ハードウェアに対応する構造化リファレンスが同梱されています。ブラウザー未接続でも検索できるため、プログラム作成前に仕様を確認できます。MCP初期化時にも「一般的なBASIC、C、別バージョンのSLANGや別のアセンブラから仕様を推測しない」こと、X1のCPUメモリ／I/O空間／VRAMを混同しないこと、生成前のリファレンス検索、生成後の検証をクライアントへ通知します。
+MCPパッケージには、X1Pen FuzzyBASIC 1.2L（X1 / LSX-Dodgers版）、HuBASIC（hubasic2sl）、X1Pen内蔵SLANGコンパイラ、内蔵Z80アセンブラ、X millennium Webが実装するX1ハードウェアに対応する構造化リファレンスが同梱されています。ブラウザー未接続でも検索できるため、プログラム作成前に仕様を確認できます。MCP初期化時にも「一般的なBASIC、C、別バージョンのSLANGや別のアセンブラから仕様を推測しない」こと、X1のCPUメモリ／I/O空間／VRAMを混同しないこと、生成前のリファレンス検索、生成後の検証をクライアントへ通知します。
 
-schema v2の`symbols`と`relatedIds`による索引はFuzzyBASIC、SLANG、内蔵Z80アセンブラ、X1ハードウェアの全profileへ適用しています。SLANGは内蔵コンパイラの予約語表と、`x1pen.js`が実際に読み込むruntime/includeファイルから公開シンボルを検査します。アセンブラは内蔵実装の全命令語、X1ハードウェアは現在の`Z80_In` / `Z80_Out`から到達する全I/Oハンドラを検査し、更新時に未収録項目が生じるとテストで検出します。
+schema v2の`symbols`と`relatedIds`による索引はFuzzyBASIC、HuBASIC（hubasic2sl）、SLANG、内蔵Z80アセンブラ、X1ハードウェアの全profileへ適用しています。SLANGは内蔵コンパイラの予約語表と、`x1pen.js`が実際に読み込むruntime/includeファイルから公開シンボルを検査します。アセンブラは内蔵実装の全命令語、X1ハードウェアは現在の`Z80_In` / `Z80_Out`から到達する全I/Oハンドラを検査し、更新時に未収録項目が生じるとテストで検出します。
 
 最初に`x1pen_get_language_profile`を呼ぶと、同梱profileを確認できます。X1Penへ接続済みなら、ブラウザーが報告したprofile IDとの互換性も返します。
 

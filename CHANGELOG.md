@@ -33,6 +33,7 @@ X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のま
 - **X1Pen のアセンブラは、同じ名前のラベルを 2 度書くとエラーにして止めるようになりました**（AILZ80ASM と同じ扱いです）。エラーには、その名前と最初に定義した行が出ます（`Duplicate label: <名前> (first defined on line <行>)`）。SLANG で、ラベルを作るライブラリを 2 度 `#INCLUDE` したときも同じです。
 - 複数行のマクロのあとや、先頭が空行のときに、ASM のエラーの行番号がずれていたのを直しました。
 - ライセンスの一覧（`licenses.html`・`THIRD_PARTY_LICENSES.md`）に **SLANG-compiler** の節を足しました。X1Pen が配っている SLANG・HuBASIC のバンドル（slangc・hubasic2sl とランタイム、.NET の WebAssembly ランタイム）の分です。浮動小数のライブラリ `libfloat.asm` は z80float を元にしたもので、**Apache License 2.0** です（ほかは MIT License）。SLANG-compiler の `LICENSE` と Apache License 2.0 の全文を `third_party/slang-compiler/` に置き、一覧からリンクしました。
+- トップページのリンクと X1Pen のページの題を「X1Pen — BASIC / SLANG / ASM IDE」にしました（前は「FuzzyBASIC IDE」）。README・docs の説明も、FuzzyBASIC・HuBASIC・SLANG・アセンブラと PCG エディタが揃った今の X1Pen に合わせました。
 
 ### x1pen-mcp 2.13.0
 
@@ -41,6 +42,7 @@ X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のま
 - SLANG のリファレンスを、本物の slangc（3fb6f7f）に合わせて書き直しました。`#INCLUDE` は名前が出るたびに読むこと、ラベルを作るライブラリは 2 度入ると止まること、`TILESPR.LIB` だけを書くこと、トップレベルの `#ASM` の `; @calls` などを書いています。
 - HuBASIC のリファレンスを 3fb6f7f に合わせて見直しました（ファイルの命令・`CLEAR`・`DIM` の上限の変数・`PSET`/`PRESET`/`POINT`・`LINE -(x,y)`・`THEN` の省略）。
 - アセンブラのリファレンスに、同じ名前のラベルがエラーになることを書きました。
+- README の同梱リファレンスの一覧に HuBASIC（hubasic2sl）を足しました。
 - HuBASIC の「Files」に入れるファイルを x1pen-mcp から扱うのは、次の版です。
 
 ### 版の組み合わせ

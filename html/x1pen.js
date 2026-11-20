@@ -1,4 +1,4 @@
-// X1Pen — FuzzyBASIC IDE application logic
+// X1Pen application logic
 // Requires: x1pen_tokenizer.js, storage.js, xmillennium.js (Emscripten)
 
 // xmillennium.js ロード前にフラグ設定 (CSP 対策: inline script 不可)

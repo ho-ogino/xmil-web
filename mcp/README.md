@@ -1,6 +1,6 @@
 # x1pen-mcp
 
-`x1pen-mcp` is a local MCP server that lets Codex and Claude Code edit, validate, run, inspect, and Z80-debug programs in the X1Pen tab already open in Chrome or Edge. It also includes bounded, offline-searchable references for X1Pen FuzzyBASIC, SLANG, its built-in Z80 assembler, and the X1 hardware implemented by the emulator.
+`x1pen-mcp` is a local MCP server that lets Codex and Claude Code edit, validate, run, inspect, and Z80-debug programs in the X1Pen tab already open in Chrome or Edge. It also includes bounded, offline-searchable references for X1Pen FuzzyBASIC, HuBASIC (hubasic2sl), SLANG, its built-in Z80 assembler, and the X1 hardware implemented by the emulator.
 
 The server communicates only through stdio and `127.0.0.1`. It requires Node.js 20 or later. Browser-control tools require the X1Pen Connector extension; the bundled reference tools do not.
 

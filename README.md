@@ -16,7 +16,7 @@ SHARP X1 シリーズ（X1 / X1turbo / X1turboZ）のエミュレータ「X mill
 - Google Drive 連携（drive.file スコープのみ使用）
 - フルスクリーン対応（ダブルクリック）
 - 4096 色モード（turboZ）
-- **[X1Pen](docs/X1PEN.md)** — ブラウザ上で FuzzyBASIC + Z80 アセンブリを書いて即実行できる Web IDE
+- **[X1Pen](docs/X1PEN.md)** — ブラウザ上で FuzzyBASIC・HuBASIC・SLANG・Z80 アセンブリを書いてすぐ実行できる Web IDE
 - **[X1Pen MCP Connector](docs/X1PEN_MCP.md)** — 開いているX1PenタブをCodex / Claude Codeから共同操作
 
 ## 必要な ROM
