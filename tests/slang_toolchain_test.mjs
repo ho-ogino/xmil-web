@@ -216,9 +216,8 @@ test('an included library read twice stops at its duplicate labels, as the refer
   };
   const program = (libs, head = '') => `${head}${libs.map((lib) => `#INCLUDE "${lib}"\n`).join('')}MAIN()\n{\n}\n`;
   const duplicate = /^Duplicate label: /;
-  // Every bundled library makes labels (CHIPLIB.LIB is left out: on its own it needs MULHLDE,
-  // which nothing asks the runtime for)
-  for (const lib of ['GRAPH.LIB', 'GRAPHF.LIB', 'SOROBAN.LIB', 'SPRLIB.LIB', 'TILELIB.LIB', 'TILESPR.LIB', 'UILIB.LIB']) {
+  // Every bundled library makes labels
+  for (const lib of ['CHIPLIB.LIB', 'GRAPH.LIB', 'GRAPHF.LIB', 'SOROBAN.LIB', 'SPRLIB.LIB', 'TILELIB.LIB', 'TILESPR.LIB', 'UILIB.LIB']) {
     assert.equal(await firstError(program([lib])), 'ok', lib);
     assert.match(await firstError(program([lib, lib])), duplicate, `${lib} twice`);
   }
@@ -231,6 +230,48 @@ test('an included library read twice stops at its duplicate labels, as the refer
   assert.match(await firstError(program(['GRAPH.LIB', 'SOROBAN.LIB'], 'CONST _FLOAT=1;\n')), duplicate);
   // GRAPHF.LIB is GRAPH.LIB's FLOAT and color version, not an addition to it
   assert.match(await firstError(program(['GRAPH.LIB', 'GRAPHF.LIB'])), duplicate);
+});
+
+test('CHIPLIB.LIB and TILELIB.LIB multiply with the runtime MULHLDE, once with the program\'s own', async () => {
+  // Their top-level #ASM asks for it with a ; @calls MULHLDE line, so a library alone builds too
+  for (const [libs, body] of [
+    [['CHIPLIB.LIB'], ''],
+    [['TILELIB.LIB'], ''],
+    [['TILESPR.LIB'], ''],
+    [['CHIPLIB.LIB', 'TILESPR.LIB'], '    VAR A, B;\n    A = A * B;\n'],
+  ]) {
+    const source = `${libs.map((lib) => `#INCLUDE "${lib}"\n`).join('')}MAIN()\n{\n${body}}\n`;
+    const compiled = await compile(source);
+    assert.equal(compiled.ok, true, JSON.stringify(compiled.diagnostics));
+    assert.equal((compiled.asm.match(/^MULHLDE:/gm) || []).length, 1, `${libs} has one MULHLDE`);
+    assert.doesNotMatch(compiled.asm, /_ChipMulHLDE|_TileMulHLDE/, `${libs} has no multiply of its own`);
+    assert.deepEqual([...page.X1PenZ80Asm.assemble(compiled.asm, SLANG_TAB_SYMBOLS).errors].map((e) => e.msg), [], libs.join('+'));
+  }
+});
+
+test('a program that includes CHIPLIB.LIB, TILELIB.LIB or TILESPR.LIB cannot name a function MULHLDE', async () => {
+  // The libraries call the runtime MULHLDE; slangc stops rather than let their CALL reach the program's function
+  const own = 'MULHLDE(A, B)\n{\n    RETURN A;\n}\nMAIN()\n{\n    PRINT(MULHLDE(2, 3));\n}\n';
+  for (const lib of ['CHIPLIB.LIB', 'TILELIB.LIB', 'TILESPR.LIB']) {
+    const compiled = await compile(`#INCLUDE "${lib}"\n${own}`);
+    assert.equal(compiled.ok, false, lib);
+    assert.match(compiled.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message).join('\n'),
+      /@calls MULHLDE: MULHLDE is a user function/, lib);
+  }
+  // Without them the name is the program's own
+  const alone = await compile(own);
+  assert.equal(alone.ok, true, JSON.stringify(alone.diagnostics));
+});
+
+test('a top-level #ASM asks for a runtime routine with ; @calls', async () => {
+  const asm = '#ASM\n; @calls MULHLDE\nTIMES3:\n\tld de,3\n\tcall MULHLDE\n\tret\n#END\n';
+  const asked = await compile(`MACHINE T3(1):TIMES3;\nMAIN()\n{\n    PRINT(T3(5));\n}\n${asm}`);
+  assert.equal(asked.ok, true, JSON.stringify(asked.diagnostics));
+  assert.deepEqual([...page.X1PenZ80Asm.assemble(asked.asm, SLANG_TAB_SYMBOLS).errors].map((e) => e.msg), []);
+  // Without the line, the CALL in a top-level #ASM does not bring the routine in
+  const notAsked = await compile(`MACHINE T3(1):TIMES3;\nMAIN()\n{\n    PRINT(T3(5));\n}\n${asm.replace('; @calls MULHLDE\n', '')}`);
+  assert.equal(notAsked.ok, true, JSON.stringify(notAsked.diagnostics));
+  assert.match(page.X1PenZ80Asm.assemble(notAsked.asm, SLANG_TAB_SYMBOLS).errors.map((e) => e.msg).join('\n'), /MULHLDE/);
 });
 
 test('a warning comes back with its place and does not stop the build', async () => {

@@ -389,9 +389,13 @@ test('the inserted DB lines assemble and the SLANG array compiles to the same by
   const program = `${slang}\nMAIN()\n{\n    PCGDEF($41, PCG41);\n}\n`;
   const compiled = await slangCompile(program);
   assert.deepEqual(slangErrors(compiled), []);
-  assert.deepEqual(plain(assembleSlang(compiled.asm).errors), []);
-  const data = compiled.asm.split('\n').find((line, i, lines) => lines[i - 1] === '_V_PCG41:');
-  assert.equal(data, `\tDB\t${rows.map((b) => '$' + b.toString(16).toUpperCase().padStart(2, '0')).join(',')}`);
+  // The bytes the SLANG tab runs: at the array's label in the assembled binary
+  const binary = assembleSlang(compiled.asm);
+  assert.deepEqual(plain(binary.errors), []);
+  const label = binary.symbols['NAME_SPACE_DEFAULT._V_PCG41'];
+  assert.equal(typeof label, 'number', 'the array has its label');
+  const at = label - binary.org;
+  assert.deepEqual([...binary.bytes.slice(at, at + rows.length)], rows);
 });
 
 test('the success message names the tab, the line and the characters', () => {

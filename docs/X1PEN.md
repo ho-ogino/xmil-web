@@ -1,6 +1,6 @@
-# X1Pen — FuzzyBASIC IDE for SHARP X1
+# X1Pen — BASIC / SLANG / ASM IDE for SHARP X1
 
-X1Pen は、ブラウザ上で SHARP X1 の BASIC (FuzzyBASIC) とZ80 アセンブリを書いて即座に実行できる Web IDE です。
+X1Pen は、ブラウザ上で SHARP X1 の FuzzyBASIC・HuBASIC・SLANG・Z80 アセンブリを書いて、隣のエミュレータですぐ実行できる Web IDE です。PCG エディタ（DEFCHR TOOL）も入っています。
 [MSXPen](https://msxpen.com/) にインスパイアされて作られました。
 
 ## はじめに
