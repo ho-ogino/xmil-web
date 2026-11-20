@@ -2,7 +2,50 @@
 
 ## Unreleased
 
-- ライセンスの一覧（`licenses.html`・`THIRD_PARTY_LICENSES.md`）に **SLANG-compiler** の節を足しました。X1Pen が配っている SLANG タブのコンパイラとランタイム、HuBASIC タブのバンドル（hubasic2sl とランタイム、.NET の WebAssembly ランタイム）の分です。浮動小数のライブラリ `libfloat.asm` は z80float を元にしたもので、**Apache License 2.0** です（ほかは MIT License）。SLANG-compiler の `LICENSE` と Apache License 2.0 の全文を `third_party/slang-compiler/` に置き、一覧からリンクしました。
+X1Pen Web と x1pen-mcp の新しい版です。X1Pen Connector は 1.4.0 のままです（変えていません）。SLANG タブと HuBASIC タブが、どちらも本物の SLANG コンパイラ（SLANG-compiler a667528 のブラウザ向けバンドル、slangc 0.28.0）で組まれるようになります。x1pen-mcp の言語のプロファイルの名前が変わるので、X1Pen Web と x1pen-mcp は一緒に新しくしてください（下の「版の組み合わせ」）。
+
+**今まで動いていたプログラムが、組めなく・RUN できなくなることがあります。**
+- **同じ名前のラベル（`EQU` の名前も）がある ASM のプログラムは、直さないと RUN できません。** 今までは黙って通り、あとの値で上書きされていました。
+- **`TILESPR.LIB` と一緒に `SPRLIB.LIB` か `TILELIB.LIB` を `#INCLUDE` していた SLANG のプログラムは、組めません。** `TILESPR.LIB` だけを書いてください。ほかのライブラリも、2 度入ると同じ名前のラベルで止まります。
+- SLANG で、今まで通っていた書き方がエラーになることがあります（FLOAT を `IF` の条件に使う、添字に副作用のある複合代入 `T[I++] += 1` など）。
+
+### X1Pen Web 0.15.0
+
+- **SLANG タブのコンパイラが、本物の SLANG compiler（slangc 0.28.0）になりました。** 次のことが、本物どおりになります。
+  - 文字列の `\N`（CR）・`\0`（NUL）
+  - 定数のシフト（`1 << 16` は 1、`$8000 >> 16` は `$8000`）
+  - `EXIT(n)`、`A++` の値、CONST と同じ名前の引数、関数の中の CONST
+  - エラーに、行と桁が出るようになりました。
+  - ランタイムの関数の引数の数の検査（X1Pen が独自に足していたもの）は、無くなりました。
+  - STICK は、呼ぶ前の割り込みの状態を保ちます（前は必ず許可にしていました）。
+  - 初めて組むときにバンドル（約 2.3 MB、圧縮後）を読み込みます。HuBASIC タブと同じものです。
+  - 前に作った Share の SLANG のプログラムは、開くと新しいコンパイラで組まれます。動きやエラーが変わることがあります。
+- 前の JavaScript の SLANG コンパイラと、その写しのランタイム・include は外しました。
+- **HuBASIC タブも、同じ本物の SLANG コンパイラで組まれるようになりました。** 今まで通っていたプログラムの動きは同じです。
+- **HuBASIC のファイルの命令に対応しました**（`OPEN`・`PRINT#`・`INPUT#`・`FILES`・`KILL`・ランダムファイルなど）。
+  - HuBASIC タブの「Files」で、ディスクに入れるファイルを足す・名前を直す・種類を変える・外すことができます。入れたファイルはブラウザに残ります。
+  - ファイルの命令を使うプログラムは、RUN のたびに新しく作る Hu-BASIC 形式のディスクで動きます。RUN のあとに「ディスクの中を見る」で、書かれたファイルを保存したり、入れるファイルに戻したりできます。
+  - ファイルを入れているときは Share できません。「ディスクイメージを保存」の D88 で配ってください。
+  - ディスク編集で足すテキストのファイルが、Hu-BASIC と同じ Asc の種類になりました。
+- **X1Pen のアセンブラは、同じ名前のラベルを 2 度書くとエラーにして止めるようになりました**（AILZ80ASM と同じ扱いです）。エラーには、その名前と最初に定義した行が出ます（`Duplicate label: <名前> (first defined on line <行>)`）。SLANG で、ラベルを作るライブラリを 2 度 `#INCLUDE` したときも同じです。
+- 複数行のマクロのあとや、先頭が空行のときに、ASM のエラーの行番号がずれていたのを直しました。
+- ライセンスの一覧（`licenses.html`・`THIRD_PARTY_LICENSES.md`）に **SLANG-compiler** の節を足しました。X1Pen が配っている SLANG・HuBASIC のバンドル（slangc・hubasic2sl とランタイム、.NET の WebAssembly ランタイム）の分です。浮動小数のライブラリ `libfloat.asm` は z80float を元にしたもので、**Apache License 2.0** です（ほかは MIT License）。SLANG-compiler の `LICENSE` と Apache License 2.0 の全文を `third_party/slang-compiler/` に置き、一覧からリンクしました。
+
+### x1pen-mcp 2.13.0
+
+- 言語のプロファイルの名前が変わりました。SLANG は `x1pen-slang-x1`、HuBASIC は `x1pen-hubasic-x1native` です。
+- `x1pen_get_language_profile` は、X1Pen がバンドルを読み込んだあと、SLANG のコンパイラの版（`compilerRevision`）も比べます。
+- SLANG のリファレンスを、本物の slangc（a667528）に合わせて書き直しました。`#INCLUDE` は名前が出るたびに読むこと、ラベルを作るライブラリは 2 度入ると止まること、`TILESPR.LIB` だけを書くことなどを書いています。
+- HuBASIC のリファレンスを a667528 に合わせて見直しました（ファイルの命令・`CLEAR`・`DIM` の上限の変数・`PSET`/`PRESET`/`POINT`・`LINE -(x,y)`・`THEN` の省略）。
+- アセンブラのリファレンスに、同じ名前のラベルがエラーになることを書きました。
+- HuBASIC の「Files」に入れるファイルを x1pen-mcp から扱うのは、次の版です。
+
+### 版の組み合わせ
+
+- x1pen-mcp 2.13.0 は、X1Pen Web 0.15.0 のプロファイルとバンドル（a667528）を前提にしています。
+  - x1pen-mcp 2.12.0 と X1Pen Web 0.15.0、x1pen-mcp 2.13.0 と X1Pen Web 0.14.0 の組み合わせでは、`x1pen_get_language_profile` が `compatible: false` を返します。
+  - ほかの道具はそのまま使えます。両方を新しくすれば `compatible: true` に戻ります。
+- X1Pen Connector 1.4.0 のまま、どちらの組み合わせでも使えます（feature は増えていません）。
 
 ## X1Pen Web 0.14.0 / x1pen-mcp 2.12.0
 
