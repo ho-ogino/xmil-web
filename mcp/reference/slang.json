@@ -554,7 +554,7 @@
       "For animation, call CHIP_ANIM_TICK from the program's VSYNC_PROC. A program that uses VSYNC must define that hook; an empty body is valid when no per-frame CHIP work is needed.",
       "The public calls are MACHINE declarations with the counts shown, which slangc checks; use the bundled CHIPLIB.LIB comments and validation to confirm each argument's units.",
       "The virtual-VRAM limits are CONST ASM values; a program can override them by defining CONST _CHIP_VVRAM_OVERRIDE = 1; and its own CONST ASM _CHIP_VVRAMW_MAX and _CHIP_VVRAMH_MAX before #INCLUDE CHIPLIB.LIB.",
-      "CHIPLIB.LIB multiplies with the runtime MULHLDE (asked for with ; @calls MULHLDE), so a program that includes it cannot have a function named MULHLDE."
+      "CHIPLIB.LIB multiplies with the runtime MULHLDE (asked for with ; @calls MULHLDE), so a program that includes it cannot have a function named MULHLDE, and a MULHLDE label or CONST ASM of its own fails to assemble with Duplicate label: MULHLDE. A multiplier written only so that CHIPLIB.LIB would build is no longer needed; remove it."
     ],
     "relatedIds": ["slang.include.tile-sprite", "slang.x1.pcg-definition", "slang.x1.timing", "slang.includes.catalog"],
     "sourceUrls": [
